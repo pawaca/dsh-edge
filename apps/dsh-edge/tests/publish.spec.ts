@@ -94,9 +94,9 @@ describe('standalone npm publication', () => {
   it('rejects a stale tarball version before consulting the registry', () => {
     const identity = readPackedIdentity(tarballWithManifests({
       name: 'dsh-edge',
-      version: '0.2.0-alpha.1',
+      version: '0.1.3',
     }))
-    expect(() => assertReleaseIdentity(identity)).toThrow('checkout expects dsh-edge@0.1.3')
+    expect(() => assertReleaseIdentity(identity)).toThrow('checkout expects dsh-edge@0.2.0-alpha.1')
   })
 
   it('rejects a tarball for a different package', () => {

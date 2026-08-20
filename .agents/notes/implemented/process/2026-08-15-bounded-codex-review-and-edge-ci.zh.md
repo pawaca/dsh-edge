@@ -2,6 +2,8 @@
 
 Status: implemented
 
+本文中的仓库结构与继承 workflow 细节已由 [standalone wrapper 计划](../../proposed/architecture/2026-08-19-dsh-edge-standalone-wrapper.zh.md)取代；有界 Review Loop 与 Edge CI 决策继续有效。
+
 [English](2026-08-15-bounded-codex-review-and-edge-ci.md) | 中文
 
 ## Problem

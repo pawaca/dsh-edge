@@ -41,6 +41,7 @@ export function EdgeSettingsSection(props: EdgeSettingsSectionProps): ReactNode 
             <h3 id="edge-release-title">{t('release')}</h3>
             <dl>
               <Row label={t('currentVersion')} value={state.health.version} />
+              <Row label={t('updateChannel')} value={<code>{state.releaseChannel ?? '—'}</code>} />
               <Row label={t('latestVersion')} value={state.latestVersion ?? '—'} />
               <Row label={t('upstreamVersion')} value={state.health.upstreamVersion} />
             </dl>

@@ -2,5 +2,5 @@
 # last confirmed-consistent state. Both languages carry equal authority.
 # After editing either side, update both and re-record every pair with:
 #   pnpm run doc-pairs -- --write
-2026-08-18-public-edge-installer.md: 4850cbaabdf741b473f19b28b8203eb132ca0d6c
-2026-08-18-public-edge-installer.zh.md: 63fb017abb5e77d9a261a3c5c9b8ab8c88fefed7
+2026-08-18-public-edge-installer.md: 07d3ed8c12f86ce9af35a32e4c0fe39c03bfc29c
+2026-08-18-public-edge-installer.zh.md: a9c068ac2fb17f8a1aa14f54444d565888c5bede

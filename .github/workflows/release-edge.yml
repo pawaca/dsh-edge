@@ -5,7 +5,7 @@ on:
     tags: ['dsh-edge-v*']
 
 permissions:
-  contents: read
+  contents: write
   id-token: write
 
 env:
@@ -27,6 +27,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          fetch-depth: 0
           persist-credentials: false
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v6
@@ -40,14 +41,33 @@ jobs:
         run: pnpm --dir apps/dsh-edge/standalone install --frozen-lockfile
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-      - name: Verify release tag
+      - name: Verify release tag and reviewed source
         run: |
           $version = node -p "require('./apps/dsh-edge/package.json').version"
           if ($env:GITHUB_REF_NAME -ne "dsh-edge-v$version") {
             throw "Release tag $env:GITHUB_REF_NAME does not match dsh-edge-v$version"
           }
+          git fetch --no-tags origin master:refs/remotes/origin/master
+          if ($LASTEXITCODE -ne 0) { throw "Could not fetch origin/master" }
+          $tagCommit = git rev-list -n 1 $env:GITHUB_REF_NAME
+          $masterCommit = git rev-parse origin/master
+          if ($tagCommit -ne $masterCommit) {
+            throw "Release tag resolves to $tagCommit, but reviewed master is $masterCommit"
+          }
+          $notes = "docs/releases/$version.md"
+          if (-not (Test-Path $notes -PathType Leaf)) {
+            throw "Missing reviewed release notes: $notes"
+          }
+      - name: Verify source contracts
+        run: pnpm run check
       - name: Pack release
-        run: pnpm --filter dsh-edge pack --pack-destination "${{ runner.temp }}"
+        run: pnpm --dir apps/dsh-edge pack --pack-destination "${{ runner.temp }}"
+      - name: Verify durable-state and runtime parity
+        run: node apps/dsh-edge/tests/run-session-integration.mjs
+      - name: Verify assembled runtime and browser snapshots
+        env:
+          DSH_EDGE_PLAYWRIGHT_CHANNEL: chrome
+        run: pnpm --filter dsh-edge run test:snapshot
       - name: Verify installed release
         run: |
           $version = node -p "require('./apps/dsh-edge/package.json').version"
@@ -58,3 +78,56 @@ jobs:
           $version = node -p "require('./apps/dsh-edge/package.json').version"
           $tarball = Join-Path '${{ runner.temp }}' "dsh-edge-$version.tgz"
           node apps/dsh-edge/scripts/publish.mjs --tarball $tarball
+      - name: Create matching GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = node -p "require('./apps/dsh-edge/package.json').version"
+          $tag = "dsh-edge-v$version"
+          $tarball = Join-Path '${{ runner.temp }}' "dsh-edge-$version.tgz"
+          $notes = "docs/releases/$version.md"
+          $prerelease = $version.Contains('-')
+          $existing = gh release view $tag --repo $env:GITHUB_REPOSITORY --json tagName,isDraft,isImmutable,isPrerelease 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            $release = $existing | ConvertFrom-Json
+            if ($release.tagName -ne $tag) {
+              throw "Existing GitHub release does not match $tag"
+            }
+            if ($release.isImmutable) {
+              throw "Existing GitHub release $tag is immutable and cannot be recovered"
+            }
+            $prereleaseValue = $prerelease.ToString().ToLowerInvariant()
+            $arguments = @(
+              'release', 'edit', $tag,
+              '--repo', $env:GITHUB_REPOSITORY,
+              '--verify-tag',
+              '--title', "dsh-edge $version",
+              '--notes-file', $notes,
+              '--draft=false',
+              "--prerelease=$prereleaseValue"
+            )
+            if ($prerelease) {
+              $arguments += '--latest=false'
+            } else {
+              $arguments += '--latest'
+            }
+            & gh @arguments
+            if ($LASTEXITCODE -ne 0) { throw "Could not restore the GitHub release metadata" }
+            gh release upload $tag $tarball --repo $env:GITHUB_REPOSITORY --clobber
+            if ($LASTEXITCODE -ne 0) { throw "Could not refresh the GitHub release asset" }
+            exit 0
+          }
+          $arguments = @(
+            'release', 'create', $tag, $tarball,
+            '--repo', $env:GITHUB_REPOSITORY,
+            '--verify-tag',
+            '--title', "dsh-edge $version",
+            '--notes-file', $notes
+          )
+          if ($prerelease) {
+            $arguments += @('--prerelease', '--latest=false')
+          } else {
+            $arguments += '--latest'
+          }
+          & gh @arguments
+          if ($LASTEXITCODE -ne 0) { throw "Could not create the GitHub release" }

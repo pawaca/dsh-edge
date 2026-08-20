@@ -2,6 +2,8 @@
 
 Status: implemented
 
+Repository-structure and inherited-workflow details in this note are superseded by the [standalone wrapper plan](../../proposed/architecture/2026-08-19-dsh-edge-standalone-wrapper.md). The bounded review-loop and Edge CI decisions remain in force.
+
 English | [中文](2026-08-15-bounded-codex-review-and-edge-ci.zh.md)
 
 ## Problem

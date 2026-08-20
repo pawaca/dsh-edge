@@ -23,9 +23,13 @@
 
 你需要 Node.js 22.14 或更高版本，以及一个 DeepSeek API key。免费的临时账户路径不要求你预先拥有 Cloudflare 账户；安装器也可以使用已有账户，或打开 Cloudflare 登录和注册。
 
+从 `next` 渠道安装当前 0.2 预发布版本：
+
 ```sh
-npx dsh-edge@latest install
+npx dsh-edge@next install
 ```
+
+稳定渠道使用 `npx dsh-edge@latest install`；在 0.2 正式晋级前，它仍指向 0.1.3。
 
 安装器会要求你：
 
@@ -51,11 +55,13 @@ Direct 模式不是 Linux 容器，不提供原生二进制、后台进程、PTY
 
 ## 升级
 
-运行升级命令，选择相同运行时，并输入已有 Worker 名称：
+使用与安装时相同的发布渠道运行升级命令，选择相同运行时，并输入已有 Worker 名称。0.2 预发布部署跟随 `next`：
 
 ```sh
-npx dsh-edge@latest upgrade
+npx dsh-edge@next upgrade
 ```
+
+稳定部署使用 `npx dsh-edge@latest upgrade`。Edge 设置页会识别已安装版本的渠道，并复制匹配的命令。
 
 Durable Object 数据会保留。Cloudflare secret 只能替换、不能读回，因此安装器会再次要求 owner access key 与 DeepSeek API key。
 

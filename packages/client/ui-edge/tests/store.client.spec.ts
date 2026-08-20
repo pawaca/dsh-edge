@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
-import { EdgeSettingsController } from '../src/client/store.ts'
+import {
+  EdgeSettingsController,
+  releaseChannel,
+  upgradeCommand,
+} from '../src/client/store.ts'
 
 const HEALTH = {
   ok: true as const,
@@ -106,12 +110,40 @@ describe('Edge settings controller', () => {
 
   it('checks npm and copies the upgrade command without changing deployment state', async () => {
     const copy = vi.fn().mockResolvedValue(undefined)
-    const fetch = vi.fn().mockResolvedValueOnce(response(HEALTH)).mockResolvedValueOnce(response({ version: '2.0.0' }))
+    const fetch = vi.fn<(input: string, init?: RequestInit) => Promise<Response>>()
+      .mockResolvedValueOnce(response(HEALTH))
+      .mockResolvedValueOnce(response({ version: '2.0.0' }))
     const controller = new EdgeSettingsController({ fetch, copy, navigate: vi.fn() })
     await controller.load()
-    expect(controller.store.getSnapshot()).toMatchObject({ releaseStatus: 'update-available', latestVersion: '2.0.0' })
+    expect(fetch.mock.calls[1]?.[0]).toBe('https://registry.npmjs.org/dsh-edge/latest')
+    expect(fetch.mock.calls[1]?.[1]?.signal).toBeInstanceOf(AbortSignal)
+    expect(controller.store.getSnapshot()).toMatchObject({
+      releaseChannel: 'latest', releaseStatus: 'update-available', latestVersion: '2.0.0',
+    })
     await controller.copyUpgrade()
     expect(copy).toHaveBeenCalledWith('npx dsh-edge@latest upgrade')
     expect(controller.store.getSnapshot()).toMatchObject({ copied: true, releaseStatus: 'update-available' })
+  })
+
+  it('keeps prerelease deployments on the next channel', async () => {
+    const copy = vi.fn().mockResolvedValue(undefined)
+    const fetch = vi.fn<(input: string, init?: RequestInit) => Promise<Response>>()
+      .mockResolvedValueOnce(response({ ...HEALTH, version: '2.0.0-alpha.1' }))
+      .mockResolvedValueOnce(response({ version: '2.0.0-alpha.2' }))
+    const controller = new EdgeSettingsController({ fetch, copy, navigate: vi.fn() })
+    await controller.load()
+    expect(fetch.mock.calls[1]?.[0]).toBe('https://registry.npmjs.org/dsh-edge/next')
+    expect(fetch.mock.calls[1]?.[1]?.signal).toBeInstanceOf(AbortSignal)
+    expect(controller.store.getSnapshot()).toMatchObject({
+      releaseChannel: 'next', releaseStatus: 'update-available', latestVersion: '2.0.0-alpha.2',
+    })
+    await controller.copyUpgrade()
+    expect(copy).toHaveBeenCalledWith('npx dsh-edge@next upgrade')
+  })
+
+  it('derives repeatable commands from the installed release channel', () => {
+    expect(releaseChannel('2.0.0')).toBe('latest')
+    expect(releaseChannel('2.0.0-alpha.1')).toBe('next')
+    expect(upgradeCommand('2.0.0-alpha.1')).toBe('npx dsh-edge@next upgrade')
   })
 })

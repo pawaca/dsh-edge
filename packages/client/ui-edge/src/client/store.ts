@@ -1,11 +1,20 @@
 import { compareVersions, validate } from 'compare-versions'
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 
-/** Repeatable command for upgrading an existing Edge deployment. */
-const DSH_EDGE_UPGRADE_COMMAND = 'npx dsh-edge@latest upgrade'
-
 /** Public release history for the Edge distribution. */
 export const DSH_EDGE_RELEASES_URL = 'https://github.com/pawaca/dsh-edge/releases'
+
+export type EdgeReleaseChannel = 'latest' | 'next'
+
+/** Stable deployments follow latest; prerelease deployments stay on next. */
+export function releaseChannel(version: string): EdgeReleaseChannel {
+  return validate(version) && version.includes('-') ? 'next' : 'latest'
+}
+
+/** Repeatable command for upgrading without crossing release channels. */
+export function upgradeCommand(version: string): string {
+  return `npx dsh-edge@${releaseChannel(version)} upgrade`
+}
 
 /** Stable deployment facts projected by the Edge health endpoint. */
 export interface EdgeHealth {
@@ -24,6 +33,7 @@ export interface EdgeSettingsState {
   status: 'idle' | 'loading' | 'ready' | 'error'
   health?: EdgeHealth
   latestVersion?: string
+  releaseChannel?: EdgeReleaseChannel
   releaseStatus?: 'development' | 'latest' | 'update-available' | 'unavailable'
   error?: string
   copied: boolean
@@ -83,9 +93,11 @@ export class EdgeSettingsController {
       if (!isHealth(health)) throw new Error('Invalid Edge health response')
 
       if (generation !== this.loadGeneration) return
+      const channel = releaseChannel(health.version)
       this.store.update((state) => {
         state.status = 'ready'
         state.health = health
+        state.releaseChannel = channel
         state.releaseStatus = releaseStatus(health.version)
         delete state.latestVersion
         delete state.error
@@ -93,7 +105,7 @@ export class EdgeSettingsController {
 
       let latestVersion: string | undefined
       try {
-        const releaseResponse = await this.io.fetch('https://registry.npmjs.org/dsh-edge/latest', {
+        const releaseResponse = await this.io.fetch(`https://registry.npmjs.org/dsh-edge/${channel}`, {
           signal: AbortSignal.timeout(5_000),
         })
         if (releaseResponse.ok) {
@@ -122,10 +134,11 @@ export class EdgeSettingsController {
     }
   }
 
-  /** Copy the stable upgrade command without affecting health or owner-session state. */
+  /** Copy the matching channel upgrade command without affecting deployment state. */
   async copyUpgrade(): Promise<void> {
     try {
-      await this.io.copy(DSH_EDGE_UPGRADE_COMMAND)
+      const version = this.store.getSnapshot().health?.version ?? '0.0.0'
+      await this.io.copy(upgradeCommand(version))
       this.store.update((state) => {
         state.copied = true
         delete state.copyError

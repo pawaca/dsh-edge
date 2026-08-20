@@ -2,6 +2,8 @@
 
 Status: implemented
 
+本文中的仓库结构细节已由 [standalone wrapper 计划](../../proposed/architecture/2026-08-19-dsh-edge-standalone-wrapper.zh.md)取代；Edge 自有 client plugin 的决策继续有效。
+
 [English](2026-08-18-edge-client-plugin.md) | 中文
 
 ## 问题
