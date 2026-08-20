@@ -24,10 +24,12 @@ describe('repository workflows', () => {
   it('publishes through the Edge-owned standalone release command', () => {
     const source = workflow('release-edge.yml')
     expect(source).toContain('contents: write')
+    expect(source).toContain('contents: read')
     expect(source).toContain('fetch-depth: 0')
     expect(source).toContain('master:refs/remotes/origin/master')
-    expect(source).toContain('git merge-base --is-ancestor $tagCommit $masterCommit')
+    expect(source).toContain('git merge-base --is-ancestor "$tag_commit" "$master_commit"')
     expect(source).not.toContain('$tagCommit -ne $masterCommit')
+    expect(source).toContain('publish:\n    needs: verify-source\n    permissions:\n      contents: write\n      id-token: write')
     expect(source).toContain('pnpm run check')
     expect(source).toContain('pnpm --dir apps/dsh-edge pack --pack-destination')
     expect(source).toContain('node apps/dsh-edge/tests/run-session-integration.mjs')
@@ -49,9 +51,12 @@ describe('repository workflows', () => {
 
   it('keeps recovery possible after master advances without accepting a side-branch tag', () => {
     const source = workflow('release-edge.yml')
-    const ancestryGate = source.indexOf('git merge-base --is-ancestor $tagCommit $masterCommit')
+    const ancestryGate = source.indexOf('git merge-base --is-ancestor "$tag_commit" "$master_commit"')
+    const dependencySetup = source.indexOf('uses: pnpm/action-setup')
     expect(ancestryGate).toBeGreaterThan(-1)
-    expect(ancestryGate).toBeLessThan(source.indexOf('pnpm run check'))
+    expect(ancestryGate).toBeLessThan(dependencySetup)
+    expect(source.indexOf('id-token: write')).toBeGreaterThan(ancestryGate)
+    expect(dependencySetup).toBeLessThan(source.indexOf('pnpm run check'))
     expect(ancestryGate).toBeLessThan(source.indexOf('node apps/dsh-edge/scripts/publish.mjs --tarball $tarball'))
     expect(source).toContain('is not in reviewed master history')
   })
