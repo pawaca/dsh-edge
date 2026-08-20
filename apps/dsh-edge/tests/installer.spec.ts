@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events'
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { Writable } from 'node:stream'
 import { describe, expect, it, vi } from 'vitest'
 import type { Mock } from 'vitest'
@@ -56,6 +56,17 @@ function parseJsonRecord(source: string): Record<string, unknown> {
     throw new TypeError('Expected a JSON object.')
   }
   return value as Record<string, unknown>
+}
+
+async function expectPrivateTemporaryFile(path: string): Promise<void> {
+  const metadata = await stat(path)
+  expect(metadata.isFile()).toBe(true)
+  // Windows exposes synthetic POSIX mode bits rather than the inherited NTFS
+  // ACL. The installer still uses the current user's private temporary tree
+  // there, and the integration assertion below verifies its complete cleanup.
+  if (process.platform !== 'win32') {
+    expect(metadata.mode & 0o777).toBe(0o600)
+  }
 }
 
 describe('dsh-edge installer primitives', () => {
@@ -568,9 +579,9 @@ describe('dsh-edge installer primitives', () => {
 
 describe('dsh-edge guided installation', () => {
   it('installs a temporary direct Worker, isolates auth, and removes secrets', async () => {
-    const directory = await mkdtemp(join(tmpdir(), 'dsh-edge-installer-test-'))
     const { ui, success } = createUi({ mode: 'direct', accountSelections: ['temporary'] })
     let secretsPath = ''
+    let configPath = ''
     let deployEnvironment: NodeJS.ProcessEnv | undefined
     const runWrangler = vi.fn(async (
       args: string[],
@@ -581,10 +592,10 @@ describe('dsh-edge guided installation', () => {
       expect(args).not.toContain(OWNER_SECRET)
       expect(args).not.toContain('sk-test')
       secretsPath = args[args.indexOf('--secrets-file') + 1] ?? ''
-      const configPath = args[args.indexOf('--config') + 1] ?? ''
+      configPath = args[args.indexOf('--config') + 1] ?? ''
       deployEnvironment = options.environment
-      expect((await stat(secretsPath)).mode & 0o777).toBe(0o600)
-      expect((await stat(configPath)).mode & 0o777).toBe(0o600)
+      await expectPrivateTemporaryFile(secretsPath)
+      await expectPrivateTemporaryFile(configPath)
       const config = parseJsonRecord(await readFile(configPath, 'utf8'))
       expect(config).toMatchObject({
         no_bundle: true,
@@ -616,7 +627,6 @@ describe('dsh-edge guided installation', () => {
         CLOUDFLARE_API_TOKEN: 'must-not-leak',
         PATH: '/bin',
       },
-      createTemporaryDirectory: async () => directory,
     })
 
     expect(result).toMatchObject({
@@ -626,8 +636,10 @@ describe('dsh-edge guided installation', () => {
       temporary: true,
     })
     expect(deployEnvironment?.CLOUDFLARE_API_TOKEN).toBeUndefined()
-    expect(deployEnvironment?.XDG_CONFIG_HOME).toBe(directory)
+    expect(deployEnvironment?.XDG_CONFIG_HOME).toBe(dirname(secretsPath))
     await expect(stat(secretsPath)).rejects.toThrow()
+    await expect(stat(configPath)).rejects.toThrow()
+    await expect(stat(dirname(secretsPath))).rejects.toThrow()
     expect(success).toHaveBeenCalledOnce()
   })
 

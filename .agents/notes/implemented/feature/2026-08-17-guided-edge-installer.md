@@ -14,6 +14,8 @@ The Free runtime can also use Wrangler's temporary preview accounts. Requiring a
 
 ## Decision
 
+Platform interpretation: the mode-`0600` guarantee below applies to POSIX hosts. On Windows, Node exposes synthetic POSIX mode bits rather than the inherited NTFS ACL, so the per-installation files instead inherit the current user's temporary-directory ACL. Both platforms remove the credential file, private configuration, and containing temporary workspace before reporting success.
+
 `dsh-edge install` is the user-facing operation, with `install:cloudflare` as the source-checkout entry. It selects the runtime first. `Free — Direct Shell` accepts a temporary account, a detected account, or browser sign-in and registration. `Isolated — Dynamic Worker` omits temporary accounts and states that it requires Workers Paid, which is separate from the Cloudflare Pro website plan. Cloudflare remains authoritative for the account's Worker Loader entitlement because Wrangler exposes no reliable preflight query for it.
 
 The installer then selects an exact Worker name and checks for an existing deployment. It requires an explicit update choice before reusing a name. Account metadata parsed from Wrangler must be non-empty and free of C0, DEL, and C1 terminal control characters before it can enter a prompt label, option value, or child environment. The installer generates a random owner access key by default, accepts hidden custom input under the runtime's byte contract, and collects the DeepSeek key through hidden input. A confirmation summarizes runtime, account, Worker name, and cost before upload. The temporary path separately presents Cloudflare's Terms of Service and Privacy Policy and requires explicit acceptance.

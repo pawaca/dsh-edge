@@ -14,6 +14,8 @@ Free 运行时还可以使用 Wrangler 的临时 preview account。如果强制�
 
 ## 决策
 
+平台说明：下文的 `0600` mode 保证适用于 POSIX 主机。Windows 上 Node 暴露的是合成 POSIX mode bit，而不是继承的 NTFS ACL，因此每次安装的文件会改为继承当前用户临时目录的 ACL。两个平台都会在报告成功前删除 credential 文件、私有配置及其所在的临时工作目录。
+
 `dsh-edge install` 是面向用户的操作，源码 checkout 则以 `install:cloudflare` 作为入口。它会先选择运行时。`Free — Direct Shell` 接受临时账户、检测到的账户，或通过浏览器登录和注册。`Isolated — Dynamic Worker` 不提供临时账户，并明确说明它需要 Workers Paid；该订阅不同于 Cloudflare Pro 网站套餐。Wrangler 没有提供可靠的 Worker Loader entitlement 预检查询，因此由 Cloudflare 最终判断账户是否具备该权限。
 
 随后，安装器会选择确切的 Worker 名称，并检查已有部署。只有用户明确选择更新后，它才会复用已有名称。从 Wrangler 解析出的账户 metadata 必须非空且不包含 C0、DEL 或 C1 终端控制字符，才能进入 prompt label、option value 或子进程环境。安装器默认生成随机 owner access key，也接受满足运行时字节约定的隐藏自定义输入，并通过隐藏输入收集 DeepSeek key。上传前的确认会汇总运行时、账户、Worker 名称与费用。临时路径还会单独展示 Cloudflare 服务条款与隐私政策，并要求明确接受。
