@@ -221,7 +221,7 @@ Evidence：待补充。
 - 2026-08-20：PR 4 在本地验收通过后创建了 draft、现已归档的 [PR #28](https://github.com/pawaca/dsh-edge-history/pull/28)。Hosted clean-checkout CI 和绑定 HEAD 的 review loop 是当前剩余门禁。
 - 2026-08-20：归档的 PR 4 通过 hosted CI 和绑定 HEAD 的 review loop 后合并。其已 Review 的 tree 成为新的独立 [canonical repository](https://github.com/pawaca/dsh-edge) 的唯一 root commit，原 fork 则完整迁移到 [dsh-edge-history](https://github.com/pawaca/dsh-edge-history)。Clean-root Edge CI 通过，阶段 5 进入 `in progress`；alpha.1 现在受明确的仓库卫生与发布 contract 门禁约束，不再由删除源码这件事隐式触发。
 - 2026-08-20：[PR #9](https://github.com/pawaca/dsh-edge/pull/9) 完成切换后的仓库卫生审计，并在 hosted CI 与 HEAD-bound review 通过后合并。阶段 5 现在通过独立的 alpha-readiness 修改继续推进，由它负责 `0.2.0-alpha.1` 版本、npm 渠道行为、已 Review 的 release notes、tag/source 门禁，以及从 npm 到 GitHub 的发布顺序。
-- 2026-08-20：本地 alpha.1 release candidate 已通过完整 repository、standalone、双 runtime 持久化状态、snapshot 与 installed-tarball 门禁。稳定与预发布部署现在分别保持在 `latest` 和 `next`；tag workflow 要求 tag commit 等于已 Review 的 `master`，先发布 npm，再根据已 Review 的 notes 创建匹配的 GitHub prerelease。实际 publication 是阶段 5 剩余的最终门禁。
+- 2026-08-20：本地 alpha.1 release candidate 已通过完整 repository、standalone、双 runtime 持久化状态、snapshot 与 installed-tarball 门禁。稳定与预发布部署现在分别保持在 `latest` 和 `next`；tag workflow 要求 tag commit 位于已 Review 的 `master` 历史中，先发布 npm，再根据已 Review 的 notes 创建匹配的 GitHub prerelease。这个祖先关系门禁既能在 `master` 前进后继续恢复未完成发布，也不会接受旁支 tag。实际 publication 是阶段 5 剩余的最终门禁。
 
 ## 已考虑的替代方案
 

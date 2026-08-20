@@ -51,8 +51,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Could not fetch origin/master" }
           $tagCommit = git rev-list -n 1 $env:GITHUB_REF_NAME
           $masterCommit = git rev-parse origin/master
-          if ($tagCommit -ne $masterCommit) {
-            throw "Release tag resolves to $tagCommit, but reviewed master is $masterCommit"
+          # Master may advance after npm succeeds but GitHub Release recovery
+          # is still pending. The tag must remain in canonical reviewed history.
+          git merge-base --is-ancestor $tagCommit $masterCommit
+          if ($LASTEXITCODE -ne 0) {
+            throw "Release tag $tagCommit is not in reviewed master history ending at $masterCommit"
           }
           $notes = "docs/releases/$version.md"
           if (-not (Test-Path $notes -PathType Leaf)) {
