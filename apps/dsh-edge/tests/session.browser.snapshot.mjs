@@ -78,7 +78,7 @@ describe('dsh-edge assembled browser snapshot', () => {
       }).count())
         .toBe(1)
       expect(await page.evaluate(() => globalThis.__dshEdgeCopiedText))
-        .toBe('pnpm dlx dsh-edge@latest upgrade')
+        .toBe('npx dsh-edge@latest upgrade')
       const edgeSettingsSnapshot = await stableAria(page, '[role="dialog"]')
       await expect(normalize(edgeSettingsSnapshot))
         .toMatchFileSnapshot('./snapshots/edge-settings.expected.md')

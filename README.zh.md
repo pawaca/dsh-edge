@@ -61,7 +61,7 @@ Durable Object 数据会保留。Cloudflare secret 只能替换、不能读回�
 
 ## 当前范围
 
-`dsh-edge` 处于开发者预览阶段。首个公开版本聚焦完整的个人使用路径：上游对话和工作区、持久会话、模型选择、Web Search、工作区文件操作、命令执行，以及上游浏览器体验。
+`dsh-edge` 处于开发者预览阶段。当前预览版本聚焦完整的个人使用路径：上游对话和工作区、持久会话、模型选择、Web Search、工作区文件操作、命令执行，以及上游浏览器体验。
 
 部署有意采用 single-owner 模式，不提供注册、多用户、角色或租户路由。附件与图片、远程 MCP、Skills、Workflows、Jobs 和 Subagents 尚未适配 Edge 运行时。`web_fetch` 在运行时具备明确的 SSRF、私网地址和重定向策略前保持关闭。
 
@@ -80,7 +80,9 @@ Durable Object 数据会保留。Cloudflare secret 只能替换、不能读回�
 
 `apps/dsh-edge/standalone` 下的隔离装配固定一个上游版本，并记录每项无法避免的 package patch。上游已经定义的 schema 或服务约定保持不变，除非 Edge 环境使其无法成立。
 
-上游架构与插件开发请使用 [DeepSeek Harness 仓库](https://github.com/deepseek-ai/deepseek-harness)和 [reference 文档](https://deepseek-harness.github.io/deepseek-harness/reference/)。
+上游架构与插件开发请使用 [DeepSeek Harness 仓库](https://github.com/deepseek-ai/deepseek-harness) 和 [reference 文档](https://deepseek-harness.github.io/deepseek-harness/reference/)。
+
+Standalone 仓库切换前的开发历史，包括 PR Review 和 0.1.3 GitHub Release，保留在已归档的 [dsh-edge-history 仓库](https://github.com/pawaca/dsh-edge-history)中。
 
 ## 运行
 
@@ -107,6 +109,7 @@ pnpm --filter dsh-edge dev
 ## 贡献与支持
 
 - 请在本仓库的 [Issues](https://github.com/pawaca/dsh-edge/issues) 中报告 dsh-edge bug 和安装问题。
+- 漏洞请通过[私密安全流程](SECURITY.zh.md)报告，不要使用公开 Issue。
 - 修改仓库前请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。
 - 在仓库中工作的 Agent 必须遵循 [AGENTS.md](AGENTS.md)。
 

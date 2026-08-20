@@ -2,13 +2,13 @@
 
 [English](README.md) | 中文
 
-`dsh-edge` 是 DeepSeek Harness 的 Cloudflare 运行时原型。每次部署把通过认证的 owner 固定映射到一个 Durable Object，其基于 SQLite 的虚拟文件系统可跨请求持久保存。默认情况下，进程内 just-bash 后端直接在同一文件系统上执行命令，不依赖 Linux 容器或 Dynamic Worker。
+`dsh-edge` 是 DeepSeek Harness 的 Cloudflare 运行时。每次部署把通过认证的 owner 固定映射到一个 Durable Object，其基于 SQLite 的虚拟文件系统可跨请求持久保存。默认情况下，进程内 just-bash 后端直接在同一文件系统上执行命令，不依赖 Linux 容器或 Dynamic Worker。
 
 `dsh-edge` 是独立的社区项目，与 DeepSeek 没有隶属关系，也未获得 DeepSeek 官方背书；DeepSeek Harness 仍是按其自身许可证使用的上游依赖。
 
 仓库提交的 Wrangler 配置从同一套应用 graph 暴露两个部署目标。默认目标是面向 Workers Free 的 direct 模式，不包含 Worker Loader binding。命名的 `isolated` 目标会添加 `LOADER` binding，并且需要 Workers Paid，但不会 fork DSH protocol、storage、UI 或 tool implementation。
 
-该原型通过上游 Cordis 组合的 `ReactLoopAgent`、`AgentRegistry`、`LlmRuntime`、`ToolRuntime`、`SystemPrompt`、`SessionStore` 和 `SessionPersistence` 运行持久对话。Edge 代码只绑定请求作用域的 DeepSeek 适配器，并把一个原生 DSH `bash` 工具定义映射到 Cloudflare Computer。Durable Object SQLite 实现上游持久化后端约定，write-behind、revision、恢复准备和崩溃恢复仍由 `PersistenceCoordinator` 负责。模型历史从 canonical 事件投影，不再单独持久化。
+该运行时通过上游 Cordis 组合的 `ReactLoopAgent`、`AgentRegistry`、`LlmRuntime`、`ToolRuntime`、`SystemPrompt`、`SessionStore` 和 `SessionPersistence` 运行持久对话。Edge 代码只绑定请求作用域的 DeepSeek 适配器，并把一个原生 DSH `bash` 工具定义映射到 Cloudflare Computer。Durable Object SQLite 实现上游持久化后端约定，write-behind、revision、恢复准备和崩溃恢复仍由 `PersistenceCoordinator` 负责。模型历史从 canonical 事件投影，不再单独持久化。
 
 浏览器直接使用上游 Web shell 和上游客户端插件包。构建期 assembler 根据上游 base 与 Web 组合包配置推导浏览器 roster，注入标准 `window.__DSH_BOOT__` graph，并把结果发布为 Cloudflare 静态资源。Durable Object 通过标准 HTTP carrier 实现受支持的上游 `ApiProxy` 方法，并以支持休眠的 WebSocket 提供两条上游 downlink。Edge 会排除缺少对应 host domain 的客户端插件，而不会 fork 其 UI 代码；在服务端 endpoint 可用前，session log export 也属于排除项。一个很小的 Edge 登录外壳会保护上游 UI 与协议，不修改两者本身。可选的本地 host 插件仍不可用。
 
@@ -149,13 +149,13 @@ Cloudflare static assets -> upstream Web shell + client plugin graph
 无需克隆仓库即可运行引导式安装器：
 
 ```sh
-pnpm dlx dsh-edge@latest install
+npx dsh-edge@latest install
 ```
 
 选择相同 runtime 并输入现有 Worker 名称即可升级。部署会保留 Durable Object 数据；由于 Cloudflare secret 只能写入而不能读取，升级会再次要求 owner access key 与 DeepSeek API key，并用输入值替换当前生效值：
 
 ```sh
-pnpm dlx dsh-edge@latest upgrade
+npx dsh-edge@latest upgrade
 ```
 
 安装器会先询问运行时，再询问账户。推荐的 `Free — Direct Shell` 模式可在 Workers Free 上运行，并可使用检测到的 Cloudflare 账户、打开 Cloudflare 登录或注册，也可在不登录的情况下创建临时账户。`Isolated — Dynamic Worker` 需要 Workers Paid，因此只提供已检测到或新认证的账户。Cloudflare 没有提供可靠的本地 Worker Loader entitlement 检查；isolated 安装会由 Cloudflare 对上传进行授权，并在被拒绝时提示启用 Workers Paid 或改用 direct 模式。
@@ -170,7 +170,7 @@ pnpm dlx dsh-edge@latest upgrade
 pnpm --filter dsh-edge example:install
 ```
 
-## 原型 API
+## Edge API
 
 - `POST /api/<upstream-method>` 接受受支持 `ApiProxy` 方法的上游 `ClientRequest` envelope。Web client 当前使用 session list/search/create/history/models/select/prompt/updateQueue/rename/fork/cancel、host description、workspace list/create/rename/delete/reorder/archive、skills、agent presets、settings 与 credential description，以及 LLM catalog。`agentPreset.read` 会通过上游只读 viewer 渲染程序化 Edge composition，`credentials.describe` 则返回不含 value 的 credential state。Search 会投影 canonical current-message surface，并且只返回有界的上游 result value。Fork 会通过 canonical session seed format 复制 completed-turn prefix，并保留 parent lineage；超过 8,192 个事件或 8 MiB 的 seed 会被 Edge 拒绝，而不会在 Durable Object 中物化无界 history。Queue mutation 通过 live upstream Agent inbox 编辑、移除或把一项提升为 steering；同步 inbox mutation 是上游接纳点，后续 write-behind 与 retirement retry 由 persistence coordinator 负责。Workspace mutation 通过 Durable Object backend 持久化上游 workspace-domain global 与 record shape。Archive 保留 session log 与 workspace slot；unary response 与 Host frame 携带和上游一致的完整 snapshot。
 - `GET /login` 渲染 Edge 持有的 owner form；`POST /api/auth/login` 用已配置的 access key 换取 signed cookie，`GET /api/auth/session` 报告 cookie 是否有效，`POST /api/auth/logout` 清除 cookie。

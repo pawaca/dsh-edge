@@ -93,7 +93,7 @@ describe('dsh-edge assembled runtime snapshot', () => {
         liveEvents: normalize(liveEvents),
         replayedEvents: normalize(replayedEvents),
       }
-      expect(snapshot).toMatchFileSnapshot('./snapshots/edge-turn.expected.txt')
+      await expect(snapshot).toMatchFileSnapshot('./snapshots/edge-turn.expected.txt')
 
       const searchResponse = await request(worker, `/api/sessions/${sessionId}/turn`, {
         method: 'POST',
@@ -110,7 +110,7 @@ describe('dsh-edge assembled runtime snapshot', () => {
       const searchResult = searchEvents.find(event => event.type === 'tool/result')
       const finalMessage = [...searchEvents].reverse()
         .find(event => event.type === 'assistant/message')
-      expect(normalize({
+      await expect(normalize({
         toolNames: requestHeader.data.header.tools.map(tool => tool.name),
         searchGuidance: requestHeader.data.header.system.split('\n\n').at(-1),
         call: searchCall.data,

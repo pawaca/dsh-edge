@@ -2,7 +2,7 @@ import { compareVersions, validate } from 'compare-versions'
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 
 /** Repeatable command for upgrading an existing Edge deployment. */
-const DSH_EDGE_UPGRADE_COMMAND = 'pnpm dlx dsh-edge@latest upgrade'
+const DSH_EDGE_UPGRADE_COMMAND = 'npx dsh-edge@latest upgrade'
 
 /** Public release history for the Edge distribution. */
 export const DSH_EDGE_RELEASES_URL = 'https://github.com/pawaca/dsh-edge/releases'

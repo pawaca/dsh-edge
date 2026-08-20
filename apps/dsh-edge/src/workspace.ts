@@ -68,7 +68,7 @@ export async function readBoundedWorkspaceFile(
 ): Promise<Uint8Array<ArrayBuffer>> {
   const entry = await files.stat(path)
   if (entry.size > MAX_TEXT_FILE_BYTES) {
-    throw new EdgeWorkspaceRequestError(413, 'Text files are limited to 1 MiB in the prototype API.')
+    throw new EdgeWorkspaceRequestError(413, 'Text files are limited to 1 MiB in the Edge API.')
   }
   const stream = await files.readFile(path)
   const reader = stream.getReader()
@@ -84,7 +84,7 @@ export async function readBoundedWorkspaceFile(
         await reader.cancel().catch(() => undefined)
         throw new EdgeWorkspaceRequestError(
           413,
-          'Text files are limited to 1 MiB in the prototype API.',
+          'Text files are limited to 1 MiB in the Edge API.',
         )
       }
       chunks.push(next.value)

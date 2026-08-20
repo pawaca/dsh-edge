@@ -61,7 +61,7 @@ Durable Object data is retained. The installer asks for the owner access key and
 
 ## Current scope
 
-`dsh-edge` is a developer preview. The first public version focuses on a complete personal-use path: upstream conversations and workspaces, persistent sessions, model selection, Web Search, workspace file operations, command execution, and the upstream browser experience.
+`dsh-edge` is a developer preview. The current preview focuses on a complete personal-use path: upstream conversations and workspaces, persistent sessions, model selection, Web Search, workspace file operations, command execution, and the upstream browser experience.
 
 The deployment is deliberately single-owner. It does not provide registration, multiple users, roles, or tenant routing. Attachments and images, remote MCP, Skills, Workflows, Jobs, and Subagents are not yet adapted to the Edge runtime. `web_fetch` remains disabled until the runtime has an explicit policy for SSRF, private addresses, and redirects.
 
@@ -81,6 +81,8 @@ This repository is a standalone wrapper around exact published DeepSeek Harness 
 The isolated assembly under `apps/dsh-edge/standalone` pins one upstream version and records every unavoidable package patch. An upstream-defined schema or service contract remains unchanged unless the Edge environment makes that impossible.
 
 For upstream architecture and plugin development, use the [DeepSeek Harness repository](https://github.com/deepseek-ai/deepseek-harness) and [reference documentation](https://deepseek-harness.github.io/deepseek-harness/reference/).
+
+Development history before the standalone repository cutover, including PR reviews and the 0.1.3 GitHub Release, remains available in the archived [dsh-edge-history repository](https://github.com/pawaca/dsh-edge-history).
 
 ## Run
 
@@ -107,6 +109,7 @@ pnpm --filter dsh-edge dev
 ## Contributing and support
 
 - Report dsh-edge bugs and installation problems in this repository's [Issues](https://github.com/pawaca/dsh-edge/issues).
+- Report vulnerabilities through the [private security process](SECURITY.md), not a public Issue.
 - Follow [CONTRIBUTING.md](CONTRIBUTING.md) for repository changes.
 - Agents working in the repository must follow [AGENTS.md](AGENTS.md).
 
