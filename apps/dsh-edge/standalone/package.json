@@ -50,7 +50,7 @@
     "wrangler": "4.123.0"
   },
   "devDependencies": {
-    "lightningcss": "1.32.0",
+    "lightningcss": "1.33.0",
     "tsdown": "0.22.2",
     "tsx": "4.22.4",
     "typescript": "6.0.3"
