@@ -602,7 +602,7 @@ describe('dsh-edge guided installation', () => {
         find_additional_modules: false,
       })
       if (typeof config.main !== 'string') throw new TypeError('Expected a string entrypoint.')
-      expect(config.main).toContain('worker/direct/index.js')
+      expect(config.main.endsWith(join('worker', 'direct', 'index.js'))).toBe(true)
       expect(config).not.toHaveProperty('alias')
       expect(config).not.toHaveProperty('minify')
       expect(JSON.parse(await readFile(secretsPath, 'utf8'))).toEqual({
