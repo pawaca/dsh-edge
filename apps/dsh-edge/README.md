@@ -2,13 +2,13 @@
 
 English | [中文](README.zh.md)
 
-`dsh-edge` is the Cloudflare runtime prototype for DeepSeek Harness. One deployment maps its authenticated owner to one Durable Object whose SQLite-backed virtual filesystem survives requests. By default, an in-process just-bash backend runs commands against that same filesystem without a Linux container or Dynamic Worker.
+`dsh-edge` is the Cloudflare runtime for DeepSeek Harness. One deployment maps its authenticated owner to one Durable Object whose SQLite-backed virtual filesystem survives requests. By default, an in-process just-bash backend runs commands against that same filesystem without a Linux container or Dynamic Worker.
 
 `dsh-edge` is an independent community project. It is not affiliated with or endorsed by DeepSeek; DeepSeek Harness remains an upstream dependency under its own license.
 
 The checked-in Wrangler configuration exposes two deployment targets from the same application graph. The default target is direct mode for Workers Free and has no Worker Loader binding. The named `isolated` target adds the `LOADER` binding and requires Workers Paid, but does not fork the DSH protocol, storage, UI, or tool implementation.
 
-The prototype runs persistent conversations through the upstream Cordis-composed `ReactLoopAgent`, `AgentRegistry`, `LlmRuntime`, `ToolRuntime`, `SystemPrompt`, `SessionStore`, and `SessionPersistence`. Edge code only binds a request-scoped DeepSeek adapter and maps one native DSH `bash` tool definition onto Cloudflare Computer. Durable Object SQLite implements the upstream persistence backend contract; `PersistenceCoordinator` still owns write-behind, revisions, resume preparation, and crash recovery. Model history is projected from canonical events rather than persisted separately.
+The runtime runs persistent conversations through the upstream Cordis-composed `ReactLoopAgent`, `AgentRegistry`, `LlmRuntime`, `ToolRuntime`, `SystemPrompt`, `SessionStore`, and `SessionPersistence`. Edge code only binds a request-scoped DeepSeek adapter and maps one native DSH `bash` tool definition onto Cloudflare Computer. Durable Object SQLite implements the upstream persistence backend contract; `PersistenceCoordinator` still owns write-behind, revisions, resume preparation, and crash recovery. Model history is projected from canonical events rather than persisted separately.
 
 The browser is the upstream Web shell and upstream client-plugin bundles. A build-time assembler derives the browser roster from the upstream base and Web bundle configs, injects the standard `window.__DSH_BOOT__` graph, and publishes the result as Cloudflare static assets. The Durable Object implements the supported upstream `ApiProxy` methods through the standard HTTP carrier and supplies the two upstream downlinks as hibernatable WebSockets. Edge excludes client plugins whose host domains are absent instead of forking their UI code; this includes session-log export until its server endpoint exists. A small Edge-owned login shell protects the upstream UI and protocol without changing either one. Optional local-host plugins remain unavailable.
 
@@ -149,13 +149,13 @@ The same file also defines `env.isolated`, a complete Workers Paid target with t
 Run the guided installer without cloning this repository:
 
 ```sh
-pnpm dlx dsh-edge@latest install
+npx dsh-edge@latest install
 ```
 
 Upgrade an existing named Worker with the same runtime choice. The deployment keeps its Durable Object data; because Cloudflare secrets are write-only, the upgrade asks for the owner access key and DeepSeek API key again and replaces their active values:
 
 ```sh
-pnpm dlx dsh-edge@latest upgrade
+npx dsh-edge@latest upgrade
 ```
 
 The installer asks for the runtime before the account. The recommended `Free — Direct Shell` mode works on Workers Free and can use a detected Cloudflare account, open Cloudflare sign-in or registration, or create a temporary account without login. `Isolated — Dynamic Worker` requires Workers Paid and therefore offers only a detected or newly authenticated account. Cloudflare does not expose a reliable local entitlement check for Worker Loader, so an isolated install lets Cloudflare authorize the upload and turns a rejection into a choice between enabling Workers Paid and using direct mode.
@@ -170,7 +170,7 @@ Contributors can replay the complete Free temporary-account journey without a ke
 pnpm --filter dsh-edge example:install
 ```
 
-## Prototype API
+## Edge API
 
 - `POST /api/<upstream-method>` accepts the upstream `ClientRequest` envelope for the supported `ApiProxy` methods. The Web client currently uses session list/search/create/history/models/select/prompt/updateQueue/rename/fork/cancel, host description, workspace list/create/rename/delete/reorder/archive, skills, agent presets, settings and credential descriptions, and LLM catalogs. `agentPreset.read` renders the programmatic Edge composition through the upstream read-only viewer, and `credentials.describe` returns credential state without a value. Search projects canonical current-message surfaces and returns only bounded upstream result values. Fork copies a completed-turn prefix through the canonical session seed format and retains parent lineage; Edge refuses a seed above 8,192 events or 8 MiB rather than materializing an unbounded Durable Object history. Queue mutations edit, remove, or promote an item through the live upstream Agent inbox; the synchronous inbox mutation is the upstream acceptance point, while the persistence coordinator owns later write-behind and retirement retry. Workspace mutations persist the upstream workspace-domain global and record shapes through the Durable Object backend. Archive preserves the session log and workspace slot; unary responses and Host frames carry the same full snapshots as upstream.
 - `GET /login` renders the Edge-owned owner form; `POST /api/auth/login` exchanges the configured access key for a signed cookie, `GET /api/auth/session` reports cookie validity, and `POST /api/auth/logout` clears it.

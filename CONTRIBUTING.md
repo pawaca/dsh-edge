@@ -12,4 +12,4 @@ Before opening a pull request:
 4. Run `pnpm run check` and the focused standalone, integration, snapshot, or package checks required by the changed surface.
 5. Explain the user impact, validation, and any retained upstream patch in the pull request.
 
-Report security-sensitive issues privately to the maintainer rather than including secrets or exploit details in a public issue.
+Report security-sensitive issues through the [private security process](SECURITY.md), never through a public Issue or Discussion.

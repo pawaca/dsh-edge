@@ -6,7 +6,7 @@ English | [中文](2026-08-19-dsh-edge-standalone-wrapper.zh.md)
 
 ## Problem
 
-DSH Edge is maintained as a source fork of DeepSeek Harness even though its product-owned implementation is limited to the Cloudflare runtime, installer, Edge client plugin, deployment modes, and a small set of upstream adaptations. The fork carries unrelated upstream source, governance, CI, release families, and documentation machinery, so an upstream update looks like a repository-wide merge and DSH Edge ownership remains unclear.
+DSH Edge began as a source fork of DeepSeek Harness even though its product-owned implementation was limited to the Cloudflare runtime, installer, Edge client plugin, deployment modes, and a small set of upstream adaptations. The fork carried unrelated upstream source, governance, CI, release families, and documentation machinery, so an upstream update looked like a repository-wide merge and DSH Edge ownership remained unclear.
 
 The 0.2 release needs to consume an exact published Harness version, assemble the upstream application without copying its repository, and retain only patches that cannot use supported extension points. The migration must preserve the released 0.1.3 behavior and durable data while keeping every merged `master` revision buildable, deployable, and releasable.
 
@@ -29,17 +29,17 @@ The standalone repository owns the Cloudflare Worker, Direct and Dynamic Loader 
 
 ### Progress protocol
 
-Each PR has one status: `planned`, `in progress`, `in review`, `merged`, or `blocked`. An acceptance item is checked only when its Evidence field names the command, artifact, test, or deployment that proves it. Scope or acceptance changes are appended to the Change log with a reason; criteria are never weakened silently.
+Each stage has one status: `planned`, `in progress`, `in review`, `merged`, or `blocked`. An acceptance item is checked only when its Evidence field names the command, artifact, test, or deployment that proves it. Scope or acceptance changes are appended to the Change log with a reason; criteria are never weakened silently. Stages 1 through 4 are the original migration sequence whose GitHub work is archived as PRs 25 through 28; stages 5 through 7 describe the post-cutover release track and are not GitHub PR numbers.
 
-| PR | Objective | Status | Release | User action |
+| Stage | Objective | Status | Release | User action |
 | --- | --- | --- | --- | --- |
-| 1 | Freeze the 0.1.3 baseline | merged | none | none; [PR #25](https://github.com/pawaca/dsh-edge/pull/25) merged |
-| 2 | Add a parallel standalone assembly path | merged | none | none; [PR #26](https://github.com/pawaca/dsh-edge/pull/26) merged |
-| 3 | Switch after rc.7 parity | merged | none | none; [PR #27](https://github.com/pawaca/dsh-edge/pull/27) merged |
-| 4 | Remove fork source and simplify governance | in review | `0.2.0-alpha.1` | approve prerelease; [PR #28](https://github.com/pawaca/dsh-edge/pull/28) opened |
-| 5 | Upgrade the exact upstream baseline | planned | `0.2.0-alpha.2` | approve prerelease |
-| 6 | Close distribution and installation | planned | `0.2.0-beta.1` | perform account-owned Cloudflare flows; approve beta |
-| 7 | Rehearse upgrade and release 0.2 | planned | `0.2.0` | approve production replacement and release |
+| 1 | Freeze the 0.1.3 baseline | merged | none | none; archived [PR #25](https://github.com/pawaca/dsh-edge-history/pull/25) merged |
+| 2 | Add a parallel standalone assembly path | merged | none | none; archived [PR #26](https://github.com/pawaca/dsh-edge-history/pull/26) merged |
+| 3 | Switch after rc.7 parity | merged | none | none; archived [PR #27](https://github.com/pawaca/dsh-edge-history/pull/27) merged |
+| 4 | Remove fork source and simplify governance | merged | none | none; archived [PR #28](https://github.com/pawaca/dsh-edge-history/pull/28) merged |
+| 5 | Close post-cutover hygiene and publish the rc.7 standalone baseline | in progress | `0.2.0-alpha.1` | approve prerelease after repository and release gates pass |
+| 6 | Upgrade the exact upstream baseline when a newer package set is published | planned | `0.2.0-alpha.2` | approve prerelease |
+| 7 | Rehearse canary upgrade, beta, rollback, and release 0.2 | planned | `0.2.0-beta.1`, then `0.2.0` | perform account-owned Cloudflare flows; approve beta and stable releases |
 
 ### PR 1 — Freeze the 0.1.3 baseline
 
@@ -56,7 +56,7 @@ Excluded: runtime behavior, data-format changes, Harness upgrades, source deleti
 - [x] Every non-Edge fork modification has a disposition: adapter, retained patch, upstream candidate, or deletion.
 - [x] Evidence names exact commands and artifacts.
 
-Evidence: `dsh-edge-0.1.3-session.sql` fixes the released SQL schema, one canonical turn, and one blank session. Its adapter test resumes and appends to the canonical session, promotes and writes the blank session, then reloads both. `dsh-edge-0.1.3-vfs.sql` fixes the released `@cloudflare/computer` 0.2.0 schema and content, while `dsh-edge-0.1.3-workspace.json` fixes the released workspace title, session ordering, and archive state. A test-only Durable Object seeder writes all three fixtures through native SQL and KV storage, then rejects foreign-key violations before the candidate Worker starts. The Miniflare integration then reads and extends the released VFS, requires the first continuation to reconstruct both released messages, promotes and persists the released blank session through production Worker APIs, and reads, renames, attaches to, and reloads the released workspace through RPC. Existing settings, preset, session, Web Search, HTTP, and WebSocket snapshots remain the UI and protocol fixtures. The persistence test passed 23 tests, the full session integration passed, and the browser snapshot suite passed 3 tests. `pnpm --filter dsh-edge run bundle:workers` reported Direct at 683,920 gzip bytes against the 921,600-byte repository budget and Dynamic Loader at 959.59 KiB gzip. Hosted [Edge CI run 32343433389](https://github.com/pawaca/dsh-edge/actions/runs/32343433389) passed on the reviewed head, and [PR #25](https://github.com/pawaca/dsh-edge/pull/25) merged as `b1627b0fd033b2efdcd1a5b09e4b3160b74a1e1c`.
+Evidence: `dsh-edge-0.1.3-session.sql` fixes the released SQL schema, one canonical turn, and one blank session. Its adapter test resumes and appends to the canonical session, promotes and writes the blank session, then reloads both. `dsh-edge-0.1.3-vfs.sql` fixes the released `@cloudflare/computer` 0.2.0 schema and content, while `dsh-edge-0.1.3-workspace.json` fixes the released workspace title, session ordering, and archive state. A test-only Durable Object seeder writes all three fixtures through native SQL and KV storage, then rejects foreign-key violations before the candidate Worker starts. The Miniflare integration then reads and extends the released VFS, requires the first continuation to reconstruct both released messages, promotes and persists the released blank session through production Worker APIs, and reads, renames, attaches to, and reloads the released workspace through RPC. Existing settings, preset, session, Web Search, HTTP, and WebSocket snapshots remain the UI and protocol fixtures. The persistence test passed 23 tests, the full session integration passed, and the browser snapshot suite passed 3 tests. `pnpm --filter dsh-edge run bundle:workers` reported Direct at 683,920 gzip bytes against the 921,600-byte repository budget and Dynamic Loader at 959.59 KiB gzip. Hosted [Edge CI run 32343433389](https://github.com/pawaca/dsh-edge-history/actions/runs/32343433389) passed on the reviewed head, and archived [PR #25](https://github.com/pawaca/dsh-edge-history/pull/25) merged as `b1627b0fd033b2efdcd1a5b09e4b3160b74a1e1c`.
 
 Current fork changes outside `apps/dsh-edge/**` and `packages/client/ui-edge/**` have these dispositions:
 
@@ -125,59 +125,62 @@ Excluded: runtime changes, review-tool rewrites, upstream upgrades, and removal 
 
 Evidence: a temporary checkout with no parent or root dependencies completed the frozen standalone install, both Worker builds, deterministic Web rebuild, six-patch and 28-client-plugin verification before the root install. The same Edge client source then produced byte-identical client bundles in two different absolute checkout paths (`37f005f9b979d20cd2f1ca08306ee8bd760b618d7bd106287a990d4c293cfc23`); the verifier rejects absolute checkout paths in release output. Direct measured 686,060 gzip bytes against the 921,600-byte budget and Dynamic Loader measured 961.63 KiB. The 20-file root suite passed 176 tests, both modes passed the full release-artifact integration, the three assembled-runtime/browser/installer snapshots passed, and Edge typecheck and type-aware lint passed. A fresh `dsh-edge-0.1.3.tgz` installed outside the workspace, started both prebuilt modes, and contained only release Web assets, Workers, installer/runtime scripts, bilingual package docs, and legal notices. The repository now has only `apps/dsh-edge` and `packages/client/ui-edge` as source workspaces; CI has only `edge-ci.yml` and `release-edge.yml`; root legal files attribute dsh-edge to pawaca while preserving DeepSeek's upstream MIT notice; root `AGENTS.md` owns the project rules and the real root `CLAUDE.md` points Claude Code to them.
 
-### PR 5 — Upgrade the upstream baseline
+### Stage 5 — Close post-cutover hygiene and publish alpha.1
 
-Objective: upgrade the standalone wrapper separately from source extraction.
+Objective: establish the clean-root repository as the trustworthy canonical source, then publish the behaviorally unchanged rc.7 standalone baseline as `0.2.0-alpha.1`.
 
-Scope: update exact dependencies from `0.1.0-rc.7` to the selected release, initially `0.1.0-rc.8`; regenerate assembly inputs; retire obsolete patches; classify new plugins and visible changes; retain Edge branding and exclude unsupported capabilities.
+Scope: preserve the archived development record; repair repository, security, dependency-automation, and bilingual-documentation hygiene; make prerelease update discovery channel-aware; require tags to identify reviewed `master`; create a matching GitHub prerelease only after npm publication succeeds; rerun the packed-artifact and parity evidence before publication.
 
-Excluded: deferred-plugin implementation, unrelated upstream defects, and persistence or authentication redesign.
+Excluded: upstream dependency upgrades, deferred-plugin implementation, runtime behavior changes, and commercial account management.
+
+- [x] The canonical repository is not a fork, has one clean root commit, and has the exact reviewed PR 4 tree.
+- [x] The archived repository retains PRs 25 through 28, their review history, and the 0.1.3 GitHub Release.
+- [ ] Public and contributor documentation identifies the archive, current security-reporting path, and supported install commands without stale links.
+- [ ] Dependency automation cannot split the coordinated root, standalone, legal-notice, and snapshot invariants into misleading green or permanently failing PRs.
+- [ ] Stable deployments follow npm `latest`, prerelease deployments follow npm `next`, and upgrade guidance requires only Node/npm.
+- [ ] The release workflow verifies the reviewed source, publishes the exact tarball, and creates a version-matched GitHub prerelease with release notes.
+- [ ] The complete rc.7 parity, 0.1.3 durable-state, package, and both-runtime installation evidence passes on the release candidate.
+
+Evidence: canonical root `ff2adbd74cf6fe9196460e234180a9f5310c4eee` has no parent and tree `ddb4f9b64b059851597fb6a31a1b29680d9cc908`, identical to archived PR 4. [Edge CI run 32385210909](https://github.com/pawaca/dsh-edge/actions/runs/32385210909) passed the clean repository's full verification. The remaining items are intentionally split between repository hygiene and alpha-readiness changes so neither PR hides a product or publication decision inside the source-extraction diff.
+
+### Stage 6 — Upgrade the published upstream baseline
+
+Objective: upgrade the standalone wrapper separately from source extraction and alpha.1 publication, after a newer coherent Harness package set is available.
+
+Scope: update every exact Harness dependency from `0.1.0-rc.7` to one selected published release; regenerate assembly inputs; retire obsolete patches; classify new plugins and visible changes; retain Edge branding and exclude unsupported capabilities.
+
+Excluded: unpublished source snapshots, piecemeal Dependabot bumps, deferred-plugin implementation, unrelated upstream defects, and persistence or authentication redesign.
 
 - [ ] Every Edge-relevant upstream change has an adopted, adapted, deferred, or excluded disposition.
+- [ ] All `@deepseek-ai/dsh-*` packages use one exact published baseline.
 - [ ] Patch count does not increase without an explicit amendment and rationale.
 - [ ] Removing a retained patch fails its regression test.
 - [ ] The parity matrix passes in both runtime modes.
 - [ ] UI manifests expose only capabilities supported by Edge.
 
-Evidence: pending.
+Evidence: pending. The npm registry still reports `0.1.0-rc.7` as the latest coherent published Harness baseline at the clean-root cutover, so this stage must not invent an `rc.8` source dependency.
 
-### PR 6 — Close distribution and installation
+### Stage 7 — Rehearse beta, rollback, and release 0.2
 
-Objective: install and upgrade the wrapper without cloning a repository or connecting a source repository.
+Objective: prove fresh installation, existing-instance upgrade, rollback, documentation, and publication before stable release.
 
-Scope: publish a self-contained `dsh-edge` package; verify its packed artifact; support both runtime modes in the installer; provide version and upgrade guidance; validate installation on macOS, Linux, and Windows; exercise temporary, free-account, and paid-account Cloudflare paths where account ownership permits.
-
-Excluded: commercial account management, GitHub source builds, and protected-page readiness polling.
-
-- [ ] A temporary directory installs and deploys using only the npm artifact.
-- [ ] The installed package has no repository-relative or Git submodule dependency.
-- [ ] Direct mode deploys on a free Cloudflare account.
-- [ ] Dynamic Loader deploys on an eligible paid account.
-- [ ] Secrets stay out of logs, committed configuration, and package artifacts.
-- [ ] CLI completion reports URL, credential handling, mode, next action, and upgrade command without speculative polling.
-
-Evidence: pending.
-
-### PR 7 — Rehearse upgrade and release 0.2
-
-Objective: prove fresh installation, existing-instance upgrade, rollback, documentation, and publication.
-
-Scope: deploy isolated canaries for both modes; rehearse a 0.1.3 durable-data upgrade and rollback; update English and Chinese user docs, compatibility information, and release notes; publish matching npm, tag, and GitHub Release versions after approval.
+Scope: validate temporary and claimed Free installs plus an eligible paid Dynamic Loader install; deploy isolated canaries for both modes; rehearse a 0.1.3 durable-data upgrade and rollback; update English and Chinese compatibility information and release notes; publish matching beta and stable npm, tag, and GitHub Release versions after approval.
 
 Excluded: attachment, export, remote MCP, Skills, Workflows, Jobs, and commercial authentication.
 
-- [ ] Fresh installation passes in both modes.
-- [ ] A 0.1.3 canary upgrades without losing session, message, VFS, settings, or authentication state.
+- [ ] A temporary directory installs using only the npm artifact, without a repository or source-build integration.
+- [ ] Direct mode installs on the anonymous or claimed Free path and Dynamic Loader installs on an eligible paid account.
+- [ ] A 0.1.3 canary upgrades without losing session, message, VFS, settings, authentication state, or deployment identity.
 - [ ] The documented rollback is executed against a canary.
+- [ ] Secrets stay out of logs, committed configuration, package artifacts, and durable state.
 - [ ] No launch-scope P0 or P1 defect remains.
-- [ ] Public documentation requires no upstream-monorepo knowledge.
-- [ ] npm, Git tag, GitHub Release, release notes, and artifact agree on `0.2.0`.
+- [ ] npm, Git tag, GitHub Release, release notes, and deployed health agree first on `0.2.0-beta.1` and then on `0.2.0`.
 
 Evidence: pending.
 
 ### Parity matrix
 
-PRs may add discovered existing behavior. Removing or weakening a row requires a Change log amendment.
+Stages may add discovered existing behavior. Removing or weakening a row requires a Change log amendment.
 
 | User path | Direct | Dynamic Loader | Evidence |
 | --- | --- | --- | --- |
@@ -198,7 +201,7 @@ PRs may add discovered existing behavior. Removing or weakening a row requires a
 - 2026-08-19: Created this plan on Edge 0.1.3 and Harness `0.1.0-rc.7`. PR 1 entered `in progress`; no acceptance criterion was amended.
 - 2026-08-19: Added the 0.1.3 SQL fixture, explicit VFS restart assertion, build-size evidence, and complete grouped disposition of current non-Edge fork changes. Five PR 1 criteria are satisfied; full Edge CI remains pending.
 - 2026-08-19: Local unit, integration, browser snapshot, typecheck, documentation, lint, both Worker builds, pack, and installed-package checks passed. PR 1 entered `in review`; the remaining criterion waits for hosted Edge CI.
-- 2026-08-19: Opened [PR #25](https://github.com/pawaca/dsh-edge/pull/25) as a draft. Hosted CI and the HEAD-bound review loop are now the remaining gates.
+- 2026-08-19: Opened archived [PR #25](https://github.com/pawaca/dsh-edge-history/pull/25) as a draft. Hosted CI and the HEAD-bound review loop are now the remaining gates.
 - 2026-08-19: Review found that candidate-created restart state did not prove upgrade compatibility. Added immutable 0.1.3 VFS state plus read-write-reload coverage for both VFS and session persistence; the PR contract did not change.
 - 2026-08-19: Follow-up review found invalid parent-child insertion order in the VFS fixture. Reordered the rows and added an explicit foreign-key integrity check; the full integration passed.
 - 2026-08-19: Follow-up review found untranslated headings in the Chinese Agent Note. Translated the complete heading hierarchy and re-recorded the bilingual pair; the PR contract did not change.
@@ -208,13 +211,14 @@ PRs may add discovered existing behavior. Removing or weakening a row requires a
 - 2026-08-20: PR 1 merged after hosted Edge CI and HEAD-bound review passed. PR 2 entered `in progress`; its scope and acceptance criteria remain unchanged.
 - 2026-08-20: PR 2 gained the exact rc.7 dependency closure, published Web and Cordis assembly, six version-coupled package patches, Edge-client-only build, both standalone Worker modes, dependency-origin enforcement, and parallel CI. Local build, parity, unit, typecheck, and lint evidence passed; clean-clone hosted CI remains pending.
 - 2026-08-20: PR 2 isolated all parallel-path tools beneath `apps/dsh-edge/standalone`, leaving the released package command surface and tarball unchanged. A rebuilt 0.1.3 tarball passed external installation and Direct-runtime smoke verification and contained no standalone-only file.
-- 2026-08-20: Opened [PR #26](https://github.com/pawaca/dsh-edge/pull/26) for PR 2. The clean-clone hosted CI and HEAD-bound review are now the remaining acceptance gates.
+- 2026-08-20: Opened archived [PR #26](https://github.com/pawaca/dsh-edge-history/pull/26) for PR 2. The clean-clone hosted CI and HEAD-bound review are now the remaining acceptance gates.
 - 2026-08-20: Review found that importing the production Wrangler helper let the root install supply `jsonc-parser`, masking a missing standalone dependency. Split out a dependency-free rendering core, made standalone parse through its own exact dependency, and ordered hosted CI to build standalone before the root install; the PR contract did not change.
 - 2026-08-20: PR 2 merged after its clean-clone CI and HEAD-bound review passed. PR 3 entered `in progress` to switch development, packaging, and deployment authority to the rc.7 standalone path without deleting fork source or upgrading upstream.
 - 2026-08-20: PR 3 routed build, dev, CI, prepack, release, and installer preparation through standalone artifacts while retaining the existing package layout. Both promoted runtime modes passed the full 0.1.3 compatibility suite. A deterministic-build check was added after Lightning CSS export iteration exposed unstable class-map property order; sorting those keys removed byte and cache-revision drift without changing runtime semantics.
-- 2026-08-20: PR 3 passed hosted CI and HEAD-bound review, then merged as [PR #27](https://github.com/pawaca/dsh-edge/pull/27). PR 4 entered `in progress`; it retains the two Edge-owned workspaces while replacing every remaining upstream workspace dependency, source-only check, workflow, and governance document with an Edge-owned equivalent.
+- 2026-08-20: PR 3 passed hosted CI and HEAD-bound review, then merged as archived [PR #27](https://github.com/pawaca/dsh-edge-history/pull/27). PR 4 entered `in progress`; it retains the two Edge-owned workspaces while replacing every remaining upstream workspace dependency, source-only check, workflow, and governance document with an Edge-owned equivalent.
 - 2026-08-20: PR 4 removed the copied Harness source and upstream-wide governance, reduced the repository to two Edge-owned workspaces and two workflows, replaced source-mode tests and publication machinery with Edge-owned contracts, and passed clean standalone, unit, integration, snapshot, packaging, legal, lint, and type checks. A clean build exposed checkout-path-dependent CSS Module hashes; the Edge client build now uses a stable repository-relative CSS identity, and a verifier plus two-path byte comparison close that reproducibility gap without changing product behavior.
-- 2026-08-20: Opened draft [PR #28](https://github.com/pawaca/dsh-edge/pull/28) for PR 4 after local acceptance passed. Hosted clean-checkout CI and the HEAD-bound review loop are now the remaining gates.
+- 2026-08-20: Opened draft archived [PR #28](https://github.com/pawaca/dsh-edge-history/pull/28) for PR 4 after local acceptance passed. Hosted clean-checkout CI and the HEAD-bound review loop are now the remaining gates.
+- 2026-08-20: Archived PR 4 passed hosted CI and the HEAD-bound review loop, then merged. Its reviewed tree became the single root commit of the new standalone [canonical repository](https://github.com/pawaca/dsh-edge); the former fork moved intact to [dsh-edge-history](https://github.com/pawaca/dsh-edge-history). The clean-root Edge CI passed, Stage 5 entered `in progress`, and alpha.1 moved behind explicit repository-hygiene and release-contract gates instead of being implied by source deletion.
 
 ## Alternatives considered
 
@@ -230,7 +234,7 @@ PRs may add discovered existing behavior. Removing or weakening a row requires a
 
 ## Acceptance criteria
 
-- All seven PRs are merged with checked criteria and recorded evidence.
+- All seven stages are complete with checked criteria and recorded evidence.
 - The repository builds from exact upstream packages and contains no copied Harness source.
 - Both runtime modes preserve the parity matrix and released durable data.
 - The package installs without a repository clone and publishes matching npm, tag, and GitHub Release versions.
@@ -238,10 +242,10 @@ PRs may add discovered existing behavior. Removing or weakening a row requires a
 
 ## Risks
 
-Published packages may omit manifests or Web assets currently read from source. PR 2 must discover this before cutover; a missing artifact warrants an upstream packaging request or narrow adapter input, not a monorepo copy.
+Published packages may omit manifests or Web assets required by the assembly. The standalone verifier must discover this before adopting a baseline; a missing artifact warrants an upstream packaging request or narrow adapter input, not a monorepo copy.
 
-Cloudflare size and loader behavior may differ between dry runs and real accounts. Build evidence does not replace PR 6 and PR 7 account validation.
+Cloudflare size and loader behavior may differ between dry runs and real accounts. Build evidence does not replace Stage 7 account validation.
 
 Logical storage compatibility does not prevent accidental binding or class-name changes. Fixtures, configuration assertions, and canary rehearsal protect separate risks and all remain required.
 
-Governance cleanup can remove a useful check accidentally. PR 4 deletes by responsibility, not file count, and proves a replacement for every retained Edge risk.
+Governance cleanup can remove a useful check accidentally. Stage 5 audits the clean-root repository against the retained Edge risks before alpha publication.

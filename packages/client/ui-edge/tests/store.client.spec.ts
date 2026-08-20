@@ -111,7 +111,7 @@ describe('Edge settings controller', () => {
     await controller.load()
     expect(controller.store.getSnapshot()).toMatchObject({ releaseStatus: 'update-available', latestVersion: '2.0.0' })
     await controller.copyUpgrade()
-    expect(copy).toHaveBeenCalledWith('pnpm dlx dsh-edge@latest upgrade')
+    expect(copy).toHaveBeenCalledWith('npx dsh-edge@latest upgrade')
     expect(controller.store.getSnapshot()).toMatchObject({ copied: true, releaseStatus: 'update-available' })
   })
 })

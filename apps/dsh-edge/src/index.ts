@@ -101,7 +101,7 @@ export default {
           const contents = await readBoundedText(
             request,
             MAX_TEXT_FILE_BYTES,
-            'Text files are limited to 1 MiB in the prototype API.',
+            'Text files are limited to 1 MiB in the Edge API.',
           )
           await workspace.fs.mkdir(parentDirectory(path), { recursive: true })
           await workspace.fs.writeFile(path, contents)

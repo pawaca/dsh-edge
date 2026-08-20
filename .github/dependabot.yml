@@ -1,18 +1,9 @@
 version: 2
 
 updates:
-  - package-ecosystem: npm
-    directory: /
-    schedule:
-      interval: weekly
-    labels: [dependencies]
-
-  - package-ecosystem: npm
-    directory: /apps/dsh-edge/standalone
-    schedule:
-      interval: weekly
-    labels: [dependencies, upstream]
-
+  # Root and standalone dependency versions, generated legal notices, and
+  # snapshots are coordinated. Update them together in an explicit dependency
+  # or upstream-baseline PR instead of opening independent npm PRs.
   - package-ecosystem: github-actions
     directory: /
     schedule:

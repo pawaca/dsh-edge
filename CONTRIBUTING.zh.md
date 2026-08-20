@@ -12,4 +12,4 @@
 4. 运行 `pnpm run check`，并根据修改范围执行 standalone、integration、snapshot 或 package 的针对性检查。
 5. 在 Pull Request 中说明用户影响、验证证据和任何保留的上游 patch。
 
-安全敏感问题请私下联系维护者，不要在公开 Issue 中包含 secret 或可直接利用的细节。
+安全敏感问题请通过[私密安全流程](SECURITY.zh.md)报告，不要使用公开 Issue 或 Discussion。
