@@ -25,6 +25,17 @@ describe('repository workflows', () => {
     expect(source).not.toMatch(/playwright install|build:lib|contracts-ready/u)
   })
 
+  it('gates the required check on focused Windows installer verification', () => {
+    const source = workflow('edge-ci.yml')
+    expect(source).toContain('name: edge / windows installer')
+    expect(source).toContain('runs-on: windows-2025')
+    expect(source).toContain('node-version: ${{ env.WINDOWS_NODE_VERSION }}')
+    expect(source).toContain('pnpm exec vitest run --project edge-runtime apps/dsh-edge/tests/installer.spec.ts')
+    expect(source).toContain('needs: [linux, windows-installer]')
+    expect(source).toContain('name: edge / verify')
+    expect(source).toContain('test "$WINDOWS_RESULT" = success')
+  })
+
   it('publishes through the Edge-owned standalone release command', () => {
     const source = workflow('release-edge.yml')
     expect(source).toContain('repository_dispatch:')

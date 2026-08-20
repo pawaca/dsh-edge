@@ -93,6 +93,48 @@ const SENSITIVE_ENV_KEY = /(KEY|PASSWORD|SECRET|TOKEN)/iu
 const WORKER_NAME = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/u
 const CLAIM_URL = /https:\/\/dash\.cloudflare\.com\/claim-preview\?[^\s\u001b]+/u
 const MAX_CAPTURE_BYTES = 2 * 1024 * 1024
+const WINDOWS_ACL_TIMEOUT_MS = 30_000
+const WINDOWS_PRIVATE_DIRECTORY_SCRIPT = String.raw`
+$ErrorActionPreference = 'Stop'
+$directory = [System.IO.Path]::GetFullPath($env:DSH_EDGE_PRIVATE_DIRECTORY)
+if (-not [System.IO.Directory]::Exists($directory)) {
+  throw 'Installer temporary directory does not exist.'
+}
+$identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+$acl = [System.Security.AccessControl.DirectorySecurity]::new()
+$acl.SetOwner($identity)
+$acl.SetAccessRuleProtection($true, $false)
+$inheritance = [System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [System.Security.AccessControl.InheritanceFlags]::ObjectInherit
+$rule = [System.Security.AccessControl.FileSystemAccessRule]::new(
+  $identity,
+  [System.Security.AccessControl.FileSystemRights]::FullControl,
+  $inheritance,
+  [System.Security.AccessControl.PropagationFlags]::None,
+  [System.Security.AccessControl.AccessControlType]::Allow
+)
+$acl.AddAccessRule($rule)
+[System.IO.Directory]::SetAccessControl($directory, $acl)
+
+$verified = [System.IO.Directory]::GetAccessControl(
+  $directory,
+  [System.Security.AccessControl.AccessControlSections]::Owner -bor [System.Security.AccessControl.AccessControlSections]::Access
+)
+$owner = $verified.GetOwner([System.Security.Principal.SecurityIdentifier])
+$rules = @($verified.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]))
+if (-not $verified.AreAccessRulesProtected -or $owner.Value -ne $identity.Value -or $rules.Count -ne 1) {
+  throw "Installer temporary directory DACL is not private (protected=$($verified.AreAccessRulesProtected), owner=$($owner.Value), user=$($identity.Value), rules=$($rules.Count))."
+}
+$verifiedRule = $rules[0]
+if (
+  $verifiedRule.IdentityReference.Value -ne $identity.Value -or
+  $verifiedRule.AccessControlType -ne [System.Security.AccessControl.AccessControlType]::Allow -or
+  $verifiedRule.FileSystemRights -ne [System.Security.AccessControl.FileSystemRights]::FullControl -or
+  $verifiedRule.InheritanceFlags -ne $inheritance -or
+  $verifiedRule.PropagationFlags -ne [System.Security.AccessControl.PropagationFlags]::None
+) {
+  throw 'Installer temporary directory DACL has unexpected access rules.'
+}
+`
 
 export class InstallCancelledError extends Error {
   constructor() {
@@ -1001,6 +1043,38 @@ async function readBoundedUtf8File(path, maxBytes) {
 
 async function createPrivateTemporaryDirectory() {
   const directory = await mkdtemp(join(tmpdir(), 'dsh-edge-install-'))
-  await chmod(directory, 0o700)
-  return directory
+  try {
+    if (process.platform === 'win32') {
+      const systemRoot = process.env.SystemRoot ?? process.env.WINDIR
+      if (systemRoot === undefined || systemRoot === '') {
+        throw new Error('Could not locate Windows PowerShell to secure installer credentials.')
+      }
+      const powershell = join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+      const encodedCommand = Buffer.from(WINDOWS_PRIVATE_DIRECTORY_SCRIPT, 'utf16le').toString('base64')
+      try {
+        await execa(powershell, [
+          '-NoLogo',
+          '-NoProfile',
+          '-NonInteractive',
+          '-EncodedCommand',
+          encodedCommand,
+        ], {
+          env: {
+            ...process.env,
+            DSH_EDGE_PRIVATE_DIRECTORY: directory,
+          },
+          timeout: WINDOWS_ACL_TIMEOUT_MS,
+          windowsHide: true,
+        })
+      } catch (error) {
+        throw new Error('Could not establish a private Windows ACL for installer credentials.', { cause: error })
+      }
+    } else {
+      await chmod(directory, 0o700)
+    }
+    return directory
+  } catch (error) {
+    await rm(directory, { recursive: true, force: true }).catch(() => {})
+    throw error
+  }
 }
