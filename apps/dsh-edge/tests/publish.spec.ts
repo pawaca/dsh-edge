@@ -12,6 +12,9 @@ import {
 } from '../scripts/publish.mjs'
 
 const temporaryDirectories: string[] = []
+// These contract tests intentionally launch the real npm CLI. A cold hosted
+// runner can spend several seconds loading npm before inspecting the tarball.
+const NPM_CLI_TEST_TIMEOUT_MS = 30_000
 
 function tarEntry(manifest: unknown) {
   const encoder = new TextEncoder()
@@ -59,7 +62,7 @@ afterEach(() => {
   }
 })
 
-describe('standalone npm publication', () => {
+describe('standalone npm publication', { timeout: NPM_CLI_TEST_TIMEOUT_MS }, () => {
   it('keeps stable and prerelease channels separate without moving them backwards', () => {
     expect(targetTag('0.2.0')).toBe('latest')
     expect(targetTag('0.2.0-alpha.1')).toBe('next')
