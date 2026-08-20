@@ -16,12 +16,13 @@ permissions:
 
 env:
   NODE_VERSION: '24'
+  WINDOWS_NODE_VERSION: '24.15.0'
   DSH_TELEMETRY_DISABLED: '1'
 
 jobs:
-  verify:
+  linux:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
-    name: edge / verify
+    name: edge / linux
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -85,3 +86,44 @@ jobs:
 
       - name: Verify the installed package outside the workspace
         run: pnpm --filter dsh-edge run pack:verify "${{ runner.temp }}/dsh-edge-$(node -p "require('./apps/dsh-edge/package.json').version").tgz"
+
+  windows-installer:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    name: edge / windows installer
+    runs-on: windows-2025
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v6
+        with:
+          # Node 24.16+ can abort Windows file watchers when runner temp uses
+          # an 8.3 short path. Match the release verifier until Node ships
+          # https://github.com/nodejs/node/pull/65118.
+          node-version: ${{ env.WINDOWS_NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify Windows installer security and lifecycle
+        run: pnpm exec vitest run --project edge-runtime apps/dsh-edge/tests/installer.spec.ts
+
+  verify:
+    if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.draft == false) }}
+    needs: [linux, windows-installer]
+    name: edge / verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require Linux and Windows verification
+        env:
+          LINUX_RESULT: ${{ needs.linux.result }}
+          WINDOWS_RESULT: ${{ needs.windows-installer.result }}
+        run: |
+          test "$LINUX_RESULT" = success
+          test "$WINDOWS_RESULT" = success

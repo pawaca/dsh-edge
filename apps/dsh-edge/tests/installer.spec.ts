@@ -61,9 +61,9 @@ function parseJsonRecord(source: string): Record<string, unknown> {
 async function expectPrivateTemporaryFile(path: string): Promise<void> {
   const metadata = await stat(path)
   expect(metadata.isFile()).toBe(true)
-  // Windows exposes synthetic POSIX mode bits rather than the inherited NTFS
-  // ACL. The installer still uses the current user's private temporary tree
-  // there, and the integration assertion below verifies its complete cleanup.
+  // Windows exposes synthetic POSIX mode bits rather than NTFS ACLs. The
+  // production directory path establishes and verifies a user-only DACL
+  // before this callback, and the integration assertion verifies cleanup.
   if (process.platform !== 'win32') {
     expect(metadata.mode & 0o777).toBe(0o600)
   }

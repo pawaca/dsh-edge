@@ -2,5 +2,5 @@
 # last confirmed-consistent state. Both languages carry equal authority.
 # After editing either side, update both and re-record every pair with:
 #   pnpm run doc-pairs -- --write
-2026-08-15-bounded-codex-review-and-edge-ci.md: 68d257e5decf0666fe99f9172dd34f3241bda6f5
-2026-08-15-bounded-codex-review-and-edge-ci.zh.md: 7c7879d6844e01f73b34c7e881b96feefeecdb02
+2026-08-15-bounded-codex-review-and-edge-ci.md: 63587db95db3defd1f784631869f51689bc0487a
+2026-08-15-bounded-codex-review-and-edge-ci.zh.md: a265987bbee7f4bdf260b39330bb2ca5210b1c87
