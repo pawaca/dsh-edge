@@ -641,7 +641,7 @@ describe('dsh-edge guided installation', () => {
     await expect(stat(configPath)).rejects.toThrow()
     await expect(stat(dirname(secretsPath))).rejects.toThrow()
     expect(success).toHaveBeenCalledOnce()
-  }, 15_000)
+  }, 45_000)
 
   it('reports recovery instead of success when final cleanup fails', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'dsh-edge-installer-test-'))

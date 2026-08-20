@@ -93,6 +93,7 @@ const SENSITIVE_ENV_KEY = /(KEY|PASSWORD|SECRET|TOKEN)/iu
 const WORKER_NAME = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/u
 const CLAIM_URL = /https:\/\/dash\.cloudflare\.com\/claim-preview\?[^\s\u001b]+/u
 const MAX_CAPTURE_BYTES = 2 * 1024 * 1024
+const WINDOWS_ACL_TIMEOUT_MS = 30_000
 const WINDOWS_PRIVATE_DIRECTORY_SCRIPT = String.raw`
 $ErrorActionPreference = 'Stop'
 $directory = [System.IO.Path]::GetFullPath($env:DSH_EDGE_PRIVATE_DIRECTORY)
@@ -1062,7 +1063,7 @@ async function createPrivateTemporaryDirectory() {
             ...process.env,
             DSH_EDGE_PRIVATE_DIRECTORY: directory,
           },
-          timeout: 10_000,
+          timeout: WINDOWS_ACL_TIMEOUT_MS,
           windowsHide: true,
         })
       } catch (error) {
