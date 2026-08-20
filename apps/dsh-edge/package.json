@@ -56,7 +56,7 @@
     "pack:verify": "node scripts/verify-packed.mjs",
     "prepack": "node scripts/legal-files.mjs verify && pnpm run bundle:workers",
     "web:build": "pnpm --dir standalone run build:web && node standalone/scripts/promote.mjs web",
-    "test": "vitest run --root ../.. apps/dsh-edge/tests/agent.spec.ts apps/dsh-edge/tests/auth.spec.ts apps/dsh-edge/tests/cli.spec.ts apps/dsh-edge/tests/deployment-health.spec.ts apps/dsh-edge/tests/deployment.spec.ts apps/dsh-edge/tests/direct-shell.spec.ts apps/dsh-edge/tests/do-session-persistence.spec.ts apps/dsh-edge/tests/edge-api.spec.ts apps/dsh-edge/tests/edge-credentials.spec.ts apps/dsh-edge/tests/edge-remotes.spec.ts apps/dsh-edge/tests/installer.spec.ts apps/dsh-edge/tests/sse.spec.ts apps/dsh-edge/tests/verify-packed.spec.ts apps/dsh-edge/tests/web-search.spec.ts apps/dsh-edge/tests/workspace.spec.ts",
+    "test": "vitest run --root ../.. --project edge-runtime",
     "test:integration": "pnpm run bundle:workers && node tests/run-session-integration.mjs",
     "test:snapshot": "vitest run --root ../.. --config apps/dsh-edge/vitest.snapshot.config.ts",
     "typecheck": "tsc --noEmit"
