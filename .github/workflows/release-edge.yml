@@ -96,6 +96,8 @@ jobs:
             if ($release.isImmutable) {
               throw "Existing GitHub release $tag is immutable and cannot be recovered"
             }
+            gh release upload $tag $tarball --repo $env:GITHUB_REPOSITORY --clobber
+            if ($LASTEXITCODE -ne 0) { throw "Could not refresh the GitHub release asset" }
             $prereleaseValue = $prerelease.ToString().ToLowerInvariant()
             $arguments = @(
               'release', 'edit', $tag,
@@ -113,8 +115,6 @@ jobs:
             }
             & gh @arguments
             if ($LASTEXITCODE -ne 0) { throw "Could not restore the GitHub release metadata" }
-            gh release upload $tag $tarball --repo $env:GITHUB_REPOSITORY --clobber
-            if ($LASTEXITCODE -ne 0) { throw "Could not refresh the GitHub release asset" }
             exit 0
           }
           $arguments = @(
