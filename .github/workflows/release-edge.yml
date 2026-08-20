@@ -161,14 +161,38 @@ jobs:
           $tarball = Join-Path '${{ runner.temp }}' "dsh-edge-$version.tgz"
           $notes = "docs/releases/$version.md"
           $prerelease = $version.Contains('-')
-          $existing = gh release view $tag --repo $env:GITHUB_REPOSITORY --json tagName,isDraft,isImmutable,isPrerelease 2>$null
+          $existing = gh release view $tag --repo $env:GITHUB_REPOSITORY --json tagName,name,body,isDraft,isImmutable,isPrerelease,assets 2>$null
           if ($LASTEXITCODE -eq 0) {
             $release = $existing | ConvertFrom-Json
             if ($release.tagName -ne $tag) {
               throw "Existing GitHub release does not match $tag"
             }
             if ($release.isImmutable) {
-              throw "Existing GitHub release $tag is immutable and cannot be recovered"
+              $expectedName = "dsh-edge $version"
+              $expectedBody = [System.IO.File]::ReadAllText((Resolve-Path $notes))
+              $actualBody = [string]$release.body
+              $normalize = { param([string]$value) ($value -replace "`r`n", "`n").TrimEnd([char[]]"`r`n") }
+              if ($release.isDraft -or $release.name -ne $expectedName -or $release.isPrerelease -ne $prerelease -or (& $normalize $actualBody) -cne (& $normalize $expectedBody)) {
+                throw "Immutable GitHub release $tag has different metadata"
+              }
+              $assetName = [System.IO.Path]::GetFileName($tarball)
+              $matchingAssets = @($release.assets | Where-Object { $_.name -ceq $assetName })
+              if ($matchingAssets.Count -ne 1) {
+                throw "Immutable GitHub release $tag does not contain exactly one $assetName asset"
+              }
+              if ([long]$matchingAssets[0].size -ne (Get-Item $tarball).Length) {
+                throw "Immutable GitHub release $tag has a different $assetName size"
+              }
+              $downloadDirectory = Join-Path '${{ runner.temp }}' "immutable-release-$version"
+              New-Item -ItemType Directory -Force $downloadDirectory | Out-Null
+              gh release download $tag --repo $env:GITHUB_REPOSITORY --pattern $assetName --dir $downloadDirectory --clobber
+              if ($LASTEXITCODE -ne 0) { throw "Could not download immutable GitHub release asset" }
+              $downloaded = Join-Path $downloadDirectory $assetName
+              if ((Get-FileHash $downloaded -Algorithm SHA512).Hash -cne (Get-FileHash $tarball -Algorithm SHA512).Hash) {
+                throw "Immutable GitHub release $tag has different $assetName content"
+              }
+              Write-Host "GitHub release $tag is already immutable with matching metadata and asset"
+              exit 0
             }
             gh release upload $tag $tarball --repo $env:GITHUB_REPOSITORY --clobber
             if ($LASTEXITCODE -ne 0) { throw "Could not refresh the GitHub release asset" }
