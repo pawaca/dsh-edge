@@ -2,5 +2,5 @@
 # last confirmed-consistent state. Both languages carry equal authority.
 # After editing either side, update both and re-record every pair with:
 #   pnpm run doc-pairs -- --write
-2026-08-19-dsh-edge-standalone-wrapper.md: 7fd3d6e8aff5f17b6ffcfc6e736fc357f6446c79
-2026-08-19-dsh-edge-standalone-wrapper.zh.md: 3ce94249da0b850d0605b8eadbe586e991e30ccf
+2026-08-19-dsh-edge-standalone-wrapper.md: ff6f5bc9c928173932a193256c40e34f733cafa8
+2026-08-19-dsh-edge-standalone-wrapper.zh.md: 2c8ea6a76b4ca83e69bae8bca8c5a85964d73838

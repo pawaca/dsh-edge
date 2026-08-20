@@ -128,11 +128,29 @@ jobs:
           $version = node -p "require('./apps/dsh-edge/package.json').version"
           $tarball = Join-Path '${{ runner.temp }}' "dsh-edge-$version.tgz"
           pnpm --filter dsh-edge run pack:verify $tarball
+      - name: Confirm release tag at npm publication boundary
+        shell: bash
+        run: |
+          git fetch --force origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          actual="$(git rev-list -n 1 "$RELEASE_TAG")"
+          if [[ "$actual" != "$RELEASE_COMMIT" ]]; then
+            echo "Release tag moved from $RELEASE_COMMIT to $actual" >&2
+            exit 1
+          fi
       - name: Publish with npm trusted publishing
         run: |
           $version = node -p "require('./apps/dsh-edge/package.json').version"
           $tarball = Join-Path '${{ runner.temp }}' "dsh-edge-$version.tgz"
           node apps/dsh-edge/scripts/publish.mjs --tarball $tarball
+      - name: Confirm release tag at GitHub Release boundary
+        shell: bash
+        run: |
+          git fetch --force origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          actual="$(git rev-list -n 1 "$RELEASE_TAG")"
+          if [[ "$actual" != "$RELEASE_COMMIT" ]]; then
+            echo "Release tag moved from $RELEASE_COMMIT to $actual" >&2
+            exit 1
+          fi
       - name: Create matching GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
