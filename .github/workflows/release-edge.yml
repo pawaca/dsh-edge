@@ -1,8 +1,8 @@
 name: Release dsh-edge
 
 on:
-  push:
-    tags: ['dsh-edge-v*']
+  repository_dispatch:
+    types: [release-dsh-edge]
 
 permissions:
   contents: read
@@ -23,33 +23,59 @@ jobs:
   verify-source:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    outputs:
+      release_tag: ${{ steps.source.outputs.release_tag }}
+      release_commit: ${{ steps.source.outputs.release_commit }}
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           persist-credentials: false
       - name: Verify release tag and reviewed source
+        id: source
         shell: bash
+        env:
+          REQUESTED_TAG: ${{ github.event.client_payload.tag }}
         run: |
-          version="$(node -p "require('./apps/dsh-edge/package.json').version")"
-          if [[ "$GITHUB_REF_NAME" != "dsh-edge-v$version" ]]; then
-            echo "Release tag $GITHUB_REF_NAME does not match dsh-edge-v$version" >&2
+          tag="$REQUESTED_TAG"
+          if [[ ! "$tag" =~ ^dsh-edge-v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]; then
+            echo "Invalid release tag: $tag" >&2
             exit 1
           fi
-          git fetch --no-tags origin master:refs/remotes/origin/master
-          tag_commit="$(git rev-list -n 1 "$GITHUB_REF_NAME")"
-          master_commit="$(git rev-parse origin/master)"
+          git fetch --force origin "refs/tags/$tag:refs/tags/$tag"
+          tag_commit="$(git rev-list -n 1 "$tag")"
+          master_commit="$(git rev-parse HEAD)"
           # Master may advance after npm succeeds but GitHub Release recovery
           # is still pending. The tag must remain in canonical reviewed history.
           if ! git merge-base --is-ancestor "$tag_commit" "$master_commit"; then
             echo "Release tag $tag_commit is not in reviewed master history ending at $master_commit" >&2
             exit 1
           fi
+          package_json="$RUNNER_TEMP/dsh-edge-release-package.json"
+          git show "$tag:apps/dsh-edge/package.json" > "$package_json"
+          version="$(node -e "const fs=require('fs'); process.stdout.write(JSON.parse(fs.readFileSync(process.argv[1], 'utf8')).version)" "$package_json")"
+          if [[ "$tag" != "dsh-edge-v$version" ]]; then
+            echo "Release tag $tag does not match dsh-edge-v$version" >&2
+            exit 1
+          fi
           notes="docs/releases/$version.md"
-          if [[ ! -f "$notes" ]]; then
+          if ! git cat-file -e "$tag:$notes"; then
             echo "Missing reviewed release notes: $notes" >&2
             exit 1
           fi
+          # A first publication must describe the exact default-branch commit
+          # named by the OIDC provenance. An older reviewed tag is accepted
+          # only to recover its already-published npm artifact and GitHub Release.
+          if [[ "$tag_commit" != "$master_commit" ]]; then
+            integrity_json="$RUNNER_TEMP/dsh-edge-release-integrity.json"
+            if ! npm view "dsh-edge@$version" dist.integrity --json > "$integrity_json" \
+              || ! node -e "const fs=require('fs'); const value=JSON.parse(fs.readFileSync(process.argv[1], 'utf8')); if (typeof value !== 'string' || value === '') process.exit(1)" "$integrity_json"; then
+              echo "Release tag $tag_commit is behind $master_commit and dsh-edge@$version is not already published" >&2
+              exit 1
+            fi
+          fi
+          echo "release_tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "release_commit=$tag_commit" >> "$GITHUB_OUTPUT"
 
   publish:
     needs: verify-source
@@ -58,10 +84,23 @@ jobs:
       id-token: write
     runs-on: windows-2025
     timeout-minutes: 20
+    env:
+      RELEASE_TAG: ${{ needs.verify-source.outputs.release_tag }}
+      RELEASE_COMMIT: ${{ needs.verify-source.outputs.release_commit }}
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ needs.verify-source.outputs.release_commit }}
           persist-credentials: false
+      - name: Confirm release tag is unchanged
+        shell: bash
+        run: |
+          git fetch --force origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          actual="$(git rev-list -n 1 "$RELEASE_TAG")"
+          if [[ "$actual" != "$RELEASE_COMMIT" ]]; then
+            echo "Release tag moved from $RELEASE_COMMIT to $actual" >&2
+            exit 1
+          fi
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v6
         with:
@@ -99,7 +138,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $version = node -p "require('./apps/dsh-edge/package.json').version"
-          $tag = "dsh-edge-v$version"
+          $tag = $env:RELEASE_TAG
+          if ($tag -ne "dsh-edge-v$version") { throw "Release tag $tag does not match dsh-edge-v$version" }
           $tarball = Join-Path '${{ runner.temp }}' "dsh-edge-$version.tgz"
           $notes = "docs/releases/$version.md"
           $prerelease = $version.Contains('-')

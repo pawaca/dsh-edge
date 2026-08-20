@@ -1,0 +1,31 @@
+name: Request dsh-edge release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Reviewed dsh-edge release tag
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch the default-branch release workflow
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^dsh-edge-v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]; then
+            echo "Invalid release tag: $RELEASE_TAG" >&2
+            exit 1
+          fi
+          jq -n --arg tag "$RELEASE_TAG" \
+            '{event_type:"release-dsh-edge",client_payload:{tag:$tag}}' \
+            | gh api --method POST "repos/$GITHUB_REPOSITORY/dispatches" --input -

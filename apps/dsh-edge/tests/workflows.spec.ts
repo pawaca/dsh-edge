@@ -9,7 +9,11 @@ function workflow(name: string): string {
 
 describe('repository workflows', () => {
   it('contains only Edge CI and release automation', () => {
-    expect(readdirSync(workflowDirectory).sort()).toEqual(['edge-ci.yml', 'release-edge.yml'])
+    expect(readdirSync(workflowDirectory).sort()).toEqual([
+      'edge-ci.yml',
+      'release-edge.yml',
+      'request-release.yml',
+    ])
   })
 
   it('builds the isolated dependency closure before installing repository tools', () => {
@@ -23,13 +27,17 @@ describe('repository workflows', () => {
 
   it('publishes through the Edge-owned standalone release command', () => {
     const source = workflow('release-edge.yml')
+    expect(source).toContain('repository_dispatch:')
+    expect(source).toContain('types: [release-dsh-edge]')
+    expect(source).not.toContain("tags: ['dsh-edge-v*']")
     expect(source).toContain('contents: write')
     expect(source).toContain('contents: read')
     expect(source).toContain('fetch-depth: 0')
-    expect(source).toContain('master:refs/remotes/origin/master')
     expect(source).toContain('git merge-base --is-ancestor "$tag_commit" "$master_commit"')
     expect(source).not.toContain('$tagCommit -ne $masterCommit')
     expect(source).toContain('publish:\n    needs: verify-source\n    permissions:\n      contents: write\n      id-token: write')
+    expect(source).toContain('ref: ${{ needs.verify-source.outputs.release_commit }}')
+    expect(source).toContain('Confirm release tag is unchanged')
     expect(source).toContain('pnpm run check')
     expect(source).toContain('pnpm --dir apps/dsh-edge pack --pack-destination')
     expect(source).toContain('node apps/dsh-edge/tests/run-session-integration.mjs')
@@ -59,5 +67,18 @@ describe('repository workflows', () => {
     expect(dependencySetup).toBeLessThan(source.indexOf('pnpm run check'))
     expect(ancestryGate).toBeLessThan(source.indexOf('node apps/dsh-edge/scripts/publish.mjs --tarball $tarball'))
     expect(source).toContain('is not in reviewed master history')
+    expect(source).toContain('if [[ "$tag_commit" != "$master_commit" ]]')
+    expect(source).toContain('npm view "dsh-edge@$version" dist.integrity --json')
+  })
+
+  it('anchors release authority to the default-branch workflow', () => {
+    const request = workflow('request-release.yml')
+    const release = workflow('release-edge.yml')
+    expect(request).toContain('workflow_dispatch:')
+    expect(request).toContain('event_type:"release-dsh-edge"')
+    expect(request).not.toContain('id-token: write')
+    expect(request).not.toContain('npm publish')
+    expect(release).toContain('repository_dispatch:')
+    expect(release).toContain('REQUESTED_TAG: ${{ github.event.client_payload.tag }}')
   })
 })
