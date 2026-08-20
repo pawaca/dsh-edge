@@ -44,7 +44,7 @@
     "@deepseek-ai/dsh-web-frontend": "0.1.0-rc.7",
     "@deepseek-ai/dsh-web-search-deepseek": "0.1.0-rc.7",
     "compare-versions": "6.1.1",
-    "execa": "10.0.0",
+    "execa": "10.0.1",
     "just-bash": "3.3.0",
     "jsonc-parser": "3.3.1",
     "wrangler": "4.123.0"
