@@ -101,6 +101,7 @@ if (-not [System.IO.Directory]::Exists($directory)) {
 }
 $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
 $acl = [System.Security.AccessControl.DirectorySecurity]::new()
+$acl.SetOwner($identity)
 $acl.SetAccessRuleProtection($true, $false)
 $inheritance = [System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [System.Security.AccessControl.InheritanceFlags]::ObjectInherit
 $rule = [System.Security.AccessControl.FileSystemAccessRule]::new(
@@ -120,7 +121,7 @@ $verified = [System.IO.Directory]::GetAccessControl(
 $owner = $verified.GetOwner([System.Security.Principal.SecurityIdentifier])
 $rules = @($verified.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]))
 if (-not $verified.AreAccessRulesProtected -or $owner.Value -ne $identity.Value -or $rules.Count -ne 1) {
-  throw 'Installer temporary directory DACL is not private.'
+  throw "Installer temporary directory DACL is not private (protected=$($verified.AreAccessRulesProtected), owner=$($owner.Value), user=$($identity.Value), rules=$($rules.Count))."
 }
 $verifiedRule = $rules[0]
 if (
