@@ -916,6 +916,7 @@ try {
   assert.equal(restoredQueue.payload.items.find(
     item => item.message.source.rpcId === steeredPrompt.rpcId,
   ).placement, 'steering')
+  mock.releaseSlowResponses()
   const activeAdmissionHistory = await rpc('session.history', {
     sessionId: protocolSessionId,
   })
@@ -981,6 +982,7 @@ try {
   assert.equal(mock.requests.length, 14)
   process.stdout.write(`dsh-edge ${runtimeMode} session integration passed\n`)
 } finally {
+  mock.releaseSlowResponses()
   await releasedStateSeeder?.stop()
   await worker?.stop()
   await mock.close()

@@ -2,6 +2,8 @@
 
 Status: implemented
 
+Repository-structure details in this note are superseded by the [standalone wrapper plan](../../proposed/architecture/2026-08-19-dsh-edge-standalone-wrapper.md). The installer and publication decisions remain in force.
+
 English | [中文](2026-08-18-public-edge-installer.zh.md)
 
 ## Problem

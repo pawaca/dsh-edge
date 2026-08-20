@@ -81,7 +81,7 @@ jobs:
       # pnpm pack runs dsh-edge's prepack gate, which builds both runtime modes
       # and size-checks Direct. Separate bundle steps would repeat that work.
       - name: Pack the public installer
-        run: pnpm --filter dsh-edge pack --pack-destination "${{ runner.temp }}"
+        run: pnpm --dir apps/dsh-edge pack --pack-destination "${{ runner.temp }}"
 
       - name: Verify the installed package outside the workspace
         run: pnpm --filter dsh-edge run pack:verify "${{ runner.temp }}/dsh-edge-$(node -p "require('./apps/dsh-edge/package.json').version").tgz"

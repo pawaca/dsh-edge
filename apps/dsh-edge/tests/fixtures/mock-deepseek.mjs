@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url'
 export async function startMockDeepSeek(port = 0) {
   const requests = []
   const searchRequests = []
+  const slowResponseReleases = []
   const server = createServer((request, response) => {
     if (request.method === 'GET' && request.url === '/requests') {
       response.writeHead(200, { 'content-type': 'application/json' })
@@ -67,6 +68,9 @@ export async function startMockDeepSeek(port = 0) {
       const hasToolResult = toolResults.length > 0
 
       if (prompt.includes('slow')) {
+        const continueAfterFirstEvent = new Promise(resolve => {
+          slowResponseReleases.push(resolve)
+        })
         sendEvents(response, [
           { choices: [{ delta: { role: 'assistant', content: null, reasoning_content: '' } }] },
           { choices: [{ delta: { content: 'too-late' } }] },
@@ -74,7 +78,7 @@ export async function startMockDeepSeek(port = 0) {
             choices: [{ delta: { content: '' }, finish_reason: 'stop' }],
             usage: { prompt_tokens: 4, completion_tokens: 1 },
           },
-        ], 500)
+        ], 0, continueAfterFirstEvent)
         return
       }
 
@@ -169,6 +173,9 @@ export async function startMockDeepSeek(port = 0) {
     url: `http://127.0.0.1:${address.port}`,
     requests,
     searchRequests,
+    releaseSlowResponses() {
+      for (const release of slowResponseReleases.splice(0)) release()
+    },
     close: () => new Promise(resolve => { server.close(resolve) }),
   }
 }
@@ -182,7 +189,7 @@ function messageText(message) {
     .join('')
 }
 
-function sendEvents(response, events, delayMs = 0) {
+function sendEvents(response, events, delayMs = 0, continueAfterFirstEvent) {
   response.writeHead(200, { 'content-type': 'text/event-stream' })
   const write = (index) => {
     if (response.writableEnded || response.destroyed) return
@@ -192,7 +199,12 @@ function sendEvents(response, events, delayMs = 0) {
       return
     }
     response.write(`data: ${JSON.stringify(event)}\n\n`)
-    setTimeout(() => { write(index + 1) }, delayMs)
+    const writeNext = () => { setTimeout(() => { write(index + 1) }, delayMs) }
+    if (index === 0 && continueAfterFirstEvent !== undefined) {
+      void continueAfterFirstEvent.then(writeNext)
+      return
+    }
+    writeNext()
   }
   write(0)
 }

@@ -1,12 +1,11 @@
 name: Release dsh-edge
 
 on:
-  push:
-    tags: ['dsh-edge-v*']
+  repository_dispatch:
+    types: [release-dsh-edge]
 
 permissions:
   contents: read
-  id-token: write
 
 env:
   # Node 24.16+ can abort Windows file watchers when runner temp uses an 8.3
@@ -21,13 +20,87 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  publish:
-    runs-on: windows-2025
-    timeout-minutes: 20
+  verify-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      release_tag: ${{ steps.source.outputs.release_tag }}
+      release_commit: ${{ steps.source.outputs.release_commit }}
     steps:
       - uses: actions/checkout@v6
         with:
+          fetch-depth: 0
           persist-credentials: false
+      - name: Verify release tag and reviewed source
+        id: source
+        shell: bash
+        env:
+          REQUESTED_TAG: ${{ github.event.client_payload.tag }}
+        run: |
+          tag="$REQUESTED_TAG"
+          if [[ ! "$tag" =~ ^dsh-edge-v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]; then
+            echo "Invalid release tag: $tag" >&2
+            exit 1
+          fi
+          git fetch --force origin "refs/tags/$tag:refs/tags/$tag"
+          tag_commit="$(git rev-list -n 1 "$tag")"
+          master_commit="$(git rev-parse HEAD)"
+          # Master may advance after npm succeeds but GitHub Release recovery
+          # is still pending. The tag must remain in canonical reviewed history.
+          if ! git merge-base --is-ancestor "$tag_commit" "$master_commit"; then
+            echo "Release tag $tag_commit is not in reviewed master history ending at $master_commit" >&2
+            exit 1
+          fi
+          package_json="$RUNNER_TEMP/dsh-edge-release-package.json"
+          git show "$tag:apps/dsh-edge/package.json" > "$package_json"
+          version="$(node -e "const fs=require('fs'); process.stdout.write(JSON.parse(fs.readFileSync(process.argv[1], 'utf8')).version)" "$package_json")"
+          if [[ "$tag" != "dsh-edge-v$version" ]]; then
+            echo "Release tag $tag does not match dsh-edge-v$version" >&2
+            exit 1
+          fi
+          notes="docs/releases/$version.md"
+          if ! git cat-file -e "$tag:$notes"; then
+            echo "Missing reviewed release notes: $notes" >&2
+            exit 1
+          fi
+          # A first publication must describe the exact default-branch commit
+          # named by the OIDC provenance. An older reviewed tag is accepted
+          # only to recover its already-published npm artifact and GitHub Release.
+          if [[ "$tag_commit" != "$master_commit" ]]; then
+            integrity_json="$RUNNER_TEMP/dsh-edge-release-integrity.json"
+            if ! npm view "dsh-edge@$version" dist.integrity --json > "$integrity_json" \
+              || ! node -e "const fs=require('fs'); const value=JSON.parse(fs.readFileSync(process.argv[1], 'utf8')); if (typeof value !== 'string' || value === '') process.exit(1)" "$integrity_json"; then
+              echo "Release tag $tag_commit is behind $master_commit and dsh-edge@$version is not already published" >&2
+              exit 1
+            fi
+          fi
+          echo "release_tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "release_commit=$tag_commit" >> "$GITHUB_OUTPUT"
+
+  publish:
+    needs: verify-source
+    permissions:
+      contents: write
+      id-token: write
+    runs-on: windows-2025
+    timeout-minutes: 20
+    env:
+      RELEASE_TAG: ${{ needs.verify-source.outputs.release_tag }}
+      RELEASE_COMMIT: ${{ needs.verify-source.outputs.release_commit }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.verify-source.outputs.release_commit }}
+          persist-credentials: false
+      - name: Confirm release tag is unchanged
+        shell: bash
+        run: |
+          git fetch --force origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          actual="$(git rev-list -n 1 "$RELEASE_TAG")"
+          if [[ "$actual" != "$RELEASE_COMMIT" ]]; then
+            echo "Release tag moved from $RELEASE_COMMIT to $actual" >&2
+            exit 1
+          fi
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v6
         with:
@@ -40,21 +113,119 @@ jobs:
         run: pnpm --dir apps/dsh-edge/standalone install --frozen-lockfile
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-      - name: Verify release tag
-        run: |
-          $version = node -p "require('./apps/dsh-edge/package.json').version"
-          if ($env:GITHUB_REF_NAME -ne "dsh-edge-v$version") {
-            throw "Release tag $env:GITHUB_REF_NAME does not match dsh-edge-v$version"
-          }
+      - name: Verify source contracts
+        run: pnpm run check
       - name: Pack release
-        run: pnpm --filter dsh-edge pack --pack-destination "${{ runner.temp }}"
+        run: pnpm --dir apps/dsh-edge pack --pack-destination "${{ runner.temp }}"
+      - name: Verify durable-state and runtime parity
+        run: node apps/dsh-edge/tests/run-session-integration.mjs
+      - name: Verify assembled runtime and browser snapshots
+        env:
+          DSH_EDGE_PLAYWRIGHT_CHANNEL: chrome
+        run: pnpm --filter dsh-edge run test:snapshot
       - name: Verify installed release
         run: |
           $version = node -p "require('./apps/dsh-edge/package.json').version"
           $tarball = Join-Path '${{ runner.temp }}' "dsh-edge-$version.tgz"
           pnpm --filter dsh-edge run pack:verify $tarball
+      - name: Confirm release tag at npm publication boundary
+        shell: bash
+        run: |
+          git fetch --force origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          actual="$(git rev-list -n 1 "$RELEASE_TAG")"
+          if [[ "$actual" != "$RELEASE_COMMIT" ]]; then
+            echo "Release tag moved from $RELEASE_COMMIT to $actual" >&2
+            exit 1
+          fi
       - name: Publish with npm trusted publishing
         run: |
           $version = node -p "require('./apps/dsh-edge/package.json').version"
           $tarball = Join-Path '${{ runner.temp }}' "dsh-edge-$version.tgz"
           node apps/dsh-edge/scripts/publish.mjs --tarball $tarball
+      - name: Confirm release tag at GitHub Release boundary
+        shell: bash
+        run: |
+          git fetch --force origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          actual="$(git rev-list -n 1 "$RELEASE_TAG")"
+          if [[ "$actual" != "$RELEASE_COMMIT" ]]; then
+            echo "Release tag moved from $RELEASE_COMMIT to $actual" >&2
+            exit 1
+          fi
+      - name: Create matching GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = node -p "require('./apps/dsh-edge/package.json').version"
+          $tag = $env:RELEASE_TAG
+          if ($tag -ne "dsh-edge-v$version") { throw "Release tag $tag does not match dsh-edge-v$version" }
+          $tarball = Join-Path '${{ runner.temp }}' "dsh-edge-$version.tgz"
+          $notes = "docs/releases/$version.md"
+          $prerelease = $version.Contains('-')
+          $existing = gh release view $tag --repo $env:GITHUB_REPOSITORY --json tagName,name,body,isDraft,isImmutable,isPrerelease,assets 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            $release = $existing | ConvertFrom-Json
+            if ($release.tagName -ne $tag) {
+              throw "Existing GitHub release does not match $tag"
+            }
+            if ($release.isImmutable) {
+              $expectedName = "dsh-edge $version"
+              $expectedBody = [System.IO.File]::ReadAllText((Resolve-Path $notes))
+              $actualBody = [string]$release.body
+              $normalize = { param([string]$value) ($value -replace "`r`n", "`n").TrimEnd([char[]]"`r`n") }
+              if ($release.isDraft -or $release.name -ne $expectedName -or $release.isPrerelease -ne $prerelease -or (& $normalize $actualBody) -cne (& $normalize $expectedBody)) {
+                throw "Immutable GitHub release $tag has different metadata"
+              }
+              $assetName = [System.IO.Path]::GetFileName($tarball)
+              $matchingAssets = @($release.assets | Where-Object { $_.name -ceq $assetName })
+              if ($matchingAssets.Count -ne 1) {
+                throw "Immutable GitHub release $tag does not contain exactly one $assetName asset"
+              }
+              if ([long]$matchingAssets[0].size -ne (Get-Item $tarball).Length) {
+                throw "Immutable GitHub release $tag has a different $assetName size"
+              }
+              $downloadDirectory = Join-Path '${{ runner.temp }}' "immutable-release-$version"
+              New-Item -ItemType Directory -Force $downloadDirectory | Out-Null
+              gh release download $tag --repo $env:GITHUB_REPOSITORY --pattern $assetName --dir $downloadDirectory --clobber
+              if ($LASTEXITCODE -ne 0) { throw "Could not download immutable GitHub release asset" }
+              $downloaded = Join-Path $downloadDirectory $assetName
+              if ((Get-FileHash $downloaded -Algorithm SHA512).Hash -cne (Get-FileHash $tarball -Algorithm SHA512).Hash) {
+                throw "Immutable GitHub release $tag has different $assetName content"
+              }
+              Write-Host "GitHub release $tag is already immutable with matching metadata and asset"
+              exit 0
+            }
+            gh release upload $tag $tarball --repo $env:GITHUB_REPOSITORY --clobber
+            if ($LASTEXITCODE -ne 0) { throw "Could not refresh the GitHub release asset" }
+            $prereleaseValue = $prerelease.ToString().ToLowerInvariant()
+            $arguments = @(
+              'release', 'edit', $tag,
+              '--repo', $env:GITHUB_REPOSITORY,
+              '--verify-tag',
+              '--title', "dsh-edge $version",
+              '--notes-file', $notes,
+              '--draft=false',
+              "--prerelease=$prereleaseValue"
+            )
+            if ($prerelease) {
+              $arguments += '--latest=false'
+            } else {
+              $arguments += '--latest'
+            }
+            & gh @arguments
+            if ($LASTEXITCODE -ne 0) { throw "Could not restore the GitHub release metadata" }
+            exit 0
+          }
+          $arguments = @(
+            'release', 'create', $tag, $tarball,
+            '--repo', $env:GITHUB_REPOSITORY,
+            '--verify-tag',
+            '--title', "dsh-edge $version",
+            '--notes-file', $notes
+          )
+          if ($prerelease) {
+            $arguments += @('--prerelease', '--latest=false')
+          } else {
+            $arguments += '--latest'
+          }
+          & gh @arguments
+          if ($LASTEXITCODE -ne 0) { throw "Could not create the GitHub release" }

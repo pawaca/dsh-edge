@@ -2,6 +2,8 @@
 
 Status: implemented
 
+Repository-structure and inherited-document details in this note are superseded by the [standalone wrapper plan](../../proposed/architecture/2026-08-19-dsh-edge-standalone-wrapper.md). The product-first dsh-edge landing-page decision remains in force.
+
 English | [中文](2026-08-18-dsh-edge-root-landing-page.zh.md)
 
 ## Problem
@@ -16,7 +18,7 @@ The page keeps high-level upstream architecture and contribution links, while de
 
 Existing upstream documentation continues to link to the root `#run` and `#run-from-source` anchors. Those anchors retain their local DeepSeek Harness Web UI meaning and the `pnpm dsh web` command. A separate `pnpm --filter dsh-edge dev` path starts the Edge Worker locally. The English and Chinese pages have the same technical structure and commands.
 
-This decision supersedes the [upstream product-first root README decision](2026-07-22-product-first-root-readme.md) only for this fork's landing page.
+This decision superseded the [upstream product-first root README decision](https://github.com/deepseek-ai/deepseek-harness/blob/master/.agents/notes/implemented/process/2026-07-22-product-first-root-readme.md) for the former fork's landing page.
 
 ## Alternatives considered
 

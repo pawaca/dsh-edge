@@ -2,6 +2,8 @@
 
 Status: implemented
 
+本文中的仓库结构与继承文档细节已由 [standalone wrapper 计划](../../proposed/architecture/2026-08-19-dsh-edge-standalone-wrapper.zh.md)取代；以 dsh-edge 产品为中心的首页决策继续有效。
+
 [English](2026-08-18-dsh-edge-root-landing-page.md) | 中文
 
 ## 问题
@@ -16,7 +18,7 @@ dsh-edge 根目录 README 是本 fork 的公开首页。它优先介绍可通过
 
 现有上游文档仍会链接根目录的 `#run` 与 `#run-from-source` 锚点。这些锚点继续表示本地 DeepSeek Harness Web UI，并使用 `pnpm dsh web` 命令。单独的 `pnpm --filter dsh-edge dev` 路径用于在本地启动 Edge Worker。中英文页面具有相同的技术结构与命令。
 
-本决策仅针对本 fork 的首页，取代[上游产品优先的根 README 决策](2026-07-22-product-first-root-readme.md)。
+本决策曾针对原 fork 的首页，取代[上游产品优先的根 README 决策](https://github.com/deepseek-ai/deepseek-harness/blob/master/.agents/notes/implemented/process/2026-07-22-product-first-root-readme.zh.md)。
 
 ## 考虑过的替代方案
 

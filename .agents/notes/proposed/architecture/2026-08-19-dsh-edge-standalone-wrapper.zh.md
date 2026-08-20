@@ -135,13 +135,14 @@ Evidence：一个没有父级或根依赖的临时 checkout 在安装根依赖�
 
 - [x] Canonical 仓库不是 fork，只有一个 clean root commit，并且 tree 与已 Review 的 PR 4 完全一致。
 - [x] 归档仓库保留 PR 25 至 PR 28、对应 Review 历史和 0.1.3 GitHub Release。
-- [ ] 面向用户和贡献者的文档正确说明归档地址、当前安全报告入口与受支持安装命令，不包含过时链接。
-- [ ] 依赖自动化不会把 root、standalone、法律声明和 snapshot 的协同不变量拆成误导性的绿色 PR 或永久失败 PR。
-- [ ] 稳定部署跟随 npm `latest`，预发布部署跟随 npm `next`，升级指引只要求 Node/npm。
-- [ ] 发布 workflow 验证已 Review 的源码、发布精确 tarball，并创建版本匹配且包含 release notes 的 GitHub prerelease。
-- [ ] 完整 rc.7 等价性、0.1.3 持久化状态、package 与两种 runtime 安装证据在 release candidate 上通过。
+- [x] 面向用户和贡献者的文档正确说明归档地址、当前安全报告入口与受支持安装命令，不包含过时链接。
+- [x] 依赖自动化不会把 root、standalone、法律声明和 snapshot 的协同不变量拆成误导性的绿色 PR 或永久失败 PR。
+- [x] 稳定部署跟随 npm `latest`，预发布部署跟随 npm `next`，升级指引只要求 Node/npm。
+- [x] 发布 workflow 验证已 Review 的源码、发布精确 tarball，并创建版本匹配且包含 release notes 的 GitHub prerelease。
+- [x] 完整 rc.7 等价性、0.1.3 持久化状态、package 与两种 runtime 安装证据在 release candidate 上通过。
+- [ ] npm `next`、Git tag、GitHub prerelease、release notes 与 tarball identity 均报告 `0.2.0-alpha.1`。
 
-Evidence：canonical root `ff2adbd74cf6fe9196460e234180a9f5310c4eee` 没有 parent，tree 为 `ddb4f9b64b059851597fb6a31a1b29680d9cc908`，与归档的 PR 4 一致。[Edge CI run 32385210909](https://github.com/pawaca/dsh-edge/actions/runs/32385210909) 通过 clean repository 的完整验证。剩余工作有意拆成仓库卫生和 alpha readiness 两类修改，避免任何 PR 把产品或发布决策藏在源码抽取 diff 中。
+Evidence：canonical root `ff2adbd74cf6fe9196460e234180a9f5310c4eee` 没有 parent，tree 为 `ddb4f9b64b059851597fb6a31a1b29680d9cc908`，与归档的 PR 4 一致。[Edge CI run 32385210909](https://github.com/pawaca/dsh-edge/actions/runs/32385210909) 通过 clean repository 的完整验证。随后，[PR #9](https://github.com/pawaca/dsh-edge/pull/9) 增加双语安全报告流程、启用私密漏洞报告、链接归档历史，并把 Dependabot 限制为 GitHub Actions，使 npm 依赖继续作为一个协同更新面；其 [Edge CI run 32390452740](https://github.com/pawaca/dsh-edge/actions/runs/32390452740) 与 HEAD-bound review 在合并前通过。Alpha.1 candidate 会根据已安装的稳定或预发布版本推导 npm 查询与升级命令，聚焦的 client 和 workflow 测试共 22 项 assertion 通过。`pnpm run check` 通过 188 项测试以及 documentation、lint 和 type check；精确 rc.7 装配验证 6 个 patch、28 个 client plugin、确定性 Web 输出、gzip 为 686,070 bytes 且低于 921,600-byte budget 的 Direct 产物，以及两种 Worker 模式。两种已提升 artifact 都通过完整 0.1.3 持久化状态 integration，3 个 assembled snapshot 全部通过，打包后的 `dsh-edge@0.2.0-alpha.1` tarball 也能启动两种已安装模式。Candidate tarball 的 SHA-512 为 `bc3c15c15a937e802816a24f2acc26d3b689e878f821a56dbc6f2d625c061ca10574291b035cf6f0a67ef7e69082857560877d7caad201447bba84d343d0b037`。Hosted review 与实际 npm/tag/GitHub publication 仍待完成。
 
 ### 阶段 6 — 升级已发布的上游基线
 
@@ -219,6 +220,10 @@ Evidence：待补充。
 - 2026-08-20：PR 4 删除了复制的 Harness 源码和面向整个上游的治理规范，把仓库缩减为两个 Edge 自有 workspace 和两个 workflow，以 Edge 自有 contract 代替 source-mode 测试和发布机制，并通过全新 standalone、单元、集成、snapshot、打包、法律、lint 和类型检查。全新构建暴露出 CSS Module hash 依赖 checkout 路径；Edge client 构建现在使用稳定的仓库相对 CSS 身份，并以验证器和双路径字节对比关闭这个可复现性缺口，不改变产品行为。
 - 2026-08-20：PR 4 在本地验收通过后创建了 draft、现已归档的 [PR #28](https://github.com/pawaca/dsh-edge-history/pull/28)。Hosted clean-checkout CI 和绑定 HEAD 的 review loop 是当前剩余门禁。
 - 2026-08-20：归档的 PR 4 通过 hosted CI 和绑定 HEAD 的 review loop 后合并。其已 Review 的 tree 成为新的独立 [canonical repository](https://github.com/pawaca/dsh-edge) 的唯一 root commit，原 fork 则完整迁移到 [dsh-edge-history](https://github.com/pawaca/dsh-edge-history)。Clean-root Edge CI 通过，阶段 5 进入 `in progress`；alpha.1 现在受明确的仓库卫生与发布 contract 门禁约束，不再由删除源码这件事隐式触发。
+- 2026-08-20：[PR #9](https://github.com/pawaca/dsh-edge/pull/9) 完成切换后的仓库卫生审计，并在 hosted CI 与 HEAD-bound review 通过后合并。阶段 5 现在通过独立的 alpha-readiness 修改继续推进，由它负责 `0.2.0-alpha.1` 版本、npm 渠道行为、已 Review 的 release notes、tag/source 门禁，以及从 npm 到 GitHub 的发布顺序。
+- 2026-08-20：本地 alpha.1 release candidate 已通过完整 repository、standalone、双 runtime 持久化状态、snapshot 与 installed-tarball 门禁。稳定与预发布部署现在分别保持在 `latest` 和 `next`；发布自动化要求 tag commit 位于已 Review 的 `master` 历史中，先发布 npm，再根据已 Review 的 notes 创建匹配的 GitHub prerelease。这个祖先关系门禁既能在 `master` 前进后继续恢复未完成发布，也不会接受旁支 tag。实际 publication 是阶段 5 剩余的最终门禁。
+- 2026-08-20：最终独立仓库审计确认，canonical GitHub 仓库已不再是 fork，当前项目、package、文档、法律与发布身份都指向 `pawaca/dsh-edge`，CI 中也不存在 Cloudflare 源码部署。审计同时发现一条被静默忽略的已删除测试路径，以及一处依赖固定等待时间维持 model turn 活跃状态的 hosted integration race。package test 现在选择受维护的 Vitest project，mock model 则改用显式 release gate；完整 repository check、两种 runtime integration 和已安装 alpha.1 tarball 已在本地通过。Hosted CI 仍待执行。
+- 2026-08-20：发布重试 contract 的 Review 发现，由 tag 触发的 workflow 仍允许该 tag revision 重新定义自己的 OIDC 发布权限。发布现在从无特权的手动请求与 `repository_dispatch` 开始；GitHub 会从默认分支解析具备权限的 workflow，再由它验证并 checkout 显式指定、已经 Review 的 tag。首次发布必须等于 dispatch 时的 `master` commit，确保 npm provenance 指向实际构建源码；只有该 npm 精确版本已经存在时才允许使用祖先 tag，从而在不授权新的历史版本发布的前提下保留 GitHub Release 恢复能力。workflow 会在 npm publication 与 GitHub Release mutation 前分别重新 fetch 并比对 tag，关闭长时间构建期间的移动窗口。重试只会在 immutable GitHub Release 的 tag、标题、状态、notes、asset 名称、大小与下载后的 SHA-512 都和重建 release 一致时接受它。
 
 ## 已考虑的替代方案
 
