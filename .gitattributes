@@ -1,0 +1,3 @@
+* text=auto eol=lf
+
+apps/dsh-edge/standalone/patches/*.patch -whitespace

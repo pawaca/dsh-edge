@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record: the git blob hash of each side at the
+# last confirmed-consistent state. Both languages carry equal authority.
+# After editing either side, update both and re-record every pair with:
+#   pnpm run doc-pairs -- --write
+2026-08-14-cloudflare-computer-runtime-poc.md: 7d8b5af2e8e1ec993fa3e7e999c9736ece9776cd
+2026-08-14-cloudflare-computer-runtime-poc.zh.md: d4b1246825bf9f6b1a6d12446fd03bea8095c358

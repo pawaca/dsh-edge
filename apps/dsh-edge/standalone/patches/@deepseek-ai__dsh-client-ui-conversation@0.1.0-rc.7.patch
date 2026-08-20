@@ -1,0 +1,33 @@
+diff --git a/lib/client.js b/lib/client.js
+index 1dd0e89e7b91ba87610fafe5b7df8693d7485333..66b2e695a1d60705a7f89f637e091bc56bf3fce6 100644
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -3597,14 +3597,12 @@ window.__ModuleLoader__.load({
+ 				keyboard.track(keyboard.snapshot.draft, caret);
+ 			};
+ 			const intakeImages = (0, react.useCallback)((files) => {
+-				if (addImages === void 0 || files.length === 0) return;
++				if (imageLimits === void 0 || addImages === void 0 || files.length === 0) return;
+ 				const rejected = (() => {
+-					if (imageLimits !== void 0) {
+-						if (files.some((file) => !imageLimits.mediaTypes.includes(file.type))) return addImages(files);
+-						if (attachments.length + files.length > imageLimits.maxImagesPerMessage) return t("image.tooMany", { count: imageLimits.maxImagesPerMessage });
+-						if (files.some((file) => file.size > imageLimits.maxImageBytes)) return t("image.fileTooLarge", { size: imageSizeText(imageLimits.maxImageBytes) });
+-						if (attachments.reduce((sum, attachment) => sum + attachment.file.size, 0) + files.reduce((sum, file) => sum + file.size, 0) > imageLimits.maxMessageImageBytes) return t("image.totalTooLarge", { size: imageSizeText(imageLimits.maxMessageImageBytes) });
+-					}
++					if (files.some((file) => !imageLimits.mediaTypes.includes(file.type))) return addImages(files);
++					if (attachments.length + files.length > imageLimits.maxImagesPerMessage) return t("image.tooMany", { count: imageLimits.maxImagesPerMessage });
++					if (files.some((file) => file.size > imageLimits.maxImageBytes)) return t("image.fileTooLarge", { size: imageSizeText(imageLimits.maxImageBytes) });
++					if (attachments.reduce((sum, attachment) => sum + attachment.file.size, 0) + files.reduce((sum, file) => sum + file.size, 0) > imageLimits.maxMessageImageBytes) return t("image.totalTooLarge", { size: imageSizeText(imageLimits.maxMessageImageBytes) });
+ 					return addImages(files);
+ 				})();
+ 				if (rejected !== null) showToast(rejected);
+@@ -3615,7 +3613,7 @@ window.__ModuleLoader__.load({
+ 				showToast,
+ 				t
+ 			]);
+-			const canAcceptDrop = !locked && !machineBusy && addImages !== void 0;
++			const canAcceptDrop = !locked && !machineBusy && imageLimits !== void 0 && addImages !== void 0;
+ 			(0, react.useEffect)(() => {
+ 				const hasFiles = (event) => event.dataTransfer?.types.includes("Files") ?? false;
+ 				const reset = () => {

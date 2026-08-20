@@ -1,0 +1,14 @@
+.DS_Store
+.env
+.wrangler/
+*.tsbuildinfo
+coverage/
+node_modules/
+pnpm-debug.log
+
+apps/dsh-edge/.dev.vars
+apps/dsh-edge/dist/
+apps/dsh-edge/worker/
+apps/dsh-edge/standalone/dist/
+apps/dsh-edge/standalone/node_modules/
+packages/client/ui-edge/lib/

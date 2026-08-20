@@ -1,0 +1,58 @@
+{
+  "name": "dsh-edge-standalone-assembly",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "packageManager": "pnpm@11.7.0",
+  "scripts": {
+    "build": "pnpm run build:web && pnpm run build:workers",
+    "build:edge-client": "tsdown --config tsdown.edge-client.config.mjs",
+    "build:web": "pnpm run build:edge-client && node scripts/assemble-standalone-web.mjs",
+    "build:worker:direct": "node scripts/bundle-standalone.mjs direct",
+    "build:worker:isolated": "node scripts/bundle-standalone.mjs isolated",
+    "build:workers": "pnpm run build:worker:direct && pnpm run build:worker:isolated",
+    "verify": "node scripts/verify-determinism.mjs && node scripts/verify-standalone.mjs"
+  },
+  "dependencies": {
+    "@cloudflare/computer": "0.2.0",
+    "@deepseek-ai/cordis": "4.0.1",
+    "@deepseek-ai/dsh-agent": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-agent-loop": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-anonymous-user-id": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-base": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-brand": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-credentials": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-host-apiproxy": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-invariants": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-launch-environment": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-llm": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-llm-deepseek": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-session": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-session-persistence": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-session-query": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-session-title": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-settings": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-system-prompt": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-tool-call-timeout-policy": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-tool-web": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-tools": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-web": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-web-app": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-web-frontend": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-web-search-deepseek": "0.1.0-rc.7",
+    "compare-versions": "6.1.1",
+    "execa": "10.0.0",
+    "just-bash": "3.3.0",
+    "jsonc-parser": "3.3.1",
+    "wrangler": "4.123.0"
+  },
+  "devDependencies": {
+    "lightningcss": "1.32.0",
+    "tsdown": "0.22.2",
+    "tsx": "4.22.4",
+    "typescript": "6.0.3"
+  }
+}

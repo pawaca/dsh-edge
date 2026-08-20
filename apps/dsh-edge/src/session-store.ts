@@ -1,0 +1,1110 @@
+/** Canonical DSH sessions backed by the upstream persistence service. */
+
+import { Context } from '@deepseek-ai/cordis'
+import AgentRegistry, { type Agent, type AgentHandle } from '@deepseek-ai/dsh-agent'
+import AgentLoop from '@deepseek-ai/dsh-agent-loop'
+import { credentialRef, type CredentialInfo } from '@deepseek-ai/dsh-credentials'
+import LlmRuntime, { createUserMessage } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
+import {
+  SESSION_SEARCH_RESULT_LIMIT,
+  SESSION_SEARCH_SNIPPET_MAX_CODE_POINTS,
+  type QueuedInboxItem,
+  type RpcId,
+  type SessionSearchItem,
+} from '@deepseek-ai/dsh-host-apiproxy/api'
+import SessionStore, {
+  SessionId,
+  isAppendSurfaceEvent,
+  type SessionEvent,
+  type SessionEventMap,
+  type SessionHeader,
+  type UserMessage,
+} from '@deepseek-ai/dsh-session'
+import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
+import { buildSessionEventSearchDocuments } from '@deepseek-ai/dsh-session-query'
+import {
+  foldSessionTitle,
+  normalizeSessionTitle,
+} from '@deepseek-ai/dsh-session-title'
+import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import ToolRuntime from '@deepseek-ai/dsh-tools'
+import {
+  EDGE_SYSTEM_PROMPT,
+  EdgeShellBindings,
+  createEdgeBashTool,
+  type EdgeShell,
+} from './agent.ts'
+import { EdgeDeepSeekAdapter, type EdgeReasoningEffort } from './deepseek.ts'
+import EdgeCredentialProvider, { EDGE_DEEPSEEK_API_KEY_REF } from './edge-credentials.ts'
+import DurableObjectSessionPersistence, {
+  EDGE_HISTORY_PAGE_LIMITS,
+  type EdgeEventPage,
+} from './do-session-persistence.ts'
+import type { CreateEdgeSessionInput, EdgeSession } from './protocol.ts'
+import { installEdgeWebSearch } from './web-search.ts'
+
+const MAX_TITLE_BYTES = 640
+const MAX_FORK_EVENTS = 8_192
+
+interface EdgeSessionStoreConfig {
+  readDeepSeekApiKey(): string | undefined
+  searchBaseURL?: string
+}
+const MAX_FORK_STORED_BYTES = 8 * 1_024 * 1_024
+const MAX_SEARCH_SESSIONS = 32
+const MAX_SEARCH_EVENTS_PER_SESSION = 512
+const MAX_SEARCH_STORED_BYTES_PER_SESSION = 256 * 1_024
+const EDGE_PROVIDER = 'deepseek-official'
+const DEFAULT_EDGE_MODEL = 'deepseek-v4-flash'
+const MESSAGE_TYPES = new Set<SessionEvent['type']>(['user/message', 'assistant/message'])
+
+export interface EdgeSessionListPage {
+  sessions: EdgeSession[]
+  hasMore: boolean
+  nextAfter?: SessionId
+}
+
+/** Upstream session-list and subscription metadata derived from live or stored sessions. */
+export interface EdgeApiSessionSummary {
+  id: SessionId
+  title: string | null
+  createdAt: number
+  lastPromptAt: number | null
+  updatedAt: number
+  lastSeq: number
+  blank: boolean
+  parentSessionId?: SessionId
+  origin?: 'subagent'
+  cwd?: string
+  agentPreset?: string
+}
+
+export interface EdgeSessionHistoryPage {
+  summary: EdgeApiSessionSummary
+  events: SessionEvent[]
+  hasMore: boolean
+}
+
+export interface EdgeSessionSearchPage {
+  items: SessionSearchItem[]
+  hasMore: boolean
+}
+
+export interface EdgeMuxBaseline {
+  sessions: EdgeApiSessionSummary[]
+  queues: { sessionId: SessionId; items: QueuedInboxItem[] }[]
+}
+
+export interface EdgeAgentPromptAdmission {
+  mode: 'queue' | 'steer'
+  content: ContentBlock[]
+  rpcId?: RpcId
+  clientTimeZone?: string
+}
+
+export type EdgeAgentPromptAdmitter = (input: EdgeAgentPromptAdmission) => Promise<void>
+
+export class EdgeSessionStoreError extends Error {
+  constructor(
+    readonly code: 'NOT_FOUND' | 'BUSY' | 'INVALID_DATA' | 'TITLE_INVALID' | 'FORK_UNAVAILABLE',
+    message: string,
+  ) {
+    super(message)
+  }
+}
+
+/**
+ * Edge-facing facade over the same SessionStore + SessionPersistence services
+ * used by upstream. Durable Object SQL is visible only to the backend plugin.
+ */
+export class EdgeSessionStore {
+  private readonly context = new Context()
+  private readonly model = new EdgeDeepSeekAdapter(async () => (
+    await this.context.credentials.resolve(EDGE_DEEPSEEK_API_KEY_REF)
+  )?.value)
+  private readonly shells = new EdgeShellBindings()
+  private readonly blankHandles = new Map<SessionId, AgentHandle>()
+  private readonly turnPublishedAgents = new WeakSet<Agent>()
+  private readonly ready: Promise<void>
+
+  constructor(
+    storage: DurableObjectStorage,
+    config: EdgeSessionStoreConfig,
+  ) {
+    this.ready = this.initialize(storage, config)
+  }
+
+  private async initialize(
+    storage: DurableObjectStorage,
+    config: EdgeSessionStoreConfig,
+  ): Promise<void> {
+    await this.context.plugin(EdgeCredentialProvider, {
+      readDeepSeekApiKey: () => config.readDeepSeekApiKey(),
+    })
+    await this.context.plugin(LlmRuntime)
+    await this.context.plugin(SessionStore)
+    await this.context.plugin(SystemPrompt, { persona: EDGE_SYSTEM_PROMPT })
+    await this.context.plugin(ToolRuntime)
+    await this.context.plugin(AgentRegistry)
+    await installEdgeWebSearch(this.context, config.searchBaseURL)
+    await this.context.plugin(DurableObjectSessionPersistence, { storage })
+    await this.context.plugin(AgentLoop, { agents: [] })
+    this.context.effect(
+      () => this.context.llm.registerAdapter([EDGE_PROVIDER], this.model),
+      'dsh-edge: model adapter',
+    )
+    this.context.effect(
+      () => this.context.tools.register(createEdgeBashTool(this.shells)),
+      'dsh-edge: bash tool',
+    )
+  }
+
+  /** Describe one credential through the mounted upstream provider without exposing its value. */
+  async describeCredential(ref: string): Promise<CredentialInfo> {
+    await this.ready
+    return await this.context.credentials.describe(credentialRef(ref))
+  }
+
+  async createSession(input: CreateEdgeSessionInput): Promise<EdgeSession> {
+    const { agents, sessions, persistence } = await this.services()
+    const title = normalizeSessionTitle(input.title, MAX_TITLE_BYTES)
+    if (title.length === 0) {
+      throw new EdgeSessionStoreError('INVALID_DATA', 'Session title must contain visible text.')
+    }
+    const id = SessionId(crypto.randomUUID())
+    const handle = await agents.create({
+      sessionId: id,
+      meta: {
+        cwd: '/workspace',
+        agentPreset: 'dsh-edge',
+      },
+      agentOptions: { provider: EDGE_PROVIDER, model: DEFAULT_EDGE_MODEL },
+    })
+    const { agent } = handle
+    const { session } = agent
+    try {
+      session.append('session/title', {
+        title,
+        messageSeqs: [],
+        source: { kind: 'user' },
+      })
+      // Upstream session creation is intentionally lazy. The required title
+      // supplies the first canonical event before this HTTP API returns 201.
+      await sessions.flush(session)
+      return summarize(session.header, session.events)
+    } catch (error) {
+      if (!(persistence instanceof DurableObjectSessionPersistence)) {
+        throw new EdgeSessionStoreError('INVALID_DATA', 'Edge persistence backend is unavailable.')
+      }
+      await persistence.abandonUnmaterializedSession(session)
+      throw error
+    } finally {
+      await handle.dispose().catch((disposeError: unknown) => {
+        console.error('dsh-edge failed to release the created session.', disposeError)
+      })
+    }
+  }
+
+  /** Create the lazy blank session expected by the upstream Web client. */
+  async createBlankSession(input: {
+    sessionId?: SessionId
+    model: string
+  }): Promise<{ sessionId: SessionId; agentPreset: string; created: boolean }> {
+    const { agents, sessions, persistence } = await this.services()
+    const id = input.sessionId ?? SessionId(`session-${crypto.randomUUID()}`)
+    const attached = sessions.get(id)
+    if (attached !== undefined) {
+      if (attached.header.cwd !== '/workspace') {
+        throw new EdgeSessionStoreError(
+          'INVALID_DATA',
+          `Session ${id} already belongs to ${attached.header.cwd ?? 'an unknown workspace'}.`,
+        )
+      }
+      return {
+        sessionId: id,
+        agentPreset: attached.header.agentPreset ?? 'dsh-edge',
+        created: false,
+      }
+    }
+    if (!(persistence instanceof DurableObjectSessionPersistence)) {
+      throw new EdgeSessionStoreError('INVALID_DATA', 'Edge persistence backend is unavailable.')
+    }
+    const stored = persistence.readSessionSummary(id)
+    if (stored !== undefined) {
+      if (stored.meta.cwd !== '/workspace') {
+        throw new EdgeSessionStoreError(
+          'INVALID_DATA',
+          `Session ${id} already belongs to ${stored.meta.cwd ?? 'an unknown workspace'}.`,
+        )
+      }
+      return {
+        sessionId: id,
+        agentPreset: stored.meta.agentPreset ?? 'dsh-edge',
+        created: false,
+      }
+    }
+    const retainedBlank = persistence.readBlankSession(id)
+    if (retainedBlank !== undefined) {
+      if (retainedBlank.cwd !== '/workspace') {
+        throw new EdgeSessionStoreError(
+          'INVALID_DATA',
+          `Session ${id} already belongs to ${retainedBlank.cwd ?? 'an unknown workspace'}.`,
+        )
+      }
+      return {
+        sessionId: id,
+        agentPreset: retainedBlank.agentPreset ?? 'dsh-edge',
+        created: false,
+      }
+    }
+    const handle = await agents.create({
+      sessionId: id,
+      meta: { cwd: '/workspace', agentPreset: 'dsh-edge' },
+      agentOptions: { provider: EDGE_PROVIDER, model: input.model },
+    })
+    try {
+      await persistence.retainBlankSession(handle.agent.session.header)
+      this.blankHandles.set(id, handle)
+      return { sessionId: id, agentPreset: 'dsh-edge', created: true }
+    } catch (error) {
+      await persistence.abandonUnmaterializedSession(handle.agent.session)
+      await handle.dispose().catch((disposeError: unknown) => {
+        console.error('dsh-edge failed to roll back blank session creation.', disposeError)
+      })
+      throw error
+    }
+  }
+
+  async listSessions(
+    after: SessionId | undefined,
+    limit: number,
+  ): Promise<EdgeSessionListPage | undefined> {
+    const { persistence } = await this.services()
+    if (!(persistence instanceof DurableObjectSessionPersistence)) {
+      throw new EdgeSessionStoreError('INVALID_DATA', 'Edge persistence backend is unavailable.')
+    }
+    const page = persistence.readSessionSummaryPage(after, limit)
+    if (page === undefined) return undefined
+    const sessions = page.sessions.map(summarizeStored)
+    const last = sessions.at(-1)
+    return {
+      sessions,
+      hasMore: page.hasMore,
+      ...last === undefined ? {} : { nextAfter: last.id },
+    }
+  }
+
+  async getSession(id: SessionId): Promise<EdgeSession | undefined> {
+    const { persistence } = await this.services()
+    if (!(persistence instanceof DurableObjectSessionPersistence)) {
+      throw new EdgeSessionStoreError('INVALID_DATA', 'Edge persistence backend is unavailable.')
+    }
+    const stored = persistence.readSessionSummary(id)
+    if (stored !== undefined) return summarizeStored(stored)
+    const blank = persistence.readBlankSession(id)
+    return blank === undefined ? undefined : summarize(blank, [])
+  }
+
+  /** Read every session summary using the upstream list semantics. */
+  async listApiSessions(): Promise<EdgeApiSessionSummary[]> {
+    const { sessions, persistence } = await this.services()
+    if (!(persistence instanceof DurableObjectSessionPersistence)) {
+      throw new EdgeSessionStoreError('INVALID_DATA', 'Edge persistence backend is unavailable.')
+    }
+    return collectApiSessions(sessions, persistence)
+  }
+
+  /** Read one upstream API summary without scanning the workspace registry. */
+  async getApiSessionSummary(id: SessionId): Promise<EdgeApiSessionSummary> {
+    const { sessions, persistence } = await this.services()
+    const live = sessions.get(id)
+    if (live !== undefined) return summarizeApiLive(live.header, live.events)
+    if (!(persistence instanceof DurableObjectSessionPersistence)) {
+      throw new EdgeSessionStoreError('INVALID_DATA', 'Edge persistence backend is unavailable.')
+    }
+    const stored = persistence.readSessionSummary(id)
+    if (stored !== undefined) return summarizeApiStored(stored)
+    const blank = persistence.readBlankSession(id)
+    if (blank !== undefined) return summarizeApiLive(blank, [])
+    throw new EdgeSessionStoreError('NOT_FOUND', 'Session not found.')
+  }
+
+  /**
+   * Search a fixed work budget of canonical current-message surfaces for the sidebar.
+   * @param query - Non-empty query already validated by the upstream carrier.
+   * @param signal - Request cancellation, checked between session reads.
+   * @returns Up to the upstream result limit; `hasMore` also reports skipped over-budget logs.
+   */
+  async searchApiSessions(query: string, signal?: AbortSignal): Promise<EdgeSessionSearchPage> {
+    signal?.throwIfAborted()
+    const { sessions, persistence } = await this.services()
+    if (!(persistence instanceof DurableObjectSessionPersistence)) {
+      throw new EdgeSessionStoreError('INVALID_DATA', 'Edge persistence backend is unavailable.')
+    }
+    const summaries = collectRecentApiSessions(persistence, MAX_SEARCH_SESSIONS + 1)
+    const candidates = summaries.slice(0, MAX_SEARCH_SESSIONS)
+    let hasMore = summaries.length > candidates.length
+    const items: SessionSearchItem[] = []
+    const normalizedQuery = normalizeSearchText(query)
+
+    for (const summary of candidates) {
+      signal?.throwIfAborted()
+      const live = sessions.get(summary.id)
+      let events: readonly SessionEvent[]
+      if (live !== undefined) {
+        await sessions.flush(live)
+        if (live.events.length > MAX_SEARCH_EVENTS_PER_SESSION) {
+          hasMore = true
+          continue
+        }
+        events = live.events
+      } else if (persistence.readBlankSession(summary.id) !== undefined) {
+        continue
+      } else {
+        const page = await persistence.readEventPage(
+          summary.id,
+          0,
+          MAX_SEARCH_EVENTS_PER_SESSION,
+          MAX_SEARCH_STORED_BYTES_PER_SESSION,
+          signal,
+        )
+        if (page.hasMore) {
+          hasMore = true
+          continue
+        }
+        events = page.events
+      }
+      const match = buildSessionEventSearchDocuments(summary.id, events)
+        .findLast(document => document.surface === 'current'
+          && MESSAGE_TYPES.has(document.type)
+          && normalizeSearchText(document.text).includes(normalizedQuery))
+      if (match === undefined) continue
+      items.push({
+        sessionId: summary.id,
+        snippet: searchSnippet(match.text, query, SESSION_SEARCH_SNIPPET_MAX_CODE_POINTS),
+      })
+      if (items.length > SESSION_SEARCH_RESULT_LIMIT) {
+        return { items: items.slice(0, SESSION_SEARCH_RESULT_LIMIT), hasMore: true }
+      }
+    }
+    return { items, hasMore }
+  }
+
+  /** Consume mux baselines synchronously with socket registration after readiness. */
+  async withMuxBaseline<T>(consume: (baseline: EdgeMuxBaseline) => T): Promise<T> {
+    const { agents, sessions, persistence } = await this.services()
+    if (!(persistence instanceof DurableObjectSessionPersistence)) {
+      throw new EdgeSessionStoreError('INVALID_DATA', 'Edge persistence backend is unavailable.')
+    }
+    const queues: EdgeMuxBaseline['queues'] = []
+    for (const session of sessions.list()) {
+      const agent = agents.get(session.id)
+      if (agent?.session !== session || !agent.inbox.hasPending) continue
+      queues.push({ sessionId: session.id, items: queueItems(agent) })
+    }
+    return consume({ sessions: collectApiSessions(sessions, persistence), queues })
+  }
+
+  /** Require one live, canonical, or retained-blank session using only point reads. */
+  async requireSession(id: SessionId): Promise<void> {
+    const { sessions, persistence } = await this.services()
+    if (sessions.get(id) !== undefined) return
+    if (!(persistence instanceof DurableObjectSessionPersistence)) {
+      throw new EdgeSessionStoreError('INVALID_DATA', 'Edge persistence backend is unavailable.')
+    }
+    if (persistence.readSessionHeader(id) !== undefined
+      || persistence.readBlankSession(id) !== undefined) return
+    throw new EdgeSessionStoreError('NOT_FOUND', 'Session not found.')
+  }
+
+  /** Page live history in memory or cold history at the Durable Object SQL boundary. */
+  async readHistoryPage(
+    id: SessionId,
+    beforeSeq: number | undefined,
+    maxMessages: number,
+  ): Promise<EdgeSessionHistoryPage> {
+    const { sessions, persistence } = await this.services()
+    const boundedMaxMessages = Math.min(maxMessages, EDGE_HISTORY_PAGE_LIMITS.maxMessages)
+    const live = sessions.get(id)
+    if (live !== undefined) {
+      const page = paginateHistory(live.events, beforeSeq, boundedMaxMessages)
+      return {
+        summary: summarizeApiLive(live.header, live.events),
+        events: page.events,
+        hasMore: page.hasMore,
+      }
+    }
+    if (!(persistence instanceof DurableObjectSessionPersistence)) {
+      throw new EdgeSessionStoreError('INVALID_DATA', 'Edge persistence backend is unavailable.')
+    }
+    const blank = persistence.readBlankSession(id)
+    if (blank !== undefined) {
+      return { summary: summarizeApiLive(blank, []), events: [], hasMore: false }
+    }
+    const page = await persistence.readHistoryPage(id, beforeSeq, boundedMaxMessages)
+    if (page === undefined) throw new EdgeSessionStoreError('NOT_FOUND', 'Session not found.')
+    return {
+      summary: summarizeApiStored(page.summary),
+      events: page.events,
+      hasMore: page.hasMore,
+    }
+  }
+
+  /** Fork one completed-turn prefix through the upstream Session seed format. */
+  async forkSession(
+    id: SessionId,
+    atSeq: number | undefined,
+    model: string,
+  ): Promise<EdgeApiSessionSummary> {
+    const { agents, sessions, persistence } = await this.services()
+    if (!(persistence instanceof DurableObjectSessionPersistence)) {
+      throw new EdgeSessionStoreError('INVALID_DATA', 'Edge persistence backend is unavailable.')
+    }
+    const live = sessions.get(id)
+    let header: SessionHeader
+    let events: readonly SessionEvent[]
+    if (live !== undefined) {
+      header = live.header
+      events = live.events
+    } else {
+      const blank = persistence.readBlankSession(id)
+      if (blank !== undefined) {
+        header = blank
+        events = []
+        return await this.createForkedSession(agents, sessions, persistence, id, header, events, atSeq, model)
+      }
+      if (persistence.readSessionHeader(id) === undefined) {
+        throw new EdgeSessionStoreError('NOT_FOUND', 'Session not found.')
+      }
+      const page = await persistence.readEventPage(
+        id,
+        0,
+        MAX_FORK_EVENTS,
+        MAX_FORK_STORED_BYTES,
+      )
+      if (page.hasMore) {
+        throw new EdgeSessionStoreError(
+          'FORK_UNAVAILABLE',
+          `Session ${id} exceeds the Edge fork history limit.`,
+        )
+      }
+      header = page.meta
+      events = page.events
+    }
+    return await this.createForkedSession(agents, sessions, persistence, id, header, events, atSeq, model)
+  }
+
+  private async createForkedSession(
+    agents: AgentRegistry,
+    sessions: SessionStore,
+    persistence: DurableObjectSessionPersistence,
+    id: SessionId,
+    header: SessionHeader,
+    events: readonly SessionEvent[],
+    atSeq: number | undefined,
+    model: string,
+  ): Promise<EdgeApiSessionSummary> {
+    const seed = completedForkSeed(id, events, atSeq)
+    assertForkSeedWithinLimits(id, seed)
+    const childId = SessionId(`session-${crypto.randomUUID()}`)
+    const handle = await agents.create({
+      sessionId: childId,
+      seed,
+      meta: {
+        ...header.cwd === undefined ? {} : { cwd: header.cwd },
+        parentSession: id,
+        seedLength: seed.length,
+        agentPreset: header.agentPreset ?? 'dsh-edge',
+      },
+      agentOptions: { provider: EDGE_PROVIDER, model },
+    })
+    try {
+      await sessions.flush(handle.agent.session)
+      return summarizeApiLive(handle.agent.session.header, handle.agent.session.events)
+    } catch (error) {
+      await persistence.abandonUnmaterializedSession(handle.agent.session)
+      throw error
+    } finally {
+      await handle.dispose().catch((disposeError: unknown) => {
+        console.error('dsh-edge failed to release the forked session.', disposeError)
+      })
+    }
+  }
+
+  /**
+   * Append the canonical user-owned title event to a live or cold session.
+   *
+   * Upstream defines the synchronous append as the rename commit point. Its
+   * persistence coordinator owns write-behind and retirement retries, so this
+   * RPC must not report rejection after the accepted event can still commit.
+   * The result also transfers delivery to the caller only when no turn observer
+   * owned the event at that same synchronous append point.
+   */
+  async renameSession(
+    id: SessionId,
+    title: string,
+    model: string,
+  ): Promise<{
+    title: string
+    event: SessionEvent<'session/title'>
+    publishRequired: boolean
+  }> {
+    const normalized = normalizeSessionTitle(title, MAX_TITLE_BYTES)
+    if (normalized.length === 0) {
+      throw new EdgeSessionStoreError('TITLE_INVALID', 'Session title must contain visible text.')
+    }
+    const { agents } = await this.services()
+    const live = agents.get(id)
+    // Retained blanks still belong to this store: claim and retire their
+    // handle below. Every other registered agent may be running; metadata
+    // appends are valid while its turn owns the process-local handle.
+    if (live !== undefined && !this.blankHandles.has(id)) {
+      const publishRequired = !this.turnPublishedAgents.has(live)
+      return { title: normalized, event: appendUserTitle(live, normalized), publishRequired }
+    }
+
+    const handle = await this.openAgentForTurn(id, model)
+    try {
+      return {
+        title: normalized,
+        event: appendUserTitle(handle.agent, normalized),
+        publishRequired: true,
+      }
+    } finally {
+      await handle.dispose().catch((disposeError: unknown) => {
+        console.error('dsh-edge failed to release the renamed session.', disposeError)
+      })
+    }
+  }
+
+  /** Count live Agent owners for host.describe. */
+  async attachedSessionCount(): Promise<number> {
+    const { agents } = await this.services()
+    return agents.list().length
+  }
+
+  /** Resolve a live native agent, or cold-resume it through upstream persistence. */
+  async openAgentForTurn(id: SessionId, model: string): Promise<AgentHandle> {
+    const { agents, persistence } = await this.services()
+    const blank = this.blankHandles.get(id)
+    if (blank !== undefined) {
+      this.blankHandles.delete(id)
+      return blank
+    }
+    if (agents.get(id) !== undefined) {
+      throw new EdgeSessionStoreError('BUSY', 'Session already has a live agent owner.')
+    }
+    if (!(persistence instanceof DurableObjectSessionPersistence)) {
+      throw new EdgeSessionStoreError('INVALID_DATA', 'Edge persistence backend is unavailable.')
+    }
+    if (!persistence.hasSession(id)) {
+      const retainedBlank = persistence.readBlankSession(id)
+      if (retainedBlank === undefined) {
+        throw new EdgeSessionStoreError('NOT_FOUND', 'Session not found.')
+      }
+      await persistence.materializeBlankSession(id)
+    }
+    const handle = await agents.resume({
+      resumeSessionId: id,
+      agentOptions: { provider: EDGE_PROVIDER, model },
+    })
+    try {
+      await this.context.sessions.flush(handle.agent.session)
+      return handle
+    } catch (error) {
+      await handle.dispose().catch((disposeError: unknown) => {
+        console.error('dsh-edge failed to roll back agent resume.', disposeError)
+      })
+      throw error
+    }
+  }
+
+  /** Drive one turn through ReactLoopAgent and publish only durable events. */
+  async runAgentTurn(input: {
+    agent: Agent
+    baseURL?: string
+    maxTokens?: number
+    reasoningEffort?: EdgeReasoningEffort
+    streamIdleTimeoutMs?: number
+    mode: 'queue' | 'steer'
+    content: ContentBlock[]
+    rpcId?: RpcId
+    clientTimeZone?: string
+    shell: EdgeShell
+    publish: (event: SessionEvent) => void | Promise<void>
+    publishQueue?: (items: QueuedInboxItem[]) => void | Promise<void>
+    afterFollowup?: () => void
+    onAdmitted?: (admit: EdgeAgentPromptAdmitter) => void
+    onClosing?: () => void
+  }): Promise<void> {
+    const { sessions } = await this.services()
+    const { agent } = input
+    if (this.context.agents.get(agent.id) !== agent || sessions.get(agent.id) !== agent.session) {
+      throw new EdgeSessionStoreError('INVALID_DATA', 'Agent is not the live persistence owner.')
+    }
+
+    const releaseModel = this.model.bind(agent.id, {
+      ...input.baseURL === undefined ? {} : { baseURL: input.baseURL },
+      ...input.maxTokens === undefined ? {} : { maxTokens: input.maxTokens },
+      ...input.reasoningEffort === undefined
+        ? {}
+        : { reasoningEffort: input.reasoningEffort },
+      ...input.streamIdleTimeoutMs === undefined
+        ? {}
+        : { streamIdleTimeoutMs: input.streamIdleTimeoutMs },
+    })
+    let releaseShell: () => void
+    try {
+      releaseShell = this.shells.bind(agent.id, input.shell)
+    } catch (error) {
+      releaseModel()
+      throw error
+    }
+    let delivery = Promise.resolve()
+    let deliveryError: unknown
+    const stopObserving = this.context.on('session/event', (subject, event) => {
+      if (subject !== agent.session) return
+      const queue = event.type === 'agent/inbox/spliced'
+        ? queueItems(agent, event.data)
+        : undefined
+      delivery = delivery.then(async () => {
+        await sessions.flush(agent.session)
+        if (deliveryError !== undefined) return
+        try {
+          await input.publish(event)
+          if (queue !== undefined) await input.publishQueue?.(queue)
+        } catch (error) {
+          deliveryError = error
+        }
+      })
+    })
+    this.turnPublishedAgents.add(agent)
+    const admission = createDurablePromptAdmitter(
+      this.context,
+      agent,
+      () => sessions.flush(agent.session),
+    )
+
+    try {
+      const admitted = admission.admit({
+        mode: input.mode,
+        content: input.content,
+        ...input.rpcId === undefined ? {} : { rpcId: input.rpcId },
+        ...input.clientTimeZone === undefined
+          ? {}
+          : { clientTimeZone: input.clientTimeZone },
+      })
+      input.afterFollowup?.()
+      await admitted
+      input.onAdmitted?.(admission.admit)
+      while (true) {
+        await agent.whenIdle()
+        if (agent.status !== 'idle') continue
+        input.onClosing?.()
+        break
+      }
+      await delivery
+      await sessions.flush(agent.session)
+    } finally {
+      await delivery.catch(() => {})
+      await agent.whenIdle().catch(() => {})
+      admission.dispose()
+      stopObserving()
+      this.turnPublishedAgents.delete(agent)
+      releaseShell()
+      releaseModel()
+    }
+  }
+
+  async readEventPage(
+    id: SessionId,
+    fromSeq: number,
+    limit: number,
+    maxStoredBytes: number,
+  ): Promise<EdgeEventPage> {
+    const { persistence } = await this.services()
+    if (!(persistence instanceof DurableObjectSessionPersistence)) {
+      throw new EdgeSessionStoreError('INVALID_DATA', 'Edge persistence backend is unavailable.')
+    }
+    try {
+      return await persistence.readEventPage(id, fromSeq, limit, maxStoredBytes)
+    } catch (error) {
+      if (error instanceof Error && error.message === `session "${id}" not found`) {
+        throw new EdgeSessionStoreError('NOT_FOUND', 'Session not found.')
+      }
+      throw error
+    }
+  }
+
+  private async services(): Promise<{
+    agents: AgentRegistry
+    sessions: SessionStore
+    persistence: SessionPersistence
+  }> {
+    await this.ready
+    return {
+      agents: this.context.agents,
+      sessions: this.context.sessions,
+      persistence: this.context.sessionPersistence,
+    }
+  }
+}
+
+function appendUserTitle(agent: Agent, title: string): SessionEvent<'session/title'> {
+  return agent.session.append('session/title', {
+    title,
+    messageSeqs: [],
+    source: { kind: 'user' },
+  })
+}
+
+function collapseSearchWhitespace(value: string): string {
+  return value.replace(/\s+/gu, ' ').trim()
+}
+
+function normalizeSearchText(value: string): string {
+  return collapseSearchWhitespace(value).toLowerCase()
+}
+
+function searchMatchStart(
+  characters: readonly string[],
+  query: string,
+): number {
+  const sourceCodePointByCodeUnit: number[] = []
+  for (const [sourceIndex, character] of characters.entries()) {
+    const folded = character.toLowerCase()
+    for (let offset = 0; offset < folded.length; offset += 1) {
+      sourceCodePointByCodeUnit.push(sourceIndex)
+    }
+  }
+  // Preserve whole-string Unicode lowercasing semantics (for example, final
+  // sigma) while the per-code-point folded lengths provide the source map.
+  const normalized = characters.join('').toLowerCase()
+  if (sourceCodePointByCodeUnit.length !== normalized.length) {
+    throw new TypeError('Search normalization produced an unmappable source offset.')
+  }
+  const matchIndex = normalized.indexOf(normalizeSearchText(query))
+  return matchIndex < 0 ? 0 : sourceCodePointByCodeUnit[matchIndex] ?? 0
+}
+
+/**
+ * Build a plain-text excerpt around one literal match under the upstream wire bound.
+ * @param text - Complete searchable message text.
+ * @param query - Literal normalized match selected by the caller.
+ * @param maximum - Maximum Unicode code points in the result.
+ * @returns A whitespace-normalized excerpt with edge ellipses when truncated.
+ */
+export function searchSnippet(text: string, query: string, maximum: number): string {
+  if (!Number.isSafeInteger(maximum) || maximum < 1) {
+    throw new TypeError('Search snippet maximum must be a positive safe integer.')
+  }
+  const clean = collapseSearchWhitespace(text)
+  const characters = Array.from(clean)
+  if (characters.length <= maximum) return clean
+  // Search the same whitespace-collapsed code points that the excerpt slices,
+  // retaining their source positions across length-changing Unicode case folds.
+  const matchStart = searchMatchStart(characters, query)
+  let start = Math.max(0, matchStart - Math.floor(maximum / 3))
+  let prefix = start > 0 ? '…' : ''
+  let suffix = '…'
+  let contentLength = maximum - prefix.length - suffix.length
+  if (contentLength < 1) {
+    start = matchStart
+    prefix = start > 0 ? '…' : ''
+    suffix = ''
+    contentLength = maximum - prefix.length
+  } else if (matchStart >= start + contentLength) {
+    start = matchStart - contentLength + 1
+  }
+  let end = Math.min(characters.length, start + contentLength)
+  if (end === characters.length) {
+    suffix = ''
+    contentLength = maximum - prefix.length
+    start = Math.max(0, end - contentLength)
+    prefix = start > 0 ? '…' : ''
+  }
+  end = Math.min(characters.length, start + maximum - prefix.length - suffix.length)
+  return `${prefix}${characters.slice(start, end).join('')}${suffix}`
+}
+
+function completedForkSeed(
+  id: SessionId,
+  events: readonly SessionEvent[],
+  atSeq: number | undefined,
+): SessionEvent[] {
+  const lastSeq = events.at(-1)?.seq ?? -1
+  const anchoredBoundary = atSeq === undefined
+    ? undefined
+    : events.find(event => event.type === 'turn/end' && event.seq >= atSeq)
+  const boundary = anchoredBoundary
+    ?? (atSeq === undefined || atSeq > lastSeq
+      ? events.findLast(event => event.type === 'turn/end')
+      : undefined)
+  if (boundary === undefined) {
+    throw new EdgeSessionStoreError(
+      'FORK_UNAVAILABLE',
+      atSeq !== undefined && atSeq <= lastSeq
+        ? `Session ${id} has not completed the turn containing event ${String(atSeq)}.`
+        : `Session ${id} has no completed turn to fork from.`,
+    )
+  }
+  let cut = boundary.seq + 1
+  while (cut < events.length && events[cut]?.type !== 'turn/start') cut++
+  return events.slice(0, cut)
+}
+
+function assertForkSeedWithinLimits(id: SessionId, seed: readonly SessionEvent[]): void {
+  if (seed.length > MAX_FORK_EVENTS
+    || new TextEncoder().encode(JSON.stringify(seed)).byteLength > MAX_FORK_STORED_BYTES) {
+    throw new EdgeSessionStoreError(
+      'FORK_UNAVAILABLE',
+      `Session ${id} exceeds the Edge fork history limit.`,
+    )
+  }
+}
+
+/** Gate model-visible prompt consumption on the Edge persistence flush barrier. */
+export function createDurablePromptAdmitter(
+  ctx: Context,
+  agent: Agent,
+  flush: () => Promise<unknown>,
+): { admit: EdgeAgentPromptAdmitter; dispose(): void } {
+  const gates = new Map<string, Promise<boolean>>()
+  const stop = ctx.on('agent/pre-step', async ({ agent: subject, messages }, next) => {
+    if (subject !== agent) return next()
+    for (const message of messages) {
+      const gate = gates.get(message.id)
+      if (gate === undefined) continue
+      const durable = await gate
+      gates.delete(message.id)
+      if (!durable) return { kind: 'reject' as const }
+    }
+    return next()
+  })
+  const admit: EdgeAgentPromptAdmitter = async (prompt) => {
+    const message = createUserMessage({
+      content: prompt.content,
+      source: prompt.rpcId === undefined
+        ? { kind: 'user' }
+        : {
+          kind: 'user',
+          rpcId: prompt.rpcId,
+          ...prompt.clientTimeZone === undefined
+            ? {}
+            : { clientTimeZone: prompt.clientTimeZone },
+        },
+    })
+    const gate = Promise.withResolvers<boolean>()
+    gates.set(message.id, gate.promise)
+    try {
+      if (prompt.mode === 'steer') agent.steer(message)
+      else agent.followup(message)
+    } catch (error) {
+      gate.resolve(false)
+      gates.delete(message.id)
+      throw error
+    }
+    try {
+      await flush()
+      gate.resolve(true)
+    } catch {
+      // The inbox mutation already woke the driver, so this prompt remains
+      // accepted. Reject model-visible consumption; the turn's delivery
+      // barrier reports the persistence failure through host/agent-error.
+      gate.resolve(false)
+    }
+  }
+  return {
+    admit,
+    dispose() {
+      stop()
+      gates.clear()
+    },
+  }
+}
+
+/** Project both inbox targets, optionally applying the splice currently being emitted. */
+function queueItems(
+  agent: Agent,
+  splice?: SessionEventMap['agent/inbox/spliced'],
+): QueuedInboxItem[] {
+  const project = (target: 'next-turn' | 'next-step'): readonly UserMessage[] => {
+    const messages = target === 'next-turn' ? agent.inbox.nextTurn : agent.inbox.nextStep
+    return splice?.target === target
+      ? messages.toSpliced(splice.start, splice.removedCount ?? 0, ...splice.inserted)
+      : messages
+  }
+  return [
+    ...project('next-turn').map(message => ({
+      id: message.id,
+      placement: 'queued' as const,
+      message,
+    })),
+    ...project('next-step').map(message => ({
+      id: message.id,
+      placement: message.source.kind === 'user' ? 'steering' as const : 'context' as const,
+      message,
+    })),
+  ]
+}
+
+function collectApiSessions(
+  sessions: SessionStore,
+  persistence: DurableObjectSessionPersistence,
+): EdgeApiSessionSummary[] {
+  const summaries = new Map<SessionId, EdgeApiSessionSummary>()
+  for (const blank of persistence.readAllBlankSessions()) {
+    summaries.set(blank.id, summarizeApiLive(blank, []))
+  }
+  for (const stored of persistence.readAllSessionSummaries()) {
+    summaries.set(stored.meta.id, summarizeApiStored(stored))
+  }
+  for (const session of sessions.list()) {
+    summaries.set(session.id, summarizeApiLive(session.header, session.events))
+  }
+  return [...summaries.values()].sort((left, right) =>
+    right.updatedAt - left.updatedAt || left.id.localeCompare(right.id))
+}
+
+function collectRecentApiSessions(
+  persistence: DurableObjectSessionPersistence,
+  limit: number,
+): EdgeApiSessionSummary[] {
+  return [
+    ...persistence.readRecentBlankSessions(limit).map(blank => summarizeApiLive(blank, [])),
+    ...persistence.readRecentSessionSummaries(limit).map(summarizeApiStored),
+  ].sort((left, right) =>
+    right.updatedAt - left.updatedAt || left.id.localeCompare(right.id)).slice(0, limit)
+}
+
+function summarizeApiLive(
+  header: SessionHeader,
+  events: readonly SessionEvent[],
+): EdgeApiSessionSummary {
+  const prompt = events.findLast(event =>
+    event.type === 'user/message' && event.data.source.kind === 'user')
+  return {
+    id: header.id,
+    title: foldSessionTitle(events)?.title ?? null,
+    createdAt: header.createdAt,
+    lastPromptAt: prompt?.time ?? null,
+    updatedAt: prompt?.time ?? header.createdAt,
+    lastSeq: events.at(-1)?.seq ?? -1,
+    blank: !events.some(event => event.type === 'turn/start'),
+    ...header.parentSession === undefined ? {} : { parentSessionId: header.parentSession },
+    ...header.origin === undefined ? {} : { origin: header.origin },
+    ...header.cwd === undefined ? {} : { cwd: header.cwd },
+    ...header.agentPreset === undefined ? {} : { agentPreset: header.agentPreset },
+  }
+}
+
+function summarizeApiStored(stored: {
+  meta: SessionHeader
+  titleEvent?: SessionEvent<'session/title'>
+  lastPromptAt: number | null
+  lastSeq: number
+  blank: boolean
+}): EdgeApiSessionSummary {
+  return {
+    id: stored.meta.id,
+    title: stored.titleEvent === undefined
+      ? null
+      : foldSessionTitle([stored.titleEvent])?.title ?? null,
+    createdAt: stored.meta.createdAt,
+    lastPromptAt: stored.lastPromptAt,
+    updatedAt: stored.lastPromptAt ?? stored.meta.createdAt,
+    lastSeq: stored.lastSeq,
+    blank: stored.blank,
+    ...stored.meta.parentSession === undefined
+      ? {}
+      : { parentSessionId: stored.meta.parentSession },
+    ...stored.meta.origin === undefined ? {} : { origin: stored.meta.origin },
+    ...stored.meta.cwd === undefined ? {} : { cwd: stored.meta.cwd },
+    ...stored.meta.agentPreset === undefined
+      ? {}
+      : { agentPreset: stored.meta.agentPreset },
+  }
+}
+
+function summarize(header: SessionHeader, events: readonly SessionEvent[]): EdgeSession {
+  const title = foldSessionTitle(events)?.title ?? null
+  return {
+    id: header.id,
+    title,
+    ...header.agentPreset === undefined ? {} : { agentPreset: header.agentPreset },
+    createdAt: header.createdAt,
+    updatedAt: events.at(-1)?.time ?? header.createdAt,
+  }
+}
+
+function summarizeStored(stored: {
+  meta: SessionHeader
+  titleEvent?: SessionEvent
+  updatedAt: number
+}): EdgeSession {
+  return {
+    id: stored.meta.id,
+    title: stored.titleEvent === undefined
+      ? null
+      : foldSessionTitle([stored.titleEvent])?.title ?? null,
+    ...stored.meta.agentPreset === undefined
+      ? {}
+      : { agentPreset: stored.meta.agentPreset },
+    createdAt: stored.meta.createdAt,
+    updatedAt: stored.updatedAt,
+  }
+}
+
+export function paginateHistory(
+  events: readonly SessionEvent[],
+  beforeSeq: number | undefined,
+  maxMessages: number,
+): { events: SessionEvent[]; hasMore: boolean } {
+  const boundedMaxMessages = Math.min(maxMessages, EDGE_HISTORY_PAGE_LIMITS.maxMessages)
+  const boundaryIndex = beforeSeq === undefined
+    ? -1
+    : events.findIndex(event => event.seq >= beforeSeq)
+  const end = boundaryIndex < 0 ? events.length : boundaryIndex
+  let count = 0
+  let cut = 0
+  for (let index = end - 1; index >= 0; index--) {
+    const event = events[index] as SessionEvent
+    if (!MESSAGE_TYPES.has(event.type) || !isAppendSurfaceEvent(event)) continue
+    count++
+    const sources = (event as SessionEvent & { sourceEventSeqs?: number[] }).sourceEventSeqs
+    const groupStart = sources === undefined || sources.length === 0
+      ? event.seq
+      : sources.reduce((minimum, value) => Math.min(minimum, value), event.seq)
+    if (count >= boundedMaxMessages) {
+      cut = groupStart
+      break
+    }
+  }
+  const start = cut === 0
+    ? 0
+    : Math.max(0, events.findIndex(event => event.seq >= cut))
+  const eventCount = end - start
+  if (eventCount > EDGE_HISTORY_PAGE_LIMITS.maxEvents) {
+    throw new EdgeSessionStoreError(
+      'INVALID_DATA',
+      `History page exceeds the Edge limit of ${EDGE_HISTORY_PAGE_LIMITS.maxEvents} events.`,
+    )
+  }
+  const page = events.slice(start, end)
+  let encodedBytes = 2
+  const encoder = new TextEncoder()
+  for (const event of page) {
+    encodedBytes += encoder.encode(JSON.stringify(event)).byteLength + 1
+    if (encodedBytes > EDGE_HISTORY_PAGE_LIMITS.maxStoredBytes) {
+      throw new EdgeSessionStoreError(
+        'INVALID_DATA',
+        `History page exceeds the Edge limit of ${EDGE_HISTORY_PAGE_LIMITS.maxStoredBytes} encoded bytes.`,
+      )
+    }
+  }
+  return {
+    events: page,
+    hasMore: start > 0,
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "name": "dsh-edge-repository",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Source repository for the independent dsh-edge Cloudflare wrapper",
+  "author": "pawaca",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "packageManager": "pnpm@11.7.0",
+  "scripts": {
+    "build": "pnpm --filter dsh-edge run bundle:workers",
+    "check": "pnpm run doc-sync && pnpm run lint && pnpm run test && pnpm run typecheck",
+    "doc-pairs": "node scripts/verify-doc-pairs.mjs",
+    "doc-sync": "node scripts/verify-doc-pairs.mjs && node apps/dsh-edge/scripts/legal-files.mjs verify",
+    "hooks:install": "lefthook install",
+    "lint": "oxlint --type-aware apps/dsh-edge packages/client/ui-edge scripts",
+    "test": "vitest run",
+    "typecheck": "pnpm --filter dsh-edge run typecheck && pnpm --filter dsh-edge-client-ui run typecheck"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.0",
+    "jsdom": "29.1.1",
+    "lefthook": "^2.1.9",
+    "oxlint": "1.76.0",
+    "oxlint-tsgolint": "7.0.2001",
+    "typescript": "6.0.3",
+    "vitest": "4.1.8"
+  }
+}

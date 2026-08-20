@@ -1,0 +1,337 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+scenario="${CODEX_STATE_SCENARIO:?CODEX_STATE_SCENARIO is required}"
+head_a="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+head_b="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+head="$head_a"
+
+emit_payload() {
+	local payload="$1"
+	local slurp="$2"
+	if [[ "$slurp" == true ]]; then
+		printf '[%s]\n' "$payload"
+	else
+		printf '%s\n' "$payload"
+	fi
+}
+
+next_counter() {
+	local counter_file="${CODEX_STATE_COUNTER_FILE:?CODEX_STATE_COUNTER_FILE is required}"
+	local count=0
+	if [[ -f "$counter_file" ]]; then
+		count="$(sed -n '1p' "$counter_file")"
+	fi
+	count=$((count + 1))
+	printf '%s\n' "$count" >"$counter_file"
+	printf '%s\n' "$count"
+}
+
+if [[ "${1:-}" == "repo" && "${2:-}" == "view" ]]; then
+	if [[ "$scenario" == "repo-timeout" ]]; then
+		while :; do :; done
+	fi
+	if [[ "$scenario" == "default-repo-origin" && "${3:-}" != "$(git remote get-url origin)" ]]; then
+		echo "mock gh: repository discovery did not use origin" >&2
+		exit 2
+	fi
+	printf 'owner/repo\n'
+	exit 0
+fi
+
+if [[ "${1:-}" == "pr" && "${2:-}" == "view" ]]; then
+	if [[ "$scenario" == "head-race" ]]; then
+		count="$(next_counter)"
+		if ((count % 2 == 0)); then
+			head="$head_b"
+		fi
+	fi
+	is_draft=true
+	if [[ "$scenario" == "bound-pass-ready" || "$scenario" == "ready-current-failure" || "$scenario" == "ready-stale-ci" || "$scenario" == "reopened-stale-ci" || "$scenario" == "queued-current-ci" || "$scenario" == "current-skipped-ci" || "$scenario" == "phase-reaction-ready-tie" ]]; then
+		is_draft=false
+	fi
+	jq -nc --arg head "$head" --argjson draft "$is_draft" \
+		'{state:"OPEN",headRefOid:$head,isDraft:$draft,createdAt:"2026-08-03T10:00:30Z",updatedAt:"2026-08-03T10:00:30Z"}'
+	exit 0
+fi
+
+if [[ "${1:-}" != "api" ]]; then
+	echo "mock gh: unsupported command: $*" >&2
+	exit 2
+fi
+
+shift
+slurp=false
+endpoint=""
+for arg in "$@"; do
+	case "$arg" in
+		--slurp) slurp=true ;;
+		repos/*) endpoint="$arg" ;;
+	esac
+done
+[[ -n "$endpoint" ]] || {
+	echo "mock gh: missing endpoint" >&2
+	exit 2
+}
+
+case "$endpoint" in
+	repos/owner/repo/commits/*/check-runs?*)
+		if [[ "$scenario" == "body-only" || "$scenario" == "head-race" ]]; then
+			payload='{"check_runs":[]}'
+		elif [[ "$scenario" == "check-run-race" ]]; then
+			count="$(next_counter)"
+			if ((count == 1)); then
+				payload='{"check_runs":[{"id":509,"name":"edge / verify","status":"completed","conclusion":"success","details_url":"https://github.com/owner/repo/actions/runs/7008","started_at":"2026-08-03T10:02:00Z","completed_at":"2026-08-03T10:03:00Z","app":{"slug":"github-actions"}}]}'
+			else
+				payload='{"check_runs":[{"id":510,"name":"edge / verify","status":"queued","conclusion":null,"details_url":"https://github.com/owner/repo/actions/runs/7009","started_at":null,"completed_at":null,"app":{"slug":"github-actions"}}]}'
+			fi
+		elif [[ "$scenario" == "bound-pass-ready" ]]; then
+			payload='{"check_runs":[{"id":502,"name":"edge / verify","status":"completed","conclusion":"success","details_url":"https://github.com/owner/repo/actions/runs/7002","started_at":"2026-08-03T10:05:00Z","completed_at":"2026-08-03T10:07:00Z","app":{"slug":"github-actions"}}]}'
+		elif [[ "$scenario" == "ready-current-failure" ]]; then
+			payload='{"check_runs":[{"id":513,"name":"edge / verify","status":"completed","conclusion":"failure","details_url":"https://github.com/owner/repo/actions/runs/7012","started_at":"2026-08-03T10:05:00Z","completed_at":"2026-08-03T10:07:00Z","app":{"slug":"github-actions"}}]}'
+		elif [[ "$scenario" == "ready-stale-ci" ]]; then
+			payload='{"check_runs":[{"id":503,"name":"edge / verify","status":"completed","conclusion":"skipped","details_url":"https://github.com/owner/repo/actions/runs/7003","started_at":"2026-08-03T10:05:00Z","completed_at":"2026-08-03T10:05:00Z","app":{"slug":"github-actions"}}]}'
+		elif [[ "$scenario" == "current-skipped-ci" ]]; then
+			payload='{"check_runs":[{"id":512,"name":"edge / verify","status":"completed","conclusion":"skipped","details_url":"https://github.com/owner/repo/actions/runs/7011","started_at":"2026-08-03T10:06:00Z","completed_at":"2026-08-03T10:06:00Z","app":{"slug":"github-actions"}}]}'
+		elif [[ "$scenario" == "reopened-stale-ci" ]]; then
+			payload='{"check_runs":[{"id":504,"name":"edge / verify","status":"completed","conclusion":"success","details_url":"https://github.com/owner/repo/actions/runs/7004","started_at":"2026-08-03T10:06:00Z","completed_at":"2026-08-03T10:07:00Z","app":{"slug":"github-actions"}}]}'
+		elif [[ "$scenario" == "queued-current-ci" ]]; then
+			payload='{"check_runs":[{"id":505,"name":"Setup","status":"completed","conclusion":"success","details_url":"https://github.com/owner/repo/actions/runs/7005","started_at":"2026-08-03T10:06:00Z","completed_at":"2026-08-03T10:07:00Z","check_suite":{"id":801},"app":{"slug":"github-actions"}},{"id":506,"name":"Type Check","status":"queued","conclusion":null,"details_url":"https://github.com/owner/repo/actions/runs/7005","started_at":null,"completed_at":null,"check_suite":{"id":801},"app":{"slug":"github-actions"}}]}'
+		elif [[ "$scenario" == "check-suite-race" ]]; then
+			payload='{"check_runs":[{"id":511,"name":"edge / verify","status":"queued","conclusion":null,"details_url":"https://github.com/owner/repo/actions/runs/7010","started_at":null,"completed_at":null,"check_suite":{"id":801},"app":{"slug":"github-actions"}}]}'
+		elif [[ "$scenario" == "unrelated-checks" || "$scenario" == "missing-required-check" ]]; then
+			payload='{"check_runs":[{"id":507,"name":"edge / verify","status":"completed","conclusion":"success","details_url":"https://github.com/owner/repo/actions/runs/7006","started_at":"2026-08-03T10:02:00Z","completed_at":"2026-08-03T10:03:00Z","app":{"slug":"github-actions"}},{"id":508,"name":"upstream private runner","status":"queued","conclusion":null,"details_url":"https://github.com/owner/repo/actions/runs/7007","started_at":null,"completed_at":null,"app":{"slug":"github-actions"}}]}'
+		else
+			payload='{"check_runs":[{"id":501,"name":"edge / verify","status":"completed","conclusion":"success","details_url":"https://github.com/owner/repo/actions/runs/7001","started_at":"2026-08-03T10:02:00Z","completed_at":"2026-08-03T10:03:00Z","app":{"slug":"github-actions"}}]}'
+		fi
+		;;
+	repos/owner/repo/commits/*/statuses?*)
+		if [[ "$scenario" == "status-race" ]]; then
+			count="$(next_counter)"
+			if ((count == 1)); then
+				payload='[{"id":701,"context":"edge / verify","state":"success","created_at":"2026-08-03T10:02:00Z","updated_at":"2026-08-03T10:03:00Z","target_url":"https://github.com/owner/repo/status/701"}]'
+			else
+				payload='[{"id":702,"context":"edge / verify","state":"pending","created_at":"2026-08-03T10:04:00Z","updated_at":"2026-08-03T10:04:00Z","target_url":"https://github.com/owner/repo/status/702"}]'
+			fi
+		else
+			payload='[]'
+		fi
+		;;
+	repos/owner/repo/commits/*)
+		payload="$(jq -nc --arg sha "$head_a" '{sha:$sha,commit:{committer:{date:"2026-08-03T10:00:00Z"}}}')"
+		;;
+	repos/owner/repo/check-suites/801)
+		if [[ "$scenario" == "check-suite-race" ]]; then
+			count="$(next_counter)"
+			if ((count == 1)); then
+				payload="$(jq -nc --arg sha "$head_a" '{id:801,status:"in_progress",conclusion:null,created_at:"2026-08-03T10:06:00Z",updated_at:"2026-08-03T10:07:00Z",head_sha:$sha}')"
+			else
+				payload="$(jq -nc --arg sha "$head_a" '{id:801,status:"completed",conclusion:"failure",created_at:"2026-08-03T10:06:00Z",updated_at:"2026-08-03T10:08:00Z",head_sha:$sha}')"
+			fi
+		else
+			payload="$(jq -nc --arg sha "$head_a" '{id:801,status:"in_progress",conclusion:null,created_at:"2026-08-03T10:06:00Z",updated_at:"2026-08-03T10:07:00Z",head_sha:$sha}')"
+		fi
+		;;
+	repos/owner/repo/issues/comments/*/reactions?*)
+		if [[ "$scenario" == "comment-eyes" ]]; then
+			payload='[{"id":304,"user":{"login":"chatgpt-codex-connector[bot]"},"content":"eyes","created_at":"2026-08-03T10:01:00Z"}]'
+		elif [[ "$scenario" == "phase-reaction" ]]; then
+			payload='[{"id":305,"user":{"login":"chatgpt-codex-connector[bot]"},"content":"+1","created_at":"2026-08-03T10:01:00Z"}]'
+		elif [[ "$scenario" == "phase-reaction-ready-tie" ]]; then
+			payload='[{"id":307,"user":{"login":"chatgpt-codex-connector[bot]"},"content":"+1","created_at":"2026-08-03T10:05:00Z"}]'
+		elif [[ "$scenario" == "bound-pass-ready" ]]; then
+			payload='[{"id":303,"user":{"login":"chatgpt-codex-connector[bot]"},"content":"+1","created_at":"2026-08-03T10:07:00Z"}]'
+		else
+			payload='[]'
+		fi
+		;;
+	repos/owner/repo/issues/*/reactions?*)
+		case "$scenario" in
+			signal-race)
+				count="$(next_counter)"
+				if ((count <= 2)); then
+					payload='[]'
+				else
+					payload='[{"id":306,"user":{"login":"chatgpt-codex-connector[bot]"},"content":"+1","created_at":"2026-08-03T10:03:00Z"}]'
+				fi
+				;;
+			body-only)
+				payload='[{"id":301,"user":{"login":"chatgpt-codex-connector[bot]"},"content":"eyes","created_at":"2026-08-03T10:01:30Z"}]'
+				;;
+			unbound-plus-one)
+				payload='[{"id":302,"user":{"login":"chatgpt-codex-connector[bot]"},"content":"+1","created_at":"2026-08-03T10:03:00Z"}]'
+				;;
+			*) payload='[]' ;;
+		esac
+		;;
+	repos/owner/repo/pulls/*/reviews?*)
+		case "$scenario" in
+			review-race)
+				count="$(next_counter)"
+				if ((count == 1)); then
+					payload='[]'
+				else
+					payload="$(jq -nc --arg sha "$head_a" '[{
+						id:120,
+						user:{login:"chatgpt-codex-connector[bot]"},
+						commit_id:$sha,
+						submitted_at:"2026-08-03T10:02:00Z",
+						state:"COMMENTED",
+						html_url:"https://github.com/owner/repo/pull/1#pullrequestreview-120",
+						body:"![P1 Badge](https://img.shields.io/badge/P1-orange?style=flat) Review added during snapshot"
+					}]')"
+				fi
+				;;
+			retargeted-inline)
+				payload="$(jq -nc --arg sha "$head_b" '[{
+					id:99,
+					user:{login:"chatgpt-codex-connector[bot]"},
+					commit_id:$sha,
+					submitted_at:"2026-08-03T10:02:00Z",
+					state:"COMMENTED",
+					html_url:"https://github.com/owner/repo/pull/1#pullrequestreview-99",
+					body:""
+				}]')"
+				;;
+			empty-review-wrapper)
+				payload="$(jq -nc --arg sha "$head_a" '[{
+					id:100,
+					user:{login:"chatgpt-codex-connector[bot]"},
+					commit_id:$sha,
+					submitted_at:"2026-08-03T10:02:00Z",
+					state:"COMMENTED",
+					html_url:"https://github.com/owner/repo/pull/1#pullrequestreview-100",
+					body:"\n### 💡 Codex Review\n\nHere are some automated review suggestions for this pull request.\n\n**Reviewed commit:** `aaaaaaaaaa`\n    \n\n<details> <summary>ℹ️ About Codex in GitHub</summary>\n<br/>\n\nBoilerplate only.\n</details>"
+				}]')"
+				;;
+			body-only)
+				payload="$(jq -nc --arg sha "$head_a" '[{
+					id:101,
+					user:{login:"chatgpt-codex-connector[bot]"},
+					commit_id:$sha,
+					submitted_at:"2026-08-03T10:02:00Z",
+					state:"COMMENTED",
+					html_url:"https://github.com/owner/repo/pull/1#pullrequestreview-101",
+					body:"\n### 💡 Codex Review\n\nhttps://github.com/owner/repo/blob/aaaaaaaa/file.ts#L1\n**<sub><sub>![P2 Badge](https://img.shields.io/badge/P2-yellow?style=flat)</sub></sub> Catch the body-only finding**\n\nThis finding exists only in the review body.\n\n<details> <summary>ℹ️ About Codex in GitHub</summary>"
+				}]')"
+				;;
+			unbound-plus-one)
+				payload="$(jq -nc --arg sha "$head_a" '[{
+					id:102,
+					user:{login:"chatgpt-codex-connector[bot]"},
+					commit_id:$sha,
+					submitted_at:"2026-08-03T10:02:00Z",
+					state:"COMMENTED",
+					html_url:"https://github.com/owner/repo/pull/1#pullrequestreview-102",
+					body:"\n### 💡 Codex Review\n\nHere are some automated review suggestions for this pull request.\n\n**Reviewed commit:** `aaaaaaaaaa`\n\n<details> <summary>ℹ️ About Codex in GitHub</summary>"
+				}]')"
+				;;
+			same-second-pass)
+				payload="$(jq -nc --arg sha "$head_a" '[{
+					id:103,
+					user:{login:"chatgpt-codex-connector[bot]"},
+					commit_id:$sha,
+					submitted_at:"2026-08-03T10:02:00Z",
+					state:"COMMENTED",
+					html_url:"https://github.com/owner/repo/pull/1#pullrequestreview-103",
+					body:""
+				}]')"
+				;;
+			five-finding-rounds)
+				payload="$(jq -nc --arg sha "$head_a" --arg oldSha "$head_b" '[range(0; 5) as $i | {
+					id:(110 + $i),
+					user:{login:"chatgpt-codex-connector[bot]"},
+					commit_id:(if $i == 4 then $sha else $oldSha end),
+					submitted_at:("2026-08-03T10:02:0" + ($i | tostring) + "Z"),
+					state:"COMMENTED",
+					html_url:("https://github.com/owner/repo/pull/1#pullrequestreview-" + ((110 + $i) | tostring)),
+					body:("![P1 Badge](https://img.shields.io/badge/P1-orange?style=flat) Finding round " + (($i + 1) | tostring))
+				}]')"
+				;;
+			*) payload='[]' ;;
+		esac
+		;;
+	repos/owner/repo/pulls/*/comments?*)
+		if [[ "$scenario" == "retargeted-inline" ]]; then
+			payload="$(jq -nc --arg sha "$head_a" --arg oldSha "$head_b" '[{
+				id:200,
+				pull_request_review_id:99,
+				user:{login:"chatgpt-codex-connector[bot]"},
+				in_reply_to_id:null,
+				commit_id:$sha,
+				original_commit_id:$oldSha,
+				path:"src/retargeted.ts",
+				line:9,
+				original_line:8,
+				side:"RIGHT",
+				created_at:"2026-08-03T10:02:00Z",
+				html_url:"https://github.com/owner/repo/pull/1#discussion_r200",
+				body:"![P1 Badge](https://img.shields.io/badge/P1-orange?style=flat) Current-head retargeted finding"
+			}]')"
+		elif [[ "$scenario" == "unbound-plus-one" ]]; then
+			payload="$(jq -nc --arg sha "$head_a" '[{
+				id:201,
+				pull_request_review_id:102,
+				user:{login:"chatgpt-codex-connector[bot]"},
+				in_reply_to_id:null,
+				commit_id:$sha,
+				original_commit_id:$sha,
+				path:"src/example.ts",
+				line:7,
+				original_line:7,
+				side:"RIGHT",
+				created_at:"2026-08-03T10:02:00Z",
+				html_url:"https://github.com/owner/repo/pull/1#discussion_r201",
+				body:"![P1 Badge](https://img.shields.io/badge/P1-orange?style=flat) Keep this finding open"
+			}]')"
+		else
+			payload='[]'
+		fi
+		;;
+	repos/owner/repo/issues/*/comments?*)
+		request='{"id":401,"user":{"login":"human"},"created_at":"2026-08-03T10:01:00Z","html_url":"https://github.com/owner/repo/pull/1#issuecomment-401","body":"@codex review\n\n<!-- dsh-review-head: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->"}'
+		if [[ "$scenario" == "legacy-unbound-request" ]]; then
+			request='{"id":401,"user":{"login":"human"},"created_at":"2026-08-03T10:01:00Z","html_url":"https://github.com/owner/repo/pull/1#issuecomment-401","body":"@codex review"}'
+		elif [[ "$scenario" == "phase-reaction-ready-tie" ]]; then
+			request='{"id":401,"user":{"login":"human"},"created_at":"2026-08-03T10:05:00Z","html_url":"https://github.com/owner/repo/pull/1#issuecomment-401","body":"@codex review\n\n<!-- dsh-review-head: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->"}'
+		fi
+		if [[ "$scenario" == "bound-pass-ready" ]]; then
+			stale='{"id":402,"user":{"login":"chatgpt-codex-connector[bot]"},"created_at":"2026-08-03T10:04:00Z","html_url":"https://github.com/owner/repo/pull/1#issuecomment-402","body":"Codex Review: Didn'\''t find any major issues. Nice!\n\n**Reviewed commit:** `aaaaaaaaaa`"}'
+			fresh='{"id":403,"user":{"login":"chatgpt-codex-connector[bot]"},"created_at":"2026-08-03T10:06:00Z","html_url":"https://github.com/owner/repo/pull/1#issuecomment-403","body":"Codex Review: Didn'\''t find any major issues. Nice!\n\n**Reviewed commit:** `aaaaaaaaaa`"}'
+			payload="[$request,$stale,$fresh]"
+		elif [[ "$scenario" == "reopened-stale-ci" ]]; then
+			stale='{"id":406,"user":{"login":"chatgpt-codex-connector[bot]"},"created_at":"2026-08-03T10:07:00Z","html_url":"https://github.com/owner/repo/pull/1#issuecomment-406","body":"Codex Review: Didn'\''t find any major issues. Nice!\n\n**Reviewed commit:** `aaaaaaaaaa`"}'
+			payload="[$request,$stale]"
+		elif [[ "$scenario" == "same-second-limit" ]]; then
+			limit='{"id":404,"user":{"login":"chatgpt-codex-connector[bot]"},"created_at":"2026-08-03T10:01:00Z","html_url":"https://github.com/owner/repo/pull/1#issuecomment-404","body":"Codex usage limits have been reached"}'
+			payload="[$request,$limit]"
+		elif [[ "$scenario" == "same-second-limit-before-retry" ]]; then
+			limit='{"id":400,"user":{"login":"chatgpt-codex-connector[bot]"},"created_at":"2026-08-03T10:01:00Z","html_url":"https://github.com/owner/repo/pull/1#issuecomment-400","body":"Codex usage limits have been reached"}'
+			payload="[$limit,$request]"
+		elif [[ "$scenario" == "same-second-pass" ]]; then
+			pass='{"id":405,"user":{"login":"chatgpt-codex-connector[bot]"},"created_at":"2026-08-03T10:02:00Z","html_url":"https://github.com/owner/repo/pull/1#issuecomment-405","body":"Codex Review: Didn'\''t find any major issues. Nice!\n\n**Reviewed commit:** `aaaaaaaaaa`"}'
+			payload="[$request,$pass]"
+		elif [[ "$scenario" == "same-second-request-pass" ]]; then
+			request='{"id":401,"user":{"login":"human"},"created_at":"2026-08-03T10:02:00Z","html_url":"https://github.com/owner/repo/pull/1#issuecomment-401","body":"@codex review\n\n<!-- dsh-review-head: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->"}'
+			pass='{"id":405,"user":{"login":"chatgpt-codex-connector[bot]"},"created_at":"2026-08-03T10:02:00Z","html_url":"https://github.com/owner/repo/pull/1#issuecomment-405","body":"Codex Review: Didn'\''t find any major issues. Nice!\n\n**Reviewed commit:** `aaaaaaaaaa`"}'
+			payload="[$request,$pass]"
+		else
+			payload="[$request]"
+		fi
+		;;
+	repos/owner/repo/issues/*/timeline?*)
+		if [[ "$scenario" == "bound-pass-ready" || "$scenario" == "ready-current-failure" || "$scenario" == "ready-stale-ci" || "$scenario" == "queued-current-ci" || "$scenario" == "current-skipped-ci" || "$scenario" == "phase-reaction-ready-tie" ]]; then
+			payload='[{"id":601,"event":"ready_for_review","created_at":"2026-08-03T10:05:00Z","actor":{"login":"human"}}]'
+		elif [[ "$scenario" == "reopened-stale-ci" ]]; then
+			payload='[{"id":601,"event":"ready_for_review","created_at":"2026-08-03T10:05:00Z","actor":{"login":"human"}},{"id":602,"event":"reopened","created_at":"2026-08-03T10:08:00Z","actor":{"login":"human"}}]'
+		else
+			payload='[]'
+		fi
+		;;
+	*)
+		echo "mock gh: unsupported endpoint: $endpoint" >&2
+		exit 2
+		;;
+esac
+
+emit_payload "$payload" "$slurp"

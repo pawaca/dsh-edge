@@ -1,0 +1,88 @@
+TERMINAL
+┌  dsh-edge install
+│
+◆  Choose a runtime
+│  ● Free — Direct Shell (recommended; runs on Workers Free)
+│  ○ Isolated — Dynamic Worker
+│  ↑/↓ to navigate • Enter: confirm
+└
+◇  Choose a runtime
+│  Free — Direct Shell
+│
+◇  Checking Cloudflare accounts…
+│
+◆  Choose a Cloudflare account
+│  ● Temporary account — no Cloudflare login (available for 60 minutes; claim it to keep the instance)
+│  ○ Sign in or create a Cloudflare account
+│  ↑/↓ to navigate • Enter: confirm
+└
+◇  Choose a Cloudflare account
+│  Temporary account — no Cloudflare login
+│
+◆  Worker name
+│  dsh-edge█
+└
+◇  Worker name
+│  dsh-edge
+│
+◆  Set the owner access key
+│  ● Generate a secure key (recommended)
+│  ○ Enter my own key
+│  ↑/↓ to navigate • Enter: confirm
+└
+◇  Set the owner access key
+│  Generate a secure key
+│
+◆  DeepSeek API key
+│  _
+└
+◇  DeepSeek API key
+│  ••••••••••••••••••
+│
+◇  Installation summary ─────────╮
+│                                │
+│  Runtime: Free — Direct Shell  │
+│  Account: Temporary account    │
+│  Worker: dsh-edge              │
+│  Cost: Works on Workers Free   │
+│                                │
+├────────────────────────────────╯
+│
+◆  Install this instance?
+│  ● Yes / ○ No
+└
+◇  Install this instance?
+│  Yes
+│
+◇  Temporary account terms ──────────────────────────────────────────────╮
+│                                                                        │
+│  Cloudflare Terms of Service: https://www.cloudflare.com/terms/        │
+│  Cloudflare Privacy Policy: https://www.cloudflare.com/privacypolicy/  │
+│                                                                        │
+├────────────────────────────────────────────────────────────────────────╯
+│
+◆  Accept these terms and create a temporary Cloudflare account?
+│  ○ Yes / ● No
+└
+◇  Accept these terms and create a temporary Cloudflare account?
+│  Yes
+│
+◇  Cloudflare accepted the Worker upload. [0s]
+│
+◇  dsh-edge installed ─────────────────────────────────────────────────────────────────╮
+│                                                                                      │
+│  URL: https://dsh-edge.preview.workers.dev                                           │
+│  Owner access key: {{generated-access-key}}                       │
+│  Claim URL: https://dash.cloudflare.com/claim-preview?token={{claim-token}}          │
+│                                                                                      │
+│  Next steps:                                                                         │
+│  1. Claim this temporary account within 60 minutes to keep the Worker and its data.  │
+│  2. Open the URL above.                                                              │
+│  3. Enter the owner access key when prompted.                                        │
+│                                                                                      │
+├──────────────────────────────────────────────────────────────────────────────────────╯
+│
+└  Installation handoff complete.
+BOUNDARY EVENTS
+{"kind":"wrangler","command":"whoami","hasHome":true,"hasPath":true,"leakedKeys":[]}
+{"kind":"wrangler","command":"deploy","args":["--env","","--name","dsh-edge","--config","{{private-config-file}}","--secrets-file","{{private-secrets-file}}","--temporary"],"hasOutputCapture":true,"leakedKeys":[],"secretNames":["DEEPSEEK_API_KEY","DSH_EDGE_ACCESS_KEY"]}

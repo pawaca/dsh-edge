@@ -1,0 +1,97 @@
+{
+  "call": {
+    "arguments": "{"query":"current mock information"}",
+    "callId": "call_mock_search",
+    "name": "web_search",
+    "step": 1,
+    "turn": 2,
+  },
+  "finalMessage": [
+    {
+      "text": "search-finished",
+      "type": "text",
+    },
+  ],
+  "providerRequest": {
+    "apiVersion": "2023-06-01",
+    "body": {
+      "max_tokens": 4096,
+      "messages": [
+        {
+          "content": [
+            {
+              "text": "Perform a web search for the query: current mock information",
+              "type": "text",
+            },
+          ],
+          "role": "user",
+        },
+      ],
+      "model": "deepseek-v4-flash",
+      "tools": [
+        {
+          "max_uses": 5,
+          "name": "web_search",
+          "type": "web_search_20250305",
+        },
+      ],
+    },
+    "endpoint": "{{mock-deepseek}}/anthropic/v1/messages",
+  },
+  "recordedSearchRequest": {
+    "max_tokens": 4096,
+    "messages": [
+      {
+        "content": [
+          {
+            "text": "Perform a web search for the query: current mock information",
+            "type": "text",
+          },
+        ],
+        "role": "user",
+      },
+    ],
+    "model": "deepseek-v4-flash",
+    "tools": [
+      {
+        "max_uses": 5,
+        "name": "web_search",
+        "type": "web_search_20250305",
+      },
+    ],
+  },
+  "result": {
+    "content": [
+      {
+        "content": [
+          {
+            "text": "Sources:
+- [Current mock result](https://example.com/current) — Current information from the mock source. (2026-08-18)
+
+Cite the relevant URLs above as markdown links in your answer.",
+            "type": "text",
+          },
+        ],
+        "isError": false,
+        "toolCallId": "call_mock_search",
+        "type": "tool-result",
+      },
+    ],
+    "meta": {
+      "sources": [
+        {
+          "publishedAt": "2026-08-18",
+          "snippet": "Current information from the mock source.",
+          "title": "Current mock result",
+          "url": "https://example.com/current",
+        },
+      ],
+      "truncated": false,
+    },
+  },
+  "searchGuidance": "Use the web_search tool to discover current information on the web. It returns an optional answer plus a list of source URLs. Use the returned source snippets when available, and cite the relevant URLs as markdown links.",
+  "toolNames": [
+    "bash",
+    "web_search",
+  ],
+}

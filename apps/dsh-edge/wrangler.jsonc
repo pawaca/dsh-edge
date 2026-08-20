@@ -1,0 +1,56 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "dsh-edge",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-14",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "minify": true,
+  "assets": {
+    "binding": "ASSETS",
+    "directory": "./dist",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": [
+      "/api/*",
+      "/",
+      "/login"
+    ]
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "DSH_EDGE_INSTANCE",
+        "class_name": "DshEdgeInstance"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "DshEdgeInstance"
+      ]
+    }
+  ],
+  "observability": {
+    "enabled": true
+  },
+  "env": {
+    "isolated": {
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "DSH_EDGE_INSTANCE",
+            "class_name": "DshEdgeInstance"
+          }
+        ]
+      },
+      "worker_loaders": [
+        {
+          "binding": "LOADER"
+        }
+      ]
+    }
+  }
+}

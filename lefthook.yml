@@ -1,0 +1,21 @@
+pre-commit:
+  jobs:
+    - name: bilingual documentation
+      glob: '*.i18n.yaml'
+      run: node scripts/verify-doc-pairs.mjs
+
+    - name: legal files
+      glob: '{LICENSE,THIRD_PARTY_NOTICES.md,package.json,pnpm-lock.yaml,pnpm-workspace.yaml,apps/dsh-edge/{LICENSE,THIRD_PARTY_NOTICES.md,package.json},apps/dsh-edge/scripts/legal-files.mjs,apps/dsh-edge/standalone/{package.json,pnpm-lock.yaml}}'
+      run: node apps/dsh-edge/scripts/legal-files.mjs verify
+
+    - name: lint staged source
+      glob: '*.{ts,tsx,mjs}'
+      run: pnpm exec oxlint --type-aware --no-error-on-unmatched-pattern {staged_files}
+
+    - name: whitespace
+      run: git diff --cached --check
+
+pre-push:
+  jobs:
+    - name: typecheck
+      run: pnpm run typecheck

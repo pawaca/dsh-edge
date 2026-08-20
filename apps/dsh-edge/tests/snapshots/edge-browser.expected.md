@@ -1,0 +1,25 @@
+- banner:
+  - navigation "Session hierarchy":
+    - button "Browser snapshot (1)" [disabled]
+  - img
+  - text: DSH Edge
+  - tablist:
+    - tab "Chat" [selected]
+    - tab "Trajectory"
+- text: snapshot the browser edge path {{clock}}
+- button "Copy":
+  - img
+- paragraph: remembered-alpha
+- button "Copy":
+  - img
+- button "Branch into a new conversation":
+  - img
+- text: {{clock}}Ran for {{metric}} TTFT {{metric}} {{metric}}
+- textbox "Message the agent"
+- button "Commands":
+  - img
+- button "Select model, current deepseek-v4-flash":
+  - text: deepseek-v4-flash
+  - img
+- button "Send message" [disabled]
+- text: 1 turns · 1 steps LLM {{metric}} TTFT avg {{metric}} · {{metric}}

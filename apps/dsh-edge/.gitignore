@@ -1,0 +1,5 @@
+.wrangler/
+.dev.vars*
+worker/
+standalone/dist/
+standalone/edge-client/

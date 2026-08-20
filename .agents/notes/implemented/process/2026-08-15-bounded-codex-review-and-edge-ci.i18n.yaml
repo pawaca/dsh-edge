@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record: the git blob hash of each side at the
+# last confirmed-consistent state. Both languages carry equal authority.
+# After editing either side, update both and re-record every pair with:
+#   pnpm run doc-pairs -- --write
+2026-08-15-bounded-codex-review-and-edge-ci.md: bbebf26c9aee5364b2aa5d30779ddc3951ca9808
+2026-08-15-bounded-codex-review-and-edge-ci.zh.md: 89bac4a4eb30a2373dd27c41250e63ea50284103

@@ -1,0 +1,1135 @@
+{
+  "liveEvents": [
+    {
+      "data": {
+        "inserted": [
+          {
+            "content": [
+              {
+                "text": "run the tool",
+                "type": "text",
+              },
+            ],
+            "id": "{{messageId}}",
+            "role": "user",
+            "source": {
+              "kind": "user",
+            },
+          },
+        ],
+        "start": 0,
+        "target": "next-turn",
+      },
+      "seq": 2,
+      "time": 0,
+      "type": "agent/inbox/spliced",
+    },
+    {
+      "data": {
+        "turn": 1,
+      },
+      "seq": 3,
+      "time": 0,
+      "type": "turn/start",
+    },
+    {
+      "data": {
+        "inserted": [],
+        "removedCount": 1,
+        "start": 0,
+        "target": "next-turn",
+      },
+      "seq": 4,
+      "time": 0,
+      "type": "agent/inbox/spliced",
+    },
+    {
+      "data": {
+        "step": 1,
+        "turn": 1,
+      },
+      "seq": 5,
+      "time": 0,
+      "type": "step/start",
+    },
+    {
+      "data": {
+        "content": [
+          {
+            "text": "run the tool",
+            "type": "text",
+          },
+        ],
+        "id": "{{messageId}}",
+        "role": "user",
+        "source": {
+          "kind": "user",
+        },
+      },
+      "seq": 6,
+      "surfaceOp": "append",
+      "time": 0,
+      "type": "user/message",
+    },
+    {
+      "data": {
+        "header": {
+          "adapterDefaults": {
+            "maxTokens": true,
+            "reasoningEffort": true,
+          },
+          "config": {
+            "maxTokens": 8192,
+            "model": "deepseek-v4-flash",
+            "provider": "deepseek-official",
+            "reasoningEffort": "off",
+          },
+          "system": "You are an AI agent powered by DeepSeek Harness.
+
+You are dsh-edge, a coding agent running in a Cloudflare Worker. Your persistent working directory is /workspace. Use the bash tool when you need to inspect or modify workspace files, then answer with the result. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
+
+Use the web_search tool to discover current information on the web. It returns an optional answer plus a list of source URLs. Use the returned source snippets when available, and cite the relevant URLs as markdown links.",
+          "tools": [
+            {
+              "description": "Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in /workspace unless workdir is supplied.",
+              "name": "bash",
+              "parameters": {
+                "properties": {
+                  "command": {
+                    "description": "The shell command to execute.",
+                    "type": "string",
+                  },
+                  "description": {
+                    "description": "A short explanation of what the command does.",
+                    "type": "string",
+                  },
+                  "timeoutMs": {
+                    "description": "Optional execution timeout in milliseconds.",
+                    "type": "number",
+                  },
+                  "workdir": {
+                    "description": "An absolute directory below /workspace.",
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "command",
+                  "description",
+                ],
+                "type": "object",
+              },
+            },
+            {
+              "description": "Search the web for current information. Returns an optional summary answer and a list of source URLs.",
+              "name": "web_search",
+              "parameters": {
+                "properties": {
+                  "query": {
+                    "description": "The search query.",
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "query",
+                ],
+                "type": "object",
+              },
+            },
+          ],
+        },
+        "reason": "initial",
+      },
+      "seq": 7,
+      "time": 0,
+      "type": "request/header",
+    },
+    {
+      "data": {
+        "contextWindow": 1000000,
+        "model": "deepseek-v4-flash",
+        "provider": "deepseek-official",
+      },
+      "seq": 8,
+      "time": 0,
+      "type": "request/context",
+    },
+    {
+      "data": {
+        "chunk": {
+          "blockType": "tool-call",
+          "index": 0,
+          "type": "block-start",
+        },
+        "step": 1,
+        "turn": 1,
+      },
+      "seq": 9,
+      "time": 0,
+      "type": "assistant/chunk",
+    },
+    {
+      "data": {
+        "chunk": {
+          "argumentsDelta": "{"command":"cat /workspace/session.txt","description":"Read the session file"}",
+          "id": "call_mock_file",
+          "index": 0,
+          "name": "bash",
+          "type": "tool-call-delta",
+        },
+        "step": 1,
+        "turn": 1,
+      },
+      "seq": 10,
+      "time": 0,
+      "type": "assistant/chunk",
+    },
+    {
+      "data": {
+        "chunk": {
+          "block": {
+            "arguments": "{"command":"cat /workspace/session.txt","description":"Read the session file"}",
+            "id": "call_mock_file",
+            "name": "bash",
+            "type": "tool-call",
+          },
+          "index": 0,
+          "type": "block-end",
+        },
+        "step": 1,
+        "turn": 1,
+      },
+      "seq": 11,
+      "time": 0,
+      "type": "assistant/chunk",
+    },
+    {
+      "data": {
+        "chunk": {
+          "type": "usage",
+          "usage": {
+            "inputTokens": 8,
+            "outputTokens": 3,
+          },
+        },
+        "step": 1,
+        "turn": 1,
+      },
+      "seq": 12,
+      "time": 0,
+      "type": "assistant/chunk",
+    },
+    {
+      "data": {
+        "chunk": {
+          "reason": {
+            "kind": "tool-calls",
+          },
+          "type": "finish",
+        },
+        "step": 1,
+        "turn": 1,
+      },
+      "seq": 13,
+      "time": 0,
+      "type": "assistant/chunk",
+    },
+    {
+      "data": {
+        "message": {
+          "content": [
+            {
+              "arguments": "{"command":"cat /workspace/session.txt","description":"Read the session file"}",
+              "id": "call_mock_file",
+              "name": "bash",
+              "type": "tool-call",
+            },
+          ],
+          "id": "{{messageId}}",
+          "role": "assistant",
+          "source": {
+            "kind": "model",
+            "model": "deepseek-v4-flash",
+            "provider": "deepseek-official",
+          },
+        },
+        "step": 1,
+        "turn": 1,
+        "usage": {
+          "inputTokens": 8,
+          "outputTokens": 3,
+        },
+      },
+      "seq": 14,
+      "sourceEventSeqs": [
+        9,
+        10,
+        11,
+        12,
+        13,
+      ],
+      "surfaceOp": "append",
+      "time": 0,
+      "type": "assistant/message",
+    },
+    {
+      "data": {
+        "arguments": "{"command":"cat /workspace/session.txt","description":"Read the session file"}",
+        "callId": "call_mock_file",
+        "name": "bash",
+        "step": 1,
+        "turn": 1,
+      },
+      "seq": 15,
+      "time": 0,
+      "type": "tool/call",
+    },
+    {
+      "data": {
+        "message": {
+          "content": [
+            {
+              "content": [
+                {
+                  "text": "edge-snapshot-tool-value",
+                  "type": "text",
+                },
+              ],
+              "isError": false,
+              "toolCallId": "call_mock_file",
+              "type": "tool-result",
+            },
+          ],
+          "id": "{{messageId}}",
+          "role": "user",
+          "source": {
+            "callId": "call_mock_file",
+            "kind": "tool",
+          },
+        },
+        "step": 1,
+        "turn": 1,
+      },
+      "seq": 16,
+      "sourceEventSeqs": [
+        15,
+      ],
+      "surfaceOp": "append",
+      "time": 0,
+      "type": "tool/result",
+    },
+    {
+      "data": {
+        "step": 1,
+        "turn": 1,
+      },
+      "seq": 17,
+      "time": 0,
+      "type": "step/end",
+    },
+    {
+      "data": {
+        "step": 2,
+        "turn": 1,
+      },
+      "seq": 18,
+      "time": 0,
+      "type": "step/start",
+    },
+    {
+      "data": {
+        "chunk": {
+          "blockType": "text",
+          "index": 0,
+          "type": "block-start",
+        },
+        "step": 2,
+        "turn": 1,
+      },
+      "seq": 19,
+      "time": 0,
+      "type": "assistant/chunk",
+    },
+    {
+      "data": {
+        "chunk": {
+          "index": 0,
+          "text": "tool-finished",
+          "type": "text-delta",
+        },
+        "step": 2,
+        "turn": 1,
+      },
+      "seq": 20,
+      "time": 0,
+      "type": "assistant/chunk",
+    },
+    {
+      "data": {
+        "chunk": {
+          "block": {
+            "text": "tool-finished",
+            "type": "text",
+          },
+          "index": 0,
+          "type": "block-end",
+        },
+        "step": 2,
+        "turn": 1,
+      },
+      "seq": 21,
+      "time": 0,
+      "type": "assistant/chunk",
+    },
+    {
+      "data": {
+        "chunk": {
+          "type": "usage",
+          "usage": {
+            "inputTokens": 12,
+            "outputTokens": 2,
+          },
+        },
+        "step": 2,
+        "turn": 1,
+      },
+      "seq": 22,
+      "time": 0,
+      "type": "assistant/chunk",
+    },
+    {
+      "data": {
+        "chunk": {
+          "reason": {
+            "kind": "stop",
+          },
+          "type": "finish",
+        },
+        "step": 2,
+        "turn": 1,
+      },
+      "seq": 23,
+      "time": 0,
+      "type": "assistant/chunk",
+    },
+    {
+      "data": {
+        "message": {
+          "content": [
+            {
+              "text": "tool-finished",
+              "type": "text",
+            },
+          ],
+          "id": "{{messageId}}",
+          "role": "assistant",
+          "source": {
+            "kind": "model",
+            "model": "deepseek-v4-flash",
+            "provider": "deepseek-official",
+          },
+        },
+        "step": 2,
+        "turn": 1,
+        "usage": {
+          "inputTokens": 12,
+          "outputTokens": 2,
+        },
+      },
+      "seq": 24,
+      "sourceEventSeqs": [
+        19,
+        20,
+        21,
+        22,
+        23,
+      ],
+      "surfaceOp": "append",
+      "time": 0,
+      "type": "assistant/message",
+    },
+    {
+      "data": {
+        "step": 2,
+        "turn": 1,
+      },
+      "seq": 25,
+      "time": 0,
+      "type": "step/end",
+    },
+    {
+      "data": {
+        "reason": {
+          "kind": "completed",
+        },
+        "turn": 1,
+      },
+      "seq": 26,
+      "time": 0,
+      "type": "turn/end",
+    },
+  ],
+  "replayedEvents": [
+    {
+      "data": {
+        "messageSeqs": [],
+        "source": {
+          "kind": "user",
+        },
+        "title": "Edge snapshot",
+      },
+      "seq": 0,
+      "time": 0,
+      "type": "session/title",
+    },
+    {
+      "data": {},
+      "seq": 1,
+      "time": 0,
+      "type": "session/end-seed",
+    },
+    {
+      "data": {
+        "inserted": [
+          {
+            "content": [
+              {
+                "text": "run the tool",
+                "type": "text",
+              },
+            ],
+            "id": "{{messageId}}",
+            "role": "user",
+            "source": {
+              "kind": "user",
+            },
+          },
+        ],
+        "start": 0,
+        "target": "next-turn",
+      },
+      "seq": 2,
+      "time": 0,
+      "type": "agent/inbox/spliced",
+    },
+    {
+      "data": {
+        "turn": 1,
+      },
+      "seq": 3,
+      "time": 0,
+      "type": "turn/start",
+    },
+    {
+      "data": {
+        "inserted": [],
+        "removedCount": 1,
+        "start": 0,
+        "target": "next-turn",
+      },
+      "seq": 4,
+      "time": 0,
+      "type": "agent/inbox/spliced",
+    },
+    {
+      "data": {
+        "step": 1,
+        "turn": 1,
+      },
+      "seq": 5,
+      "time": 0,
+      "type": "step/start",
+    },
+    {
+      "data": {
+        "content": [
+          {
+            "text": "run the tool",
+            "type": "text",
+          },
+        ],
+        "id": "{{messageId}}",
+        "role": "user",
+        "source": {
+          "kind": "user",
+        },
+      },
+      "seq": 6,
+      "surfaceOp": "append",
+      "time": 0,
+      "type": "user/message",
+    },
+    {
+      "data": {
+        "header": {
+          "adapterDefaults": {
+            "maxTokens": true,
+            "reasoningEffort": true,
+          },
+          "config": {
+            "maxTokens": 8192,
+            "model": "deepseek-v4-flash",
+            "provider": "deepseek-official",
+            "reasoningEffort": "off",
+          },
+          "system": "You are an AI agent powered by DeepSeek Harness.
+
+You are dsh-edge, a coding agent running in a Cloudflare Worker. Your persistent working directory is /workspace. Use the bash tool when you need to inspect or modify workspace files, then answer with the result. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
+
+Use the web_search tool to discover current information on the web. It returns an optional answer plus a list of source URLs. Use the returned source snippets when available, and cite the relevant URLs as markdown links.",
+          "tools": [
+            {
+              "description": "Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in /workspace unless workdir is supplied.",
+              "name": "bash",
+              "parameters": {
+                "properties": {
+                  "command": {
+                    "description": "The shell command to execute.",
+                    "type": "string",
+                  },
+                  "description": {
+                    "description": "A short explanation of what the command does.",
+                    "type": "string",
+                  },
+                  "timeoutMs": {
+                    "description": "Optional execution timeout in milliseconds.",
+                    "type": "number",
+                  },
+                  "workdir": {
+                    "description": "An absolute directory below /workspace.",
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "command",
+                  "description",
+                ],
+                "type": "object",
+              },
+            },
+            {
+              "description": "Search the web for current information. Returns an optional summary answer and a list of source URLs.",
+              "name": "web_search",
+              "parameters": {
+                "properties": {
+                  "query": {
+                    "description": "The search query.",
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "query",
+                ],
+                "type": "object",
+              },
+            },
+          ],
+        },
+        "reason": "initial",
+      },
+      "seq": 7,
+      "time": 0,
+      "type": "request/header",
+    },
+    {
+      "data": {
+        "contextWindow": 1000000,
+        "model": "deepseek-v4-flash",
+        "provider": "deepseek-official",
+      },
+      "seq": 8,
+      "time": 0,
+      "type": "request/context",
+    },
+    {
+      "data": {
+        "chunk": {
+          "blockType": "tool-call",
+          "index": 0,
+          "type": "block-start",
+        },
+        "step": 1,
+        "turn": 1,
+      },
+      "seq": 9,
+      "time": 0,
+      "type": "assistant/chunk",
+    },
+    {
+      "data": {
+        "chunk": {
+          "argumentsDelta": "{"command":"cat /workspace/session.txt","description":"Read the session file"}",
+          "id": "call_mock_file",
+          "index": 0,
+          "name": "bash",
+          "type": "tool-call-delta",
+        },
+        "step": 1,
+        "turn": 1,
+      },
+      "seq": 10,
+      "time": 0,
+      "type": "assistant/chunk",
+    },
+    {
+      "data": {
+        "chunk": {
+          "block": {
+            "arguments": "{"command":"cat /workspace/session.txt","description":"Read the session file"}",
+            "id": "call_mock_file",
+            "name": "bash",
+            "type": "tool-call",
+          },
+          "index": 0,
+          "type": "block-end",
+        },
+        "step": 1,
+        "turn": 1,
+      },
+      "seq": 11,
+      "time": 0,
+      "type": "assistant/chunk",
+    },
+    {
+      "data": {
+        "chunk": {
+          "type": "usage",
+          "usage": {
+            "inputTokens": 8,
+            "outputTokens": 3,
+          },
+        },
+        "step": 1,
+        "turn": 1,
+      },
+      "seq": 12,
+      "time": 0,
+      "type": "assistant/chunk",
+    },
+    {
+      "data": {
+        "chunk": {
+          "reason": {
+            "kind": "tool-calls",
+          },
+          "type": "finish",
+        },
+        "step": 1,
+        "turn": 1,
+      },
+      "seq": 13,
+      "time": 0,
+      "type": "assistant/chunk",
+    },
+    {
+      "data": {
+        "message": {
+          "content": [
+            {
+              "arguments": "{"command":"cat /workspace/session.txt","description":"Read the session file"}",
+              "id": "call_mock_file",
+              "name": "bash",
+              "type": "tool-call",
+            },
+          ],
+          "id": "{{messageId}}",
+          "role": "assistant",
+          "source": {
+            "kind": "model",
+            "model": "deepseek-v4-flash",
+            "provider": "deepseek-official",
+          },
+        },
+        "step": 1,
+        "turn": 1,
+        "usage": {
+          "inputTokens": 8,
+          "outputTokens": 3,
+        },
+      },
+      "seq": 14,
+      "sourceEventSeqs": [
+        9,
+        10,
+        11,
+        12,
+        13,
+      ],
+      "surfaceOp": "append",
+      "time": 0,
+      "type": "assistant/message",
+    },
+    {
+      "data": {
+        "arguments": "{"command":"cat /workspace/session.txt","description":"Read the session file"}",
+        "callId": "call_mock_file",
+        "name": "bash",
+        "step": 1,
+        "turn": 1,
+      },
+      "seq": 15,
+      "time": 0,
+      "type": "tool/call",
+    },
+    {
+      "data": {
+        "message": {
+          "content": [
+            {
+              "content": [
+                {
+                  "text": "edge-snapshot-tool-value",
+                  "type": "text",
+                },
+              ],
+              "isError": false,
+              "toolCallId": "call_mock_file",
+              "type": "tool-result",
+            },
+          ],
+          "id": "{{messageId}}",
+          "role": "user",
+          "source": {
+            "callId": "call_mock_file",
+            "kind": "tool",
+          },
+        },
+        "step": 1,
+        "turn": 1,
+      },
+      "seq": 16,
+      "sourceEventSeqs": [
+        15,
+      ],
+      "surfaceOp": "append",
+      "time": 0,
+      "type": "tool/result",
+    },
+    {
+      "data": {
+        "step": 1,
+        "turn": 1,
+      },
+      "seq": 17,
+      "time": 0,
+      "type": "step/end",
+    },
+    {
+      "data": {
+        "step": 2,
+        "turn": 1,
+      },
+      "seq": 18,
+      "time": 0,
+      "type": "step/start",
+    },
+    {
+      "data": {
+        "chunk": {
+          "blockType": "text",
+          "index": 0,
+          "type": "block-start",
+        },
+        "step": 2,
+        "turn": 1,
+      },
+      "seq": 19,
+      "time": 0,
+      "type": "assistant/chunk",
+    },
+    {
+      "data": {
+        "chunk": {
+          "index": 0,
+          "text": "tool-finished",
+          "type": "text-delta",
+        },
+        "step": 2,
+        "turn": 1,
+      },
+      "seq": 20,
+      "time": 0,
+      "type": "assistant/chunk",
+    },
+    {
+      "data": {
+        "chunk": {
+          "block": {
+            "text": "tool-finished",
+            "type": "text",
+          },
+          "index": 0,
+          "type": "block-end",
+        },
+        "step": 2,
+        "turn": 1,
+      },
+      "seq": 21,
+      "time": 0,
+      "type": "assistant/chunk",
+    },
+    {
+      "data": {
+        "chunk": {
+          "type": "usage",
+          "usage": {
+            "inputTokens": 12,
+            "outputTokens": 2,
+          },
+        },
+        "step": 2,
+        "turn": 1,
+      },
+      "seq": 22,
+      "time": 0,
+      "type": "assistant/chunk",
+    },
+    {
+      "data": {
+        "chunk": {
+          "reason": {
+            "kind": "stop",
+          },
+          "type": "finish",
+        },
+        "step": 2,
+        "turn": 1,
+      },
+      "seq": 23,
+      "time": 0,
+      "type": "assistant/chunk",
+    },
+    {
+      "data": {
+        "message": {
+          "content": [
+            {
+              "text": "tool-finished",
+              "type": "text",
+            },
+          ],
+          "id": "{{messageId}}",
+          "role": "assistant",
+          "source": {
+            "kind": "model",
+            "model": "deepseek-v4-flash",
+            "provider": "deepseek-official",
+          },
+        },
+        "step": 2,
+        "turn": 1,
+        "usage": {
+          "inputTokens": 12,
+          "outputTokens": 2,
+        },
+      },
+      "seq": 24,
+      "sourceEventSeqs": [
+        19,
+        20,
+        21,
+        22,
+        23,
+      ],
+      "surfaceOp": "append",
+      "time": 0,
+      "type": "assistant/message",
+    },
+    {
+      "data": {
+        "step": 2,
+        "turn": 1,
+      },
+      "seq": 25,
+      "time": 0,
+      "type": "step/end",
+    },
+    {
+      "data": {
+        "reason": {
+          "kind": "completed",
+        },
+        "turn": 1,
+      },
+      "seq": 26,
+      "time": 0,
+      "type": "turn/end",
+    },
+  ],
+  "requests": [
+    {
+      "max_tokens": 8192,
+      "messages": [
+        {
+          "content": "You are an AI agent powered by DeepSeek Harness.
+
+You are dsh-edge, a coding agent running in a Cloudflare Worker. Your persistent working directory is /workspace. Use the bash tool when you need to inspect or modify workspace files, then answer with the result. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
+
+Use the web_search tool to discover current information on the web. It returns an optional answer plus a list of source URLs. Use the returned source snippets when available, and cite the relevant URLs as markdown links.",
+          "role": "system",
+        },
+        {
+          "content": "run the tool",
+          "role": "user",
+        },
+      ],
+      "model": "deepseek-v4-flash",
+      "stream": true,
+      "stream_options": {
+        "include_usage": true,
+      },
+      "thinking": {
+        "type": "disabled",
+      },
+      "tools": [
+        {
+          "function": {
+            "description": "Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in /workspace unless workdir is supplied.",
+            "name": "bash",
+            "parameters": {
+              "properties": {
+                "command": {
+                  "description": "The shell command to execute.",
+                  "type": "string",
+                },
+                "description": {
+                  "description": "A short explanation of what the command does.",
+                  "type": "string",
+                },
+                "timeoutMs": {
+                  "description": "Optional execution timeout in milliseconds.",
+                  "type": "number",
+                },
+                "workdir": {
+                  "description": "An absolute directory below /workspace.",
+                  "type": "string",
+                },
+              },
+              "required": [
+                "command",
+                "description",
+              ],
+              "type": "object",
+            },
+          },
+          "type": "function",
+        },
+        {
+          "function": {
+            "description": "Search the web for current information. Returns an optional summary answer and a list of source URLs.",
+            "name": "web_search",
+            "parameters": {
+              "properties": {
+                "query": {
+                  "description": "The search query.",
+                  "type": "string",
+                },
+              },
+              "required": [
+                "query",
+              ],
+              "type": "object",
+            },
+          },
+          "type": "function",
+        },
+      ],
+    },
+    {
+      "max_tokens": 8192,
+      "messages": [
+        {
+          "content": "You are an AI agent powered by DeepSeek Harness.
+
+You are dsh-edge, a coding agent running in a Cloudflare Worker. Your persistent working directory is /workspace. Use the bash tool when you need to inspect or modify workspace files, then answer with the result. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
+
+Use the web_search tool to discover current information on the web. It returns an optional answer plus a list of source URLs. Use the returned source snippets when available, and cite the relevant URLs as markdown links.",
+          "role": "system",
+        },
+        {
+          "content": "run the tool",
+          "role": "user",
+        },
+        {
+          "content": "",
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{"command":"cat /workspace/session.txt","description":"Read the session file"}",
+                "name": "bash",
+              },
+              "id": "call_mock_file",
+              "type": "function",
+            },
+          ],
+        },
+        {
+          "content": "edge-snapshot-tool-value",
+          "role": "tool",
+          "tool_call_id": "call_mock_file",
+        },
+      ],
+      "model": "deepseek-v4-flash",
+      "stream": true,
+      "stream_options": {
+        "include_usage": true,
+      },
+      "thinking": {
+        "type": "disabled",
+      },
+      "tools": [
+        {
+          "function": {
+            "description": "Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in /workspace unless workdir is supplied.",
+            "name": "bash",
+            "parameters": {
+              "properties": {
+                "command": {
+                  "description": "The shell command to execute.",
+                  "type": "string",
+                },
+                "description": {
+                  "description": "A short explanation of what the command does.",
+                  "type": "string",
+                },
+                "timeoutMs": {
+                  "description": "Optional execution timeout in milliseconds.",
+                  "type": "number",
+                },
+                "workdir": {
+                  "description": "An absolute directory below /workspace.",
+                  "type": "string",
+                },
+              },
+              "required": [
+                "command",
+                "description",
+              ],
+              "type": "object",
+            },
+          },
+          "type": "function",
+        },
+        {
+          "function": {
+            "description": "Search the web for current information. Returns an optional summary answer and a list of source URLs.",
+            "name": "web_search",
+            "parameters": {
+              "properties": {
+                "query": {
+                  "description": "The search query.",
+                  "type": "string",
+                },
+              },
+              "required": [
+                "query",
+              ],
+              "type": "object",
+            },
+          },
+          "type": "function",
+        },
+      ],
+    },
+  ],
+}

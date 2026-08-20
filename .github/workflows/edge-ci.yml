@@ -1,0 +1,87 @@
+name: Edge CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+concurrency:
+  group: edge-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '24'
+  DSH_TELEMETRY_DISABLED: '1'
+
+jobs:
+  verify:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    name: edge / verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install pinned standalone assembly dependencies
+        run: pnpm --dir apps/dsh-edge/standalone install --frozen-lockfile
+
+      # Run before the repository install so a parent dependency cannot mask a
+      # missing package in the standalone lock.
+      - name: Build the pinned standalone release artifacts
+        run: pnpm --dir apps/dsh-edge/standalone run build
+
+      - name: Verify the standalone release contract
+        run: pnpm --dir apps/dsh-edge/standalone run verify
+
+      - name: Promote standalone artifacts to release paths
+        run: node apps/dsh-edge/standalone/scripts/promote.mjs all
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate documentation
+        run: pnpm run doc-sync
+
+      - name: Lint Edge-owned source
+        run: pnpm run lint
+
+      - name: Test Edge runtime, client plugin, and repository contracts
+        run: pnpm run test
+
+      - name: Test review state sensor
+        run: bash .agents/skills/codex-review-loop/tests/codex-state.test.sh
+
+      - name: Test released artifacts and 0.1.3 durable state in both modes
+        run: node apps/dsh-edge/tests/run-session-integration.mjs
+
+      - name: Type-check Edge-owned source
+        run: pnpm run typecheck
+
+      - name: Snapshot the assembled Edge runtime and browser path
+        env:
+          # ubuntu-latest includes Google Chrome; avoid downloading a second
+          # browser and mutating the hosted image with apt on every run.
+          DSH_EDGE_PLAYWRIGHT_CHANNEL: chrome
+        run: pnpm --filter dsh-edge run test:snapshot
+
+      # pnpm pack runs dsh-edge's prepack gate, which builds both runtime modes
+      # and size-checks Direct. Separate bundle steps would repeat that work.
+      - name: Pack the public installer
+        run: pnpm --filter dsh-edge pack --pack-destination "${{ runner.temp }}"
+
+      - name: Verify the installed package outside the workspace
+        run: pnpm --filter dsh-edge run pack:verify "${{ runner.temp }}/dsh-edge-$(node -p "require('./apps/dsh-edge/package.json').version").tgz"

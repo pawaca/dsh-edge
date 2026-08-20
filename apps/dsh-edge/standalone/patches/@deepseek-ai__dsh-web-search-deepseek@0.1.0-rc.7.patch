@@ -1,0 +1,35 @@
+diff --git a/lib/index.js b/lib/index.js
+index d9dc18dd73504ce966d056ad60886ea7a9c7b3c9..7b5a662ce0230a2f41160fe36be2d5b45ce8b4dc 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -81,7 +81,7 @@ function mapAnthropicResponse(response) {
+ 		truncated: false
+ 	};
+ }
+-/** The DeepSeek-backed search provider; HTTP redirects fail as `WEB_PROVIDER_ERROR`. */
++/** The DeepSeek-backed search provider; HTTP redirects remain unfollowed and fail as `WEB_PROVIDER_ERROR`. */
+ var DeepSeekSearchProvider = class {
+ 	resolveOptions;
+ 	id = DEEPSEEK_PROVIDER_ID;
+@@ -130,7 +130,7 @@ var DeepSeekSearchProvider = class {
+ 		try {
+ 			response = await fetch(endpoint, {
+ 				method: "POST",
+-				redirect: "error",
++				redirect: "manual",
+ 				headers: {
+ 					"x-api-key": apiKey,
+ 					"authorization": `Bearer ${apiKey}`,
+diff --git a/lib/types/provider.d.ts b/lib/types/provider.d.ts
+index 93605f61f141d9a2bca3ef042c9ce6b05d98aa5a..2493b31e55bd669bdb0bafe2d09414d23546b52d 100644
+--- a/lib/types/provider.d.ts
++++ b/lib/types/provider.d.ts
+@@ -110,7 +110,7 @@ export declare function citationSnippets(blocks: readonly ContentBlock[]): Map<s
+  * @throws {@link WebError} when native search produced no result block.
+  */
+ export declare function mapAnthropicResponse(response: AnthropicResponse): WebSearchResult;
+-/** The DeepSeek-backed search provider; HTTP redirects fail as `WEB_PROVIDER_ERROR`. */
++/** The DeepSeek-backed search provider; HTTP redirects remain unfollowed and fail as `WEB_PROVIDER_ERROR`. */
+ export declare class DeepSeekSearchProvider implements WebSearchProvider {
+     private readonly resolveOptions;
+     readonly id = "deepseek-official";

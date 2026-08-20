@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record: the git blob hash of each side at the
+# last confirmed-consistent state. Both languages carry equal authority.
+# After editing either side, update both and re-record every pair with:
+#   pnpm run doc-pairs -- --write
+2026-08-16-single-owner-edge-auth.md: abb0f9c7808b6e6222421644839d0cbca797ff2f
+2026-08-16-single-owner-edge-auth.zh.md: 8bda59e8684f89b97c11a369f3f873114b412118

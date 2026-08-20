@@ -1,0 +1,21 @@
+{
+  "dsh-edge:workspace-domain-state:v2": {
+    "initialized": true,
+    "workspaceIds": [
+      "edge-workspace"
+    ],
+    "archivedSessionIds": [
+      "session-v0-1-3-blank"
+    ]
+  },
+  "dsh-edge:workspace-domain-workspaces:edge-workspace:v2": {
+    "path": "/workspace",
+    "title": "DSH Edge 0.1.3 workspace",
+    "sessionIds": [
+      "session-v0-1-3-blank",
+      "session-v0-1-3"
+    ],
+    "createdAt": "2026-08-18T00:00:00.000Z",
+    "updatedAt": "2026-08-18T00:01:00.000Z"
+  }
+}

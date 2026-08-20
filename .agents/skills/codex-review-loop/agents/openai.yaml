@@ -1,0 +1,4 @@
+interface:
+  display_name: "Codex Review Loop"
+  short_description: "Drive bounded Codex review and CI convergence"
+  default_prompt: "Use $codex-review-loop to drive this pull request through bounded Codex review and CI convergence."

@@ -1,0 +1,98 @@
+diff --git a/lib/index.js b/lib/index.js
+index 6c3a740737dfdb90a4f512ac7bbfb3023ab6b36b..bf806af9df7a5d06d7cca8852972098d1be59dec 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -1,4 +1,3 @@
+-import { createRequire } from "node:module";
+ import { Service } from "@deepseek-ai/cordis";
+ import z from "@deepseek-ai/schemastery";
+ import { MAX_TIMER_DELAY_MS } from "@deepseek-ai/dsh-timeout";
+@@ -584,7 +583,66 @@ function normalizeApiKey(raw) {
+ * App-attribution vocabulary for provider requests.
+ * @module @deepseek-ai/dsh-llm/attribution
+ */
+-const { version } = createRequire(import.meta.url)("../package.json");
++const { version } = {
++	name: "@deepseek-ai/dsh-llm",
++	description: "Provider-neutral LLM service interface for the DeepSeek Harness",
++	version: "0.1.0-rc.7",
++	publishConfig: { "access": "public" },
++	repository: {
++		"type": "git",
++		"url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
++		"directory": "packages/llm/llm"
++	},
++	type: "module",
++	main: "lib/index.js",
++	types: "lib/types/index.d.ts",
++	exports: {
++		".": {
++			"types": "./lib/types/index.d.ts",
++			"default": "./lib/index.js"
++		},
++		"./invariant": {
++			"types": "./lib/types/invariant.d.ts",
++			"default": "./lib/invariant.js"
++		},
++		"./types": {
++			"types": "./lib/types/types.d.ts",
++			"default": "./lib/types/types.js"
++		},
++		"./brand": {
++			"types": "./lib/types/brand.d.ts",
++			"default": "./lib/types/brand.js"
++		},
++		"./message": {
++			"types": "./lib/types/message.d.ts",
++			"default": "./lib/types/message.js"
++		},
++		"./src/*": "./src/*",
++		"./package.json": "./package.json"
++	},
++	files: [
++		"lib/index.js",
++		"lib/invariant.js",
++		"lib/types/**/*.js",
++		"lib/types/**/*.d.ts"
++	],
++	license: "MIT",
++	peerDependencies: {
++		"@deepseek-ai/dsh-attachment": "workspace:^",
++		"@deepseek-ai/dsh-brand": "workspace:^",
++		"@deepseek-ai/dsh-invariants": "workspace:^",
++		"@deepseek-ai/dsh-timeout": "workspace:^",
++		"@deepseek-ai/cordis": "workspace:^"
++	},
++	dependencies: { "@deepseek-ai/schemastery": "workspace:^" },
++	devDependencies: {
++		"@deepseek-ai/dsh-attachment": "workspace:^",
++		"@deepseek-ai/dsh-brand": "workspace:^",
++		"@deepseek-ai/dsh-invariants": "workspace:^",
++		"@deepseek-ai/dsh-timeout": "workspace:^",
++		"@deepseek-ai/cordis": "workspace:^"
++	}
++};
+ /**
+ * The harness's own identity: the default every adapter sends. Deployments
+ * that need a white-label identity pass their own {@link AppIdentity} to
+diff --git a/lib/types/attribution.js b/lib/types/attribution.js
+index a09678fe78cb33f74295c20268d4b5b48f3ca153..62f448a1fb2276d0323d00ab3323bd20d1ea2b97 100644
+--- a/lib/types/attribution.js
++++ b/lib/types/attribution.js
+@@ -6,12 +6,12 @@
+  * App-attribution vocabulary for provider requests.
+  * @module @deepseek-ai/dsh-llm/attribution
+  */
+-import { createRequire } from 'node:module';
++import manifest from '@deepseek-ai/dsh-llm/package.json' with { type: 'json' };
+ // The package's own manifest is the single source of the version so the
+ // User-Agent cannot drift from what is published (`./package.json` is an
+-// export of this package; the relative path resolves from both `src/` and
+-// the bundled `lib/`).
+-const { version } = createRequire(import.meta.url)('../package.json');
++// export of this package; the self-reference resolves from source, emitted
++// intermediate JavaScript, and Worker bundles without runtime path discovery).
++const { version } = manifest;
+ /**
+  * The harness's own identity: the default every adapter sends. Deployments
+  * that need a white-label identity pass their own {@link AppIdentity} to

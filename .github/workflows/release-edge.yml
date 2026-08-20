@@ -1,0 +1,60 @@
+name: Release dsh-edge
+
+on:
+  push:
+    tags: ['dsh-edge-v*']
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  # Node 24.16+ can abort Windows file watchers when runner temp uses an 8.3
+  # short path. Keep the release verifier on the last unaffected release until
+  # a Node release contains https://github.com/nodejs/node/pull/65118.
+  NODE_VERSION: '24.15.0'
+  NPM_VERSION: '11.19.0'
+  DSH_TELEMETRY_DISABLED: '1'
+
+concurrency:
+  group: dsh-edge-npm-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          registry-url: https://registry.npmjs.org
+          cache: pnpm
+      - name: Install trusted-publishing npm
+        run: npm install --global npm@${{ env.NPM_VERSION }}
+      - name: Install pinned standalone assembly dependencies
+        run: pnpm --dir apps/dsh-edge/standalone install --frozen-lockfile
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Verify release tag
+        run: |
+          $version = node -p "require('./apps/dsh-edge/package.json').version"
+          if ($env:GITHUB_REF_NAME -ne "dsh-edge-v$version") {
+            throw "Release tag $env:GITHUB_REF_NAME does not match dsh-edge-v$version"
+          }
+      - name: Pack release
+        run: pnpm --filter dsh-edge pack --pack-destination "${{ runner.temp }}"
+      - name: Verify installed release
+        run: |
+          $version = node -p "require('./apps/dsh-edge/package.json').version"
+          $tarball = Join-Path '${{ runner.temp }}' "dsh-edge-$version.tgz"
+          pnpm --filter dsh-edge run pack:verify $tarball
+      - name: Publish with npm trusted publishing
+        run: |
+          $version = node -p "require('./apps/dsh-edge/package.json').version"
+          $tarball = Join-Path '${{ runner.temp }}' "dsh-edge-$version.tgz"
+          node apps/dsh-edge/scripts/publish.mjs --tarball $tarball

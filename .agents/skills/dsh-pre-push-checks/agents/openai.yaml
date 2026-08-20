@@ -1,0 +1,4 @@
+interface:
+  display_name: "DSH Pre-Push Checks"
+  short_description: "Run the relevant dsh-edge checks before push"
+  default_prompt: "Use $dsh-pre-push-checks before pushing this dsh-edge branch."

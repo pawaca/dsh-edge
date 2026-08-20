@@ -1,0 +1,43 @@
+- dialog "Settings":
+  - navigation:
+    - text: Settings
+    - button "General":
+      - img
+      - text: General
+    - button "Agent presets":
+      - img
+      - text: Agent presets
+    - button "DSH Edge":
+      - img
+      - text: DSH Edge
+  - button "Close":
+    - img
+    - text: Close
+  - banner:
+    - heading "DSH Edge" [level=2]
+    - paragraph: Deployment details and updates for this Cloudflare Worker.
+  - region "Release":
+    - heading "Release" [level=3]
+    - term: Installed version
+    - definition: 0.1.3
+    - term: Latest version
+    - definition: 0.2.0
+    - term: DeepSeek Harness base
+    - definition: 0.1.0-rc.7
+    - paragraph: Update available
+    - button "Upgrade command copied"
+    - link "Release notes":
+      - /url: https://github.com/pawaca/dsh-edge/releases
+  - region "Runtime":
+    - heading "Runtime" [level=3]
+    - term: Runtime
+    - definition: Free · Direct Shell
+    - term: Storage
+    - definition: Durable Object SQLite VFS
+    - term: Deployment ID
+    - definition:
+      - code: dsh-edge@0.1.3/direct
+  - region "Owner session":
+    - heading "Owner session" [level=3]
+    - paragraph: Signing out clears this browser’s owner session. Your deployment and data remain unchanged.
+    - button "Sign out"

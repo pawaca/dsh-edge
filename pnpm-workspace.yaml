@@ -1,0 +1,18 @@
+packages:
+  - apps/dsh-edge
+  - packages/client/ui-edge
+
+linkWorkspacePackages: false
+
+allowBuilds:
+  '@mongodb-js/zstd': false
+  esbuild: true
+  lefthook: true
+  node-liblzma: false
+  workerd: true
+
+patchedDependencies:
+  '@deepseek-ai/dsh-host-apiproxy@0.1.0-rc.7': apps/dsh-edge/standalone/patches/@deepseek-ai__dsh-host-apiproxy@0.1.0-rc.7.patch
+  '@deepseek-ai/dsh-llm@0.1.0-rc.7': apps/dsh-edge/standalone/patches/@deepseek-ai__dsh-llm@0.1.0-rc.7.patch
+  '@deepseek-ai/dsh-session-persistence@0.1.0-rc.7': apps/dsh-edge/standalone/patches/@deepseek-ai__dsh-session-persistence@0.1.0-rc.7.patch
+  '@deepseek-ai/dsh-web-search-deepseek@0.1.0-rc.7': apps/dsh-edge/standalone/patches/@deepseek-ai__dsh-web-search-deepseek@0.1.0-rc.7.patch

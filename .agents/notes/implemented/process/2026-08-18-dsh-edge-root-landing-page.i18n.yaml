@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record: the git blob hash of each side at the
+# last confirmed-consistent state. Both languages carry equal authority.
+# After editing either side, update both and re-record every pair with:
+#   pnpm run doc-pairs -- --write
+2026-08-18-dsh-edge-root-landing-page.md: 505e5a1eb0134e0c3d78626bafa309692b96eb73
+2026-08-18-dsh-edge-root-landing-page.zh.md: a70dc1e6ca2196f195a18b74d394ada97baccb8b
