@@ -17,7 +17,7 @@
     "verify": "node scripts/verify-determinism.mjs && node scripts/verify-standalone.mjs"
   },
   "dependencies": {
-    "@cloudflare/computer": "0.2.0",
+    "@cloudflare/computer": "0.2.1",
     "@deepseek-ai/cordis": "4.0.1",
     "@deepseek-ai/dsh-agent": "0.1.0-rc.7",
     "@deepseek-ai/dsh-agent-loop": "0.1.0-rc.7",
