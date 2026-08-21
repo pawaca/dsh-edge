@@ -13,6 +13,7 @@ No server or GitHub repository is required. The installer can deploy a free sing
 - The upstream DeepSeek Harness Web UI and typed HTTP/WebSocket protocol.
 - Persistent conversations and a `/workspace` virtual filesystem backed by Durable Object SQLite.
 - DeepSeek chat and native Web Search using your own API key.
+- The upstream image composer and Vision Exp model, with permanent-account images stored as immutable objects in a private R2 bucket.
 - A `bash` tool over the persistent workspace, with a free direct runtime or an optional isolated runtime.
 - One owner access key exchanged for a signed browser cookie; the installer can generate a high-entropy value.
 - Guided install and upgrade commands that upload directly through Wrangler without creating a source-build pipeline.
@@ -42,6 +43,8 @@ After Cloudflare accepts the upload, the installer waits briefly for the exact p
 
 Open the printed Worker URL and sign in with the owner access key. Save the key for future upgrades: rotating it invalidates existing browser sessions, and Cloudflare does not expose the current secret to a later upgrade.
 
+A permanent-account installation creates or reuses a private `<worker-name>-attachments` R2 bucket for PNG and JPEG prompts. R2 must be enabled for that Cloudflare account. Temporary previews do not support images yet; Stage 3 will add a bounded Durable Object fallback without changing the browser workflow.
+
 A temporary Cloudflare account must be claimed through the printed claim URL within 60 minutes to retain the Worker and its data.
 
 ## Choose a runtime
@@ -69,15 +72,16 @@ Durable Object data is retained. The installer asks for the owner access key and
 
 ## Current scope
 
-`dsh-edge` is a developer preview. The current preview focuses on a complete personal-use path: upstream conversations and workspaces, persistent sessions, model selection, Web Search, workspace file operations, command execution, and the upstream browser experience.
+`dsh-edge` is a developer preview. The current preview focuses on a complete personal-use path: upstream conversations and workspaces, persistent sessions, the three upstream DeepSeek models, PNG/JPEG image prompts on permanent deployments, Web Search, workspace file operations, command execution, and the upstream browser experience. Vision Exp is experimental and its availability may depend on the DeepSeek account.
 
-The deployment is deliberately single-owner. It does not provide registration, multiple users, roles, or tenant routing. Attachments and images, remote MCP, Skills, Workflows, Jobs, and Subagents are not yet adapted to the Edge runtime. `web_fetch` remains disabled until the runtime has an explicit policy for SSRF, private addresses, and redirects.
+The deployment is deliberately single-owner. It does not provide registration, multiple users, roles, or tenant routing. Generic file attachments, images in temporary previews, remote MCP, Skills, Workflows, Jobs, and Subagents are not yet adapted to the Edge runtime. `web_fetch` remains disabled until the runtime has an explicit policy for SSRF, private addresses, and redirects.
 
 See the [dsh-edge runtime reference](apps/dsh-edge/README.md) for the full compatibility matrix, limits, security behavior, API reference, local development commands, and current implementation status.
 
 ## Data and credentials
 
 - Conversations, workspace metadata, and `/workspace` files live in the deployment's Durable Object storage.
+- On permanent-account installations, admitted PNG/JPEG bytes live in a private R2 bucket; session events retain only upstream content-addressed references. The current limits are 4 images per message, 3.5 MiB per image, 7 MiB total, 40 million pixels, and 2,000 pixels per side.
 - `DEEPSEEK_API_KEY` and `DSH_EDGE_ACCESS_KEY` are Cloudflare Worker secrets. Their literal values are not written to session events, Durable Object state, the virtual filesystem, or browser responses.
 - The installer passes secrets to Wrangler through a temporary mode-`0600` file, removes it after the command, and does not bind the deployment to GitHub or Cloudflare Builds.
 - The owner cookie is HttpOnly, `SameSite=Strict`, and valid for 30 days. Changing the owner access key invalidates it.

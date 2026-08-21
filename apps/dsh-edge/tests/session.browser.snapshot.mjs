@@ -19,7 +19,9 @@ describe('dsh-edge assembled browser snapshot', () => {
   it('pins the transcript rendered through the upstream Web client and Edge protocol', async () => {
     const persistedState = mkdtempSync(join(tmpdir(), 'dsh-edge-browser-snapshot-'))
     const config = join(persistedState, 'wrangler.json')
-    await writePrebuiltModeWranglerConfig('direct', config)
+    await writePrebuiltModeWranglerConfig('direct', config, {
+      r2BucketName: 'dsh-edge-browser-attachments',
+    })
     const mock = await startMockDeepSeek()
     let worker
     let browser
@@ -117,11 +119,26 @@ describe('dsh-edge assembled browser snapshot', () => {
         { timeout: 15_000 },
       ).toBe(1)
 
+      const initialSessions = await edgeRpc(worker, ownerCookieHeader, 'session.list', {})
+      const initialSessionId = initialSessions.result.value.items
+        .find(item => item.blank === true)?.sessionId
+      expect(initialSessionId).toBeTypeOf('string')
+      const selectVision = await edgeRpc(worker, ownerCookieHeader, 'session.selectModel', {
+        sessionId: initialSessionId,
+        provider: 'deepseek-official',
+        model: 'deepseek-v4-flash-vision-exp',
+      })
+      expect(selectVision.result.ok).toBe(true)
+
       const composer = page.locator('textarea:enabled').last()
       await composer.waitFor({ timeout: 15_000 })
       await composer.evaluate((textarea) => {
+        const png = Uint8Array.from(
+          atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4XmP4z8DwHwAFAAH/NQZ7kgAAAABJRU5ErkJggg=='),
+          character => character.charCodeAt(0),
+        )
         const transfer = new DataTransfer()
-        transfer.items.add(new File([Uint8Array.of(137, 80, 78, 71)], 'unsupported.png', {
+        transfer.items.add(new File([png], 'one-pixel.png', {
           type: 'image/png',
         }))
         textarea.dispatchEvent(new ClipboardEvent('paste', {
@@ -132,7 +149,7 @@ describe('dsh-edge assembled browser snapshot', () => {
       })
       await expect.poll(
         () => page.getByRole('group', { name: 'Pending images' }).count(),
-      ).toBe(0)
+      ).toBe(1)
       await composer.fill('snapshot the browser edge path')
       await page.getByRole('button', { name: 'Send message', exact: true }).click()
       await expect.poll(
@@ -206,7 +223,7 @@ describe('dsh-edge assembled browser snapshot', () => {
       await expect.poll(() => page.getByRole('tooltip').count()).toBe(0)
       await expect.poll(
         () => page.getByRole('button', {
-          name: 'Select model, current DeepSeek-V4-Flash, reasoning effort Off',
+          name: 'Select model, current DeepSeek-V4-Flash-Vision-Exp, reasoning effort Off',
           exact: true,
         }).count(),
         { timeout: 15_000 },

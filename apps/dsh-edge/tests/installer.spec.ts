@@ -13,9 +13,11 @@ import type {
 } from '../scripts/install.mjs'
 import {
   accountChoices,
+  attachmentBucketName,
   createOutputForwarder,
   createTerminalSanitizer,
   executeWrangler,
+  ensureR2Bucket,
   generateOwnerSecret,
   installEdge,
   InstallerOutputError,
@@ -130,6 +132,51 @@ describe('dsh-edge installer primitives', () => {
     else expect(validateWorkerName(value)).toContain(message)
   })
 
+  it('derives stable R2 bucket names within Cloudflare limits', () => {
+    expect(attachmentBucketName('dsh-edge')).toBe('dsh-edge-attachments')
+    const long = attachmentBucketName('a'.repeat(63))
+    expect(long).toMatch(/^a{42}-[a-f0-9]{8}-attachments$/u)
+    expect(long).toHaveLength(63)
+  })
+
+  it('reuses or creates the exact private R2 bucket', async () => {
+    const existing = vi.fn(async () => commandResult(
+      0,
+      JSON.stringify({ name: 'dsh-edge-attachments' }),
+    ))
+    await expect(ensureR2Bucket({
+      bucketName: 'dsh-edge-attachments',
+      runWrangler: existing,
+      environment: { CLOUDFLARE_ACCOUNT_ID: 'account-1' },
+    })).resolves.toEqual({ bucketName: 'dsh-edge-attachments', created: false })
+    expect(existing).toHaveBeenCalledOnce()
+
+    const creating = vi.fn()
+      .mockResolvedValueOnce(commandResult(1, '', 'not found'))
+      .mockResolvedValueOnce(commandResult(0))
+    await expect(ensureR2Bucket({
+      bucketName: 'dsh-edge-attachments',
+      runWrangler: creating,
+      profile: 'dsh-edge-install',
+    })).resolves.toEqual({ bucketName: 'dsh-edge-attachments', created: true })
+    expect(creating.mock.calls[1]?.[0]).toEqual([
+      'r2', 'bucket', 'create', 'dsh-edge-attachments', '--profile', 'dsh-edge-install',
+    ])
+  })
+
+  it('fails with an actionable R2 recovery path and never deletes a bucket', async () => {
+    const unavailable = vi.fn(async (_args: string[]) => (
+      commandResult(1, '', 'R2 subscription is not enabled')
+    ))
+
+    await expect(ensureR2Bucket({
+      bucketName: 'dsh-edge-attachments',
+      runWrangler: unavailable,
+    })).rejects.toThrow(/Enable R2.*temporary preview.*retry/u)
+    expect(unavailable).toHaveBeenCalledTimes(3)
+    expect(unavailable.mock.calls.flatMap(call => call[0])).not.toContain('delete')
+  })
+
   it('generates and validates login secrets without weakening the runtime contract', () => {
     const generated = generateOwnerSecret()
     expect(new TextEncoder().encode(generated).byteLength).toBeGreaterThanOrEqual(32)
@@ -232,12 +279,12 @@ describe('dsh-edge installer primitives', () => {
     const prebuiltDirect = parseJsonRecord(renderPrebuiltModeWranglerConfig(
       'direct',
       source,
-      { appDirectory: root },
+      { appDirectory: root, r2BucketName: 'dsh-edge-attachments' },
     ))
     const prebuiltIsolated = parseJsonRecord(renderPrebuiltModeWranglerConfig(
       'isolated',
       source,
-      { appDirectory: root },
+      { appDirectory: root, r2BucketName: 'dsh-edge-attachments' },
     ))
 
     expect(direct).toMatchObject({
@@ -263,12 +310,22 @@ describe('dsh-edge installer primitives', () => {
       assets: { directory: resolve(root, 'dist') },
       no_bundle: true,
       find_additional_modules: false,
+      r2_buckets: [{
+        binding: 'DSH_EDGE_ATTACHMENTS',
+        bucket_name: 'dsh-edge-attachments',
+      }],
     })
     expect(prebuiltDirect).not.toHaveProperty('alias')
     expect(prebuiltDirect).not.toHaveProperty('minify')
     expect(prebuiltIsolated).toMatchObject({
       main: resolve(root, 'worker/isolated/index.js'),
-      env: { isolated: { worker_loaders: [{ binding: 'LOADER' }] } },
+      env: { isolated: {
+        worker_loaders: [{ binding: 'LOADER' }],
+        r2_buckets: [{
+          binding: 'DSH_EDGE_ATTACHMENTS',
+          bucket_name: 'dsh-edge-attachments',
+        }],
+      } },
       no_bundle: true,
     })
 
@@ -744,6 +801,7 @@ describe('dsh-edge guided installation', () => {
         return commandResult(0, JSON.stringify({ loggedIn: true, accounts: [ACCOUNT] }))
       }
       if (args[0] === 'deployments') return commandResult(1, '', '[code: 10007]')
+      if (args[0] === 'r2') return existingR2Bucket(args)!
       throw primaryError
     })
     const removePath: typeof rm = async (path, options) => {
@@ -778,6 +836,7 @@ describe('dsh-edge guided installation', () => {
         return commandResult(0, JSON.stringify({ loggedIn: true, accounts: [ACCOUNT] }))
       }
       if (args[0] === 'deployments') return commandResult(1, '', '[code: 10007]')
+      if (args[0] === 'r2') return existingR2Bucket(args)!
       controller.abort(interrupted)
       throw interrupted
     })
@@ -853,6 +912,11 @@ describe('dsh-edge guided installation', () => {
         return commandResult(0, JSON.stringify({ loggedIn: true, accounts: [ACCOUNT] }))
       }
       if (args[0] === 'deployments') return commandResult(1, '', '[code: 10007]')
+      if (args[0] === 'r2') {
+        expect(args).toContain('dsh-edge-install')
+        expect(options.environment?.CLOUDFLARE_ACCOUNT_ID).toBe('account-1')
+        return existingR2Bucket(args)!
+      }
       expect(args).toContain('isolated')
       expect(args).toContain('dsh-edge-install')
       expect(options.environment?.CLOUDFLARE_ACCOUNT_ID).toBe('account-1')
@@ -918,6 +982,7 @@ describe('dsh-edge guided installation', () => {
         return commandResult(0, JSON.stringify({ loggedIn: true, accounts: [ACCOUNT] }))
       }
       if (args[0] === 'deployments') return commandResult(0, '[]')
+      if (args[0] === 'r2') return existingR2Bucket(args)!
       await writeFile(options.environment?.WRANGLER_OUTPUT_FILE_PATH ?? '', JSON.stringify({
         type: 'deploy', version: 1, targets: ['dsh-edge.owner.workers.dev'],
       }))
@@ -1066,6 +1131,7 @@ describe('dsh-edge guided installation', () => {
           return commandResult(0, JSON.stringify({ loggedIn: true, accounts: [ACCOUNT] }))
         }
         if (args[0] === 'deployments') return commandResult(0, '[]')
+        if (args[0] === 'r2') return existingR2Bucket(args)!
         await writeFile(options.environment?.WRANGLER_OUTPUT_FILE_PATH ?? '', 'not-json')
         return commandResult(0)
       })
@@ -1097,6 +1163,7 @@ describe('dsh-edge guided installation', () => {
         return commandResult(0, JSON.stringify({ loggedIn: true, accounts: [ACCOUNT] }))
       }
       if (args[0] === 'deployments') return commandResult(1, '', '[code: 10007]')
+      if (args[0] === 'r2') return existingR2Bucket(args)!
       await writeFile(
         options.environment?.WRANGLER_OUTPUT_FILE_PATH ?? '',
         'x'.repeat(2 * 1024 * 1024 + 1),
@@ -1128,6 +1195,7 @@ describe('dsh-edge guided installation', () => {
         return commandResult(0, JSON.stringify({ loggedIn: true, accounts: [ACCOUNT] }))
       }
       if (args[0] === 'deployments') return commandResult(1, '', '[code: 10007]')
+      if (args[0] === 'r2') return existingR2Bucket(args)!
       await writeFile(options.environment?.WRANGLER_OUTPUT_FILE_PATH ?? '', JSON.stringify({
         type: 'deploy', version: 1, targets: ['dsh-edge.owner.workers.dev'],
       }))
@@ -1162,6 +1230,7 @@ describe('dsh-edge guided installation', () => {
         return commandResult(0, JSON.stringify({ loggedIn: true, accounts: [ACCOUNT] }))
       }
       if (args[0] === 'deployments') return commandResult(1, '', '[code: 10007]')
+      if (args[0] === 'r2') return existingR2Bucket(args)!
       controller.abort(interrupted)
       return { ...commandResult(0, 'uploaded'), interrupted: true }
     })
@@ -1227,6 +1296,7 @@ describe('dsh-edge guided installation', () => {
         return commandResult(0, JSON.stringify({ loggedIn: true, accounts: [ACCOUNT] }))
       }
       if (args[0] === 'deployments') return commandResult(1, '', '[code: 10007]')
+      if (args[0] === 'r2') return existingR2Bucket(args)!
       return commandResult(1, '', 'Worker Loader is unavailable')
     })
 
@@ -1255,11 +1325,19 @@ function successfulRunWrangler(): (
       return commandResult(0, JSON.stringify({ loggedIn: true, accounts: [ACCOUNT] }))
     }
     if (args[0] === 'deployments') return commandResult(1, '', '[code: 10007]')
+    const r2 = existingR2Bucket(args)
+    if (r2 !== undefined) return r2
     await writeFile(options.environment?.WRANGLER_OUTPUT_FILE_PATH ?? '', JSON.stringify({
       type: 'deploy', version: 1, targets: ['dsh-edge.owner.workers.dev'],
     }))
     return commandResult(0)
   })
+}
+
+function existingR2Bucket(args: string[]): CommandResult | undefined {
+  return args[0] === 'r2'
+    ? commandResult(0, JSON.stringify({ name: 'dsh-edge-attachments' }))
+    : undefined
 }
 
 async function readEventually(path: string): Promise<string> {

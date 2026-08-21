@@ -23,6 +23,7 @@ const LOCAL_DEPLOYMENT_ID = 'local-development'
 /** Worker variables that control one Edge model and shell turn. */
 export interface EdgeDeploymentConfigSource {
   LOADER?: unknown
+  DSH_EDGE_ATTACHMENTS?: unknown
   DEEPSEEK_API_KEY?: string
   DEEPSEEK_BASE_URL?: string
   DEEPSEEK_MAX_OUTPUT_TOKENS?: string
@@ -49,6 +50,7 @@ export interface EdgeDeploymentConfig {
 export interface EdgeDeploymentProfile {
   shell: 'just-bash-direct' | 'just-bash-isolated'
   storage: 'durable-object-sqlite-vfs'
+  attachmentStorage: 'private-r2' | 'unavailable'
   deploymentId: string
   apiKeyConfigured: boolean
   baseURL: string
@@ -111,6 +113,9 @@ export function resolveEdgeDeploymentProfile(
   return {
     shell: source.LOADER === undefined ? 'just-bash-direct' : 'just-bash-isolated',
     storage: 'durable-object-sqlite-vfs',
+    attachmentStorage: source.DSH_EDGE_ATTACHMENTS === undefined
+      ? 'unavailable'
+      : 'private-r2',
     deploymentId: resolveEdgeDeploymentId(),
     apiKeyConfigured: edgeDeploymentApiKeyConfigured(source),
     baseURL: projectedEdgeBaseURL(source.DEEPSEEK_BASE_URL),
@@ -136,6 +141,7 @@ export function resolveEdgeDeploymentHealth(source: EdgeDeploymentConfigSource) 
     ok: true,
     service: 'dsh-edge',
     storage: profile.storage,
+    attachmentStorage: profile.attachmentStorage,
     shell: profile.shell,
     agent: 'upstream-react-loop-agent',
     access: 'single-owner-cookie',

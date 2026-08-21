@@ -1,5 +1,11 @@
 /** Upstream ApiProxy implementation over one Cloudflare DSH instance. */
 
+import {
+  AttachmentError,
+  admitEncodedImages,
+  type ImageAttachmentRef,
+  type ImageAttachmentLimits,
+} from '@deepseek-ai/dsh-attachment'
 import type {
   ApiProxy,
   CredentialView,
@@ -15,6 +21,7 @@ import type {
   WorkspaceView,
 } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { MessageId } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import { EDGE_SYSTEM_PROMPT } from './agent.ts'
 import type { EdgeDeploymentProfile } from './deployment.ts'
@@ -49,13 +56,14 @@ export interface EdgeApiRuntime {
   readonly sessions: EdgeSessionStore
   readonly model: string
   readonly version: string
+  readonly imageLimits?: ImageAttachmentLimits
   deploymentProfile(): EdgeDeploymentProfile
   describeCredential(ref: string): Promise<CredentialView>
   isRunning(sessionId: SessionId): boolean
   prompt(input: {
     sessionId: SessionId
     mode: 'queue' | 'steer'
-    content: Extract<PromptContentPart, { type: 'text' }>[]
+    content: ContentBlock[]
     rpcId: RpcRequest<unknown>['rpcId']
     clientTimeZone?: string
   }): Promise<void>
@@ -87,6 +95,15 @@ export interface EdgeApiRuntime {
 
 /** Build the typed upstream API for one isolated Edge instance. */
 export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
+  const imageAdmissionChains = new Map<SessionId, Promise<void>>()
+  const serializeImageAdmission = <T>(sessionId: SessionId, operation: () => Promise<T>) => {
+    const result = (imageAdmissionChains.get(sessionId) ?? Promise.resolve()).then(operation)
+    const tail = result.then(() => undefined, () => undefined)
+    imageAdmissionChains.set(sessionId, tail)
+    return result.finally(() => {
+      if (imageAdmissionChains.get(sessionId) === tail) imageAdmissionChains.delete(sessionId)
+    })
+  }
   const api: ApiProxy = {
     sessions: {
       async list(request) {
@@ -187,7 +204,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
             events: entries,
             hasMore: page.hasMore,
             ...beforeSeq === undefined
-              ? { projections: summaryProjections(page.summary) }
+              ? { projections: summaryProjections(page.summary, runtime.imageLimits) }
               : {},
           })
         } catch (error) {
@@ -275,14 +292,9 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
             details: { value: clientTimeZone },
           })
         }
-        if (content.some(part => part.type === 'image')) {
-          return fail(request, {
-            code: 'attachment-error',
-            message: 'Image attachments are not available in this Edge instance.',
-            details: { reason: 'EDGE_ATTACHMENTS_UNAVAILABLE' },
-          })
-        }
-        const textContent = content as Extract<PromptContentPart, { type: 'text' }>[]
+        const textContent = content.filter(
+          (part): part is Extract<PromptContentPart, { type: 'text' }> => part.type === 'text',
+        )
         if (messageTextByteLength(textContent) > MAX_MESSAGE_TEXT_BYTES) {
           return fail(request, {
             code: 'attachment-error',
@@ -290,21 +302,100 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
             details: { reason: 'PROMPT_TEXT_TOO_LARGE' },
           })
         }
+        const hasImage = content.some(part => part.type === 'image')
+        const admit = async (): Promise<RpcResponse<{ accepted: true }>> => {
+          try {
+            let durable: ContentBlock[]
+            if (!hasImage) {
+              durable = textContent.map(part => ({ type: 'text', text: part.text }))
+            } else {
+              const attachments = await runtime.sessions.attachmentStore()
+              if (attachments === undefined) {
+                return fail(request, {
+                  code: 'attachment-error',
+                  message: 'Image attachments are not available in this Edge instance.',
+                  details: { reason: 'EDGE_ATTACHMENTS_UNAVAILABLE' },
+                })
+              }
+              if (!await runtime.sessions.modelSupportsImages(sessionId, runtime.model)) {
+                return fail(request, {
+                  code: 'attachment-error',
+                  message: 'The selected model does not support image input.',
+                  details: { reason: 'MODEL_DOES_NOT_SUPPORT_IMAGES' },
+                })
+              }
+              const refs = await admitEncodedImages(
+                attachments,
+                content.filter(
+                  (part): part is Extract<PromptContentPart, { type: 'image' }> =>
+                    part.type === 'image',
+                ),
+              )
+              let nextImage = 0
+              durable = content.map(part => part.type === 'text'
+                ? { type: 'text', text: part.text }
+                : { type: 'image', attachment: refs[nextImage++]! })
+            }
+            await runtime.prompt({
+              sessionId,
+              mode,
+              content: durable,
+              rpcId: request.rpcId,
+              ...zone === undefined ? {} : { clientTimeZone: zone },
+            })
+            return ok(request, { accepted: true as const })
+          } catch (error) {
+            if (error instanceof AttachmentError) {
+              return fail(request, {
+                code: 'attachment-error',
+                message: error.message,
+                details: { reason: error.code },
+              })
+            }
+            return sessionFailure(request, error, sessionId)
+          }
+        }
+        return hasImage ? serializeImageAdmission(sessionId, admit) : admit()
+      },
+
+      async attachment(request): Promise<RpcResponse<{
+        attachment: ImageAttachmentRef
+        data: string
+      }>> {
+        const { sessionId, attachmentId } = request.payload
         try {
-          await runtime.prompt({
-            sessionId,
-            mode,
-            content: textContent,
-            rpcId: request.rpcId,
-            ...zone === undefined ? {} : { clientTimeZone: zone },
+          const attachments = await runtime.sessions.attachmentStore()
+          if (attachments === undefined) {
+            return fail(request, {
+              code: 'attachment-error',
+              message: 'Image attachments are not available in this Edge instance.',
+              details: { reason: 'EDGE_ATTACHMENTS_UNAVAILABLE' },
+            })
+          }
+          const ref = await runtime.sessions.referencedImage(sessionId, String(attachmentId))
+          if (ref === undefined) {
+            return fail(request, {
+              code: 'attachment-error',
+              message: 'Image is not referenced by this session.',
+              details: { reason: 'ATTACHMENT_NOT_REFERENCED' },
+            })
+          }
+          const stored = await attachments.readImage(ref)
+          return ok(request, {
+            attachment: stored.ref,
+            data: bytesToBase64(stored.data),
           })
-          return ok(request, { accepted: true as const })
         } catch (error) {
+          if (error instanceof AttachmentError) {
+            return fail(request, {
+              code: 'attachment-error',
+              message: error.message,
+              details: { reason: error.code },
+            })
+          }
           return sessionFailure(request, error, sessionId)
         }
       },
-
-      attachment: unsupported,
       updateQueue(request) {
         const { sessionId, itemId, action } = request.payload
         if (action.kind === 'edit' && action.content.some(block => block.type !== 'text')) {
@@ -583,6 +674,7 @@ function edgeAgentPresetContent(
     'runtime:',
     '  platform: cloudflare-workers',
     `  storage: ${yamlString(deployment.storage)}`,
+    `  attachmentStorage: ${yamlString(deployment.attachmentStorage)}`,
     `  shell: ${yamlString(deployment.shell)}`,
     '  workspace: /workspace',
     'agent:',
@@ -601,6 +693,13 @@ function edgeAgentPresetContent(
     '    ref: DEEPSEEK_API_KEY',
     `    configured: ${String(deployment.apiKeyConfigured)}`,
     '    persisted: false',
+    'attachments:',
+    `  enabled: ${String(deployment.attachmentStorage === 'private-r2')}`,
+    `  storage: ${yamlString(deployment.attachmentStorage)}`,
+    `  mediaTypes: ${yamlString(runtime.imageLimits?.mediaTypes.join(',') ?? '')}`,
+    `  maxImagesPerMessage: ${String(runtime.imageLimits?.maxImagesPerMessage ?? 0)}`,
+    `  maxImageBytes: ${String(runtime.imageLimits?.maxImageBytes ?? 0)}`,
+    `  maxMessageImageBytes: ${String(runtime.imageLimits?.maxMessageImageBytes ?? 0)}`,
     'tools:',
     '  - id: bash',
     '    runtime: just-bash',
@@ -621,6 +720,15 @@ function yamlString(value: string): string {
   return JSON.stringify(value)
 }
 
+function bytesToBase64(data: Uint8Array): string {
+  const chunkSize = 32_768
+  let binary = ''
+  for (let offset = 0; offset < data.byteLength; offset += chunkSize) {
+    binary += String.fromCharCode(...data.subarray(offset, offset + chunkSize))
+  }
+  return btoa(binary)
+}
+
 function sessionSummary(
   runtime: EdgeApiRuntime,
   summary: EdgeApiSessionSummary,
@@ -636,11 +744,14 @@ function sessionSummary(
     ...summary.origin === undefined ? {} : { origin: summary.origin },
     ...summary.cwd === undefined ? {} : { cwd: summary.cwd },
     ...summary.agentPreset === undefined ? {} : { agentPreset: summary.agentPreset },
-    projections: summaryProjections(summary),
+    projections: summaryProjections(summary, runtime.imageLimits),
   }
 }
 
-function summaryProjections(summary: EdgeApiSessionSummary): SessionProjectionsBlock {
+function summaryProjections(
+  summary: EdgeApiSessionSummary,
+  imageLimits?: ImageAttachmentLimits,
+): SessionProjectionsBlock {
   return {
     asOfSeq: summary.lastSeq,
     values: {
@@ -649,6 +760,7 @@ function summaryProjections(summary: EdgeApiSessionSummary): SessionProjectionsB
         lastPromptAt: summary.lastPromptAt,
       },
       ...summary.title === null ? {} : { title: summary.title },
+      ...imageLimits === undefined ? {} : { imageLimits },
     },
   }
 }

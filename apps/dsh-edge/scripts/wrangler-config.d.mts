@@ -4,6 +4,7 @@ export interface WranglerConfigOptions {
   aliases?: Record<string, string>
   appDirectory?: string
   assetsDirectory?: string
+  r2BucketName?: string
   sourceConfigPath?: string
 }
 

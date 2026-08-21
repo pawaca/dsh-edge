@@ -62,6 +62,7 @@ describe('dsh-edge deployment configuration', () => {
     expect(profile).toEqual({
       shell: 'just-bash-isolated',
       storage: 'durable-object-sqlite-vfs',
+      attachmentStorage: 'unavailable',
       deploymentId: 'local-development',
       apiKeyConfigured: true,
       baseURL: 'https://gateway.example/v1',
@@ -78,6 +79,20 @@ describe('dsh-edge deployment configuration', () => {
     expect(JSON.stringify(profile)).not.toContain(VALID_SOURCE.DEEPSEEK_API_KEY)
     expect(edgeDeploymentApiKeyConfigured({})).toBe(false)
     expect(edgeDeploymentApiKeyConfigured({ DEEPSEEK_API_KEY: '   ' })).toBe(false)
+  })
+
+  it('projects the private R2 attachment backend without exposing its binding', () => {
+    const profile = resolveEdgeDeploymentProfile({
+      ...VALID_SOURCE,
+      DSH_EDGE_ATTACHMENTS: { private: 'binding' },
+    })
+
+    expect(profile.attachmentStorage).toBe('private-r2')
+    expect(resolveEdgeDeploymentHealth({
+      ...VALID_SOURCE,
+      DSH_EDGE_ATTACHMENTS: {},
+    })).toMatchObject({ attachmentStorage: 'private-r2' })
+    expect(JSON.stringify(profile)).not.toContain('binding')
   })
 
   it('omits credential-bearing URL components only from the browser projection', () => {

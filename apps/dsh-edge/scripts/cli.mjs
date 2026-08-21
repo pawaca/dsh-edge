@@ -166,6 +166,9 @@ export function createInstallerUi(
         `Account: ${summary.accountLabel}`,
         `Worker: ${summary.workerName}`,
         `Cost: ${summary.paid ? 'Workers Paid is required' : 'Works on Workers Free'}`,
+        `Images: ${summary.temporary
+          ? 'not enabled in temporary previews yet'
+          : 'stored privately in Cloudflare R2'}`,
         ...(command === 'upgrade' ? ['Existing Durable Object data is preserved.', 'The entered secrets replace the active values.'] : []),
       ].join('\n'), command === 'upgrade' ? 'Upgrade summary' : 'Installation summary')
       return await requireAnswer(await clack.confirm(withOutput({

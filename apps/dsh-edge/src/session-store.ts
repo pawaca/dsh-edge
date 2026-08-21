@@ -9,6 +9,11 @@ import AgentRegistry, {
   type ModelSelectionRef,
 } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
+import type {
+  AttachmentStore,
+  ImageAttachmentLimits,
+  ImageAttachmentRef,
+} from '@deepseek-ai/dsh-attachment'
 import { credentialRef, type CredentialInfo } from '@deepseek-ai/dsh-credentials'
 import LlmRuntime, { ReasoningEffortId, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
@@ -45,6 +50,7 @@ import {
   type EdgeShell,
 } from './agent.ts'
 import { EdgeDeepSeekAdapter, type EdgeReasoningEffort } from './deepseek.ts'
+import { EdgeR2AttachmentStore } from './edge-attachment-store.ts'
 import EdgeCredentialProvider, { EDGE_DEEPSEEK_API_KEY_REF } from './edge-credentials.ts'
 import DurableObjectSessionPersistence, {
   EDGE_HISTORY_PAGE_LIMITS,
@@ -60,6 +66,7 @@ const MAX_FORK_EVENTS = 8_192
 interface EdgeSessionStoreConfig {
   readDeepSeekApiKey(): string | undefined
   searchBaseURL?: string
+  attachmentBucket?: R2Bucket
 }
 const MAX_FORK_STORED_BYTES = 8 * 1_024 * 1_024
 const MAX_SEARCH_SESSIONS = 32
@@ -132,7 +139,7 @@ export class EdgeSessionStore {
   private readonly context = new Context()
   private readonly model = new EdgeDeepSeekAdapter(async () => (
     await this.context.credentials.resolve(EDGE_DEEPSEEK_API_KEY_REF)
-  )?.value)
+  )?.value, () => this.context.get('attachments'))
   private readonly shells = new EdgeShellBindings()
   private readonly blankHandles = new Map<SessionId, AgentHandle>()
   private readonly modelSelections: EdgeModelSelectionBridge
@@ -151,6 +158,9 @@ export class EdgeSessionStore {
     storage: DurableObjectStorage,
     config: EdgeSessionStoreConfig,
   ): Promise<void> {
+    if (config.attachmentBucket !== undefined) {
+      await this.context.plugin(EdgeR2AttachmentStore, { bucket: config.attachmentBucket })
+    }
     await this.context.plugin(EdgeCredentialProvider, {
       readDeepSeekApiKey: () => config.readDeepSeekApiKey(),
     })
@@ -170,6 +180,54 @@ export class EdgeSessionStore {
       () => this.context.tools.register(createEdgeBashTool(this.shells)),
       'dsh-edge: bash tool',
     )
+  }
+
+  /** Resolve the optional upstream attachment service composed for this deployment. */
+  async attachmentStore(): Promise<AttachmentStore | undefined> {
+    await this.ready
+    return this.context.get('attachments')
+  }
+
+  /** Project the deployment's authoritative upstream image policy. */
+  async imageLimits(): Promise<ImageAttachmentLimits | undefined> {
+    return (await this.attachmentStore())?.imageLimits
+  }
+
+  /** Check the current session selection through the upstream model catalog. */
+  async modelSupportsImages(id: SessionId, defaultModel: string): Promise<boolean> {
+    const selection = await this.modelSelection(id, defaultModel)
+    const info = await this.context.llm.resolveModelInfo(selection.provider, selection.model)
+    return info.inputModalities === undefined || info.inputModalities.includes('image')
+  }
+
+  /** Authorize one opaque attachment id against canonical session events. */
+  async referencedImage(
+    id: SessionId,
+    attachmentId: string,
+  ): Promise<ImageAttachmentRef | undefined> {
+    const { sessions, persistence } = await this.services()
+    const live = sessions.get(id)
+    if (live !== undefined) return referencedImage(live.events, attachmentId)
+    if (!(persistence instanceof DurableObjectSessionPersistence)) {
+      throw new EdgeSessionStoreError('INVALID_DATA', 'Edge persistence backend is unavailable.')
+    }
+    if (persistence.readBlankSession(id) !== undefined) return undefined
+    if (persistence.readSessionHeader(id) === undefined) {
+      throw new EdgeSessionStoreError('NOT_FOUND', 'Session not found.')
+    }
+    const page = await persistence.readEventPage(
+      id,
+      0,
+      MAX_FORK_EVENTS,
+      MAX_FORK_STORED_BYTES,
+    )
+    if (page.hasMore) {
+      throw new EdgeSessionStoreError(
+        'INVALID_DATA',
+        `Session ${id} exceeds the Edge attachment authorization history limit.`,
+      )
+    }
+    return referencedImage(page.events, attachmentId)
   }
 
   /** Describe one credential through the mounted upstream provider without exposing its value. */
@@ -263,6 +321,13 @@ export class EdgeSessionStore {
         ? {}
         : { reasoningEffort: ReasoningEffortId(input.reasoningEffort) },
     })
+    const info = await this.context.llm.resolveModelInfo(resolved.provider, resolved.model)
+    if (info.inputModalities !== undefined && !info.inputModalities.includes('image')
+      && await this.sessionContainsImages(id)) {
+      throw new Error(
+        `Model "${resolved.model}" does not accept image input, but this session already contains images.`,
+      )
+    }
     const selected: ModelSelection = {
       provider: resolved.provider,
       model: resolved.model,
@@ -272,6 +337,29 @@ export class EdgeSessionStore {
     }
     await this.modelSelections.save(id, selected)
     return selected
+  }
+
+  private async sessionContainsImages(id: SessionId): Promise<boolean> {
+    const { agents, sessions, persistence } = await this.services()
+    const agent = agents.get(id)
+    if (agent !== undefined && [...agent.inbox.nextTurn, ...agent.inbox.nextStep]
+      .some(message => message.content.some(block => block.type === 'image'))) return true
+    const live = sessions.get(id)
+    if (live !== undefined) return referencedImage(live.events) !== undefined
+    if (!(persistence instanceof DurableObjectSessionPersistence)) {
+      throw new EdgeSessionStoreError('INVALID_DATA', 'Edge persistence backend is unavailable.')
+    }
+    if (persistence.readBlankSession(id) !== undefined) return false
+    const page = await persistence.readEventPage(
+      id,
+      0,
+      MAX_FORK_EVENTS,
+      MAX_FORK_STORED_BYTES,
+    )
+    if (page.hasMore) {
+      throw new Error(`Session ${id} exceeds the Edge image-history inspection limit.`)
+    }
+    return referencedImage(page.events) !== undefined
   }
 
   async createSession(input: CreateEdgeSessionInput): Promise<EdgeSession> {
@@ -915,6 +1003,59 @@ function appendUserTitle(agent: Agent, title: string): SessionEvent<'session/tit
     messageSeqs: [],
     source: { kind: 'user' },
   })
+}
+
+function referencedImage(
+  events: readonly SessionEvent[],
+  attachmentId?: string,
+): ImageAttachmentRef | undefined {
+  for (const event of events) {
+    const data = event.data as unknown
+    if (!isRecord(data)) continue
+    const direct = imageBlockIn(data.content, attachmentId)
+    if (direct !== undefined) return direct
+    if (isRecord(data.message)) {
+      const wrapped = imageBlockIn(data.message.content, attachmentId)
+      if (wrapped !== undefined) return wrapped
+    }
+    if (Array.isArray(data.inserted)) {
+      for (const message of data.inserted) {
+        if (!isRecord(message)) continue
+        const inserted = imageBlockIn(message.content, attachmentId)
+        if (inserted !== undefined) return inserted
+      }
+    }
+    if (event.type === 'assistant/chunk' && isRecord(data.chunk)
+      && data.chunk.type === 'block-end') {
+      const chunk = imageBlockIn([data.chunk.block], attachmentId)
+      if (chunk !== undefined) return chunk
+    }
+  }
+  return undefined
+}
+
+function imageBlockIn(
+  content: unknown,
+  attachmentId?: string,
+): ImageAttachmentRef | undefined {
+  if (!Array.isArray(content)) return undefined
+  for (const value of content) {
+    if (!isRecord(value)) continue
+    if (value.type === 'image' && isRecord(value.attachment)
+      && (attachmentId === undefined
+        || String(value.attachment.attachmentId) === attachmentId)) {
+      return value.attachment as unknown as ImageAttachmentRef
+    }
+    if (value.type === 'tool-result') {
+      const nested = imageBlockIn(value.content, attachmentId)
+      if (nested !== undefined) return nested
+    }
+  }
+  return undefined
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function collapseSearchWhitespace(value: string): string {

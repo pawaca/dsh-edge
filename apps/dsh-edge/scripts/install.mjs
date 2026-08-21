@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { chmod, mkdtemp, open, rm, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
@@ -232,6 +232,58 @@ export function generateOwnerSecret() {
   return randomBytes(32).toString('base64url')
 }
 
+/** Derive one stable account-local R2 bucket name from the Worker service name. */
+export function attachmentBucketName(workerName) {
+  if (validateWorkerName(workerName) !== undefined) throw new Error('Worker name is invalid.')
+  const suffix = '-attachments'
+  if (workerName.length + suffix.length <= 63) return `${workerName}${suffix}`
+  const digest = createHash('sha256').update(workerName).digest('hex').slice(0, 8)
+  const prefix = workerName.slice(0, 42).replace(/-+$/u, '')
+  return `${prefix}-${digest}${suffix}`
+}
+
+/** Create or reuse the permanent deployment's private R2 attachment bucket. */
+export async function ensureR2Bucket({
+  bucketName,
+  runWrangler,
+  environment,
+  profile,
+  signal,
+}) {
+  const infoArgs = ['r2', 'bucket', 'info', bucketName, '--json', ...profileArgs(profile)]
+  const initial = await runWrangler(infoArgs, { environment, signal })
+  if (initial.status === 0) {
+    requireR2BucketInfo(initial.stdout, bucketName)
+    return { bucketName, created: false }
+  }
+  const created = await runWrangler([
+    'r2', 'bucket', 'create', bucketName, ...profileArgs(profile),
+  ], { environment, signal })
+  if (created.status === 0) return { bucketName, created: true }
+  // A concurrent installer may have won the create race; prove exact existence.
+  const recovered = await runWrangler(infoArgs, { environment, signal })
+  if (recovered.status === 0) {
+    requireR2BucketInfo(recovered.stdout, bucketName)
+    return { bucketName, created: false }
+  }
+  throw new Error(commandFailure(
+    `Could not create or access private R2 bucket "${bucketName}". Enable R2 for this Cloudflare account (or use a temporary preview), then retry`,
+    created,
+  ))
+}
+
+function requireR2BucketInfo(source, expectedName) {
+  let info
+  try {
+    info = JSON.parse(source)
+  } catch {
+    throw new Error('Wrangler returned malformed R2 bucket information.')
+  }
+  if (info === null || typeof info !== 'object' || info.name !== expectedName) {
+    throw new Error('Wrangler returned unexpected R2 bucket information.')
+  }
+}
+
 /** Build the least-privilege environment used by authenticated Wrangler commands. */
 export function wranglerEnvironment(environment = process.env) {
   return pickEnvironment(environment, [
@@ -419,17 +471,36 @@ export async function installEdge({
       accountLabel: temporary ? 'Temporary account' : account.name,
       workerName,
       paid: mode === 'isolated',
+      temporary,
     })
     if (!confirmed) throw new InstallCancelledError()
     if (temporary && !await ui.acceptTemporaryTerms()) {
       throw new InstallCancelledError()
     }
 
+    const commandEnvironment = temporary
+      ? unauthenticatedEnvironment(environment)
+      : accountEnvironment(profileEnvironment ?? environment, account.id)
+    let bucketName
+    if (!temporary) {
+      bucketName = attachmentBucketName(workerName)
+      ui.step(`Preparing private image storage (${bucketName})…`)
+      await ensureR2Bucket({
+        bucketName,
+        runWrangler,
+        environment: commandEnvironment,
+        profile,
+        signal,
+      })
+    }
+
     temporaryDirectory = await createTemporaryDirectory()
     const secretsFile = join(temporaryDirectory, 'secrets.json')
     const configFile = join(temporaryDirectory, 'wrangler.json')
     const outputFile = join(temporaryDirectory, 'wrangler-output.ndjson')
-    await writePrebuiltModeWranglerConfig(mode, configFile)
+    await writePrebuiltModeWranglerConfig(mode, configFile, {
+      ...bucketName === undefined ? {} : { r2BucketName: bucketName },
+    })
     await writeFile(secretsFile, JSON.stringify({
       DEEPSEEK_API_KEY: deepSeekKey,
       DSH_EDGE_ACCESS_KEY: ownerSecret,
@@ -439,9 +510,6 @@ export async function installEdge({
       ? 'Uploading the tested Worker release…'
       : 'Installing the tested Worker release…'
     ui.deploymentStart?.(deploymentMessage)
-    const commandEnvironment = temporary
-      ? unauthenticatedEnvironment(environment)
-      : accountEnvironment(profileEnvironment ?? environment, account.id)
     if (temporary) commandEnvironment.XDG_CONFIG_HOME = temporaryDirectory
     commandEnvironment.WRANGLER_LOG_SANITIZE = 'true'
     commandEnvironment.WRANGLER_OUTPUT_FILE_PATH = outputFile

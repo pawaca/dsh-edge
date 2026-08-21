@@ -1,10 +1,5 @@
 [
   {
-    "package": "@deepseek-ai/dsh-client-ui-conversation",
-    "rationale": "Hide image intake when the host does not expose image limits, so the Edge UI cannot accept attachments that its runtime cannot persist or send.",
-    "removeWhen": "The published conversation client gates every image intake and drop path on an explicit attachment capability or image-limits contract."
-  },
-  {
     "package": "@deepseek-ai/dsh-client-ui-workspace",
     "rationale": "Hide workspace deletion when an Edge deployment cannot create a replacement and only one workspace remains.",
     "removeWhen": "The published workspace client makes delete capability-aware and prevents deleting the final workspace in hosts without workspace creation."

@@ -4,6 +4,12 @@ import type {
   WorkspaceId,
   WorkspaceView,
 } from '@deepseek-ai/dsh-host-apiproxy/api'
+import {
+  AttachmentId,
+  type AttachmentStore,
+  type ImageAttachmentLimits,
+  type ImageAttachmentRef,
+} from '@deepseek-ai/dsh-attachment'
 import { RpcId, SESSION_SEARCH_SNIPPET_MAX_CODE_POINTS } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { createUserMessage, type MessageId } from '@deepseek-ai/dsh-llm'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
@@ -25,6 +31,22 @@ import {
 const workspaceId = 'edge-workspace' as WorkspaceId
 const parentId = SessionId('session-parent')
 const childId = SessionId('session-child')
+const imageLimits: ImageAttachmentLimits = {
+  maxImageBytes: 3_670_016,
+  maxImagesPerMessage: 4,
+  maxMessageImageBytes: 7_340_032,
+  maxImagePixels: 40_000_000,
+  maxImageDimension: 2_000,
+  mediaTypes: ['image/png', 'image/jpeg'],
+}
+const imageRef: ImageAttachmentRef = {
+  attachmentId: AttachmentId(`sha256:${'a'.repeat(64)}`),
+  mediaType: 'image/png',
+  bytes: 3,
+  width: 1,
+  height: 1,
+  name: 'pixel.png',
+}
 
 function request<P>(payload: P): RpcRequest<P> {
   return { rpcId: RpcId(crypto.randomUUID()), payload }
@@ -80,6 +102,7 @@ function runtime(
     deploymentProfile: () => ({
       shell: 'just-bash-direct',
       storage: 'durable-object-sqlite-vfs',
+      attachmentStorage: 'unavailable',
       deploymentId: 'test-deployment',
       apiKeyConfigured: true,
       baseURL: 'https://api.deepseek.test',
@@ -506,5 +529,98 @@ describe('Edge upstream API invariants', () => {
       error: { code: 'attachment-error', details: { reason: 'QUEUE_EDIT_TEXT_TOO_LARGE' } },
     })
     expect(updateQueue).not.toHaveBeenCalled()
+  })
+
+  it('uses upstream image admission and durable refs without changing the prompt wire', async () => {
+    const saveImages = vi.fn(async () => [imageRef])
+    const attachmentStore = vi.fn(async () => ({ saveImages } as unknown as AttachmentStore))
+    const modelSupportsImages = vi.fn(async () => true)
+    const prompt = vi.fn(async () => {})
+    const edge = runtime({ attachmentStore, modelSupportsImages }, {
+      imageLimits,
+      prompt,
+    })
+
+    const response = await createEdgeApi(edge).sessions.prompt(request({
+      sessionId: parentId,
+      mode: 'queue' as const,
+      content: [
+        { type: 'text' as const, text: 'describe this' },
+        { type: 'image' as const, mediaType: 'image/png' as const, data: 'AQID', name: 'pixel.png' },
+      ],
+    }))
+
+    expect(response.result).toMatchObject({ ok: true, value: { accepted: true } })
+    expect(saveImages).toHaveBeenCalledWith([{
+      data: Uint8Array.of(1, 2, 3),
+      mediaType: 'image/png',
+      name: 'pixel.png',
+    }])
+    expect(prompt).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: parentId,
+      content: [
+        { type: 'text', text: 'describe this' },
+        { type: 'image', attachment: imageRef },
+      ],
+    }))
+  })
+
+  it('preflights model modality before publishing image bytes', async () => {
+    const saveImages = vi.fn(async () => [imageRef])
+    const prompt = vi.fn(async () => {})
+    const edge = runtime({
+      attachmentStore: vi.fn(async () => ({ saveImages } as unknown as AttachmentStore)),
+      modelSupportsImages: vi.fn(async () => false),
+    }, { imageLimits, prompt })
+
+    const response = await createEdgeApi(edge).sessions.prompt(request({
+      sessionId: parentId,
+      mode: 'queue' as const,
+      content: [{ type: 'image' as const, mediaType: 'image/png' as const, data: 'AQID' }],
+    }))
+
+    expect(response.result).toMatchObject({
+      ok: false,
+      error: { code: 'attachment-error', details: { reason: 'MODEL_DOES_NOT_SUPPORT_IMAGES' } },
+    })
+    expect(saveImages).not.toHaveBeenCalled()
+    expect(prompt).not.toHaveBeenCalled()
+  })
+
+  it('authorizes attachment reads through canonical session references', async () => {
+    const readImage = vi.fn(async () => ({ ref: imageRef, data: Uint8Array.of(1, 2, 3) }))
+    const referencedImage = vi.fn(async () => imageRef)
+    const edge = runtime({
+      attachmentStore: vi.fn(async () => ({ readImage } as unknown as AttachmentStore)),
+      referencedImage,
+    }, { imageLimits })
+
+    const response = await createEdgeApi(edge).sessions.attachment(request({
+      sessionId: parentId,
+      attachmentId: imageRef.attachmentId,
+    }))
+
+    expect(response.result).toMatchObject({
+      ok: true,
+      value: { attachment: imageRef, data: 'AQID' },
+    })
+    expect(referencedImage).toHaveBeenCalledWith(parentId, String(imageRef.attachmentId))
+  })
+
+  it('projects image limits only when an attachment backend is composed', async () => {
+    const sessions = { listApiSessions: vi.fn(async () => [summary(parentId)]) }
+    const enabled = await createEdgeApi(runtime(sessions, { imageLimits })).sessions.list(request({}))
+    const disabled = await createEdgeApi(runtime(sessions)).sessions.list(request({}))
+
+    expect(enabled.result).toMatchObject({
+      ok: true,
+      value: { items: [{ projections: { values: { imageLimits } } }] },
+    })
+    expect(disabled.result).toMatchObject({ ok: true })
+    if (disabled.result.ok) {
+      const values = disabled.result.value.items[0]?.projections?.values
+      expect(values).toHaveProperty('sessionListMetadata')
+      expect(values).not.toHaveProperty('imageLimits')
+    }
   })
 })

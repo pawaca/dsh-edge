@@ -13,7 +13,6 @@ import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
 import type {
   HostFrame,
   MuxFrame,
-  PromptContentPart,
   QueueAction,
   QueuedInboxItem,
   ServerRequest,
@@ -24,6 +23,7 @@ import type {
 import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { toFetchHandler } from '@deepseek-ai/dsh-host-apiproxy'
 import { freezeMessage, type MessageId } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { normalizeSessionTitle } from '@deepseek-ai/dsh-session-title'
 import { DurableObject } from 'cloudflare:workers'
@@ -81,6 +81,7 @@ import { handleEdgeRemote } from './edge-remotes.ts'
 import type { EdgeApiSessionSummary } from './session-store.ts'
 import { EDGE_WORKSPACE_ID, EdgeWorkspaceStore } from './edge-workspace-store.ts'
 import { DSH_EDGE_VERSION } from './release.ts'
+import { EDGE_R2_IMAGE_LIMITS } from './edge-attachment-store.ts'
 
 const MAX_SESSION_TITLE_LENGTH = 160
 const MAX_SESSION_TITLE_BYTES = 640
@@ -118,6 +119,7 @@ export interface EdgeEnv {
   DSH_EDGE_INSTANCE: DurableObjectNamespace<DshEdgeInstance>
   ASSETS: Fetcher
   LOADER?: WorkerShellLoader
+  DSH_EDGE_ATTACHMENTS?: R2Bucket
   DSH_EDGE_ACCESS_KEY?: string
   DEEPSEEK_API_KEY?: string
   DEEPSEEK_BASE_URL?: string
@@ -178,6 +180,9 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       ...this.env.DEEPSEEK_SEARCH_BASE_URL === undefined
         ? {}
         : { searchBaseURL: this.env.DEEPSEEK_SEARCH_BASE_URL },
+      ...this.env.DSH_EDGE_ATTACHMENTS === undefined
+        ? {}
+        : { attachmentBucket: this.env.DSH_EDGE_ATTACHMENTS },
     },
   )
   private readonly workspaces = new EdgeWorkspaceStore(this.ctx.storage)
@@ -188,6 +193,9 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     sessions: this.sessions,
     model: this.model,
     version: DSH_EDGE_VERSION,
+    ...this.env.DSH_EDGE_ATTACHMENTS === undefined
+      ? {}
+      : { imageLimits: EDGE_R2_IMAGE_LIMITS },
     deploymentProfile: () => resolveEdgeDeploymentProfile(this.env),
     describeCredential: ref => this.sessions.describeCredential(ref),
     isRunning: sessionId => this.activeTurns.has(sessionId),
@@ -634,11 +642,13 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
   private async startApiPrompt(input: {
     sessionId: SessionId
     mode: 'queue' | 'steer'
-    content: Extract<PromptContentPart, { type: 'text' }>[]
+    content: ContentBlock[]
     rpcId: RpcId
     clientTimeZone?: string
   }): Promise<void> {
-    if (messageTextByteLength(input.content) > MAX_MESSAGE_TEXT_BYTES) {
+    if (messageTextByteLength(input.content.filter(
+      (part): part is Extract<ContentBlock, { type: 'text' }> => part.type === 'text',
+    )) > MAX_MESSAGE_TEXT_BYTES) {
       throw new EdgeHttpError(
         413,
         `Prompt text is limited to ${MAX_MESSAGE_TEXT_BYTES} UTF-8 bytes.`,
@@ -766,7 +776,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     baseURL: string
     commandTimeoutPolicy: EdgeCommandTimeoutPolicy
     maxTokens: number
-    content: Extract<PromptContentPart, { type: 'text' }>[]
+    content: ContentBlock[]
     reasoningEffort: EdgeReasoningEffort
     streamIdleTimeoutMs: number
     mode: 'queue' | 'steer'
@@ -819,7 +829,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     baseURL: string
     commandTimeoutPolicy: EdgeCommandTimeoutPolicy
     maxTokens: number
-    content: Extract<PromptContentPart, { type: 'text' }>[]
+    content: ContentBlock[]
     reasoningEffort: EdgeReasoningEffort
     streamIdleTimeoutMs: number
     mode: 'queue' | 'steer'
