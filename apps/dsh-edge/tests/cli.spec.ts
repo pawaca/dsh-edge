@@ -77,16 +77,14 @@ describe('dsh-edge CLI', () => {
   })
 
   it('renders a product hero only when the terminal has room for it', () => {
-    expect(renderInstallerIntro('install', {
+    const hero = renderInstallerIntro('install', {
       columns: 100,
       isTTY: true,
       version: '0.2.0-alpha.2',
-    })).toContain('____  ____  _   _')
-    expect(renderInstallerIntro('install', {
-      columns: 100,
-      isTTY: true,
-      version: '0.2.0-alpha.2',
-    })).toContain('DeepSeek Harness on Cloudflare')
+    })
+    expect(hero).toContain('____  ____  _   _')
+    expect(hero).toContain('DeepSeek Harness on Cloudflare')
+    expect(hero.split('\n').filter(Boolean).slice(1).every(line => line.startsWith('   '))).toBe(true)
     expect(renderInstallerIntro('upgrade', {
       columns: 60,
       isTTY: true,
