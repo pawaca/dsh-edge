@@ -50,6 +50,7 @@ import DurableObjectSessionPersistence, {
   EDGE_HISTORY_PAGE_LIMITS,
   type EdgeEventPage,
 } from './do-session-persistence.ts'
+import EdgeModelSelectionBridge from './model-selection-bridge.ts'
 import type { CreateEdgeSessionInput, EdgeSession } from './protocol.ts'
 import { installEdgeWebSearch } from './web-search.ts'
 
@@ -129,13 +130,12 @@ export class EdgeSessionStoreError extends Error {
  */
 export class EdgeSessionStore {
   private readonly context = new Context()
-  private readonly storage: DurableObjectStorage
   private readonly model = new EdgeDeepSeekAdapter(async () => (
     await this.context.credentials.resolve(EDGE_DEEPSEEK_API_KEY_REF)
   )?.value)
   private readonly shells = new EdgeShellBindings()
   private readonly blankHandles = new Map<SessionId, AgentHandle>()
-  private readonly pendingModelSelections = new Map<SessionId, ModelSelection>()
+  private readonly modelSelections: EdgeModelSelectionBridge
   private readonly turnPublishedAgents = new WeakSet<Agent>()
   private readonly ready: Promise<void>
 
@@ -143,7 +143,7 @@ export class EdgeSessionStore {
     storage: DurableObjectStorage,
     config: EdgeSessionStoreConfig,
   ) {
-    this.storage = storage
+    this.modelSelections = new EdgeModelSelectionBridge(storage)
     this.ready = this.initialize(storage, config)
   }
 
@@ -270,8 +270,7 @@ export class EdgeSessionStore {
         ? {}
         : { reasoningEffort: resolved.reasoningEffort },
     }
-    await this.storage.put(modelSelectionStorageKey(id), selected)
-    this.pendingModelSelections.set(id, selected)
+    await this.modelSelections.save(id, selected)
     return selected
   }
 
@@ -741,15 +740,14 @@ export class EdgeSessionStore {
       throw new EdgeSessionStoreError('INVALID_DATA', 'Agent setup has no scoped Agent.')
     }
     let assembled: ModelSelection | undefined
-    const selections = this.pendingModelSelections
+    const selections = this.modelSelections
     const selection: ModelSelectionRef = {
       get current() {
-        return selections.get(agent.id)
+        return selections.current(agent.id)
           ?? loggedModelSelection(agent.session.requestHeader()?.config, defaultModel)
       },
       set current(next) {
-        if (next === undefined) selections.delete(agent.id)
-        else selections.set(agent.id, next)
+        selections.setCurrent(agent.id, next)
       },
       get assembled() {
         return assembled
@@ -763,11 +761,17 @@ export class EdgeSessionStore {
 
   /** Hydrate the process cache from Durable Object KV after hibernation. */
   private async loadModelSelection(id: SessionId): Promise<ModelSelection | undefined> {
-    const cached = this.pendingModelSelections.get(id)
-    if (cached !== undefined) return cached
-    const stored = parseStoredModelSelection(await this.storage.get(modelSelectionStorageKey(id)))
-    if (stored !== undefined) this.pendingModelSelections.set(id, stored)
-    return stored
+    return await this.modelSelections.load(id)
+  }
+
+  /** Retire the Edge bridge after the matching upstream request header is durable. */
+  private async retireLoggedModelSelection(agent: Agent): Promise<void> {
+    const config = agent.session.requestHeader()?.config
+    if (config?.provider === undefined || config.model === undefined) return
+    await this.modelSelections.clearIfLogged(
+      agent.id,
+      loggedModelSelection(config, DEFAULT_EDGE_MODEL),
+    )
   }
 
   /** Drive one turn through ReactLoopAgent and publish only durable events. */
@@ -856,6 +860,10 @@ export class EdgeSessionStore {
       }
       await delivery
       await sessions.flush(agent.session)
+      await this.retireLoggedModelSelection(agent).catch((error: unknown) => {
+        // A retained matching bridge is harmless and can be retried after the next turn.
+        console.error('dsh-edge failed to retire a logged model selection.', error)
+      })
     } finally {
       await delivery.catch(() => {})
       await agent.whenIdle().catch(() => {})
@@ -1151,28 +1159,6 @@ function summarizeApiLive(
 
 function defaultModelSelection(model: string): ModelSelection {
   return { provider: EDGE_PROVIDER, model }
-}
-
-function modelSelectionStorageKey(id: SessionId): string {
-  return `dsh-edge:session-model:${id}`
-}
-
-/** Treat malformed adapter-owned KV as absent so canonical session logs remain recoverable. */
-function parseStoredModelSelection(value: unknown): ModelSelection | undefined {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined
-  const fields = value as Record<string, unknown>
-  if (typeof fields['provider'] !== 'string' || fields['provider'].length === 0) return undefined
-  if (typeof fields['model'] !== 'string' || fields['model'].length === 0) return undefined
-  const reasoningEffort = fields['reasoningEffort']
-  if (reasoningEffort !== undefined
-    && (typeof reasoningEffort !== 'string' || reasoningEffort.length === 0)) return undefined
-  return {
-    provider: fields['provider'],
-    model: fields['model'],
-    ...reasoningEffort === undefined
-      ? {}
-      : { reasoningEffort: ReasoningEffortId(reasoningEffort) },
-  }
 }
 
 /** Rebuild the session-local selection from its latest full request header. */

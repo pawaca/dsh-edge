@@ -644,6 +644,26 @@ try {
     ok: true,
     value: { items: [], hasMore: false },
   })
+  const protocolRequestHeader = protocolHistory.body.result.value.events
+    .findLast(entry => entry.event.type === 'request/header')
+  assert.equal(protocolRequestHeader.event.data.header.config.provider, 'deepseek-official')
+  assert.equal(protocolRequestHeader.event.data.header.config.model, 'deepseek-v4-pro')
+  assert.equal(protocolRequestHeader.event.data.header.config.reasoningEffort, 'off')
+
+  // Once a turn has flushed its request/header, the upstream session log is the
+  // durable source of truth; the Edge pre-turn bridge may be retired safely.
+  mux.close()
+  host.close()
+  await worker.stop()
+  worker = await startWorker()
+  mux = await openDownlink('/api/events.mux')
+  host = await openDownlink('/api/events.host')
+  const canonicalSessionModels = await rpc('session.models', { sessionId: protocolSessionId })
+  assert.deepEqual(canonicalSessionModels.body.result.value.current, {
+    provider: 'deepseek-official',
+    model: 'deepseek-v4-pro',
+    reasoningEffort: 'off',
+  })
 
   const forked = await rpc('session.fork', {
     sessionId: protocolSessionId,
