@@ -25,6 +25,7 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import { EDGE_SYSTEM_PROMPT } from './agent.ts'
 import type { EdgeDeploymentProfile } from './deployment.ts'
+import { EDGE_DO_ATTACHMENT_MAX_STORED_BYTES } from './edge-attachment-store.ts'
 import type { EdgeApiSessionSummary, EdgeSessionStore } from './session-store.ts'
 import { EdgeSessionStoreError } from './session-store.ts'
 import {
@@ -704,8 +705,11 @@ function edgeAgentPresetContent(
     `    configured: ${String(deployment.apiKeyConfigured)}`,
     '    persisted: false',
     'attachments:',
-    `  enabled: ${String(deployment.attachmentStorage === 'private-r2')}`,
+    '  enabled: true',
     `  storage: ${yamlString(deployment.attachmentStorage)}`,
+    ...deployment.attachmentStorage === 'temporary-do'
+      ? [`  storageLimitBytes: ${String(EDGE_DO_ATTACHMENT_MAX_STORED_BYTES)}`]
+      : [],
     `  mediaTypes: ${yamlString(runtime.imageLimits?.mediaTypes.join(',') ?? '')}`,
     `  maxImagesPerMessage: ${String(runtime.imageLimits?.maxImagesPerMessage ?? 0)}`,
     `  maxImageBytes: ${String(runtime.imageLimits?.maxImageBytes ?? 0)}`,

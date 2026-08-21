@@ -16,6 +16,7 @@ import {
   attachmentBucketName,
   createOutputForwarder,
   createTerminalSanitizer,
+  detectExistingAttachmentStorage,
   executeWrangler,
   ensureR2Bucket,
   generateOwnerSecret,
@@ -290,6 +291,7 @@ describe('dsh-edge installer primitives', () => {
     expect(direct).toMatchObject({
       main: resolve(root, 'src/index.ts'),
       assets: { directory: resolve(root, 'dist') },
+      vars: { DSH_EDGE_ATTACHMENT_STORAGE: 'temporary-do' },
       minify: true,
       alias: {
         '@cloudflare/computer/shell/core': resolve(root, 'src/direct-shell-core-empty.ts'),
@@ -300,7 +302,10 @@ describe('dsh-edge installer primitives', () => {
       main: resolve(root, 'src/index.ts'),
       assets: { directory: resolve(root, 'dist') },
       minify: true,
-      env: { isolated: { worker_loaders: [{ binding: 'LOADER' }] } },
+      env: { isolated: {
+        vars: { DSH_EDGE_ATTACHMENT_STORAGE: 'temporary-do' },
+        worker_loaders: [{ binding: 'LOADER' }],
+      } },
       alias: {
         './direct-shell.ts': resolve(root, 'src/isolated-direct-shell-unavailable.ts'),
       },
@@ -310,6 +315,7 @@ describe('dsh-edge installer primitives', () => {
       assets: { directory: resolve(root, 'dist') },
       no_bundle: true,
       find_additional_modules: false,
+      vars: { DSH_EDGE_ATTACHMENT_STORAGE: 'private-r2' },
       r2_buckets: [{
         binding: 'DSH_EDGE_ATTACHMENTS',
         bucket_name: 'dsh-edge-attachments',
@@ -320,6 +326,7 @@ describe('dsh-edge installer primitives', () => {
     expect(prebuiltIsolated).toMatchObject({
       main: resolve(root, 'worker/isolated/index.js'),
       env: { isolated: {
+        vars: { DSH_EDGE_ATTACHMENT_STORAGE: 'private-r2' },
         worker_loaders: [{ binding: 'LOADER' }],
         r2_buckets: [{
           binding: 'DSH_EDGE_ATTACHMENTS',
@@ -426,6 +433,76 @@ describe('dsh-edge installer primitives', () => {
     expect(parseWorkerExistence(commandResult(1, '', 'Worker missing [code: 10007]'))).toBe(false)
     expect(() => parseWorkerExistence(commandResult(1, '', 'network failed')))
       .toThrow('network failed')
+  })
+
+  it('detects one consistent attachment backend across active Worker versions', async () => {
+    const runWrangler = vi.fn(async (args: string[]): Promise<CommandResult> => {
+      if (args[0] === 'deployments') {
+        return commandResult(0, JSON.stringify({
+          versions: [
+            { version_id: 'version-a', percentage: 50 },
+            { version_id: 'version-b', percentage: 50 },
+          ],
+        }))
+      }
+      return commandResult(0, JSON.stringify({
+        resources: { bindings: [{
+          name: 'DSH_EDGE_ATTACHMENT_STORAGE',
+          type: 'plain_text',
+          text: 'temporary-do',
+        }] },
+      }))
+    })
+
+    await expect(detectExistingAttachmentStorage({
+      workerName: 'dsh-edge',
+      mode: 'direct',
+      runWrangler,
+    })).resolves.toBe('temporary-do')
+    expect(runWrangler).toHaveBeenCalledTimes(3)
+  })
+
+  it('initializes unmarked pre-attachment versions on private R2', async () => {
+    const runWrangler = vi.fn()
+      .mockResolvedValueOnce(commandResult(0, JSON.stringify({
+        versions: [{ version_id: 'legacy-version', percentage: 100 }],
+      })))
+      .mockResolvedValueOnce(commandResult(0, JSON.stringify({
+        resources: { bindings: [{ name: 'DSH_EDGE_INSTANCE', type: 'durable_object_namespace' }] },
+      })))
+
+    await expect(detectExistingAttachmentStorage({
+      workerName: 'dsh-edge',
+      mode: 'direct',
+      runWrangler,
+    })).resolves.toBe('private-r2')
+  })
+
+  it('refuses an ambiguous rollout or malformed attachment binding', async () => {
+    const status = commandResult(0, JSON.stringify({
+      versions: [
+        { version_id: 'version-do', percentage: 50 },
+        { version_id: 'version-r2', percentage: 50 },
+      ],
+    }))
+    const runWrangler = vi.fn()
+      .mockResolvedValueOnce(status)
+      .mockResolvedValueOnce(commandResult(0, JSON.stringify({
+        resources: { bindings: [{
+          name: 'DSH_EDGE_ATTACHMENT_STORAGE',
+          type: 'plain_text',
+          text: 'temporary-do',
+        }] },
+      })))
+      .mockResolvedValueOnce(commandResult(0, JSON.stringify({
+        resources: { bindings: [{ name: 'DSH_EDGE_ATTACHMENTS', type: 'r2_bucket' }] },
+      })))
+
+    await expect(detectExistingAttachmentStorage({
+      workerName: 'dsh-edge',
+      mode: 'direct',
+      runWrangler,
+    })).rejects.toThrow(/different attachment backends/u)
   })
 
   it('launches Wrangler through Node instead of a platform-specific shim', () => {
@@ -981,7 +1058,19 @@ describe('dsh-edge guided installation', () => {
       if (args[0] === 'whoami') {
         return commandResult(0, JSON.stringify({ loggedIn: true, accounts: [ACCOUNT] }))
       }
-      if (args[0] === 'deployments') return commandResult(0, '[]')
+      if (args[0] === 'deployments' && args[1] === 'list') return commandResult(0, '[]')
+      if (args[0] === 'deployments' && args[1] === 'status') {
+        return commandResult(0, JSON.stringify({
+          versions: [{ version_id: 'version-1', percentage: 100 }],
+        }))
+      }
+      if (args[0] === 'versions') {
+        return commandResult(0, JSON.stringify({
+          resources: {
+            bindings: [{ name: 'DSH_EDGE_INSTANCE', type: 'durable_object_namespace' }],
+          },
+        }))
+      }
       if (args[0] === 'r2') return existingR2Bucket(args)!
       await writeFile(options.environment?.WRANGLER_OUTPUT_FILE_PATH ?? '', JSON.stringify({
         type: 'deploy', version: 1, targets: ['dsh-edge.owner.workers.dev'],
@@ -998,8 +1087,64 @@ describe('dsh-edge guided installation', () => {
       expect.objectContaining({ value: 'temporary' }),
     ]))
     expect(workerConflict).not.toHaveBeenCalled()
-    expect(result).toMatchObject({ temporary: false, workerName: 'dsh-edge' })
+    expect(result).toMatchObject({
+      attachmentStorage: 'private-r2',
+      temporary: false,
+      workerName: 'dsh-edge',
+    })
     expect(success).toHaveBeenCalledOnce()
+  })
+
+  it('upgrades a claimed temporary Worker without provisioning or binding R2', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'dsh-edge-upgrade-do-test-'))
+    const { ui } = createUi()
+    let deployedConfig: unknown
+    const runWrangler = vi.fn(async (
+      args: string[],
+      options: RunOptions = {},
+    ): Promise<CommandResult> => {
+      if (args[0] === 'whoami') {
+        return commandResult(0, JSON.stringify({ loggedIn: true, accounts: [ACCOUNT] }))
+      }
+      if (args[0] === 'deployments' && args[1] === 'list') return commandResult(0, '[]')
+      if (args[0] === 'deployments' && args[1] === 'status') {
+        return commandResult(0, JSON.stringify({
+          versions: [{ version_id: 'temporary-version', percentage: 100 }],
+        }))
+      }
+      if (args[0] === 'versions') {
+        return commandResult(0, JSON.stringify({
+          resources: { bindings: [{
+            name: 'DSH_EDGE_ATTACHMENT_STORAGE',
+            type: 'plain_text',
+            text: 'temporary-do',
+          }] },
+        }))
+      }
+      expect(args[0]).toBe('deploy')
+      const configPath = args[args.indexOf('--config') + 1]
+      if (configPath === undefined) throw new Error('deploy command omitted its config path')
+      deployedConfig = JSON.parse(await readFile(configPath, 'utf8')) as unknown
+      await writeFile(options.environment?.WRANGLER_OUTPUT_FILE_PATH ?? '', JSON.stringify({
+        type: 'deploy', version: 1, targets: ['dsh-edge.owner.workers.dev'],
+      }))
+      return commandResult(0)
+    })
+
+    const result = await installEdge({
+      command: 'upgrade',
+      ui,
+      runWrangler,
+      createTemporaryDirectory: async () => directory,
+    })
+
+    expect(result.attachmentStorage).toBe('temporary-do')
+    expect(runWrangler.mock.calls.some(([args]) => args[0] === 'r2')).toBe(false)
+    expect(deployedConfig).not.toHaveProperty('r2_buckets')
+    expect(deployedConfig).toHaveProperty(
+      'vars.DSH_EDGE_ATTACHMENT_STORAGE',
+      'temporary-do',
+    )
   })
 
   it('refuses to upgrade a missing Worker before collecting secrets', async () => {
@@ -1130,7 +1275,19 @@ describe('dsh-edge guided installation', () => {
         if (args[0] === 'whoami') {
           return commandResult(0, JSON.stringify({ loggedIn: true, accounts: [ACCOUNT] }))
         }
-        if (args[0] === 'deployments') return commandResult(0, '[]')
+        if (args[0] === 'deployments' && args[1] === 'list') return commandResult(0, '[]')
+        if (args[0] === 'deployments' && args[1] === 'status') {
+          return commandResult(0, JSON.stringify({
+            versions: [{ version_id: 'version-1', percentage: 100 }],
+          }))
+        }
+        if (args[0] === 'versions') {
+          return commandResult(0, JSON.stringify({
+            resources: {
+              bindings: [{ name: 'DSH_EDGE_ATTACHMENTS', type: 'r2_bucket' }],
+            },
+          }))
+        }
         if (args[0] === 'r2') return existingR2Bucket(args)!
         await writeFile(options.environment?.WRANGLER_OUTPUT_FILE_PATH ?? '', 'not-json')
         return commandResult(0)

@@ -50,7 +50,11 @@ import {
   type EdgeShell,
 } from './agent.ts'
 import { EdgeDeepSeekAdapter, type EdgeReasoningEffort } from './deepseek.ts'
-import { EdgeR2AttachmentStore } from './edge-attachment-store.ts'
+import {
+  EdgeDoAttachmentStore,
+  EdgeR2AttachmentStore,
+  type EdgeAttachmentStorage,
+} from './edge-attachment-store.ts'
 import EdgeCredentialProvider, { EDGE_DEEPSEEK_API_KEY_REF } from './edge-credentials.ts'
 import DurableObjectSessionPersistence, {
   EDGE_HISTORY_PAGE_LIMITS,
@@ -66,6 +70,7 @@ const MAX_FORK_EVENTS = 8_192
 interface EdgeSessionStoreConfig {
   readDeepSeekApiKey(): string | undefined
   searchBaseURL?: string
+  attachmentStorage: EdgeAttachmentStorage
   attachmentBucket?: R2Bucket
 }
 const MAX_FORK_STORED_BYTES = 8 * 1_024 * 1_024
@@ -80,6 +85,11 @@ export interface EdgeSessionListPage {
   sessions: EdgeSession[]
   hasMore: boolean
   nextAfter?: SessionId
+}
+
+function requireAttachmentBucket(bucket: R2Bucket | undefined): R2Bucket {
+  if (bucket === undefined) throw new Error('The private R2 attachment binding is unavailable.')
+  return bucket
 }
 
 /** Upstream session-list and subscription metadata derived from live or stored sessions. */
@@ -158,9 +168,11 @@ export class EdgeSessionStore {
     storage: DurableObjectStorage,
     config: EdgeSessionStoreConfig,
   ): Promise<void> {
-    if (config.attachmentBucket !== undefined) {
-      await this.context.plugin(EdgeR2AttachmentStore, { bucket: config.attachmentBucket })
-    }
+    await (config.attachmentStorage === 'temporary-do'
+      ? this.context.plugin(EdgeDoAttachmentStore, { storage })
+      : this.context.plugin(EdgeR2AttachmentStore, {
+          bucket: requireAttachmentBucket(config.attachmentBucket),
+        }))
     await this.context.plugin(EdgeCredentialProvider, {
       readDeepSeekApiKey: () => config.readDeepSeekApiKey(),
     })

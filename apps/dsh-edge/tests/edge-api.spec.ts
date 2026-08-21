@@ -106,7 +106,7 @@ function runtime(
     deploymentProfile: () => ({
       shell: 'just-bash-direct',
       storage: 'durable-object-sqlite-vfs',
-      attachmentStorage: 'unavailable',
+      attachmentStorage: 'temporary-do',
       deploymentId: 'test-deployment',
       apiKeyConfigured: true,
       baseURL: 'https://api.deepseek.test',

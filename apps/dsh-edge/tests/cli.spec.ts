@@ -393,6 +393,7 @@ describe('dsh-edge CLI', () => {
     }: Parameters<typeof installEdge>[0]) => {
       await runWrangler?.([], runOptions)
       return {
+        attachmentStorage: 'private-r2' as const,
         publicUrl: 'https://dsh-edge.example.workers.dev',
         mode: 'direct' as const,
         ownerSecret: 'active-owner-key',
@@ -538,6 +539,7 @@ describe('dsh-edge CLI', () => {
     const clack = { ...prompt, note, outro } as unknown as typeof prompt
 
     createInstallerUi(clack).success({
+      attachmentStorage: 'private-r2',
       publicUrl: 'https://dsh-edge.example.workers.dev',
       account: { id: 'account-1', name: 'Personal' },
       mode: 'direct',
@@ -565,6 +567,7 @@ describe('dsh-edge CLI', () => {
 
     createInstallerUi(clack).success({
       activation: { attempts: 3, elapsedMs: 3_000, status: 'ready' },
+      attachmentStorage: 'private-r2',
       publicUrl: 'https://dsh-edge.example.workers.dev',
       account: { id: 'account-1', name: 'Personal' },
       mode: 'direct',
@@ -583,6 +586,7 @@ describe('dsh-edge CLI', () => {
     const clack = { ...prompt, note, outro: vi.fn() } as unknown as typeof prompt
 
     createInstallerUi(clack).success({
+      attachmentStorage: 'temporary-do',
       publicUrl: 'https://dsh-edge.preview.workers.dev',
       claimUrl: 'https://dash.cloudflare.com/claim-preview?token=claim-secret',
       mode: 'direct',

@@ -10,7 +10,7 @@
 
 该运行时通过上游 Cordis 组合的 `ReactLoopAgent`、`AgentRegistry`、`LlmRuntime`、`ToolRuntime`、`SystemPrompt`、`SessionStore` 和 `SessionPersistence` 运行持久对话。Edge 代码只绑定请求作用域的 DeepSeek 适配器，并把一个原生 DSH `bash` 工具定义映射到 Cloudflare Computer。Durable Object SQLite 实现上游持久化后端约定，write-behind、revision、恢复准备和崩溃恢复仍由 `PersistenceCoordinator` 负责。模型历史从 canonical 事件投影，不再单独持久化。
 
-浏览器直接使用上游 Web shell 和上游客户端插件包。构建期 assembler 根据上游 base 与 Web 组合包配置推导浏览器 roster，注入标准 `window.__DSH_BOOT__` graph，并把结果发布为 Cloudflare 静态资源。Durable Object 通过标准 HTTP carrier 实现受支持的上游 `ApiProxy` 方法，并以支持休眠的 WebSocket 提供两条上游 downlink。上游图片 composer、gallery、lightbox、attachment wire contract 与 DeepSeek serializer 保持原样复用；永久部署只在其 storage seam 后提供私有 R2 支持的 `AttachmentStore`。Edge 会排除缺少对应 host domain 的客户端插件，而不会 fork 其 UI 代码；在服务端 endpoint 可用前，session log export 也属于排除项。一个很小的 Edge 登录外壳会保护上游 UI 与协议，不修改两者本身。可选的本地 host 插件仍不可用。
+浏览器直接使用上游 Web shell 和上游客户端插件包。构建期 assembler 根据上游 base 与 Web 组合包配置推导浏览器 roster，注入标准 `window.__DSH_BOOT__` graph，并把结果发布为 Cloudflare 静态资源。Durable Object 通过标准 HTTP carrier 实现受支持的上游 `ApiProxy` 方法，并以支持休眠的 WebSocket 提供两条上游 downlink。上游图片 composer、gallery、lightbox、attachment wire contract 与 DeepSeek serializer 保持原样复用；storage seam 会为新的永久部署选择私有 R2，为临时部署选择有界 Durable Object storage。Edge 会排除缺少对应 host domain 的客户端插件，而不会 fork 其 UI 代码；在服务端 endpoint 可用前，session log export 也属于排除项。一个很小的 Edge 登录外壳会保护上游 UI 与协议，不修改两者本身。可选的本地 host 插件仍不可用。
 
 ## 本地运行
 
@@ -99,7 +99,7 @@ Session listing 同样有界：`GET /api/sessions?after=SESSION_ID&limit=COUNT` 
 | Workspace registry | Storage-domain global state 加 `WorkspaceRecord` rows | 原生 backend 适配 | 保持上游 global 和 record value shape，包括手动 session 顺序与 archive membership；仅把物理 key 和原子写入映射到 Durable Object storage。Edge 把 registry 限制为一个原生 `/workspace` VFS；rename、delete、recreate 与 session reorder 保持上游 RPC 和 Host-frame 语义。 |
 | Existing Web UI | 运行时加载的 shell 和 `dsh.client` 插件 graph | 复用并采用通用 composition fallback | 把上游 shell 和受支持的上游客户端包组装成 Worker 静态资源；共享的 slot occupancy 规则会隐藏缺少 provider 的 action。Cloudflare 直接提供普通资源，`/`、`/login` 与 `/api/*` 则进入 Worker 执行 owner access control。组装后的 asset policy 会阻止所有直接或 SPA-fallback shell alias 被嵌入 frame。 |
 | Other tools | Web Search、filesystem editor tools、MCP、skills、workflows、jobs 和 subagents | Search 已移植；其他未移植 | 复用上游 DeepSeek Web Search 及其 30 秒 tool-call timeout。逐个针对 Worker-compatible capabilities 增加其余工具，不宣称不可用的 host 行为。 |
-| Attachments | 本地 attachment storage、上游 image reference、composer、gallery、lightbox 与 provider conversion | 永久部署在原生 storage seam 上适配 | 原样复用上游 `AttachmentStore`、admission、协议、授权、UI 与 DeepSeek conversion。PNG/JPEG 不可变字节按 SHA-256 identity 存入私有 R2 bucket；session event 只保留上游 ref。没有 attachment binding 的部署不投影 `imageLimits`，因此临时预览会 fail closed，直到有界 DO backend 落地。 |
+| Attachments | 本地 attachment storage、上游 image reference、composer、gallery、lightbox 与 provider conversion | 在原生 storage seam 上适配 | 原样复用上游 `AttachmentStore`、admission、协议、授权、UI 与 DeepSeek conversion。PNG/JPEG 不可变字节按 SHA-256 identity 存入新永久部署的私有 R2，或存入临时部署 64 MiB、按 512 KiB 分块的 DO fallback；session event 只保留上游 ref。每个 owner instance 首次选择的 backend 会被固定，认领或升级不会让既有引用失联。 |
 | Authentication and tenancy | 本地 trusted-user boundary | 单 owner 适配 | 要求一个高熵 Worker secret，把它交换为带签名、有效期 30 天的 HttpOnly `SameSite=Strict` cookie，并把所有已接纳请求路由到一个固定 owner object。这里刻意不提供注册、用户数据库、角色或多租户路由。 |
 
 浏览器请求路径是：
@@ -117,7 +117,7 @@ Cloudflare static assets -> upstream Web shell + client plugin graph
   -> pre-step admission gate waits for the sessions.flush durability barrier
   -> session/queue snapshots publish live and replay on mux reconnect
   -> turn-scoped DeepSeekAdapter configuration selected by sessionId
-  -> 上游 attachment resolver 读取并校验已授权的 R2 字节
+  -> 上游 attachment resolver 读取并校验已授权的 backend 字节
   -> upstream LlmRuntime + ReactLoopAgent stream/event pipeline
   -> upstream ToolRuntime native bash or web_search call
   -> upstream WebRuntime + DeepSeek native search provider for web_search
@@ -131,7 +131,7 @@ Cloudflare static assets -> upstream Web shell + client plugin graph
   -> upstream Web runtime reconciles and renders the canonical events
 ```
 
-本地集成检查使用 SSE stand-in 以及真实的 Wrangler、Durable Object SQLite、本地 R2、默认 direct Computer workspace backend、静态资源服务、HTTP carrier 和 WebSocket。它验证 owner 登录、API 与 WebSocket cookie enforcement、拒绝旧 instance selector、direct shell 网络被禁用、上游 session create/list/history/search/prompt/rename/fork；经上游 composer/协议/provider 路径完成图片 prompt；已授权附件读取、跨 session 拒绝、fork 复用，以及重启后的 R2 持久性；queue edit、remove 与提升为 steering；workspace create/list/rename/delete/session reorder/archive；对应的实时与重连 baseline 和 Host frame；真实浏览器启动及由 UI 发起的 workspace rename、图片 turn、内容搜索、branch 与 archive 操作；浏览器 session 过期后自动返回登录页；跨 turn 对话连续性、event 重放、两步 bash 与 Web Search tool 交互，以及 Wrangler 重启后的恢复。一项聚焦的故障测试证明，入队后的持久化失败会阻止模型调用，同时不会把已经唤醒 Agent 的 prompt 报告为拒绝。提交到仓库的 model-visible 与 ARIA golden 会固定 tool transcript 以及组装后的上游 Web client 通过 Edge HTTP/WebSocket 协议呈现的结果。真实 DeepSeek 调用需要开发者自己的 key，因此不会纳入仓库测试套件。
+本地集成检查使用 SSE stand-in 以及真实的 Wrangler、Durable Object SQLite、本地 R2、默认 direct Computer workspace backend、静态资源服务、HTTP carrier 和 WebSocket。Direct 模式会覆盖临时 DO attachment backend，Isolated 模式则覆盖私有 R2。它验证 owner 登录、API 与 WebSocket cookie enforcement、拒绝旧 instance selector、direct shell 网络被禁用、上游 session create/list/history/search/prompt/rename/fork；经上游 composer/协议/provider 路径完成图片 prompt；已授权附件读取、跨 session 拒绝、fork 复用，以及重启后的附件持久性；queue edit、remove 与提升为 steering；workspace create/list/rename/delete/session reorder/archive；对应的实时与重连 baseline 和 Host frame；真实浏览器启动及由 UI 发起的 workspace rename、图片 turn、内容搜索、branch 与 archive 操作；浏览器 session 过期后自动返回登录页；跨 turn 对话连续性、event 重放、两步 bash 与 Web Search tool 交互，以及 Wrangler 重启后的恢复。一项聚焦的故障测试证明，入队后的持久化失败会阻止模型调用，同时不会把已经唤醒 Agent 的 prompt 报告为拒绝。提交到仓库的 model-visible 与 ARIA golden 会固定 tool transcript 以及组装后的上游 Web client 通过 Edge HTTP/WebSocket 协议呈现的结果。真实 DeepSeek 调用需要开发者自己的 key，因此不会纳入仓库测试套件。
 
 ## API key 边界
 
@@ -167,7 +167,7 @@ npx dsh-edge upgrade
 
 如果当前安装的是 0.2 alpha，需要执行一次 `npx dsh-edge@latest upgrade` 晋级到稳定渠道；其他预发布部署仍跟随 `next`。Edge 设置页会根据已安装版本推导渠道，并复制匹配的命令。
 
-安装器会先询问运行时，再询问账户。推荐的 `Free — Direct Shell` 模式可在 Workers Free 上运行，并可使用检测到的 Cloudflare 账户、打开 Cloudflare 登录或注册，也可在不登录的情况下创建临时账户。`Isolated — Dynamic Worker` 需要 Workers Paid，因此只提供已检测到或新认证的账户。Cloudflare 没有提供可靠的本地 Worker Loader entitlement 检查；isolated 安装会由 Cloudflare 对上传进行授权，并在被拒绝时提示启用 Workers Paid 或改用 direct 模式。对于永久账户，安装器会创建或复用私有 `<worker-name>-attachments` R2 bucket，并只把 binding 写入生成的私有 Wrangler 配置；部署失败时绝不会删除 bucket。所选账户必须已启用 R2，否则安装器会给出启用与重试路径。临时账户不提供 R2，因此在有界 DO fallback 实现前会保持图片入口关闭。
+安装器会先询问运行时，再询问账户。推荐的 `Free — Direct Shell` 模式可在 Workers Free 上运行，并可使用检测到的 Cloudflare 账户、打开 Cloudflare 登录或注册，也可在不登录的情况下创建临时账户。`Isolated — Dynamic Worker` 需要 Workers Paid，因此只提供已检测到或新认证的账户。Cloudflare 没有提供可靠的本地 Worker Loader entitlement 检查；isolated 安装会由 Cloudflare 对上传进行授权，并在被拒绝时提示启用 Workers Paid 或改用 direct 模式。对于新的永久账户安装，安装器会创建或复用私有 `<worker-name>-attachments` R2 bucket，并只把 binding 写入生成的私有 Wrangler 配置；部署失败时绝不会删除 bucket。所选账户必须已启用 R2，否则安装器会给出启用与重试路径。临时账户使用 64 MiB Durable Object attachment backend，并支持相同的上游图片 UI。认领会保留这个 backend 与已有图片历史；自动迁移到 R2 尚未实现。每个新部署都会记录明确的 attachment-storage marker。在更新已有 Worker 前，安装器会检查所有 active version，保留 marker 指定的 R2 或 DO 选择；没有 marker 的旧版 pre-attachment 部署会按永久 R2 初始化；若 rollout 混用两种 backend，则会拒绝猜测并要求先完成 rollout。
 
 后续提示会选择 Worker 名称、生成或接收 owner access key、通过隐藏输入收集 DeepSeek API key，并显示最终费用摘要。临时账户安装还会要求用户明确接受 Cloudflare 服务条款与隐私政策。安装器绝不会在未经确认时覆盖现有 Worker。两项 credential 会通过权限模式为 `0600` 的临时 secret 文件传给 Wrangler；Wrangler 子进程只会收到 allowlist 内的运行时环境变量和当前命令选中的 Cloudflare authentication，其他 ambient key、token、password、secret 与 Node 注入选项不会进入子进程。命令结束后临时 secret 文件会被删除，安装器从 Wrangler 结构化输出中取得最终 URL。默认情况下，部署输出会收敛到一个进度提示；在任一命令后添加 `--verbose` 可以查看 Wrangler 诊断。
 
@@ -187,7 +187,7 @@ pnpm --filter dsh-edge example:install
 - `GET /login` 渲染 Edge 持有的 owner form；`POST /api/auth/login` 用已配置的 access key 换取 signed cookie，`GET /api/auth/session` 报告 cookie 是否有效，`POST /api/auth/logout` 清除 cookie。
 - `GET /api/events.mux` 和 `GET /api/events.host` 会升级为上游 downlink WebSocket。Durable Object 会把每个 socket 的 channel 与已验证 owner session 过期时间序列化为 hibernation attachment，通过 alarm 在该时间关闭连接，并从 Durable Object SQL 重建 canonical session 与 retained blank header。每次 inbox splice 提交后，mux stream 都会发布完整的 `session/queue` snapshot；客户端重连时还会发送 live inbox 的待处理 baseline。
 - `POST /api/commands/list` 使用上游 generated-Remote envelope 返回空 catalog，因为 Edge preset 没有注册 human command。
-- `GET /api/health` 会返回公开的 package-and-mode release identifier 与附件后端（`private-r2` 或 `unavailable`），并先验证 owner authentication、部署级 DeepSeek 凭据、模型与传输配置，以及命令超时策略，再报告运行时组件已就绪。它不会调用提供方、Durable Object、R2、VFS 或 shell。
+- `GET /api/health` 会返回公开的 package-and-mode release identifier 与配置的附件默认值（`private-r2` 或 `temporary-do`），并先验证 owner authentication、部署级 DeepSeek 凭据、模型与传输配置，以及命令超时策略，再报告运行时组件已就绪。它不会调用提供方、Durable Object、R2、VFS 或 shell。认证后的 agent-preset projection 会报告 owner Durable Object 实际固定的 backend 与临时存储上限。
 - `PUT /api/workspace/file?path=/workspace/...` 写入 UTF-8 文件。
 - `GET /api/workspace/file?path=/workspace/...` 读取 UTF-8 文件。
 - `DELETE /api/workspace/file?path=/workspace/...` 删除文件。

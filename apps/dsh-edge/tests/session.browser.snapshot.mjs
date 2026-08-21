@@ -289,7 +289,7 @@ describe('dsh-edge assembled browser snapshot', () => {
     }
   }, 60_000)
 
-  it('keeps image intake disabled when a temporary preview has no attachment backend', async () => {
+  it('enables upstream image intake through the temporary DO attachment backend', async () => {
     const persistedState = mkdtempSync(join(tmpdir(), 'dsh-edge-browser-temporary-'))
     const config = join(persistedState, 'wrangler.json')
     await writePrebuiltModeWranglerConfig('direct', config)
@@ -326,7 +326,10 @@ describe('dsh-edge assembled browser snapshot', () => {
       const ownerCookieHeader = `${ownerCookie.name}=${ownerCookie.value}`
       const sessions = await edgeRpc(worker, ownerCookieHeader, 'session.list', {})
       expect(sessions.result.ok).toBe(true)
-      expect(sessions.result.value.items[0].projections.values).not.toHaveProperty('imageLimits')
+      expect(sessions.result.value.items[0].projections.values.imageLimits).toMatchObject({
+        maxImagesPerMessage: 4,
+        mediaTypes: ['image/png', 'image/jpeg'],
+      })
 
       const composer = page.locator('textarea:enabled').last()
       await composer.waitFor({ timeout: 15_000 })
@@ -343,9 +346,10 @@ describe('dsh-edge assembled browser snapshot', () => {
           clipboardData: transfer,
         }))
       })
-      expect(await page.getByRole('group', { name: 'Pending images' }).count()).toBe(0)
-      await page.waitForTimeout(250)
-      expect(await page.getByRole('group', { name: 'Pending images' }).count()).toBe(0)
+      await expect.poll(
+        () => page.getByRole('group', { name: 'Pending images' }).count(),
+        { timeout: 15_000 },
+      ).toBe(1)
     } finally {
       await browser?.close()
       await worker?.stop()

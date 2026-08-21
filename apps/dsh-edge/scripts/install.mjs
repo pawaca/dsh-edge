@@ -93,6 +93,7 @@ const SENSITIVE_ENV_KEY = /(KEY|PASSWORD|SECRET|TOKEN)/iu
 const WORKER_NAME = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/u
 const CLAIM_URL = /https:\/\/dash\.cloudflare\.com\/claim-preview\?[^\s\u001b]+/u
 const MAX_CAPTURE_BYTES = 2 * 1024 * 1024
+const ATTACHMENT_STORAGE_BINDING = 'DSH_EDGE_ATTACHMENT_STORAGE'
 const WINDOWS_ACL_TIMEOUT_MS = 30_000
 const WINDOWS_PRIVATE_DIRECTORY_SCRIPT = String.raw`
 $ErrorActionPreference = 'Stop'
@@ -371,6 +372,94 @@ export function parseWorkerExistence(result) {
   throw new Error(commandFailure('Could not check whether the Worker already exists', result))
 }
 
+/** Inspect active Worker versions so upgrades preserve the existing attachment backend. */
+export async function detectExistingAttachmentStorage({
+  workerName,
+  mode,
+  runWrangler,
+  environment,
+  profile,
+  signal,
+}) {
+  const args = [
+    '--name', workerName, '--json',
+    ...runtimeEnvironmentArgs(mode),
+    ...profileArgs(profile),
+  ]
+  const status = await runWrangler(['deployments', 'status', ...args], {
+    environment,
+    signal,
+  })
+  requireSuccess(status, 'Could not inspect the existing Worker deployment')
+  const versionIds = deploymentVersionIds(status.stdout)
+  const backends = new Set()
+  for (const versionId of versionIds) {
+    const version = await runWrangler([
+      'versions', 'view', versionId, ...args,
+    ], { environment, signal })
+    requireSuccess(version, `Could not inspect existing Worker version ${versionId}`)
+    backends.add(versionAttachmentStorage(version.stdout))
+  }
+  if (backends.size !== 1) {
+    throw new Error('The active Worker versions use different attachment backends. Finish the existing rollout before upgrading.')
+  }
+  return backends.values().next().value
+}
+
+function deploymentVersionIds(source) {
+  let deployment
+  try {
+    deployment = JSON.parse(source)
+  } catch {
+    throw new Error('Wrangler returned malformed deployment status.')
+  }
+  if (!isRecord(deployment) || !Array.isArray(deployment.versions)) {
+    throw new Error('Wrangler returned unexpected deployment status.')
+  }
+  const ids = deployment.versions
+    .filter(version => isRecord(version) && typeof version.percentage === 'number'
+      && version.percentage > 0)
+    .map(version => version.version_id)
+  if (ids.length === 0 || ids.some(id => typeof id !== 'string' || id.length === 0)) {
+    throw new Error('Wrangler deployment status has no active Worker version.')
+  }
+  return [...new Set(ids)]
+}
+
+function versionAttachmentStorage(source) {
+  let version
+  try {
+    version = JSON.parse(source)
+  } catch {
+    throw new Error('Wrangler returned malformed Worker version details.')
+  }
+  const bindings = isRecord(version) && isRecord(version.resources)
+    ? version.resources.bindings
+    : undefined
+  if (!Array.isArray(bindings) || bindings.some(binding => !isRecord(binding))) {
+    throw new Error('Wrangler returned unexpected Worker version details.')
+  }
+  const attachment = bindings.filter(binding => binding.name === 'DSH_EDGE_ATTACHMENTS')
+  if (attachment.length > 1
+    || (attachment.length === 1 && attachment[0].type !== 'r2_bucket')) {
+    throw new Error('The existing Worker has an invalid attachment binding.')
+  }
+  const markers = bindings.filter(binding => binding.name === ATTACHMENT_STORAGE_BINDING)
+  if (markers.length > 1 || (markers.length === 1
+    && (markers[0].type !== 'plain_text'
+      || (markers[0].text !== 'temporary-do' && markers[0].text !== 'private-r2')))) {
+    throw new Error('The existing Worker has an invalid attachment storage marker.')
+  }
+  const marker = markers[0]?.text
+  if ((marker === 'temporary-do' && attachment.length !== 0)
+    || (marker === 'private-r2' && attachment.length !== 1)) {
+    throw new Error('The existing Worker attachment marker does not match its binding.')
+  }
+  // Releases before attachment support had neither binding nor marker. An
+  // authenticated upgrade can safely initialize those instances on private R2.
+  return marker ?? 'private-r2'
+}
+
 /** Run the complete guided install with UI and Wrangler supplied as replaceable boundaries. */
 export async function installEdge({
   command = 'install',
@@ -432,6 +521,7 @@ export async function installEdge({
       : requireSelectedAccount(accountSelection, accounts)
 
     let workerName = DEFAULT_WORKER_NAME
+    let updatingExisting = false
     while (true) {
       workerName = await ui.workerName(workerName, validateWorkerName)
       if (temporary) break
@@ -446,14 +536,32 @@ export async function installEdge({
       }))
       if (command === 'upgrade') {
         if (!exists) throw new Error(`${workerName} does not exist in this account and runtime. Run dsh-edge install first.`)
+        updatingExisting = true
         break
       }
       if (!exists) break
       const action = await ui.workerConflict(workerName)
-      if (action === 'update') break
+      if (action === 'update') {
+        updatingExisting = true
+        break
+      }
       if (action === 'cancel') throw new InstallCancelledError()
       workerName = `${workerName}-2`
     }
+
+    const commandEnvironment = temporary
+      ? unauthenticatedEnvironment(environment)
+      : accountEnvironment(profileEnvironment ?? environment, account.id)
+    const attachmentStorage = updatingExisting
+      ? await detectExistingAttachmentStorage({
+          workerName,
+          mode,
+          runWrangler,
+          environment: commandEnvironment,
+          profile,
+          signal,
+        })
+      : temporary ? 'temporary-do' : 'private-r2'
 
     const secretMode = await ui.selectOwnerSecretMode()
     const ownerSecret = secretMode === 'generate'
@@ -472,17 +580,15 @@ export async function installEdge({
       workerName,
       paid: mode === 'isolated',
       temporary,
+      attachmentStorage,
     })
     if (!confirmed) throw new InstallCancelledError()
     if (temporary && !await ui.acceptTemporaryTerms()) {
       throw new InstallCancelledError()
     }
 
-    const commandEnvironment = temporary
-      ? unauthenticatedEnvironment(environment)
-      : accountEnvironment(profileEnvironment ?? environment, account.id)
     let bucketName
-    if (!temporary) {
+    if (attachmentStorage === 'private-r2') {
       bucketName = attachmentBucketName(workerName)
       ui.step(`Preparing private image storage (${bucketName})…`)
       await ensureR2Bucket({
@@ -595,6 +701,7 @@ export async function installEdge({
     let result = {
       ...deployment,
       account,
+      attachmentStorage,
       claimUrl,
       mode,
       ownerSecret,
@@ -909,6 +1016,10 @@ export function createOutputForwarder(source, destination, onFailure) {
 
 function isTerminalSafe(value) {
   return !CONTROL_CHARACTER.test(value) && !BIDI_CONTROL.test(value)
+}
+
+function isRecord(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
 /** Create a chunk-safe terminal filter that retains plain text only. */
