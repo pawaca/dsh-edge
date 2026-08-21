@@ -12,7 +12,12 @@ export type InstallerCommand = 'install' | 'upgrade'
 export function parseCommand(args: string[]): InstallerCommand | 'help' | 'version'
 export function renderInstallerIntro(
   command: InstallerCommand,
-  options?: { columns?: number; isTTY?: boolean; version?: string },
+  options?: {
+    columns?: number
+    isTTY?: boolean
+    upstreamVersion?: string
+    version?: string
+  },
 ): string
 export function createInstallerUi(
   clack?: typeof import('@clack/prompts'),
