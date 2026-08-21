@@ -59,7 +59,7 @@ npx dsh-edge upgrade
 
 Stable versions follow npm `latest`; explicit prereleases follow `next`. The installer supports an anonymous temporary Cloudflare account or an authenticated account for Direct mode, while Dynamic Worker requires an authenticated eligible paid account. Upgrades preserve Durable Object data but ask for the existing owner and DeepSeek keys again because Cloudflare secrets cannot be read back.
 
-Publication starts with an unprivileged manual request for a reviewed `dsh-edge-v*` tag. The privileged workflow is resolved from the default branch, verifies that the tag and package version match and that the tag belongs to reviewed `master`, rebuilds and tests the exact package, installs the tarball outside the workspace, and rechecks that the tag has not moved immediately before npm and GitHub mutations. npm Trusted Publishing supplies OIDC provenance without a long-lived publish token. npm is published first; the matching GitHub Release is created only with the same notes and tarball.
+Publication starts with a manual request workflow that has repository dispatch authority but no npm or OIDC publication authority. The publication workflow is resolved from the default branch, verifies that the reviewed `dsh-edge-v*` tag and package version match and that the tag belongs to reviewed `master`, rebuilds and tests the exact package, installs the tarball outside the workspace, and rechecks that the tag has not moved immediately before npm and GitHub mutations. npm Trusted Publishing supplies OIDC provenance without a long-lived publish token. npm is published first; the matching GitHub Release is created only with the same notes and tarball.
 
 ## Verification contract
 

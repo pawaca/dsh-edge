@@ -59,7 +59,7 @@ npx dsh-edge upgrade
 
 稳定版本跟随 npm `latest`，显式预发布版本跟随 `next`。Direct 模式的安装器支持匿名临时 Cloudflare 账户或已认证账户；Dynamic Worker 则要求已认证且符合条件的付费账户。升级会保留 Durable Object 数据，但 Cloudflare secret 无法读回，因此需要再次输入现有 owner key 与 DeepSeek key。
 
-发布从针对经过 Review 的 `dsh-edge-v*` tag 的无特权手动请求开始。具备特权的 workflow 从默认分支解析，验证 tag 与 package version 匹配、tag 属于已经 Review 的 `master`，重新构建并测试精确 package，在 workspace 外安装 tarball，并在 npm 与 GitHub 写入前分别再次检查 tag 没有移动。npm Trusted Publishing 使用 OIDC provenance，不需要长期 publish token。先发布 npm；只有 notes 与 tarball 相同才会创建匹配的 GitHub Release。
+发布从一个手动请求 workflow 开始；它拥有 repository dispatch authority，但没有 npm 或 OIDC 发布 authority。发布 workflow 从默认分支解析，验证经过 Review 的 `dsh-edge-v*` tag 与 package version 匹配、tag 属于已经 Review 的 `master`，重新构建并测试精确 package，在 workspace 外安装 tarball，并在 npm 与 GitHub 写入前分别再次检查 tag 没有移动。npm Trusted Publishing 使用 OIDC provenance，不需要长期 publish token。先发布 npm；只有 notes 与 tarball 相同才会创建匹配的 GitHub Release。
 
 ## 验证约定
 
