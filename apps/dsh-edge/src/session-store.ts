@@ -1,14 +1,23 @@
 /** Canonical DSH sessions backed by the upstream persistence service. */
 
 import { Context } from '@deepseek-ai/cordis'
-import AgentRegistry, { type Agent, type AgentHandle } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, {
+  installModelSelection,
+  type Agent,
+  type AgentHandle,
+  type ModelSelection,
+  type ModelSelectionRef,
+} from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { credentialRef, type CredentialInfo } from '@deepseek-ai/dsh-credentials'
-import LlmRuntime, { createUserMessage } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { ReasoningEffortId, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import {
   SESSION_SEARCH_RESULT_LIMIT,
   SESSION_SEARCH_SNIPPET_MAX_CODE_POINTS,
+  type ModelCatalogFailure,
+  type ModelProviderGroup,
+  type ModelReasoning,
   type QueuedInboxItem,
   type RpcId,
   type SessionSearchItem,
@@ -41,6 +50,7 @@ import DurableObjectSessionPersistence, {
   EDGE_HISTORY_PAGE_LIMITS,
   type EdgeEventPage,
 } from './do-session-persistence.ts'
+import EdgeModelSelectionBridge from './model-selection-bridge.ts'
 import type { CreateEdgeSessionInput, EdgeSession } from './protocol.ts'
 import { installEdgeWebSearch } from './web-search.ts'
 
@@ -125,6 +135,7 @@ export class EdgeSessionStore {
   )?.value)
   private readonly shells = new EdgeShellBindings()
   private readonly blankHandles = new Map<SessionId, AgentHandle>()
+  private readonly modelSelections: EdgeModelSelectionBridge
   private readonly turnPublishedAgents = new WeakSet<Agent>()
   private readonly ready: Promise<void>
 
@@ -132,6 +143,7 @@ export class EdgeSessionStore {
     storage: DurableObjectStorage,
     config: EdgeSessionStoreConfig,
   ) {
+    this.modelSelections = new EdgeModelSelectionBridge(storage)
     this.ready = this.initialize(storage, config)
   }
 
@@ -166,6 +178,102 @@ export class EdgeSessionStore {
     return await this.context.credentials.describe(credentialRef(ref))
   }
 
+  /** Project the registered upstream provider catalog into the upstream Web wire shape. */
+  async modelCatalog(): Promise<{
+    groups: ModelProviderGroup[]
+    failures: ModelCatalogFailure[]
+  }> {
+    await this.ready
+    const catalog = await Promise.all(this.context.llm.listProviders().map(async (provider) => {
+      try {
+        const models = await this.context.llm.listModels(provider.id)
+        const entries = await Promise.all(models.map(async (model) => {
+          const resolved = await this.context.llm.resolveModelInfo(provider.id, model.id)
+          const reasoning: ModelReasoning | undefined = resolved.reasoning === undefined
+            ? undefined
+            : {
+                efforts: resolved.reasoning.efforts.map(effort => ({
+                  id: effort.id,
+                  name: effort.name,
+                  ...effort.description === undefined
+                    ? {}
+                    : { description: effort.description },
+                })),
+                ...resolved.reasoning.defaultEffort === undefined
+                  ? {}
+                  : { defaultEffort: resolved.reasoning.defaultEffort },
+              }
+          return {
+            id: model.id,
+            name: model.name,
+            ...model.description === undefined ? {} : { description: model.description },
+            ...reasoning === undefined ? {} : { reasoning },
+          }
+        }))
+        return {
+          kind: 'group' as const,
+          group: { id: provider.id, name: provider.name, models: entries },
+        }
+      } catch (error) {
+        return {
+          kind: 'failure' as const,
+          failure: {
+            id: provider.id,
+            name: provider.name,
+            message: error instanceof Error ? error.message : String(error),
+          },
+        }
+      }
+    }))
+    return {
+      groups: catalog.flatMap(item => item.kind === 'group' && item.group.models.length > 0
+        ? [item.group]
+        : []),
+      failures: catalog.flatMap(item => item.kind === 'failure' ? [item.failure] : []),
+    }
+  }
+
+  /** Resolve the selection using the same pending → logged → default order as upstream ApiProxy. */
+  async modelSelection(id: SessionId, defaultModel: string): Promise<ModelSelection> {
+    const { sessions, persistence } = await this.services()
+    const pending = await this.loadModelSelection(id)
+    if (pending !== undefined) return pending
+    const live = sessions.get(id)
+    if (live !== undefined) return loggedModelSelection(live.requestHeader()?.config, defaultModel)
+    if (!(persistence instanceof DurableObjectSessionPersistence)) {
+      throw new EdgeSessionStoreError('INVALID_DATA', 'Edge persistence backend is unavailable.')
+    }
+    if (persistence.readBlankSession(id) !== undefined) return defaultModelSelection(defaultModel)
+    if (persistence.readSessionHeader(id) === undefined) {
+      throw new EdgeSessionStoreError('NOT_FOUND', 'Session not found.')
+    }
+    return loggedModelSelection(persistence.readLatestModelSelection(id), defaultModel)
+  }
+
+  /** Validate and install one session-local selection through the upstream LLM resolver. */
+  async selectModel(
+    id: SessionId,
+    input: { provider: string; model: string; reasoningEffort?: string },
+  ): Promise<ModelSelection> {
+    await this.requireSession(id)
+    const resolved = await this.context.llm.resolveCallConfig({
+      provider: input.provider,
+      model: input.model,
+      ...input.reasoningEffort === undefined
+        ? {}
+        : { reasoningEffort: ReasoningEffortId(input.reasoningEffort) },
+    })
+    const selected: ModelSelection = {
+      provider: resolved.provider,
+      model: resolved.model,
+      ...resolved.reasoningEffort === undefined
+        ? {}
+        : { reasoningEffort: resolved.reasoningEffort },
+    }
+    await this.modelSelections.save(id, selected)
+    return selected
+  }
+
   async createSession(input: CreateEdgeSessionInput): Promise<EdgeSession> {
     const { agents, sessions, persistence } = await this.services()
     const title = normalizeSessionTitle(input.title, MAX_TITLE_BYTES)
@@ -180,6 +288,7 @@ export class EdgeSessionStore {
         agentPreset: 'dsh-edge',
       },
       agentOptions: { provider: EDGE_PROVIDER, model: DEFAULT_EDGE_MODEL },
+      setup: agentCtx => this.installAgentModelSelection(agentCtx, DEFAULT_EDGE_MODEL),
     })
     const { agent } = handle
     const { session } = agent
@@ -262,6 +371,7 @@ export class EdgeSessionStore {
       sessionId: id,
       meta: { cwd: '/workspace', agentPreset: 'dsh-edge' },
       agentOptions: { provider: EDGE_PROVIDER, model: input.model },
+      setup: agentCtx => this.installAgentModelSelection(agentCtx, input.model),
     })
     try {
       await persistence.retainBlankSession(handle.agent.session.header)
@@ -518,6 +628,7 @@ export class EdgeSessionStore {
         agentPreset: header.agentPreset ?? 'dsh-edge',
       },
       agentOptions: { provider: EDGE_PROVIDER, model },
+      setup: agentCtx => this.installAgentModelSelection(agentCtx, model),
     })
     try {
       await sessions.flush(handle.agent.session)
@@ -587,6 +698,7 @@ export class EdgeSessionStore {
   /** Resolve a live native agent, or cold-resume it through upstream persistence. */
   async openAgentForTurn(id: SessionId, model: string): Promise<AgentHandle> {
     const { agents, persistence } = await this.services()
+    await this.loadModelSelection(id)
     const blank = this.blankHandles.get(id)
     if (blank !== undefined) {
       this.blankHandles.delete(id)
@@ -608,6 +720,7 @@ export class EdgeSessionStore {
     const handle = await agents.resume({
       resumeSessionId: id,
       agentOptions: { provider: EDGE_PROVIDER, model },
+      setup: agentCtx => this.installAgentModelSelection(agentCtx, model),
     })
     try {
       await this.context.sessions.flush(handle.agent.session)
@@ -618,6 +731,47 @@ export class EdgeSessionStore {
       })
       throw error
     }
+  }
+
+  /** Mount the upstream per-agent selection seam before the Agent is published. */
+  private installAgentModelSelection(agentCtx: Context, defaultModel: string): void {
+    const agent = agentCtx.agent
+    if (agent === undefined) {
+      throw new EdgeSessionStoreError('INVALID_DATA', 'Agent setup has no scoped Agent.')
+    }
+    let assembled: ModelSelection | undefined
+    const selections = this.modelSelections
+    const selection: ModelSelectionRef = {
+      get current() {
+        return selections.current(agent.id)
+          ?? loggedModelSelection(agent.session.requestHeader()?.config, defaultModel)
+      },
+      set current(next) {
+        selections.setCurrent(agent.id, next)
+      },
+      get assembled() {
+        return assembled
+      },
+      set assembled(next) {
+        assembled = next
+      },
+    }
+    installModelSelection(agentCtx, selection)
+  }
+
+  /** Hydrate the process cache from Durable Object KV after hibernation. */
+  private async loadModelSelection(id: SessionId): Promise<ModelSelection | undefined> {
+    return await this.modelSelections.load(id)
+  }
+
+  /** Retire the Edge bridge after the matching upstream request header is durable. */
+  private async retireLoggedModelSelection(agent: Agent): Promise<void> {
+    const config = agent.session.requestHeader()?.config
+    if (config?.provider === undefined || config.model === undefined) return
+    await this.modelSelections.clearIfLogged(
+      agent.id,
+      loggedModelSelection(config, DEFAULT_EDGE_MODEL),
+    )
   }
 
   /** Drive one turn through ReactLoopAgent and publish only durable events. */
@@ -706,6 +860,10 @@ export class EdgeSessionStore {
       }
       await delivery
       await sessions.flush(agent.session)
+      await this.retireLoggedModelSelection(agent).catch((error: unknown) => {
+        // A retained matching bridge is harmless and can be retried after the next turn.
+        console.error('dsh-edge failed to retire a logged model selection.', error)
+      })
     } finally {
       await delivery.catch(() => {})
       await agent.whenIdle().catch(() => {})
@@ -996,6 +1154,27 @@ function summarizeApiLive(
     ...header.origin === undefined ? {} : { origin: header.origin },
     ...header.cwd === undefined ? {} : { cwd: header.cwd },
     ...header.agentPreset === undefined ? {} : { agentPreset: header.agentPreset },
+  }
+}
+
+function defaultModelSelection(model: string): ModelSelection {
+  return { provider: EDGE_PROVIDER, model }
+}
+
+/** Rebuild the session-local selection from its latest full request header. */
+function loggedModelSelection(
+  config: { provider?: string; model?: string; reasoningEffort?: string } | undefined,
+  defaultModel: string,
+): ModelSelection {
+  if (config?.provider === undefined || config.model === undefined) {
+    return defaultModelSelection(defaultModel)
+  }
+  return {
+    provider: config.provider,
+    model: config.model,
+    ...config.reasoningEffort === undefined
+      ? {}
+      : { reasoningEffort: ReasoningEffortId(config.reasoningEffort) },
   }
 }
 

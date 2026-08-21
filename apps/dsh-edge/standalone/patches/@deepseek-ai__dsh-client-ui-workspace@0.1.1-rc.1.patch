@@ -1,5 +1,5 @@
 diff --git a/lib/client.js b/lib/client.js
-index 7ca5fd3d02cdcc27c05daa23af5879101eb3c97b..b01a1948639625622775160b80c784b9375f3af4 100644
+index 2f0be4ef86113c65657fcb7ce254f2e17701cf3d..cad700e9158437791f5ce7753cc82f5c6a280100 100644
 --- a/lib/client.js
 +++ b/lib/client.js
 @@ -460,12 +460,12 @@ window.__ModuleLoader__.load({
@@ -48,7 +48,7 @@ index 7ca5fd3d02cdcc27c05daa23af5879101eb3c97b..b01a1948639625622775160b80c784b9
  										}
  									}),
  									(expandedSessionGroups.includes(group.key) ? group.sessions : group.sessions.slice(0, COLLAPSED_SESSION_LIMIT)).map((node) => {
-@@ -2026,6 +2026,7 @@ window.__ModuleLoader__.load({
+@@ -2052,6 +2052,7 @@ window.__ModuleLoader__.load({
  							insertWorkspaceBefore,
  							insertSessionBefore,
  							orderBy,

@@ -4,6 +4,10 @@ import type { Context } from '@deepseek-ai/cordis'
 import CredentialProvider, {
   credentialRef,
   type CredentialInfo,
+  type CredentialKey,
+  type CredentialRecord,
+  type CredentialRecordEntry,
+  type CredentialRecordInfo,
   type CredentialRef,
   type ResolvedCredential,
 } from '@deepseek-ai/dsh-credentials'
@@ -50,6 +54,36 @@ export class EdgeCredentialProvider extends CredentialProvider {
   /** Cloudflare secrets are changed through deployment tooling, not runtime RPCs. */
   override unset(_ref: CredentialRef): Promise<void> {
     return Promise.reject(new Error('dsh-edge credentials are read-only; update the Cloudflare Worker secret.'))
+  }
+
+  /** Edge currently exposes deployment-secret references, not provider-owned authorization records. */
+  override readRecord(_key: CredentialKey): Promise<CredentialRecord | undefined> {
+    return Promise.resolve(undefined)
+  }
+
+  /** Report the unsupported record space without exposing or inventing storage. */
+  override describeRecord(_key: CredentialKey): Promise<CredentialRecordInfo> {
+    return Promise.resolve({ configured: false, writable: false })
+  }
+
+  /** No provider-owned authorization records exist in this deployment. */
+  override listRecords(): Promise<readonly CredentialRecordEntry[]> {
+    return Promise.resolve([])
+  }
+
+  /** Record creation and token refresh require a dedicated Edge record store. */
+  override modifyRecord(
+    _key: CredentialKey,
+    _mutate: (current: CredentialRecord | undefined) => Promise<CredentialRecord | undefined>,
+  ): Promise<CredentialRecord | undefined> {
+    return Promise.reject(new Error(
+      'dsh-edge credential records are unavailable; this deployment supports Worker-secret references only.',
+    ))
+  }
+
+  /** Deleting an absent record is the required no-op. */
+  override deleteRecord(_key: CredentialKey): Promise<void> {
+    return Promise.resolve()
   }
 }
 

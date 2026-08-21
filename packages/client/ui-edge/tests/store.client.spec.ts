@@ -12,7 +12,7 @@ const HEALTH = {
   shell: 'just-bash-direct' as const,
   deploymentId: 'deploy-test',
   version: '1.2.3',
-  upstreamVersion: '0.1.0-rc.8',
+  upstreamVersion: '0.1.1-rc.1',
   status: 'ready' as const,
 }
 

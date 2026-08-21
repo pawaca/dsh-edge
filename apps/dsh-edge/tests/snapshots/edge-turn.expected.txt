@@ -340,6 +340,80 @@ Use the web_search tool to discover current information on the web. The required
     },
     {
       "data": {
+        "header": {
+          "adapterDefaults": {
+            "maxTokens": true,
+          },
+          "config": {
+            "maxTokens": 8192,
+            "model": "deepseek-v4-flash",
+            "provider": "deepseek-official",
+            "reasoningEffort": "off",
+          },
+          "system": "You are an AI agent powered by DeepSeek Harness.
+
+You are dsh-edge, a coding agent running in a Cloudflare Worker. Your persistent working directory is /workspace. Use the bash tool when you need to inspect or modify workspace files, then answer with the result. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
+
+Use the web_search tool to discover current information on the web. The required queries array accepts 1–4 non-empty search queries; use a one-item array for a single search. It returns an optional answer plus a list of source URLs. Use the returned source snippets when available, and cite the relevant URLs as markdown links.",
+          "tools": [
+            {
+              "description": "Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in /workspace unless workdir is supplied.",
+              "name": "bash",
+              "parameters": {
+                "properties": {
+                  "command": {
+                    "description": "The shell command to execute.",
+                    "type": "string",
+                  },
+                  "description": {
+                    "description": "A short explanation of what the command does.",
+                    "type": "string",
+                  },
+                  "timeoutMs": {
+                    "description": "Optional execution timeout in milliseconds.",
+                    "type": "number",
+                  },
+                  "workdir": {
+                    "description": "An absolute directory below /workspace.",
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "command",
+                  "description",
+                ],
+                "type": "object",
+              },
+            },
+            {
+              "description": "Search the web for current information. Provide 1–4 queries in the required queries array. Returns an optional summary answer and a list of source URLs.",
+              "name": "web_search",
+              "parameters": {
+                "properties": {
+                  "queries": {
+                    "description": "Required search queries; accepts 1–4 items and merges their results.",
+                    "items": {
+                      "type": "string",
+                    },
+                    "type": "array",
+                  },
+                },
+                "required": [
+                  "queries",
+                ],
+                "type": "object",
+              },
+            },
+          ],
+        },
+        "reason": "change",
+      },
+      "seq": 19,
+      "time": 0,
+      "type": "request/header",
+    },
+    {
+      "data": {
         "chunk": {
           "blockType": "text",
           "index": 0,
@@ -348,7 +422,7 @@ Use the web_search tool to discover current information on the web. The required
         "step": 2,
         "turn": 1,
       },
-      "seq": 19,
+      "seq": 20,
       "time": 0,
       "type": "assistant/chunk",
     },
@@ -362,7 +436,7 @@ Use the web_search tool to discover current information on the web. The required
         "step": 2,
         "turn": 1,
       },
-      "seq": 20,
+      "seq": 21,
       "time": 0,
       "type": "assistant/chunk",
     },
@@ -379,7 +453,7 @@ Use the web_search tool to discover current information on the web. The required
         "step": 2,
         "turn": 1,
       },
-      "seq": 21,
+      "seq": 22,
       "time": 0,
       "type": "assistant/chunk",
     },
@@ -395,7 +469,7 @@ Use the web_search tool to discover current information on the web. The required
         "step": 2,
         "turn": 1,
       },
-      "seq": 22,
+      "seq": 23,
       "time": 0,
       "type": "assistant/chunk",
     },
@@ -410,7 +484,7 @@ Use the web_search tool to discover current information on the web. The required
         "step": 2,
         "turn": 1,
       },
-      "seq": 23,
+      "seq": 24,
       "time": 0,
       "type": "assistant/chunk",
     },
@@ -438,13 +512,13 @@ Use the web_search tool to discover current information on the web. The required
           "outputTokens": 2,
         },
       },
-      "seq": 24,
+      "seq": 25,
       "sourceEventSeqs": [
-        19,
         20,
         21,
         22,
         23,
+        24,
       ],
       "surfaceOp": "append",
       "time": 0,
@@ -455,7 +529,7 @@ Use the web_search tool to discover current information on the web. The required
         "step": 2,
         "turn": 1,
       },
-      "seq": 25,
+      "seq": 26,
       "time": 0,
       "type": "step/end",
     },
@@ -466,7 +540,7 @@ Use the web_search tool to discover current information on the web. The required
         },
         "turn": 1,
       },
-      "seq": 26,
+      "seq": 27,
       "time": 0,
       "type": "turn/end",
     },
@@ -830,6 +904,80 @@ Use the web_search tool to discover current information on the web. The required
     },
     {
       "data": {
+        "header": {
+          "adapterDefaults": {
+            "maxTokens": true,
+          },
+          "config": {
+            "maxTokens": 8192,
+            "model": "deepseek-v4-flash",
+            "provider": "deepseek-official",
+            "reasoningEffort": "off",
+          },
+          "system": "You are an AI agent powered by DeepSeek Harness.
+
+You are dsh-edge, a coding agent running in a Cloudflare Worker. Your persistent working directory is /workspace. Use the bash tool when you need to inspect or modify workspace files, then answer with the result. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
+
+Use the web_search tool to discover current information on the web. The required queries array accepts 1–4 non-empty search queries; use a one-item array for a single search. It returns an optional answer plus a list of source URLs. Use the returned source snippets when available, and cite the relevant URLs as markdown links.",
+          "tools": [
+            {
+              "description": "Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in /workspace unless workdir is supplied.",
+              "name": "bash",
+              "parameters": {
+                "properties": {
+                  "command": {
+                    "description": "The shell command to execute.",
+                    "type": "string",
+                  },
+                  "description": {
+                    "description": "A short explanation of what the command does.",
+                    "type": "string",
+                  },
+                  "timeoutMs": {
+                    "description": "Optional execution timeout in milliseconds.",
+                    "type": "number",
+                  },
+                  "workdir": {
+                    "description": "An absolute directory below /workspace.",
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "command",
+                  "description",
+                ],
+                "type": "object",
+              },
+            },
+            {
+              "description": "Search the web for current information. Provide 1–4 queries in the required queries array. Returns an optional summary answer and a list of source URLs.",
+              "name": "web_search",
+              "parameters": {
+                "properties": {
+                  "queries": {
+                    "description": "Required search queries; accepts 1–4 items and merges their results.",
+                    "items": {
+                      "type": "string",
+                    },
+                    "type": "array",
+                  },
+                },
+                "required": [
+                  "queries",
+                ],
+                "type": "object",
+              },
+            },
+          ],
+        },
+        "reason": "change",
+      },
+      "seq": 19,
+      "time": 0,
+      "type": "request/header",
+    },
+    {
+      "data": {
         "chunk": {
           "blockType": "text",
           "index": 0,
@@ -838,7 +986,7 @@ Use the web_search tool to discover current information on the web. The required
         "step": 2,
         "turn": 1,
       },
-      "seq": 19,
+      "seq": 20,
       "time": 0,
       "type": "assistant/chunk",
     },
@@ -852,7 +1000,7 @@ Use the web_search tool to discover current information on the web. The required
         "step": 2,
         "turn": 1,
       },
-      "seq": 20,
+      "seq": 21,
       "time": 0,
       "type": "assistant/chunk",
     },
@@ -869,7 +1017,7 @@ Use the web_search tool to discover current information on the web. The required
         "step": 2,
         "turn": 1,
       },
-      "seq": 21,
+      "seq": 22,
       "time": 0,
       "type": "assistant/chunk",
     },
@@ -885,7 +1033,7 @@ Use the web_search tool to discover current information on the web. The required
         "step": 2,
         "turn": 1,
       },
-      "seq": 22,
+      "seq": 23,
       "time": 0,
       "type": "assistant/chunk",
     },
@@ -900,7 +1048,7 @@ Use the web_search tool to discover current information on the web. The required
         "step": 2,
         "turn": 1,
       },
-      "seq": 23,
+      "seq": 24,
       "time": 0,
       "type": "assistant/chunk",
     },
@@ -928,13 +1076,13 @@ Use the web_search tool to discover current information on the web. The required
           "outputTokens": 2,
         },
       },
-      "seq": 24,
+      "seq": 25,
       "sourceEventSeqs": [
-        19,
         20,
         21,
         22,
         23,
+        24,
       ],
       "surfaceOp": "append",
       "time": 0,
@@ -945,7 +1093,7 @@ Use the web_search tool to discover current information on the web. The required
         "step": 2,
         "turn": 1,
       },
-      "seq": 25,
+      "seq": 26,
       "time": 0,
       "type": "step/end",
     },
@@ -956,7 +1104,7 @@ Use the web_search tool to discover current information on the web. The required
         },
         "turn": 1,
       },
-      "seq": 26,
+      "seq": 27,
       "time": 0,
       "type": "turn/end",
     },
