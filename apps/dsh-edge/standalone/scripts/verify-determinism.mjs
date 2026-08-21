@@ -5,14 +5,12 @@ import { createHash } from 'node:crypto'
 import { readFile, readdir } from 'node:fs/promises'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { resolvePnpmInvocation } from './pnpm-invocation.mjs'
 
 const standaloneRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const before = await releaseWebHash()
-const pnpm = process.env.npm_execpath
-if (pnpm === undefined || pnpm === '') {
-  throw new Error('Cannot verify deterministic Web output outside a pnpm script.')
-}
-execFileSync(process.execPath, [pnpm, 'run', 'build:web'], {
+const invocation = resolvePnpmInvocation(process.env.npm_execpath, ['run', 'build:web'])
+execFileSync(invocation.command, invocation.args, {
   cwd: standaloneRoot,
   stdio: 'inherit',
 })
