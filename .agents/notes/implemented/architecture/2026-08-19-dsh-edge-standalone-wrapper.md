@@ -46,7 +46,7 @@ Sessions, messages, workspace metadata, and the `/workspace` virtual filesystem 
 
 Immutable 0.1.3 session, workspace, and VFS fixtures are loaded through a test-only Durable Object seeder, checked for referential integrity, then read, extended, restarted, and reread through production HTTP, RPC, WebSocket, session, Bash, and VFS paths in both runtime modes.
 
-`DSH_EDGE_ACCESS_KEY` and `DEEPSEEK_API_KEY` remain write-only Worker secrets. Owner cookies, bearer tokens, and provider credentials do not enter Durable Object state, the VFS, generated configuration, responses, logs, fixtures, or tarballs. The DeepSeek credential is bound only for the active request or turn, including Web Search, then released.
+`DSH_EDGE_ACCESS_KEY` and `DEEPSEEK_API_KEY` remain write-only Worker secrets. Authentication may return a signed or expired owner-session cookie in the `Set-Cookie` response header; that cookie is excluded from response bodies, Durable Object state, the VFS, generated configuration, logs, fixtures, and tarballs, and is removed before forwarding upstream. Bearer tokens and provider credentials do not enter response headers or bodies or any of those persistent surfaces. The DeepSeek credential is bound only for the active request or turn, including Web Search, then released.
 
 ## Installation and publication
 

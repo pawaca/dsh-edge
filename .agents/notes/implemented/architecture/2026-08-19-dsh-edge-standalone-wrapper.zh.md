@@ -46,7 +46,7 @@ Session、message、workspace metadata 与 `/workspace` 虚拟文件系统存储
 
 不可变的 0.1.3 session、workspace 和 VFS fixture 会通过仅供测试使用的 Durable Object seeder 加载并接受引用完整性检查，随后在两种 runtime 中通过生产 HTTP、RPC、WebSocket、session、Bash 和 VFS 路径完成读取、扩展、重启和再次读取。
 
-`DSH_EDGE_ACCESS_KEY` 和 `DEEPSEEK_API_KEY` 继续作为只写 Worker secret。Owner cookie、bearer token 和 provider credential 不会进入 Durable Object 状态、VFS、生成配置、response、日志、fixture 或 tarball。DeepSeek credential 只会在当前 request 或 turn（包括 Web Search）内绑定，随后释放。
+`DSH_EDGE_ACCESS_KEY` 和 `DEEPSEEK_API_KEY` 继续作为只写 Worker secret。认证可以在 `Set-Cookie` response header 中返回签名或过期的 owner-session cookie；该 cookie 不会进入 response body、Durable Object 状态、VFS、生成配置、日志、fixture 或 tarball，并且在转发上游前会被移除。Bearer token 和 provider credential 不会进入 response header、response body 或上述任何持久化表面。DeepSeek credential 只会在当前 request 或 turn（包括 Web Search）内绑定，随后释放。
 
 ## 安装与发布
 
