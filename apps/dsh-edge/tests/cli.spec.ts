@@ -80,7 +80,7 @@ describe('dsh-edge CLI', () => {
     const hero = renderInstallerIntro('install', {
       columns: 100,
       isTTY: true,
-      version: '0.2.0',
+      version: '0.3.0-alpha.1',
       upstreamVersion: '0.1.1-rc.1',
     })
     const lines = hero.split('\n')
@@ -88,20 +88,20 @@ describe('dsh-edge CLI', () => {
     expect(lines[1]).toBe(' ____  ____  _   _       _____ ____   ____ _____')
     expect(lines[2]).toBe('|  _ \\/ ___|| | | |     | ____|  _ \\ / ___| ____|')
     expect(hero).toContain('DeepSeek Harness on Cloudflare')
-    expect(hero).toContain('dsh-edge 0.2.0 · Harness 0.1.1-rc.1')
+    expect(hero).toContain('dsh-edge 0.3.0-alpha.1 · Harness 0.1.1-rc.1')
     expect(hero).toContain('community project · install')
     expect(renderInstallerIntro('upgrade', {
       columns: 60,
       isTTY: true,
-      version: '0.2.0',
+      version: '0.3.0-alpha.1',
       upstreamVersion: '0.1.1-rc.1',
-    })).toBe('dsh-edge upgrade · 0.2.0 · Harness 0.1.1-rc.1')
+    })).toBe('dsh-edge upgrade · 0.3.0-alpha.1 · Harness 0.1.1-rc.1')
     expect(renderInstallerIntro('install', {
       columns: 100,
       isTTY: false,
-      version: '0.2.0',
+      version: '0.3.0-alpha.1',
       upstreamVersion: '0.1.1-rc.1',
-    })).toBe('dsh-edge install · 0.2.0 · Harness 0.1.1-rc.1')
+    })).toBe('dsh-edge install · 0.3.0-alpha.1 · Harness 0.1.1-rc.1')
   })
 
   it('executes through a package-manager-style bin symlink', () => {

@@ -1,106 +1,97 @@
 # dsh-edge
 
+[![npm next](https://img.shields.io/npm/v/dsh-edge/next?label=npm%20next)](https://www.npmjs.com/package/dsh-edge)
+[![CI](https://github.com/pawaca/dsh-edge/actions/workflows/edge-ci.yml/badge.svg)](https://github.com/pawaca/dsh-edge/actions/workflows/edge-ci.yml)
+[![License: MIT](https://img.shields.io/github/license/pawaca/dsh-edge)](LICENSE)
+
 [English](README.md) | 中文
 
-在自己的 Cloudflare 账户中运行 DeepSeek Harness，并从任意浏览器使用。`dsh-edge` 通过一个引导式 Cloudflare Workers 安装流程，交付上游 Web UI、agent loop（智能体循环）、会话协议、DeepSeek Web Search 与持久工作区。
+## 一条命令，把 DeepSeek Harness 部署到 Cloudflare，在任意浏览器使用
 
-你不需要维护服务器或 GitHub 仓库。安装器可以部署免费的 single-owner 实例，以不回显的方式收集所需 secret，并在结束时输出 URL 与 owner access key。
+DeepSeek Harness 把能力完整的 coding-agent Web UI 与本地 host runtime 组合在一起。`dsh-edge` 将这套体验封装到 Cloudflare Workers，让你的个人智能体可以从任意浏览器访问——不用维护服务器，不用创建 GitHub 仓库，也不用配置构建流水线。
 
-> **独立项目：** `dsh-edge` 由 [pawaca](https://github.com/pawaca) 维护，与 DeepSeek 没有关联，也未获得其背书。[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 仍是上游项目。
+上游 UI、agent loop、会话协议、模型目录、图片体验和 Web Search 均保持不变；Edge 层只提供 Cloudflare runtime、持久存储、single-owner 登录和引导式安装器。
 
-## 你会得到什么
+![dsh-edge 运行上游 DeepSeek Harness Web UI，并使用图片输入与 Vision Exp](docs/assets/dsh-edge-browser.png)
 
-- 上游 DeepSeek Harness Web UI 与类型化 HTTP/WebSocket 协议。
-- 由 Durable Object SQLite 支持的持久对话与 `/workspace` 虚拟文件系统（VFS）。
-- 使用你自己的 API key 调用 DeepSeek 对话和原生 Web Search。
-- 使用上游图片 composer 与 Vision Exp 模型；永久账户部署会把图片作为不可变对象存入私有 R2 bucket。
-- 在持久工作区上运行的 `bash` 工具，可选择免费的 direct 运行时或可选的 isolated 运行时。
-- 一个用于换取 signed browser cookie 的 owner access key；安装器可以生成高熵值。
-- 直接通过 Wrangler 上传的引导式安装与升级命令，不创建源码构建流水线。
+> **独立社区项目：** `dsh-edge` 由 [pawaca](https://github.com/pawaca) 维护，与 DeepSeek 没有关联，也未获得其背书。[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 是上游项目。
 
-## 安装
+## 试用 0.3 预览版
 
-### 安装 Edge 实例
-
-你需要 Node.js 22.14 或更高版本，以及一个 DeepSeek API key。免费的临时账户路径不要求你预先拥有 Cloudflare 账户；安装器也可以使用已有账户，或打开 Cloudflare 登录和注册。
-
-安装稳定版本：
+你需要 Node.js 22.14 或更高版本，以及自己的 DeepSeek API key：
 
 ```sh
-npx dsh-edge install
+npx dsh-edge@next install
 ```
 
-该命令通过 npm `latest` 渠道解析。只有在明确希望测试未来预发布版本时，才使用 `npx dsh-edge@next install`。
+安装器会依次引导你选择 runtime、Cloudflare 账户、Worker 名称、owner access key、DeepSeek key，确认费用并上传，最后观察公开路由激活。选择临时账户路径，无需已有 Cloudflare 登录也能试用；如果希望保留 Worker 与数据，需要在 60 分钟内认领该部署。
 
-安装器会要求你：
+如果要安装当前稳定版，请改用 `npx dsh-edge install`。
 
-1. 选择 **Free — Direct Shell** 或 **Isolated — Dynamic Worker**。
-2. 选择或创建 Cloudflare 账户，并选择 Worker 名称。
-3. 生成高熵 owner access key，或输入自己随机生成的值，再通过隐藏输入填写 DeepSeek API key。
-4. 确认费用摘要并上传。
+## 你可以做什么
 
-Cloudflare 接受上传后，安装器会短暂等待公开 URL 出现精确的 package 与 runtime。ready 结果可以立即打开；如果有界等待结束时 Cloudflare 仍在激活 `workers.dev` 路由，安装仍然成功，最终卡片会提示稍后刷新，避免把平台占位页误认为部署失败。
+- 在任意浏览器继续持久对话和工作区。
+- 通过上游模型选择器使用 DeepSeek V4 Flash、V4 Pro 或实验性的 V4 Flash Vision Exp。
+- 把 PNG/JPEG 图片粘贴或拖入上游 composer，并在会话历史中重新查看。
+- 使用 DeepSeek 原生 Web Search 工具搜索互联网。
+- 读写持久 `/workspace`，并让 agent 使用其中的 `bash` 工具。
+- 把自己的 DeepSeek key 和数据留在自己的 Cloudflare 部署中。
+- 原地升级，不需要把 Worker 绑定到本仓库或 Cloudflare Builds。
 
-打开安装器输出的 Worker URL，并使用 owner access key 登录。请为后续升级保存该 key：轮换它会使已有浏览器会话失效，而 Cloudflare 不允许后续升级读取当前 secret。
+## 两条部署路径
 
-永久账户安装会创建或复用私有的 `<worker-name>-attachments` R2 bucket，用于 PNG/JPEG prompt；该 Cloudflare 账户必须先启用 R2。临时预览目前尚不支持图片；阶段 3 会增加有界 Durable Object fallback，而不改变浏览器操作流程。
-
-如果使用临时 Cloudflare 账户，必须在 60 分钟内通过输出的 claim URL 完成认领，才能保留 Worker 及其数据。
-
-## 选择运行时
-
-| 模式 | Cloudflare 套餐 | 命令运行时 | 适用情况 |
+| 路径 | Cloudflare 账户 | 图片存储 | 适用场景 |
 | --- | --- | --- | --- |
-| **Free — Direct Shell** | Workers Free | 在 owner Durable Object 内运行的加固 just-bash | 你希望以最低门槛完成个人部署，并信任唯一 owner。 |
-| **Isolated — Dynamic Worker** | Workers Paid | 通过 Worker Loader binding 使用 Cloudflare Computer Worker Shell | 你希望命令在独立 Worker 中执行，并接受付费套餐要求。 |
+| **临时预览** | 不要求已有登录；需在 60 分钟内认领 | 有界的 64 MiB Durable Object backend | 以最低门槛试用完整浏览器与图片流程 |
+| **永久部署** | 使用已有或新登录的账户；必须启用 R2 | 私有 R2 bucket | 在自己的长期账户中保留对话和图片 |
 
-两种模式使用相同的 Web UI、DSH 协议、工具、Durable Object 存储和安装器。选定的部署配置只包含对应的命令运行时，因此 isolated 部署不会同时加载 direct shell 实现。
+每个部署只选择一次 attachment backend，并在 Durable Object 休眠、认领和升级后保持固定。认领临时部署会保留原有 DO 图片，不会静默迁移到 R2。
 
-Direct 模式不是 Linux 容器，不提供原生二进制、后台进程、PTY、任意 Linux 行为或 shell 网络访问。不要把 direct-mode 实例暴露给不受信任的用户。
+### 选择命令运行时
+
+| 模式 | Cloudflare 套餐 | 命令运行时 | 取舍 |
+| --- | --- | --- | --- |
+| **Free — Direct Shell** | Workers Free | owner Durable Object 内的加固 just-bash | 门槛最低的个人部署 |
+| **Isolated — Dynamic Worker** | Workers Paid | 通过 Worker Loader 使用 Cloudflare Computer Worker Shell | 在独立 Worker 中执行命令 |
+
+两种模式使用相同的 UI、协议、工具、对话、工作区、图片流程和安装器。Direct Shell 不是 Linux 容器：它没有原生二进制、后台进程、PTY、任意 Linux 行为或 shell 网络访问。不要把它暴露给不受信任的用户。
 
 ## 升级
 
-运行升级命令，选择相同运行时，并输入已有 Worker 名称：
-
 ```sh
-npx dsh-edge upgrade
+npx dsh-edge@next upgrade
 ```
 
-稳定部署跟随 npm `latest`。如果当前安装的是 0.2 alpha，需要执行一次 `npx dsh-edge@latest upgrade` 晋级到稳定渠道；其他预发布部署仍跟随 `next`。Edge 设置页会识别已安装版本的渠道，并复制匹配的命令。
+预发布部署跟随 npm `next` 渠道；稳定部署使用 `npx dsh-edge upgrade`。请选择已有 Worker 和相同 runtime。Durable Object 数据与已经固定的 attachment backend 都会保留。Cloudflare secret 只能写入、不能读回，因此安装器会再次询问已有 owner access key 和 DeepSeek API key。
 
-Durable Object 数据会保留。Cloudflare secret 只能替换、不能读回，因此安装器会再次要求 owner access key 与 DeepSeek API key。
+## 数据、凭据与限制
 
-## 当前范围
+- 对话、工作区元数据与 `/workspace` 文件存储在当前部署的 Durable Object 中。
+- 永久部署把通过校验的图片作为不可变对象写入私有 R2 bucket；临时部署使用 64 MiB、按 512 KiB 分块的 Durable Object backend。Session event 只保留上游 content-addressed reference。
+- 图片仅接受 PNG 和 JPEG：每条消息最多 4 张、每张 3.5 MiB、合计 7 MiB、最多 4,000 万像素，且单边不超过 2,000 像素。
+- `DEEPSEEK_API_KEY` 与 `DSH_EDGE_ACCESS_KEY` 是 Worker secret，其字面值不会写入会话事件、Durable Object 状态、VFS 或浏览器响应。
+- 安装器通过权限模式为 `0600` 的临时文件把 secret 交给 Wrangler，随后删除，也不会创建源码构建集成。
+- Owner cookie 使用 HttpOnly、`SameSite=Strict`，有效期为 30 天。轮换 owner access key 会使已有会话失效。
 
-`dsh-edge` 处于开发者预览阶段。当前预览版本聚焦完整的个人使用路径：上游对话和工作区、持久会话、上游三款 DeepSeek 模型、永久部署中的 PNG/JPEG 图片 prompt、Web Search、工作区文件操作、命令执行，以及上游浏览器体验。Vision Exp 仍是实验模型，是否可用可能取决于 DeepSeek 账户。
+## 当前边界
 
-部署有意采用 single-owner 模式，不提供注册、多用户、角色或租户路由。通用文件附件、临时预览中的图片、远程 MCP、Skills、Workflows、Jobs 和 Subagents 尚未适配 Edge 运行时。`web_fetch` 在运行时具备明确的 SSRF、私网地址和重定向策略前保持关闭。
+`dsh-edge` 仍是开发者预览版本，并且有意采用 single-owner 模式，不提供注册、多用户、角色或租户路由。Vision Exp 是实验模型，可能并非对所有 DeepSeek 账户开放。
 
-完整兼容矩阵、限制、安全行为、API 参考、本地开发命令与当前实现状态见 [dsh-edge 运行时参考](apps/dsh-edge/README.md)。
+非图片文件附件、会话导出、`@file` 与 `@session` 引用、remote MCP、Skills、Workflows、Jobs 和 Subagents 尚未适配 Edge。`web_fetch` 在 runtime 具备明确的 SSRF、私网地址和重定向策略前保持关闭。
 
-## 数据与凭据
+完整兼容矩阵、API、限制、安全行为与实现细节见 [runtime reference](apps/dsh-edge/README.zh.md)。
 
-- 对话、工作区元数据与 `/workspace` 文件存储在当前部署的 Durable Object 存储中。
-- 永久账户安装会把通过校验的 PNG/JPEG 字节存入私有 R2 bucket；session event 只保留上游 content-addressed reference。当前限制为每条消息 4 张、每张 3.5 MiB、合计 7 MiB、4,000 万像素，且单边不超过 2,000 像素。
-- `DEEPSEEK_API_KEY` 与 `DSH_EDGE_ACCESS_KEY` 是 Cloudflare Worker secrets。其字面值不会写入会话事件、Durable Object 状态、虚拟文件系统或浏览器响应。
-- 安装器通过权限模式为 `0600` 的临时文件把 secret 交给 Wrangler，命令结束后删除该文件，也不会把部署绑定到 GitHub 或 Cloudflare Builds。
-- Owner cookie 使用 HttpOnly、`SameSite=Strict`，有效期为 30 天。更换 owner access key 会使它失效。
+## 如何保持贴近上游
 
-## 与上游的关系
+本仓库依赖 DeepSeek Harness 精确发布的 package，而不是复制其 monorepo。上游负责 Web UI、插件组合、agent loop、模型与附件协议、会话约定；dsh-edge 只实现 Cloudflare 特有的 runtime 与 storage seam。
 
-本仓库是精确依赖 DeepSeek Harness 已发布 package 的独立 wrapper，不复制其 monorepo 源码。上游插件组合、Web UI、agent loop、协议与持久化约定仍是真源。Edge 运行时代码位于 [`apps/dsh-edge`](apps/dsh-edge)，Edge 自有的 [`packages/client/ui-edge`](packages/client/ui-edge) plugin 则通过上游 client slot 提供部署状态、升级指引与 owner session 控件。
+Edge runtime 位于 [`apps/dsh-edge`](apps/dsh-edge)。小型 [`packages/client/ui-edge`](packages/client/ui-edge) plugin 通过上游 client slot 提供部署状态、升级指引与 owner session 控件。`apps/dsh-edge/standalone` 中的隔离装配固定一个上游版本，并记录每项无法避免、绑定版本的 patch。
 
-`apps/dsh-edge/standalone` 下的隔离装配固定一个上游版本，并记录每项无法避免的 package patch。上游已经定义的 schema 或服务约定保持不变，除非 Edge 环境使其无法成立。
+上游架构与插件开发请参阅 [DeepSeek Harness 仓库](https://github.com/deepseek-ai/deepseek-harness)和[参考文档](https://deepseek-harness.github.io/deepseek-harness/reference/)。Standalone 切换前的开发历史保存在 [dsh-edge-history](https://github.com/pawaca/dsh-edge-history)。
 
-上游架构与插件开发请使用 [DeepSeek Harness 仓库](https://github.com/deepseek-ai/deepseek-harness) 和 [reference 文档](https://deepseek-harness.github.io/deepseek-harness/reference/)。
+## 本地开发
 
-Standalone 仓库切换前的开发历史，包括 PR Review 和 0.1.3 GitHub Release，保留在已归档的 [dsh-edge-history 仓库](https://github.com/pawaca/dsh-edge-history)中。
-
-## 运行
-
-只有开发 dsh-edge 时才需要源码 checkout；引导式 Cloudflare 安装不需要执行这些命令。仓库工具链要求 Node.js `^22.19.0` 或 `>=24.0.0`，比已打包安装器的 Node.js 要求更严格。
-
-仓库检查依赖与隔离的发布装配依赖需要分别安装：
+只有开发 dsh-edge 时才需要源码 checkout。仓库工具链要求 Node.js `^22.19.0` 或 `>=24.0.0`：
 
 ```sh
 git clone https://github.com/pawaca/dsh-edge.git
@@ -110,9 +101,7 @@ pnpm --dir apps/dsh-edge/standalone install --frozen-lockfile
 pnpm run check
 ```
 
-### 在本地运行 dsh-edge
-
-完成[本地 Edge 设置](apps/dsh-edge/README.md#run-locally)，包括创建不会提交到 Git、包含 owner access key 与 DeepSeek API key 的 `.dev.vars` 文件。然后启动 Cloudflare Worker 开发服务器：
+完成[本地 Edge 设置](apps/dsh-edge/README.zh.md#本地运行)，包括创建被忽略的 `.dev.vars`，然后运行：
 
 ```sh
 pnpm --filter dsh-edge dev
@@ -120,10 +109,9 @@ pnpm --filter dsh-edge dev
 
 ## 贡献与支持
 
-- 请在本仓库的 [Issues](https://github.com/pawaca/dsh-edge/issues) 中报告 dsh-edge bug 和安装问题。
+- 请在 [Issues](https://github.com/pawaca/dsh-edge/issues) 中报告 dsh-edge bug 和安装问题。
 - 漏洞请通过[私密安全流程](SECURITY.zh.md)报告，不要使用公开 Issue。
-- 修改仓库前请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。
-- 在仓库中工作的 Agent 必须遵循 [AGENTS.md](AGENTS.md)。
+- 修改仓库前请阅读 [CONTRIBUTING.zh.md](CONTRIBUTING.zh.md) 与 [AGENTS.md](AGENTS.md)。
 
 ## 许可证
 
