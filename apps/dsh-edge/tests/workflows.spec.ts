@@ -7,6 +7,10 @@ function workflow(name: string): string {
   return readFileSync(new URL(name, workflowDirectory), 'utf8')
 }
 
+function count(source: string, pattern: RegExp): number {
+  return source.match(pattern)?.length ?? 0
+}
+
 describe('repository workflows', () => {
   it('contains only Edge CI and release automation', () => {
     expect(readdirSync(workflowDirectory).sort()).toEqual([
@@ -34,6 +38,22 @@ describe('repository workflows', () => {
     expect(source).toContain('needs: [linux, windows-installer]')
     expect(source).toContain('name: edge / verify')
     expect(source).toContain('test "$WINDOWS_RESULT" = success')
+  })
+
+  it('uses the reviewed Node 24 action toolchain without an implicit root install', () => {
+    const edge = workflow('edge-ci.yml')
+    const release = workflow('release-edge.yml')
+    const explicitPnpmSetup = /uses: pnpm\/setup@v2\n\s+with:\n\s+install: false/gu
+
+    expect(count(edge, /uses: actions\/checkout@v7/gu)).toBe(2)
+    expect(count(edge, /uses: actions\/setup-node@v7/gu)).toBe(2)
+    expect(count(edge, /uses: pnpm\/setup@v2/gu)).toBe(2)
+    expect(count(edge, explicitPnpmSetup)).toBe(2)
+    expect(count(release, /uses: actions\/checkout@v7/gu)).toBe(2)
+    expect(count(release, /uses: actions\/setup-node@v7/gu)).toBe(1)
+    expect(count(release, /uses: pnpm\/setup@v2/gu)).toBe(1)
+    expect(count(release, explicitPnpmSetup)).toBe(1)
+    expect(`${edge}\n${release}`).not.toContain('pnpm/action-setup')
   })
 
   it('publishes through the Edge-owned standalone release command', () => {
@@ -84,7 +104,7 @@ describe('repository workflows', () => {
   it('keeps recovery possible after master advances without accepting a side-branch tag', () => {
     const source = workflow('release-edge.yml')
     const ancestryGate = source.indexOf('git merge-base --is-ancestor "$tag_commit" "$master_commit"')
-    const dependencySetup = source.indexOf('uses: pnpm/action-setup')
+    const dependencySetup = source.indexOf('uses: pnpm/setup@v2')
     expect(ancestryGate).toBeGreaterThan(-1)
     expect(ancestryGate).toBeLessThan(dependencySetup)
     expect(source.indexOf('id-token: write')).toBeGreaterThan(ancestryGate)
