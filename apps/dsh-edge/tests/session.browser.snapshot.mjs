@@ -202,6 +202,13 @@ describe('dsh-edge assembled browser snapshot', () => {
       ).toBeGreaterThanOrEqual(1)
       await page.mouse.move(0, 0)
       await expect.poll(() => page.getByRole('tooltip').count()).toBe(0)
+      await expect.poll(
+        () => page.getByRole('button', {
+          name: 'Select model, current deepseek-v4-flash',
+          exact: true,
+        }).count(),
+        { timeout: 15_000 },
+      ).toBe(1)
 
       const transcript = await stableAria(page, '[class*="centerCol"]')
       await expect(normalize(transcript))
