@@ -2,7 +2,7 @@
 
 Status: implemented
 
-本文中的仓库结构与继承文档细节已由 [standalone wrapper 计划](../../proposed/architecture/2026-08-19-dsh-edge-standalone-wrapper.zh.md)取代；以 dsh-edge 产品为中心的首页决策继续有效。
+本文中的仓库结构与继承文档细节已由[已实现的 standalone wrapper 架构](../architecture/2026-08-19-dsh-edge-standalone-wrapper.zh.md)取代；以 dsh-edge 产品为中心的首页决策继续有效。
 
 [English](2026-08-18-dsh-edge-root-landing-page.md) | 中文
 
