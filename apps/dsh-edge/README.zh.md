@@ -166,11 +166,13 @@ npx dsh-edge@next upgrade
 
 安装器会先询问运行时，再询问账户。推荐的 `Free — Direct Shell` 模式可在 Workers Free 上运行，并可使用检测到的 Cloudflare 账户、打开 Cloudflare 登录或注册，也可在不登录的情况下创建临时账户。`Isolated — Dynamic Worker` 需要 Workers Paid，因此只提供已检测到或新认证的账户。Cloudflare 没有提供可靠的本地 Worker Loader entitlement 检查；isolated 安装会由 Cloudflare 对上传进行授权，并在被拒绝时提示启用 Workers Paid 或改用 direct 模式。
 
-后续提示会选择 Worker 名称、生成或接收 owner access key、通过隐藏输入收集 DeepSeek API key，并显示最终费用摘要。临时账户安装还会要求用户明确接受 Cloudflare 服务条款与隐私政策。安装器绝不会在未经确认时覆盖现有 Worker。两项 credential 会通过权限模式为 `0600` 的临时 secret 文件传给 Wrangler；Wrangler 子进程只会收到 allowlist 内的运行时环境变量和当前命令选中的 Cloudflare authentication，其他 ambient key、token、password、secret 与 Node 注入选项不会进入子进程。命令结束后临时 secret 文件会被删除，安装器从 Wrangler 结构化输出中取得最终 URL。默认情况下，部署输出会收敛到一个进度提示；在任一命令后添加 `--verbose` 可以查看 Wrangler 诊断。上传后它不会探测公开 Worker，而是直接输出 URL、owner access key 与明确的下一步；临时账户还会收到一个 bearer claim URL，必须在 60 分钟内认领才能保留 Worker 及其数据。上传被拒绝时，安装器会明确报告未安装；如果 Wrangler 已经创建临时账户，仍会输出其 claim URL，但不会把尚未生效的 owner key 显示为 active。如果上传成功，但输出解析、claim URL 提取、中断处理或本地清理导致正常交接无法完成，命令仍会在按失败退出前通过恢复卡片输出已生效的 owner key 与当时已知的 URL。安装过程直接通过 Wrangler 上传，不会创建或绑定 GitHub 仓库、Cloudflare Builds 项目或源码构建流水线。
+后续提示会选择 Worker 名称、生成或接收 owner access key、通过隐藏输入收集 DeepSeek API key，并显示最终费用摘要。临时账户安装还会要求用户明确接受 Cloudflare 服务条款与隐私政策。安装器绝不会在未经确认时覆盖现有 Worker。两项 credential 会通过权限模式为 `0600` 的临时 secret 文件传给 Wrangler；Wrangler 子进程只会收到 allowlist 内的运行时环境变量和当前命令选中的 Cloudflare authentication，其他 ambient key、token、password、secret 与 Node 注入选项不会进入子进程。命令结束后临时 secret 文件会被删除，安装器从 Wrangler 结构化输出中取得最终 URL。默认情况下，部署输出会收敛到一个进度提示；在任一命令后添加 `--verbose` 可以查看 Wrangler 诊断。
+
+上传被接受后，第二个进度提示会在不发送任一 credential 且不跟随重定向的前提下，最多观察公开 `/api/health` 路由 45 秒。它只接受当前 package 的精确版本和所选 runtime。匹配的 response 会产生 ready 卡片；Cloudflare propagation、challenge、占位页、传输错误与旧 release response 都保持 pending，观察到期仍以成功退出，并提示 owner 稍后刷新。该观察不会调用 DeepSeek，也不会访问 Durable Object 状态。最终卡片会输出 URL、owner access key 与明确的下一步；临时账户还会收到一个 bearer claim URL，必须在 60 分钟内认领才能保留 Worker 及其数据。上传被拒绝时，安装器会明确报告未安装；如果 Wrangler 已经创建临时账户，仍会输出其 claim URL，但不会把尚未生效的 owner key 显示为 active。如果上传成功，但输出解析、claim URL 提取、中断处理、激活观察中断或本地清理导致正常交接无法完成，命令仍会在按失败退出前通过恢复卡片输出已生效的 owner key 与当时已知的 URL。安装过程直接通过 Wrangler 上传，不会创建或绑定 GitHub 仓库、Cloudflare Builds 项目或源码构建流水线。
 
 从 checkout 开发的贡献者可以用 `pnpm --filter dsh-edge bundle:direct` 和 `pnpm --filter dsh-edge bundle:isolated` 在本地复现两种 release artifact。第一条命令还会执行压缩体积预算检查。
 
-贡献者可以在没有 key 且不发起网络请求的情况下重放完整的 Free 临时账户流程。这个 example 会运行实际交付的 bin、真实 prompt、Wrangler 子进程、结构化部署输出解析与最终交接，只替换外部 Cloudflare command：
+贡献者可以在没有 key 且不发起网络请求的情况下重放完整的 Free 临时账户流程。这个 example 会运行实际交付的 bin、真实 prompt、Wrangler 子进程、结构化部署输出解析、公开激活观察与最终交接，并替换外部 Cloudflare 边界：
 
 ```sh
 pnpm --filter dsh-edge example:install

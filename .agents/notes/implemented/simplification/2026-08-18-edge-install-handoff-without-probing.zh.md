@@ -4,6 +4,8 @@ Status: implemented
 
 [English](2026-08-18-edge-install-handoff-without-probing.md) | 中文
 
+安装器完全不请求公开地址的结论已被[为安装器建立产品形象并观察公开激活状态](../feature/2026-08-21-installer-activation-experience.zh.md)取代。Wrangler 接受上传仍然是成功边界；后续观察不能把已接受的上传变成安装失败。
+
 这项决策取代[校验 Edge 部署就绪状态](../process/2026-08-17-edge-deployment-readiness.md)中有关安装器轮询的部分、[免费 direct Edge shell](../architecture/2026-08-17-free-direct-edge-shell.md)中安装器匹配 health shell 的部分，并进一步明确[引导式 Edge 安装器](../feature/2026-08-17-guided-edge-installer.md)上传后的边界。公开 health endpoint、release identifier、runtime mode 报告与配置校验仍然保留。
 
 ## Problem

@@ -327,6 +327,7 @@ export async function installEdge({
   environment = process.env,
   createTemporaryDirectory = createPrivateTemporaryDirectory,
   removePath = rm,
+  observeActivation,
   signal,
 } = {}) {
   if (ui === undefined) throw new Error('installEdge requires an installer UI.')
@@ -523,7 +524,7 @@ export async function installEdge({
       })
       throw error
     }
-    const result = {
+    let result = {
       ...deployment,
       account,
       claimUrl,
@@ -531,6 +532,22 @@ export async function installEdge({
       ownerSecret,
       temporary,
       workerName,
+    }
+    if (observeActivation !== undefined) {
+      ui.activationStart?.('Activating the public URL… Cloudflare usually takes 10–30 seconds.')
+      try {
+        const activation = await observeActivation({
+          mode,
+          publicUrl: result.publicUrl,
+          signal,
+        })
+        result = { ...result, activation }
+        ui.activationFinish?.(activation)
+      } catch (error) {
+        ui.activationFinish?.()
+        ui.recovery(result)
+        throw error
+      }
     }
     completedResult = result
   } catch (error) {

@@ -34,6 +34,8 @@ export interface InstallerUi {
   acceptTemporaryTerms(): Promise<boolean>
   deploymentStart?(message: string): void
   deploymentFinish?(succeeded: boolean): void
+  activationStart?(message: string): void
+  activationFinish?(result?: import('./activation.mjs').ActivationObservation): void
   failedDeployment?(result: { claimUrl: string; workerName: string }): void
   cleanupFailure(message: string): void
   recovery(result: InstallRecovery): void
@@ -52,6 +54,7 @@ export interface InstallRecovery {
 }
 
 export interface InstallResult {
+  activation?: import('./activation.mjs').ActivationObservation
   publicUrl: string
   versionId?: string
   account?: CloudflareAccount
@@ -130,6 +133,11 @@ export function installEdge(options: {
   environment?: NodeJS.ProcessEnv
   createTemporaryDirectory?: () => Promise<string>
   removePath?: typeof import('node:fs/promises').rm
+  observeActivation?: (options: {
+    publicUrl: string
+    mode: RuntimeMode
+    signal?: AbortSignal
+  }) => Promise<import('./activation.mjs').ActivationObservation>
   signal?: AbortSignal
 }): Promise<InstallResult>
 export function wranglerProcessInvocation(args: string[], options?: {

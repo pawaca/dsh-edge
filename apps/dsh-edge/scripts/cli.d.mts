@@ -10,6 +10,10 @@ export class InstallInterruptedError extends Error {
 
 export type InstallerCommand = 'install' | 'upgrade'
 export function parseCommand(args: string[]): InstallerCommand | 'help' | 'version'
+export function renderInstallerIntro(
+  command: InstallerCommand,
+  options?: { columns?: number; isTTY?: boolean; version?: string },
+): string
 export function createInstallerUi(
   clack?: typeof import('@clack/prompts'),
   signal?: AbortSignal,

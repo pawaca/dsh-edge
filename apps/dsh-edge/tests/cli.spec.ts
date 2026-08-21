@@ -11,6 +11,7 @@ import {
   createInstallerUi,
   InstallInterruptedError,
   parseCommand,
+  renderInstallerIntro,
   runInstaller,
 } from '../scripts/cli.mjs'
 import { InstallerOutputError } from '../scripts/install.mjs'
@@ -73,6 +74,29 @@ describe('dsh-edge CLI', () => {
 
     expect(result.status).toBe(0)
     expect(`${result.stdout}${result.stderr}`).toContain('Usage: dsh-edge <install|upgrade>')
+  })
+
+  it('renders a product hero only when the terminal has room for it', () => {
+    expect(renderInstallerIntro('install', {
+      columns: 100,
+      isTTY: true,
+      version: '0.2.0-alpha.2',
+    })).toContain('____  ____  _   _')
+    expect(renderInstallerIntro('install', {
+      columns: 100,
+      isTTY: true,
+      version: '0.2.0-alpha.2',
+    })).toContain('DeepSeek Harness on Cloudflare')
+    expect(renderInstallerIntro('upgrade', {
+      columns: 60,
+      isTTY: true,
+      version: '0.2.0-alpha.2',
+    })).toBe('dsh-edge upgrade · v0.2.0-alpha.2')
+    expect(renderInstallerIntro('install', {
+      columns: 100,
+      isTTY: false,
+      version: '0.2.0-alpha.2',
+    })).toBe('dsh-edge install · v0.2.0-alpha.2')
   })
 
   it('executes through a package-manager-style bin symlink', () => {
@@ -465,7 +489,7 @@ describe('dsh-edge CLI', () => {
     ), 'Worker uploaded — recovery details')
   })
 
-  it('shows one deployment status and a recoverable temporary-account failure', () => {
+  it('shows upload and activation status without turning pending activation into failure', () => {
     const start = vi.fn()
     const stop = vi.fn()
     const error = vi.fn()
@@ -492,9 +516,18 @@ describe('dsh-edge CLI', () => {
     ), 'Installation did not complete')
     expect(note).toHaveBeenCalledWith(expect.not.stringContaining('owner access key'),
       'Installation did not complete')
+
+    ui.activationStart?.('Activating the public URL… Cloudflare usually takes 10–30 seconds.')
+    ui.activationFinish?.({ attempts: 20, elapsedMs: 45_000, status: 'pending' })
+    expect(start).toHaveBeenLastCalledWith(
+      'Activating the public URL… Cloudflare usually takes 10–30 seconds.',
+    )
+    expect(stop).toHaveBeenLastCalledWith(
+      'Worker uploaded; public URL activation is still pending.',
+    )
   })
 
-  it('hands an authenticated deployment to the owner without claiming readiness', () => {
+  it('hands a pending authenticated deployment to the owner without claiming readiness', () => {
     const note = vi.fn()
     const outro = vi.fn()
     const clack = { ...prompt, note, outro } as unknown as typeof prompt
@@ -509,9 +542,35 @@ describe('dsh-edge CLI', () => {
     })
 
     expect(note).toHaveBeenCalledWith(expect.stringContaining(
-      '1. Open the URL above.\n2. Enter the owner access key when prompted.',
-    ), 'dsh-edge installed')
-    expect(outro).toHaveBeenCalledWith('Installation handoff complete.')
+      'Status: Cloudflare is still activating the public URL.',
+    ), 'Worker uploaded — activation pending')
+    expect(note).toHaveBeenCalledWith(expect.stringContaining(
+      '1. Open the URL above.\n2. Enter the owner access key when prompted.\n'
+      + '3. Save the owner access key for future upgrades.',
+    ), 'Worker uploaded — activation pending')
+    expect(outro).toHaveBeenCalledWith(
+      'Installation succeeded; Cloudflare is still activating the public URL.',
+    )
+  })
+
+  it('celebrates a deployment only after the exact public release is ready', () => {
+    const note = vi.fn()
+    const outro = vi.fn()
+    const clack = { ...prompt, note, outro } as unknown as typeof prompt
+
+    createInstallerUi(clack).success({
+      activation: { attempts: 3, elapsedMs: 3_000, status: 'ready' },
+      publicUrl: 'https://dsh-edge.example.workers.dev',
+      account: { id: 'account-1', name: 'Personal' },
+      mode: 'direct',
+      ownerSecret: 'active-owner-key',
+      temporary: false,
+      workerName: 'dsh-edge',
+    })
+
+    expect(note).toHaveBeenCalledWith(expect.stringContaining('Status: Ready'),
+      'dsh-edge is ready')
+    expect(outro).toHaveBeenCalledWith('Your dsh-edge is ready.')
   })
 
   it('puts account claim before opening a temporary deployment', () => {
@@ -530,7 +589,7 @@ describe('dsh-edge CLI', () => {
     expect(note).toHaveBeenCalledWith(expect.stringContaining(
       '1. Claim this temporary account within 60 minutes to keep the Worker and its data.\n'
       + '2. Open the URL above.\n3. Enter the owner access key when prompted.',
-    ), 'dsh-edge installed')
+    ), 'Worker uploaded — activation pending')
   })
 
   it.each([

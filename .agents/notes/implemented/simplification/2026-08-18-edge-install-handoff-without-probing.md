@@ -4,6 +4,8 @@ Status: implemented
 
 English | [中文](2026-08-18-edge-install-handoff-without-probing.zh.md)
 
+The conclusion that the installer performs no public request is superseded by [branding the installer and observing public activation](../feature/2026-08-21-installer-activation-experience.md). Wrangler acceptance remains the success boundary; the later observation cannot turn an accepted upload into a failed installation.
+
 This decision supersedes the installer-polling portion of [verifying Edge deployment readiness](../process/2026-08-17-edge-deployment-readiness.md), the installer health-shell match described by the [free direct Edge shell](../architecture/2026-08-17-free-direct-edge-shell.md), and refines the post-upload boundary in the [guided Edge installer](../feature/2026-08-17-guided-edge-installer.md). The public health endpoint, release identifier, runtime-mode report, and configuration validation remain implemented.
 
 ## Problem

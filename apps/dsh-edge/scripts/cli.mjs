@@ -5,6 +5,7 @@ import { realpathSync, writeSync } from 'node:fs'
 import { Writable } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import edgePackage from '../package.json' with { type: 'json' }
+import { observePublicActivation } from './activation.mjs'
 import {
   executeWrangler,
   InstallCancelledError,
@@ -18,6 +19,12 @@ const INTERRUPT_EXIT_CODES = new Map([
   ['SIGTERM', 143],
 ])
 const OUTPUT_DRAIN_TIMEOUT_MS = 1_000
+const HERO_MIN_COLUMNS = 68
+const DSH_EDGE_HERO = String.raw`   ____  ____  _   _       _____ ____   ____ _____
+  |  _ \/ ___|| | | |     | ____|  _ \ / ___| ____|
+  | | | \___ \| |_| |_____|  _| | | | | |  _|  _|
+  | |_| |___) |  _  |_____| |___| |_| | |_| | |___
+  |____/|____/|_| |_|     |_____|____/ \____|_____|`
 
 export class InstallInterruptedError extends InstallCancelledError {
   constructor(signal) {
@@ -38,6 +45,20 @@ export function parseCommand(args) {
   throw usageError()
 }
 
+export function renderInstallerIntro(command, {
+  columns = 80,
+  isTTY = false,
+  version = edgePackage.version,
+} = {}) {
+  if (!isTTY || columns < HERO_MIN_COLUMNS) return `dsh-edge ${command} · v${version}`
+  return [
+    DSH_EDGE_HERO,
+    '',
+    'DeepSeek Harness on Cloudflare',
+    `v${version} · community project · ${command}`,
+  ].join('\n')
+}
+
 export function createInstallerUi(
   clack = prompt,
   signal,
@@ -54,8 +75,13 @@ export function createInstallerUi(
     ? clack.note(message, title)
     : clack.note(message, title, { output })
   let deploymentSpinner
+  let activationSpinner
+  const terminal = output ?? process.stdout
   return {
-    intro: message => log(clack.intro, message),
+    intro: () => log(clack.intro, renderInstallerIntro(command, {
+      columns: terminal.columns ?? 80,
+      isTTY: terminal.isTTY === true,
+    })),
     step: message => log(clack.log.step, message),
     async selectRuntime() {
       return await requireAnswer(await clack.select(withOutput({
@@ -164,6 +190,20 @@ export function createInstallerUi(
       else deploymentSpinner.error('Cloudflare did not accept the Worker upload.')
       deploymentSpinner = undefined
     },
+    activationStart(message) {
+      activationSpinner = clack.spinner(withOutput({ indicator: 'timer', signal }))
+      activationSpinner.start(message)
+    },
+    activationFinish(result) {
+      if (activationSpinner === undefined) return
+      if (result?.status === 'ready') activationSpinner.stop('Public URL is ready.')
+      else if (result?.status === 'pending') {
+        activationSpinner.stop('Worker uploaded; public URL activation is still pending.')
+      } else {
+        activationSpinner.stop('Stopped waiting for public URL activation.')
+      }
+      activationSpinner = undefined
+    },
     failedDeployment(result) {
       note([
         `Worker: ${result.workerName}`,
@@ -193,6 +233,14 @@ export function createInstallerUi(
     },
     success(result) {
       const lines = [
+        ...(result.activation?.status === 'ready'
+          ? ['Status: Ready']
+          : [
+              'Status: Cloudflare is still activating the public URL.',
+              'First-time workers.dev activation can take about a minute.',
+              'If the URL shows a placeholder, wait a moment and refresh.',
+            ]),
+        '',
         `URL: ${result.publicUrl}`,
         `Owner access key: ${result.ownerSecret}`,
       ]
@@ -204,6 +252,7 @@ export function createInstallerUi(
           '1. Claim this temporary account within 60 minutes to keep the Worker and its data.',
           '2. Open the URL above.',
           '3. Enter the owner access key when prompted.',
+          '4. Save the owner access key for future upgrades.',
         )
       } else {
         lines.push(
@@ -211,10 +260,18 @@ export function createInstallerUi(
           'Next steps:',
           '1. Open the URL above.',
           '2. Enter the owner access key when prompted.',
+          '3. Save the owner access key for future upgrades.',
         )
       }
-      note(lines.join('\n'), command === 'upgrade' ? 'dsh-edge upgraded' : 'dsh-edge installed')
-      log(clack.outro, command === 'upgrade' ? 'Upgrade handoff complete.' : 'Installation handoff complete.')
+      const ready = result.activation?.status === 'ready'
+      const title = ready
+        ? (command === 'upgrade' ? 'dsh-edge upgrade is live' : 'dsh-edge is ready')
+        : 'Worker uploaded — activation pending'
+      note(lines.join('\n'), title)
+      const outro = ready
+        ? (command === 'upgrade' ? 'Your dsh-edge upgrade is live.' : 'Your dsh-edge is ready.')
+        : `${command === 'upgrade' ? 'Upgrade' : 'Installation'} succeeded; Cloudflare is still activating the public URL.`
+      log(clack.outro, outro)
     },
   }
 }
@@ -294,6 +351,7 @@ export async function runInstaller({
   controller.signal.addEventListener('abort', cancelBlockedOutput)
   const installOperation = install ?? (options => installEdgeImpl({
     ...options,
+    observeActivation: observePublicActivation,
     runWrangler: (args, runOptions) => wranglerRunner(args, {
       ...runOptions,
       forwardOutput: verbose || (runOptions?.forwardOutput ?? runOptions?.interactive ?? false),

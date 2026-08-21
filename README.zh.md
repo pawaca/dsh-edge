@@ -38,7 +38,9 @@ npx dsh-edge@next install
 3. 生成高熵 owner access key，或输入自己随机生成的值，再通过隐藏输入填写 DeepSeek API key。
 4. 确认费用摘要并上传。
 
-打开安装器输出的 Worker URL，并使用 owner access key 登录。请保存该 key：轮换它会使已有浏览器会话失效，而 Cloudflare 不允许后续升级读取当前 secret。
+Cloudflare 接受上传后，安装器会短暂等待公开 URL 出现精确的 package 与 runtime。ready 结果可以立即打开；如果有界等待结束时 Cloudflare 仍在激活 `workers.dev` 路由，安装仍然成功，最终卡片会提示稍后刷新，避免把平台占位页误认为部署失败。
+
+打开安装器输出的 Worker URL，并使用 owner access key 登录。请为后续升级保存该 key：轮换它会使已有浏览器会话失效，而 Cloudflare 不允许后续升级读取当前 secret。
 
 如果使用临时 Cloudflare 账户，必须在 60 分钟内通过输出的 claim URL 完成认领，才能保留 Worker 及其数据。
 
