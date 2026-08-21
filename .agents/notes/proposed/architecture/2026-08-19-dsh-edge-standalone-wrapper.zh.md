@@ -38,8 +38,8 @@ standalone 仓库负责 Cloudflare Worker、Direct 和 Dynamic Loader runtime、
 | 3 | 达到 rc.7 等价后切换 | merged | 无 | 无；归档的 [PR #27](https://github.com/pawaca/dsh-edge-history/pull/27) 已合并 |
 | 4 | 删除 fork 源码并简化规范 | merged | 无 | 无；归档的 [PR #28](https://github.com/pawaca/dsh-edge-history/pull/28) 已合并 |
 | 5 | 完成切换后卫生收尾并发布 rc.7 standalone 基线 | merged | `0.2.0-alpha.1` | 无；预发布已完成 |
-| 6 | 在 rc.7 上发布安装激活体验和发布工具链加固 | in review | `0.2.0-alpha.2` | [PR #16](https://github.com/pawaca/dsh-edge/pull/16) 合并后批准预发布 |
-| 7 | 在新的完整 package 集合发布后升级精确上游基线 | planned | `0.2.0-alpha.3` | 批准预发布 |
+| 6 | 在 rc.7 上发布安装激活体验和发布工具链加固 | merged | `0.2.0-alpha.2` | 无；预发布已完成 |
+| 7 | 把精确上游基线升级到已发布的 Harness rc.8 | in review | `0.2.0-alpha.3` | 批准预发布 |
 | 8 | 演练 canary 升级、beta、回滚并发布 0.2 | planned | `0.2.0-beta.1`，然后 `0.2.0` | 完成账号所有者才能执行的 Cloudflare 流程；批准 beta 和稳定版发布 |
 
 ### PR 1 — 冻结 0.1.3 基线
@@ -158,26 +158,37 @@ Evidence：canonical root `ff2adbd74cf6fe9196460e234180a9f5310c4eee` 没有 pare
 - [x] Installer、settings、deployment identity 和 agent-preset snapshot 均报告 `0.2.0-alpha.2`，且 rc.7 基线不变。
 - [x] Linux 与 Windows CI 在 `actions/checkout@v7`、`actions/setup-node@v7` 和 `pnpm/setup@v2` 下通过。
 - [x] 打包后的 alpha.2 artifact 能在 workspace 外启动 Direct 和 Dynamic Worker 两种模式。
-- [ ] npm `next`、Git tag、GitHub prerelease、release notes 与 tarball identity 均报告 `0.2.0-alpha.2`。
+- [x] npm `next`、Git tag、GitHub prerelease、release notes 与 tarball identity 均报告 `0.2.0-alpha.2`。
 
-Evidence：[PR #13](https://github.com/pawaca/dsh-edge/pull/13) 增加有界激活观察器和安装器表达，[PR #14](https://github.com/pawaca/dsh-edge/pull/14) 修正终端对齐，[PR #15](https://github.com/pawaca/dsh-edge/pull/15) 迁移 Actions 工具链，并让所有 pnpm 子进程调用同时支持 JavaScript 入口和独立可执行文件。Alpha.2 release-prep [PR #16](https://github.com/pawaca/dsh-edge/pull/16) 继续把所有 Harness package 固定在 `0.1.0-rc.7`；[Edge CI run 32451798683](https://github.com/pawaca/dsh-edge/actions/runs/32451798683) 已通过 Linux、Windows installer、204 项 repository 测试、持久化状态 integration、已提升 browser/runtime snapshot，以及两种已打包 Worker 模式的外部安装。实际 alpha.2 publication 是阶段 6 剩余的最终门禁。
+Evidence：[PR #13](https://github.com/pawaca/dsh-edge/pull/13) 增加有界激活观察器和安装器表达，[PR #14](https://github.com/pawaca/dsh-edge/pull/14) 修正终端对齐，[PR #15](https://github.com/pawaca/dsh-edge/pull/15) 迁移 Actions 工具链，并让所有 pnpm 子进程调用同时支持 JavaScript 入口和独立可执行文件。Alpha.2 release-prep [PR #16](https://github.com/pawaca/dsh-edge/pull/16) 继续把所有 Harness package 固定在 `0.1.0-rc.7`；[Edge CI run 32451798683](https://github.com/pawaca/dsh-edge/actions/runs/32451798683) 已通过 Linux、Windows installer、204 项 repository 测试、持久化状态 integration、已提升 browser/runtime snapshot，以及两种已打包 Worker 模式的外部安装。2026-08-21，npm `next`、经过 Review 的 `dsh-edge-v0.2.0-alpha.2` tag、匹配的 GitHub prerelease 与 notes，以及 release tarball 完成最终发布门禁，阶段 6 完成。
 
 ### 阶段 7 — 升级已发布的上游基线
 
-目标：在源码抽取和 alpha.1 发布之外，单独升级 standalone wrapper 的上游版本，并且只在出现更新且完整的 Harness package 集合后执行。
+目标：在源码抽取和 alpha.1/alpha.2 发布之外，单独把 standalone wrapper 的上游版本升级到已发布的完整 Harness `0.1.0-rc.8` package 集合。
 
 范围：把所有精确 Harness 依赖从 `0.1.0-rc.7` 升级到一个选定的已发布版本；重新生成装配输入；移除过时 patch；分类新增 plugin 和可见变化；保留 Edge 品牌并排除尚未支持的能力。
 
-不在范围内：未发布源码快照、拆散的 Dependabot bump、实现暂缓插件、解决无关上游缺陷，以及重新设计持久化或认证。
+不在范围内：未发布源码快照、拆散的 Dependabot bump、实现暂缓插件、解决无关上游缺陷，以及重新设计持久化或认证。rc.8 的 Node SQLite schema 17 不迁移到 Durable Object；Edge schema v2、已发布持久化数据和回滚边界保持不变。
 
-- [ ] 每项与 Edge 相关的上游变化都归类为采用、适配、暂缓或排除。
-- [ ] 所有 `@deepseek-ai/dsh-*` package 使用同一个精确的已发布基线。
-- [ ] 未经明确修订和说明理由，patch 数量不得增加。
-- [ ] 移除任一保留 patch 时，对应回归测试会失败。
-- [ ] 等价矩阵在两种 runtime 模式通过。
-- [ ] UI manifest 只暴露 Edge 支持的能力。
+- [x] 每项与 Edge 相关的上游变化都归类为采用、适配、暂缓或排除。
+- [x] 所有 `@deepseek-ai/dsh-*` package 使用同一个精确的已发布基线。
+- [x] 未经明确修订和说明理由，patch 数量不得增加。
+- [x] 移除任一保留 patch 时，对应回归测试会失败。
+- [x] 等价矩阵在两种 runtime 模式通过。
+- [x] UI manifest 只暴露 Edge 支持的能力。
 
-Evidence：待补充。Clean-root 切换时，npm registry 仍把 `0.1.0-rc.7` 报告为最新的完整 Harness 发布基线，因此本阶段不能凭空引入 `rc.8` 源码依赖。
+| rc.8 变化类别 | 处置 | Edge 结果 |
+| --- | --- | --- |
+| 中断后的 assistant 前缀、reasoning continuation 和统一 provider 重试行为 | 采用 | 使用已发布的 rc.8 agent/LLM 行为；新增中断 assistant 前缀经过 Durable Object 冷加载的回归测试。 |
+| 有界的多 query DeepSeek Web Search | 适配 | Edge 使用已发布的 `queries[1..4]` contract，继续使用请求级 credential，并保留 Worker 不跟随 redirect 的 patch。 |
+| client renderer、官方品牌 slot 和 module-loader bootstrap | 采用 | 装配已发布的 renderer、brand plugin 与上游 boot injector；verifier 强制检查 bootstrap facade 和 parser-blocking preload。 |
+| 必需的 host `home` 与请求图片字节 contract | 适配 | Host `home` 映射到 `/workspace`；LLM 接收 rc.8 默认请求字节限制，但不宣称支持图片输入。 |
+| attachment/image 与 `@file`/`@session` reference client | 暂缓 | 在 Edge 实现相应 host/runtime face 和持久化策略以前，显式排除这两个 client plugin。 |
+| Node SQLite schema 17 与仅适用于本地 host 的设施 | 排除 | Durable Object schema v2 和 canonical event contract 不变；Node 数据库布局不是 Edge migration 输入。 |
+
+Evidence：npm registry 已发布本阶段消费的完整 Harness `0.1.0-rc.8` 集合。本地 `pnpm run check`、`pnpm run build`、`pnpm --filter dsh-edge run test:snapshot` 和 `pnpm --filter dsh-edge run test:integration` 通过。Standalone verification 证明依赖闭包仅含精确 rc.8、仍为六个经过 audit 的 patch、经过 review 的 30-plugin graph、确定性 Web 产物及两种 Worker artifact。Direct 与 Dynamic Loader release-artifact integration 均在 Durable Object schema v2 上通过。本阶段只消费已发布 package，不引入上游源码。
+
+阶段 7 完成并发布 alpha.3 后执行一次整体 ROI review。Durable Object 物理行打包、附件与图片、会话导出、remote MCP、Skills、Workflows、Jobs 和 subagents 都在该检查点重新排序。存储 v3 只有在真实 Worker 的行读写、空间和延迟测量证明它应当阻塞 0.2 时才进入阶段 8；否则延后到 0.3。该检查点不是阶段 7 的隐藏验收项。
 
 ### 阶段 8 — 演练 beta、回滚并发布 0.2
 
@@ -244,6 +255,8 @@ Evidence：待补充。
 - 2026-08-20：发布重试 contract 的 Review 发现，由 tag 触发的 workflow 仍允许该 tag revision 重新定义自己的 OIDC 发布权限。发布现在从无特权的手动请求与 `repository_dispatch` 开始；GitHub 会从默认分支解析具备权限的 workflow，再由它验证并 checkout 显式指定、已经 Review 的 tag。首次发布必须等于 dispatch 时的 `master` commit，确保 npm provenance 指向实际构建源码；只有该 npm 精确版本已经存在时才允许使用祖先 tag，从而在不授权新的历史版本发布的前提下保留 GitHub Release 恢复能力。workflow 会在 npm publication 与 GitHub Release mutation 前分别重新 fetch 并比对 tag，关闭长时间构建期间的移动窗口。重试只会在 immutable GitHub Release 的 tag、标题、状态、notes、asset 名称、大小与下载后的 SHA-512 都和重建 release 一致时接受它。
 - 2026-08-21：npm `next`、`dsh-edge-v0.2.0-alpha.1`、GitHub prerelease、经过 Review 的 notes 与 release tarball 收敛到同一个已发布版本后，阶段 5 完成。
 - 2026-08-21：用户决定在上游基线升级前，优先把已经合并的安装激活体验作为中间版本 `0.2.0-alpha.2` 发布。新增阶段 6，并保持 rc.7 runtime、storage、authentication 与 API contract 不变；上游升级从阶段 6/alpha.2 顺延到阶段 7/alpha.3，beta/canary 验证从阶段 7 顺延到阶段 8。没有降低任何验收标准。
+- 2026-08-21：npm `next`、`dsh-edge-v0.2.0-alpha.2`、GitHub prerelease、经过 Review 的 notes 与 release tarball 收敛到同一个已发布版本，阶段 6 完成。Harness `0.1.0-rc.8` 的完整发布 package 集合成为阶段 7 的唯一精确上游基线。阶段 7 保持 Edge Durable Object schema v2，不把 rc.8 的 Node SQLite schema 17 混入兼容升级；alpha.3 后再依据真实 Cloudflare 行读写、空间与延迟测量决定 Edge 存储 v3 是否进入 0.2，并同时重新评估其他暂缓能力的 ROI。
+- 2026-08-21：精确 rc.8 依赖闭包、六个 rebase 后的 patch、经过 review 的 30-plugin client graph、上游 module-loader bootstrap、多 query Web Search 适配、中断前缀冷加载覆盖、确定性构建、snapshot 和两种 release-artifact runtime integration 在本地通过，阶段 7 进入 review。Attachment/reference client 与 Node SQLite schema 17 继续明确暂缓或排除；Durable Object schema v2 不变。
 
 ## 已考虑的替代方案
 

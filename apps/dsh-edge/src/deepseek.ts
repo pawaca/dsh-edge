@@ -15,6 +15,7 @@ import {
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import {
   DEFAULT_CONTEXT_WINDOW,
+  DEFAULT_MAX_REQUEST_IMAGE_BYTES,
   DeepSeekAdapter,
   type DeepSeekConnectionOptions,
 } from '@deepseek-ai/dsh-llm-deepseek'
@@ -115,6 +116,7 @@ function createEdgeDeepSeekModel(options: {
     defaultContextWindow: DEFAULT_CONTEXT_WINDOW,
     models: [],
     streamIdleTimeoutMs: options.streamIdleTimeoutMs ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS,
+    maxRequestImageBytes: DEFAULT_MAX_REQUEST_IMAGE_BYTES,
     retryPolicy: resolveRetryPolicy(undefined, 'dsh-edge.retryPolicy'),
   }
   const anonymousRequestId = crypto.randomUUID() as AnonymousUserId

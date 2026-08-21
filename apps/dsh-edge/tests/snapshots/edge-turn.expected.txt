@@ -88,7 +88,7 @@
 
 You are dsh-edge, a coding agent running in a Cloudflare Worker. Your persistent working directory is /workspace. Use the bash tool when you need to inspect or modify workspace files, then answer with the result. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
 
-Use the web_search tool to discover current information on the web. It returns an optional answer plus a list of source URLs. Use the returned source snippets when available, and cite the relevant URLs as markdown links.",
+Use the web_search tool to discover current information on the web. The required queries array accepts 1–4 non-empty search queries; use a one-item array for a single search. It returns an optional answer plus a list of source URLs. Use the returned source snippets when available, and cite the relevant URLs as markdown links.",
           "tools": [
             {
               "description": "Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in /workspace unless workdir is supplied.",
@@ -120,17 +120,20 @@ Use the web_search tool to discover current information on the web. It returns a
               },
             },
             {
-              "description": "Search the web for current information. Returns an optional summary answer and a list of source URLs.",
+              "description": "Search the web for current information. Provide 1–4 queries in the required queries array. Returns an optional summary answer and a list of source URLs.",
               "name": "web_search",
               "parameters": {
                 "properties": {
-                  "query": {
-                    "description": "The search query.",
-                    "type": "string",
+                  "queries": {
+                    "description": "Required search queries; accepts 1–4 items and merges their results.",
+                    "items": {
+                      "type": "string",
+                    },
+                    "type": "array",
                   },
                 },
                 "required": [
-                  "query",
+                  "queries",
                 ],
                 "type": "object",
               },
@@ -575,7 +578,7 @@ Use the web_search tool to discover current information on the web. It returns a
 
 You are dsh-edge, a coding agent running in a Cloudflare Worker. Your persistent working directory is /workspace. Use the bash tool when you need to inspect or modify workspace files, then answer with the result. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
 
-Use the web_search tool to discover current information on the web. It returns an optional answer plus a list of source URLs. Use the returned source snippets when available, and cite the relevant URLs as markdown links.",
+Use the web_search tool to discover current information on the web. The required queries array accepts 1–4 non-empty search queries; use a one-item array for a single search. It returns an optional answer plus a list of source URLs. Use the returned source snippets when available, and cite the relevant URLs as markdown links.",
           "tools": [
             {
               "description": "Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in /workspace unless workdir is supplied.",
@@ -607,17 +610,20 @@ Use the web_search tool to discover current information on the web. It returns a
               },
             },
             {
-              "description": "Search the web for current information. Returns an optional summary answer and a list of source URLs.",
+              "description": "Search the web for current information. Provide 1–4 queries in the required queries array. Returns an optional summary answer and a list of source URLs.",
               "name": "web_search",
               "parameters": {
                 "properties": {
-                  "query": {
-                    "description": "The search query.",
-                    "type": "string",
+                  "queries": {
+                    "description": "Required search queries; accepts 1–4 items and merges their results.",
+                    "items": {
+                      "type": "string",
+                    },
+                    "type": "array",
                   },
                 },
                 "required": [
-                  "query",
+                  "queries",
                 ],
                 "type": "object",
               },
@@ -964,7 +970,7 @@ Use the web_search tool to discover current information on the web. It returns a
 
 You are dsh-edge, a coding agent running in a Cloudflare Worker. Your persistent working directory is /workspace. Use the bash tool when you need to inspect or modify workspace files, then answer with the result. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
 
-Use the web_search tool to discover current information on the web. It returns an optional answer plus a list of source URLs. Use the returned source snippets when available, and cite the relevant URLs as markdown links.",
+Use the web_search tool to discover current information on the web. The required queries array accepts 1–4 non-empty search queries; use a one-item array for a single search. It returns an optional answer plus a list of source URLs. Use the returned source snippets when available, and cite the relevant URLs as markdown links.",
           "role": "system",
         },
         {
@@ -1015,17 +1021,20 @@ Use the web_search tool to discover current information on the web. It returns a
         },
         {
           "function": {
-            "description": "Search the web for current information. Returns an optional summary answer and a list of source URLs.",
+            "description": "Search the web for current information. Provide 1–4 queries in the required queries array. Returns an optional summary answer and a list of source URLs.",
             "name": "web_search",
             "parameters": {
               "properties": {
-                "query": {
-                  "description": "The search query.",
-                  "type": "string",
+                "queries": {
+                  "description": "Required search queries; accepts 1–4 items and merges their results.",
+                  "items": {
+                    "type": "string",
+                  },
+                  "type": "array",
                 },
               },
               "required": [
-                "query",
+                "queries",
               ],
               "type": "object",
             },
@@ -1042,7 +1051,7 @@ Use the web_search tool to discover current information on the web. It returns a
 
 You are dsh-edge, a coding agent running in a Cloudflare Worker. Your persistent working directory is /workspace. Use the bash tool when you need to inspect or modify workspace files, then answer with the result. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
 
-Use the web_search tool to discover current information on the web. It returns an optional answer plus a list of source URLs. Use the returned source snippets when available, and cite the relevant URLs as markdown links.",
+Use the web_search tool to discover current information on the web. The required queries array accepts 1–4 non-empty search queries; use a one-item array for a single search. It returns an optional answer plus a list of source URLs. Use the returned source snippets when available, and cite the relevant URLs as markdown links.",
           "role": "system",
         },
         {
@@ -1112,17 +1121,20 @@ Use the web_search tool to discover current information on the web. It returns a
         },
         {
           "function": {
-            "description": "Search the web for current information. Returns an optional summary answer and a list of source URLs.",
+            "description": "Search the web for current information. Provide 1–4 queries in the required queries array. Returns an optional summary answer and a list of source URLs.",
             "name": "web_search",
             "parameters": {
               "properties": {
-                "query": {
-                  "description": "The search query.",
-                  "type": "string",
+                "queries": {
+                  "description": "Required search queries; accepts 1–4 items and merges their results.",
+                  "items": {
+                    "type": "string",
+                  },
+                  "type": "array",
                 },
               },
               "required": [
-                "query",
+                "queries",
               ],
               "type": "object",
             },

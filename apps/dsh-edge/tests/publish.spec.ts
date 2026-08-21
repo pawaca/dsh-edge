@@ -66,7 +66,7 @@ afterEach(() => {
 describe('standalone npm publication', { timeout: NPM_CLI_TEST_TIMEOUT_MS }, () => {
   it('keeps stable and prerelease channels separate without moving them backwards', () => {
     expect(targetTag('0.2.0')).toBe('latest')
-    expect(targetTag('0.2.0-alpha.2')).toBe('next')
+    expect(targetTag('0.2.0-alpha.3')).toBe('next')
     expect(publishTag('0.2.0', '0.1.3')).toBe('latest')
     expect(publishTag('0.1.3', '0.2.0')).toBe('historical')
   })
@@ -91,8 +91,8 @@ describe('standalone npm publication', { timeout: NPM_CLI_TEST_TIMEOUT_MS }, () 
   it('derives the publication identity from the packed manifest', () => {
     expect(readPackedIdentity(tarballWithManifests({
       name: 'dsh-edge',
-      version: '0.2.0-alpha.2',
-    }))).toEqual({ name: 'dsh-edge', version: '0.2.0-alpha.2' })
+      version: '0.2.0-alpha.3',
+    }))).toEqual({ name: 'dsh-edge', version: '0.2.0-alpha.3' })
   })
 
   it('rejects a stale tarball version before consulting the registry', () => {
@@ -100,7 +100,7 @@ describe('standalone npm publication', { timeout: NPM_CLI_TEST_TIMEOUT_MS }, () 
       name: 'dsh-edge',
       version: '0.1.3',
     }))
-    expect(() => assertReleaseIdentity(identity)).toThrow('checkout expects dsh-edge@0.2.0-alpha.2')
+    expect(() => assertReleaseIdentity(identity)).toThrow('checkout expects dsh-edge@0.2.0-alpha.3')
   })
 
   it('rejects a tarball for a different package', () => {

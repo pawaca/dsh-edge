@@ -5,6 +5,7 @@ import { createRequire } from 'node:module'
 import { cp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { injectBootManifest } from '@deepseek-ai/dsh-client-modules'
 
 const standaloneRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const appRoot = resolve(standaloneRoot, '..')
@@ -36,10 +37,12 @@ const edgeClientPackages = new Map([
 const edgeExcludedPackages = new Set([
   '@deepseek-ai/dsh-client-hmr',
   '@deepseek-ai/dsh-cordis-client-runner',
+  '@deepseek-ai/dsh-client-ui-attachment',
   '@deepseek-ai/dsh-client-ui-cordis',
   '@deepseek-ai/dsh-client-ui-goal',
   '@deepseek-ai/dsh-client-ui-message-feedback',
   '@deepseek-ai/dsh-client-ui-plan',
+  '@deepseek-ai/dsh-client-ui-reference',
   '@deepseek-ai/dsh-client-ui-settings-models',
   '@deepseek-ai/dsh-client-ui-settings-plugin-inventory',
   '@deepseek-ai/dsh-client-ui-settings-plugins',
@@ -105,15 +108,6 @@ function resolvePublishedPackage(name) {
     }
   }
   return undefined
-}
-
-function injectBootManifest(html, graph) {
-  const json = JSON.stringify(graph).replaceAll('<', '\\u003c')
-  const script = `<script>window.__DSH_BOOT__ = ${json}</script>`
-  const head = html.indexOf('<head>')
-  return head === -1
-    ? `${script}${html}`
-    : `${html.slice(0, head + 6)}${script}${html.slice(head + 6)}`
 }
 
 function injectOwnerSessionGuard(html) {

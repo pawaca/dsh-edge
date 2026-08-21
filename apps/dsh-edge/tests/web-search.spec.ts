@@ -33,7 +33,7 @@ describe('dsh-edge Web Search composition', () => {
         signal: new AbortController().signal,
         callId: CallId('stalled-search'),
         name: 'web_search',
-        arguments: { query: 'timeout contract' },
+        arguments: { queries: ['timeout contract'] },
       })
       const resultAssertion = expect(result).resolves.toMatchObject({
         isError: true,

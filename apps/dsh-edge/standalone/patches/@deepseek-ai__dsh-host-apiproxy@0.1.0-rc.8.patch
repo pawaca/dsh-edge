@@ -1,8 +1,8 @@
 diff --git a/lib/index.js b/lib/index.js
-index 11ee6c4b87370789a17e22619de87d2f2cc363cf..e38795026e5697aea0e0e22293c22ed498412e2a 100644
+index 0bb59946a3bc51b2a9c0ce2d18a2ce2b0a7fd16b..0c753dafbf7900155e558a1723c58963026b4c20 100644
 --- a/lib/index.js
 +++ b/lib/index.js
-@@ -4899,7 +4899,7 @@ function sseResponse(frames) {
+@@ -4876,7 +4876,7 @@ function sseResponse(frames) {
  			};
  			try {
  				controller.enqueue(encoder.encode(`data: ${JSON.stringify(fullFrame({
@@ -11,7 +11,7 @@ index 11ee6c4b87370789a17e22619de87d2f2cc363cf..e38795026e5697aea0e0e22293c22ed4
  					payload: failure
  				}))}\n\n`));
  			} catch {}
-@@ -4925,11 +4925,11 @@ function toFetchHandler(api) {
+@@ -4902,11 +4902,11 @@ function toFetchHandler(api) {
  		const url = new URL(req.url);
  		const path = url.pathname;
  		if (path === "/api/events.mux" && req.method === "GET") return sseResponse(api.events.mux({
