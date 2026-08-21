@@ -26,7 +26,7 @@ import {
   type EdgeEventPage,
 } from '../src/do-session-persistence.ts'
 import {
-  findReferencedImageInPages,
+  findInEventPages,
   paginateHistory,
   searchSnippet,
   type EdgeApiSessionSummary,
@@ -713,13 +713,32 @@ describe('Edge upstream API invariants', () => {
       ? page(prefix, true)
       : page([imageEvent], false))
 
-    await expect(findReferencedImageInPages(
+    await expect(findInEventPages(
       readPage,
-      String(imageRef.attachmentId),
+      events => events.includes(imageEvent) ? imageRef : undefined,
       parentId,
     )).resolves.toEqual(imageRef)
     expect(readPage).toHaveBeenNthCalledWith(1, 0)
     expect(readPage).toHaveBeenNthCalledWith(2, EDGE_HISTORY_PAGE_LIMITS.maxEvents)
+  })
+
+  it('finishes a bounded multi-page full-history predicate when no page matches', async () => {
+    const page = (events: SessionEvent[], hasMore: boolean): EdgeEventPage => ({
+      meta: { id: parentId, version: 0, createdAt: 1 },
+      events,
+      hasMore,
+    })
+    const readPage = vi.fn(async (fromSeq: number) => fromSeq === 0
+      ? page([historyMessage(0)], true)
+      : page([historyMessage(1)], false))
+
+    await expect(findInEventPages(
+      readPage,
+      () => undefined,
+      parentId,
+    )).resolves.toBeUndefined()
+    expect(readPage).toHaveBeenNthCalledWith(1, 0)
+    expect(readPage).toHaveBeenNthCalledWith(2, 1)
   })
 
   it('rejects a cold-history page that cannot make bounded progress', async () => {
@@ -729,9 +748,9 @@ describe('Edge upstream API invariants', () => {
       hasMore: true,
     }))
 
-    await expect(findReferencedImageInPages(
+    await expect(findInEventPages(
       readPage,
-      String(imageRef.attachmentId),
+      () => undefined,
       parentId,
     )).rejects.toMatchObject({ code: 'INVALID_DATA' })
     expect(readPage).toHaveBeenCalledOnce()

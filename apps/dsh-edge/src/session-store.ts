@@ -215,14 +215,14 @@ export class EdgeSessionStore {
     if (persistence.readSessionHeader(id) === undefined) {
       throw new EdgeSessionStoreError('NOT_FOUND', 'Session not found.')
     }
-    return await findReferencedImageInPages(
+    return await findInEventPages(
       fromSeq => persistence.readEventPage(
         id,
         fromSeq,
         MAX_FORK_EVENTS,
         MAX_FORK_STORED_BYTES,
       ),
-      attachmentId,
+      events => referencedImage(events, attachmentId),
       id,
     )
   }
@@ -347,16 +347,16 @@ export class EdgeSessionStore {
       throw new EdgeSessionStoreError('INVALID_DATA', 'Edge persistence backend is unavailable.')
     }
     if (persistence.readBlankSession(id) !== undefined) return false
-    const page = await persistence.readEventPage(
+    return await findInEventPages(
+      fromSeq => persistence.readEventPage(
+        id,
+        fromSeq,
+        MAX_FORK_EVENTS,
+        MAX_FORK_STORED_BYTES,
+      ),
+      events => referencedImage(events),
       id,
-      0,
-      MAX_FORK_EVENTS,
-      MAX_FORK_STORED_BYTES,
-    )
-    if (page.hasMore) {
-      throw new Error(`Session ${id} exceeds the Edge image-history inspection limit.`)
-    }
-    return referencedImage(page.events) !== undefined
+    ) !== undefined
   }
 
   async createSession(input: CreateEdgeSessionInput): Promise<EdgeSession> {
@@ -1031,22 +1031,22 @@ function referencedImage(
   return undefined
 }
 
-/** Search canonical history through bounded pages without imposing a total-session limit. */
-export async function findReferencedImageInPages(
+/** Evaluate a full-history predicate through bounded pages without a total-session limit. */
+export async function findInEventPages<T>(
   readPage: (fromSeq: number) => Promise<EdgeEventPage>,
-  attachmentId: string,
+  find: (events: readonly SessionEvent[]) => T | undefined,
   sessionId: SessionId,
-): Promise<ImageAttachmentRef | undefined> {
+): Promise<T | undefined> {
   let fromSeq = 0
   while (true) {
     const page = await readPage(fromSeq)
-    const found = referencedImage(page.events, attachmentId)
+    const found = find(page.events)
     if (found !== undefined || !page.hasMore) return found
     const lastSeq = page.events.at(-1)?.seq
     if (lastSeq === undefined || lastSeq < fromSeq) {
       throw new EdgeSessionStoreError(
         'INVALID_DATA',
-        `Session ${sessionId} contains an event that exceeds the Edge attachment authorization page limit.`,
+        `Session ${sessionId} contains an event that exceeds the Edge history scan page limit.`,
       )
     }
     fromSeq = lastSeq + 1
