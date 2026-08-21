@@ -56,7 +56,7 @@ describe('dsh-edge assembled browser snapshot', () => {
       })
       await page.route('https://registry.npmjs.org/dsh-edge/next', route => route.fulfill({
         contentType: 'application/json',
-        body: JSON.stringify({ version: '0.2.0-alpha.2' }),
+        body: JSON.stringify({ version: '0.2.0-alpha.3' }),
       }))
       await page.goto(origin, { waitUntil: 'load' })
       await page.getByLabel('Owner access key').fill(ACCESS_KEY)
@@ -233,17 +233,22 @@ describe('dsh-edge assembled browser snapshot', () => {
       expect(pageErrors).toEqual([])
       expect(mock.requests).toHaveLength(1)
 
-      const expiresAt = Math.floor(Date.now() / 1_000) + 4
+      await page.waitForSelector('[class*="frame"]', { timeout: 15_000 })
+      const nowSeconds = Math.floor(Date.now() / 1_000)
+      const signedExpiresAt = nowSeconds - 1
       await page.context().addCookies([{
         name: 'dsh_edge_owner',
-        value: createOwnerSessionValue(expiresAt),
+        value: createOwnerSessionValue(signedExpiresAt),
         url: origin,
-        expires: expiresAt,
+        // Keep the cookie in the browser so the Worker, rather than browser
+        // expiry timing, deterministically rejects its expired signed claim.
+        expires: nowSeconds + 60,
         httpOnly: true,
         sameSite: 'Strict',
       }])
-      await page.reload({ waitUntil: 'load' })
-      await page.waitForSelector('[class*="frame"]', { timeout: 15_000 })
+      await page.evaluate(() => {
+        void window.fetch('/api/workspace/file?path=/workspace/owner-session-expiry-probe')
+      })
       await page.waitForURL(`${origin}/login`, { timeout: 20_000 })
       await expect.poll(
         () => page.getByRole('heading', { name: 'Unlock this deployment' }).count(),
