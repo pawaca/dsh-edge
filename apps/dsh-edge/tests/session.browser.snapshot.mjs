@@ -228,6 +228,13 @@ describe('dsh-edge assembled browser snapshot', () => {
         }).count(),
         { timeout: 15_000 },
       ).toBe(1)
+      await expect.poll(
+        () => page.getByRole('button', {
+          name: 'one-pixel.png, click to view original',
+          exact: true,
+        }).getByRole('img', { name: 'one-pixel.png', exact: true }).count(),
+        { timeout: 15_000 },
+      ).toBeGreaterThanOrEqual(1)
 
       const transcript = await stableAria(page, '[class*="centerCol"]')
       await expect(normalize(transcript))
