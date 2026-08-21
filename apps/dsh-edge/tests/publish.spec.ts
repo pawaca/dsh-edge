@@ -3,7 +3,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { gzipSync } from 'node:zlib'
 import { afterEach, describe, expect, it } from 'vitest'
-import { resolvePnpmInvocation } from '../standalone/scripts/pnpm-invocation.mjs'
 import {
   assertReleaseIdentity,
   publishTag,
@@ -11,6 +10,7 @@ import {
   resolveNpmInvocation,
   targetTag,
 } from '../scripts/publish.mjs'
+import { resolvePnpmInvocation } from '../scripts/pnpm-invocation.mjs'
 
 const temporaryDirectories: string[] = []
 // These contract tests intentionally launch the real npm CLI. A cold hosted

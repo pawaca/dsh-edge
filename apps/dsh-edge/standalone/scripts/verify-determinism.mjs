@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto'
 import { readFile, readdir } from 'node:fs/promises'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { resolvePnpmInvocation } from './pnpm-invocation.mjs'
+import { resolvePnpmInvocation } from '../../scripts/pnpm-invocation.mjs'
 
 const standaloneRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const before = await releaseWebHash()

@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process'
 import { readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { resolvePnpmInvocation } from './pnpm-invocation.mjs'
 
 const MIT_TERMS = `Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -41,12 +42,15 @@ const packageRoot = fileURLToPath(new URL('../', import.meta.url))
 const standaloneRoot = join(packageRoot, 'standalone')
 
 function bundledComponents() {
-  const pnpmEntry = process.env.npm_execpath
-  const command = pnpmEntry === undefined ? 'pnpm' : process.execPath
-  const args = pnpmEntry === undefined
-    ? ['--dir', standaloneRoot, 'licenses', 'list', '--prod', '--json']
-    : [pnpmEntry, '--dir', standaloneRoot, 'licenses', 'list', '--prod', '--json']
-  const result = spawnSync(command, args, { encoding: 'utf8' })
+  const invocation = resolvePnpmInvocation(process.env.npm_execpath ?? 'pnpm', [
+    '--dir',
+    standaloneRoot,
+    'licenses',
+    'list',
+    '--prod',
+    '--json',
+  ])
+  const result = spawnSync(invocation.command, invocation.args, { encoding: 'utf8' })
   if (result.error !== undefined) throw result.error
   if (result.status !== 0) {
     throw new Error(`unable to inventory the standalone production closure:\n${result.stdout}${result.stderr}`)

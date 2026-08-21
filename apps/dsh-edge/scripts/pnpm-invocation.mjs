@@ -7,7 +7,7 @@
  */
 export function resolvePnpmInvocation(pnpm, args, options = {}) {
   if (pnpm === undefined || pnpm === '') {
-    throw new Error('Cannot run pnpm outside a pnpm script.')
+    throw new Error('Cannot run pnpm without a package-manager executable.')
   }
 
   const nodeExecutable = options.nodeExecutable ?? process.execPath
