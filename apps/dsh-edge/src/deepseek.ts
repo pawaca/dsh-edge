@@ -1,4 +1,5 @@
 import type { AnonymousUserId } from '@deepseek-ai/dsh-anonymous-user-id'
+import type { AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import type { CredentialRef } from '@deepseek-ai/dsh-credentials'
 import {
   LlmAdapter,
@@ -100,6 +101,7 @@ export function resolveEdgeMaxOutputTokens(raw?: string): number {
 /** Construct one turn-scoped DSH DeepSeek adapter that resolves its bearer token per operation. */
 function createEdgeDeepSeekModel(options: {
   resolveApiKey: () => Promise<string | undefined>
+  resolveAttachments?: () => AttachmentStore | undefined
   baseURL?: string
   maxTokens?: number
   reasoningEffort?: EdgeReasoningEffort
@@ -127,6 +129,9 @@ function createEdgeDeepSeekModel(options: {
     },
     // Provider telemetry must not derive identity from the owner or Durable Object id.
     resolveUserId: () => anonymousRequestId,
+    ...options.resolveAttachments === undefined
+      ? {}
+      : { resolveAttachments: options.resolveAttachments },
   })
 }
 
@@ -141,7 +146,10 @@ export class EdgeDeepSeekAdapter extends LlmAdapter {
   private metadataReasoningEffort: EdgeReasoningEffort = DEFAULT_REASONING_EFFORT
   private metadata: DeepSeekAdapter
 
-  constructor(private readonly resolveApiKey?: () => Promise<string | undefined>) {
+  constructor(
+    private readonly resolveApiKey?: () => Promise<string | undefined>,
+    private readonly resolveAttachments?: () => AttachmentStore | undefined,
+  ) {
     super()
     this.metadata = createEdgeDeepSeekModel({
       resolveApiKey: () => Promise.resolve('dsh-edge-model-metadata'),
@@ -161,6 +169,9 @@ export class EdgeDeepSeekAdapter extends LlmAdapter {
     return this.bindAdapter(sessionId, createEdgeDeepSeekModel({
       ...options,
       resolveApiKey: this.resolveApiKey ?? (() => Promise.resolve(undefined)),
+      ...this.resolveAttachments === undefined
+        ? {}
+        : { resolveAttachments: this.resolveAttachments },
     }))
   }
 

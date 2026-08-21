@@ -6,6 +6,8 @@
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
+- button "one-pixel.png, click to view original":
+  - img "one-pixel.png"
 - text: snapshot the browser edge path {{clock}}
 - button "Copy":
   - img
@@ -18,8 +20,8 @@
 - textbox "Message the agent"
 - button "Commands":
   - img
-- button "Select model, current DeepSeek-V4-Flash, reasoning effort Off":
-  - text: DeepSeek-V4-Flash Off
+- button "Select model, current DeepSeek-V4-Flash-Vision-Exp, reasoning effort Off":
+  - text: DeepSeek-V4-Flash-Vision-Exp Off
   - img
 - button "Send message" [disabled]
 - text: 1 turns · 1 steps LLM {{metric}} TTFT avg {{metric}} · {{metric}}

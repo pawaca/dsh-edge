@@ -18,7 +18,9 @@ const persistedState = mkdtempSync(join(tmpdir(), 'dsh-edge-integration-'))
 const runtimeMode = process.env.DSH_EDGE_TEST_RUNTIME_MODE ?? 'direct'
 assert.ok(runtimeMode === 'direct' || runtimeMode === 'isolated', 'invalid test runtime mode')
 const runtimeConfig = join(persistedState, `wrangler-${runtimeMode}.json`)
-await writePrebuiltModeWranglerConfig(runtimeMode, runtimeConfig)
+await writePrebuiltModeWranglerConfig(runtimeMode, runtimeConfig, {
+  r2BucketName: 'dsh-edge-integration-attachments',
+})
 const mock = await startMockDeepSeek()
 let worker
 let releasedStateSeeder
@@ -553,6 +555,10 @@ try {
   assert.equal(protocolSummary.blank, true)
   assert.equal(protocolSummary.cwd, '/workspace')
   assert.equal(protocolSummary.projections.asOfSeq, -1)
+  assert.deepEqual(protocolSummary.projections.values.imageLimits.mediaTypes, [
+    'image/png',
+    'image/jpeg',
+  ])
 
   mux.close()
   host.close()
@@ -825,6 +831,13 @@ try {
     1,
   )
 
+  const activeVision = await rpc('session.selectModel', {
+    sessionId: protocolSessionId,
+    provider: 'deepseek-official',
+    model: 'deepseek-v4-flash-vision-exp',
+  })
+  assert.equal(activeVision.body.result.ok, true)
+  const imageBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4XmP4z8DwHwAFAAH/NQZ7kgAAAABJRU5ErkJggg=='
   const activePrompt = await rpc('session.prompt', {
     sessionId: protocolSessionId,
     mode: 'queue',
@@ -887,6 +900,69 @@ try {
     && message.payload.items.some(item => item.id === queuedItem.id
       && item.message.content[0]?.text === 'edited queued prompt'))
   assert.equal(editedSnapshot.payload.items.find(item => item.id === queuedItem.id).placement, 'queued')
+
+  const queuedImagePrompt = await rpc('session.prompt', {
+    sessionId: protocolSessionId,
+    mode: 'queue',
+    content: [
+      { type: 'text', text: 'queued image caption' },
+      { type: 'image', mediaType: 'image/png', data: imageBase64, name: 'queued.png' },
+    ],
+  })
+  assert.equal(queuedImagePrompt.body.result.ok, true)
+  const queuedImageSnapshot = await mux.next(message => message.payload.type === 'session/queue'
+    && message.payload.sessionId === protocolSessionId
+    && message.payload.items.some(item => item.message.source.rpcId === queuedImagePrompt.rpcId))
+  const queuedImageItem = queuedImageSnapshot.payload.items.find(
+    item => item.message.source.rpcId === queuedImagePrompt.rpcId,
+  )
+  const queuedImageBlock = queuedImageItem.message.content.find(block => block.type === 'image')
+  assert.notEqual(queuedImageBlock, undefined)
+  const editedImageQueue = await rpc('session.updateQueue', {
+    sessionId: protocolSessionId,
+    itemId: queuedImageItem.id,
+    action: {
+      kind: 'edit',
+      content: [
+        { type: 'text', text: 'edited queued image caption' },
+        queuedImageBlock,
+      ],
+    },
+  })
+  assert.equal(editedImageQueue.body.result.ok, true)
+  await mux.next(message => message.payload.type === 'session/queue'
+    && message.payload.sessionId === protocolSessionId
+    && message.payload.items.some(item => item.id === queuedImageItem.id
+      && item.message.content[0]?.text === 'edited queued image caption'
+      && item.message.content[1]?.type === 'image'))
+  const injectedImageQueue = await rpc('session.updateQueue', {
+    sessionId: protocolSessionId,
+    itemId: queuedImageItem.id,
+    action: {
+      kind: 'edit',
+      content: [{
+        ...queuedImageBlock,
+        attachment: {
+          ...queuedImageBlock.attachment,
+          attachmentId: `sha256:${'b'.repeat(64)}`,
+        },
+      }],
+    },
+  })
+  assert.equal(injectedImageQueue.body.result.ok, false)
+  assert.equal(
+    injectedImageQueue.body.result.error.details.reason,
+    'QUEUE_EDIT_ATTACHMENT_INVALID',
+  )
+  const removedImageQueue = await rpc('session.updateQueue', {
+    sessionId: protocolSessionId,
+    itemId: queuedImageItem.id,
+    action: { kind: 'remove' },
+  })
+  assert.equal(removedImageQueue.body.result.ok, true)
+  await mux.next(message => message.payload.type === 'session/queue'
+    && message.payload.sessionId === protocolSessionId
+    && !message.payload.items.some(item => item.id === queuedImageItem.id))
 
   const removablePrompt = await rpc('session.prompt', {
     sessionId: protocolSessionId,
@@ -989,6 +1065,68 @@ try {
   await host.next(message => message.payload.type === 'host/session-status'
     && message.payload.sessionId === protocolSessionId
     && message.payload.running === false)
+
+  const imageSessionId = 'session-r2-image'
+  const createdImageSession = await rpc('session.create', { sessionId: imageSessionId })
+  assert.equal(createdImageSession.body.result.ok, true)
+  const imageModel = await rpc('session.selectModel', {
+    sessionId: imageSessionId,
+    provider: 'deepseek-official',
+    model: 'deepseek-v4-flash-vision-exp',
+  })
+  assert.equal(imageModel.body.result.ok, true)
+  const imagePrompt = await rpc('session.prompt', {
+    sessionId: imageSessionId,
+    mode: 'queue',
+    content: [
+      { type: 'text', text: 'describe image' },
+      { type: 'image', mediaType: 'image/png', data: imageBase64, name: 'pixel.png' },
+    ],
+  })
+  assert.equal(imagePrompt.body.result.ok, true)
+  await mux.next(message => message.payload.type === 'session/event'
+    && message.payload.sessionId === imageSessionId
+    && message.payload.event.type === 'turn/end')
+  const imageRequest = mock.requests.at(-1)
+  const imageRequestContent = imageRequest.messages.findLast(message => message.role === 'user').content
+  assert.ok(imageRequestContent.some(part => part.type === 'image_url'
+    && part.image_url.url === `data:image/png;base64,${imageBase64}`))
+  const imageHistory = await rpc('session.history', { sessionId: imageSessionId })
+  const imageUser = imageHistory.body.result.value.events
+    .find(entry => entry.event.type === 'user/message')
+  const imageRef = imageUser.event.data.content
+    .find(block => block.type === 'image').attachment
+  assert.match(imageRef.attachmentId, /^sha256:[a-f0-9]{64}$/u)
+  const imageRead = await rpc('session.attachment', {
+    sessionId: imageSessionId,
+    attachmentId: imageRef.attachmentId,
+  })
+  assert.equal(imageRead.body.result.ok, true)
+  assert.equal(imageRead.body.result.value.data, imageBase64)
+  const crossSessionRead = await rpc('session.attachment', {
+    sessionId: retrySessionId,
+    attachmentId: imageRef.attachmentId,
+  })
+  assert.equal(crossSessionRead.body.result.ok, false)
+  assert.equal(crossSessionRead.body.result.error.details.reason, 'ATTACHMENT_NOT_REFERENCED')
+  const incompatibleModel = await rpc('session.selectModel', {
+    sessionId: imageSessionId,
+    provider: 'deepseek-official',
+    model: 'deepseek-v4-pro',
+  })
+  assert.equal(incompatibleModel.body.result.ok, false)
+  assert.equal(incompatibleModel.body.result.error.code, 'model-unavailable')
+  const imageFork = await rpc('session.fork', {
+    sessionId: imageSessionId,
+    atSeq: imageUser.event.seq,
+  })
+  assert.equal(imageFork.body.result.ok, true)
+  const forkedImageRead = await rpc('session.attachment', {
+    sessionId: imageFork.body.result.value.sessionId,
+    attachmentId: imageRef.attachmentId,
+  })
+  assert.equal(forkedImageRead.body.result.ok, true)
+  assert.equal(forkedImageRead.body.result.value.data, imageBase64)
   mux.close()
   host.close()
 
@@ -1004,6 +1142,18 @@ try {
     RELEASED_ARCHIVED_SESSION_ID,
     forkedSessionId,
   ])
+  const restoredImage = await rpc('session.attachment', {
+    sessionId: imageSessionId,
+    attachmentId: imageRef.attachmentId,
+  })
+  assert.equal(restoredImage.body.result.ok, true)
+  assert.equal(restoredImage.body.result.value.data, imageBase64)
+  const textModelAfterRemovedImage = await rpc('session.selectModel', {
+    sessionId: protocolSessionId,
+    provider: 'deepseek-official',
+    model: 'deepseek-v4-pro',
+  })
+  assert.equal(textModelAfterRemovedImage.body.result.ok, true)
   const timedOut = await jsonRequest('/api/workspace/exec', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -1035,7 +1185,7 @@ try {
   assert.equal(retriedInvalidProtocolPrompt.body.result.error.code, 'internal')
   // Promoting the queued prompt to steering folds it into the active turn
   // instead of starting the extra follow-up request exercised previously.
-  assert.equal(mock.requests.length, 14)
+  assert.equal(mock.requests.length, 15)
   process.stdout.write(`dsh-edge ${runtimeMode} session integration passed\n`)
 } finally {
   mock.releaseSlowResponses()

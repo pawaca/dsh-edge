@@ -80,7 +80,9 @@ async function publishedPackageAliases() {
   const specifiers = new Set()
   for (const path of await sourceFiles(join(appDirectory, 'src'))) {
     const source = await readFile(path, 'utf8')
-    for (const match of source.matchAll(/['"]((?:@deepseek-ai|@cloudflare)\/[^'"]+|just-bash(?:\/[^'"]*)?)['"]/g)) {
+    for (const match of source.matchAll(
+      /['"]((?:@deepseek-ai|@cloudflare)\/[^'"]+|(?:just-bash|fast-png|jpeg-js)(?:\/[^'"]*)?)['"]/g,
+    )) {
       specifiers.add(match[1])
     }
   }
@@ -89,7 +91,7 @@ async function publishedPackageAliases() {
     const name = packageName(specifier)
     const directory = await resolvePackageDirectory(name)
     aliases[specifier] = specifier === name
-      ? directory
+      ? await resolvePackageRoot(directory)
       : await resolvePackageExport(specifier, name, directory)
   }
   return aliases
@@ -117,6 +119,13 @@ async function resolvePackageDirectory(name) {
     throw new Error(`Installed package ${name} resolved to manifest ${String(manifest.name)}.`)
   }
   return directory
+}
+
+async function resolvePackageRoot(directory) {
+  const manifest = JSON.parse(await readFile(join(directory, 'package.json'), 'utf8'))
+  const target = manifest.exports?.['.'] ?? manifest.exports
+  const path = exportPath(target)
+  return path === undefined ? directory : join(directory, path)
 }
 
 async function resolvePackageExport(specifier, name, directory) {
@@ -207,6 +216,8 @@ async function requirePublishedDependencyInputs(metafilePath) {
       || path.includes('@deepseek-ai+')
       || path.includes('@cloudflare+computer')
       || path.includes('just-bash')
+      || path.includes('fast-png')
+      || path.includes('jpeg-js')
     if (isPinnedRuntimeDependency
       && !path.includes('/apps/dsh-edge/standalone/node_modules/')) {
       throw new Error(`Standalone Worker resolved a runtime dependency outside its lock: ${path}`)

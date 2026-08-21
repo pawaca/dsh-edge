@@ -7,7 +7,8 @@ import { EdgeWorkspaceRequestError } from './workspace.ts'
 const textEncoder = new TextEncoder()
 
 export const MAX_SESSION_CREATE_BODY_BYTES = 8_192
-export const MAX_TURN_BODY_BYTES = 524_288
+// Four projected image uploads fit after base64 expansion plus the RPC envelope.
+export const MAX_TURN_BODY_BYTES = 10 * 1_024 * 1_024
 export const MAX_WORKSPACE_EXEC_BODY_BYTES = 131_072
 
 /** Invalid caller input with an explicit HTTP response status. */

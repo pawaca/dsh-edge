@@ -1,7 +1,7 @@
 [
   {
     "package": "@deepseek-ai/dsh-client-ui-conversation",
-    "rationale": "Hide image intake when the host does not expose image limits, so the Edge UI cannot accept attachments that its runtime cannot persist or send.",
+    "rationale": "Hide image intake when the host does not expose image limits, so temporary Edge previews cannot accept attachments that their runtime cannot persist or send.",
     "removeWhen": "The published conversation client gates every image intake and drop path on an explicit attachment capability or image-limits contract."
   },
   {

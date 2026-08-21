@@ -13,6 +13,7 @@
 - 上游 DeepSeek Harness Web UI 与类型化 HTTP/WebSocket 协议。
 - 由 Durable Object SQLite 支持的持久对话与 `/workspace` 虚拟文件系统（VFS）。
 - 使用你自己的 API key 调用 DeepSeek 对话和原生 Web Search。
+- 使用上游图片 composer 与 Vision Exp 模型；永久账户部署会把图片作为不可变对象存入私有 R2 bucket。
 - 在持久工作区上运行的 `bash` 工具，可选择免费的 direct 运行时或可选的 isolated 运行时。
 - 一个用于换取 signed browser cookie 的 owner access key；安装器可以生成高熵值。
 - 直接通过 Wrangler 上传的引导式安装与升级命令，不创建源码构建流水线。
@@ -42,6 +43,8 @@ Cloudflare 接受上传后，安装器会短暂等待公开 URL 出现精确的 
 
 打开安装器输出的 Worker URL，并使用 owner access key 登录。请为后续升级保存该 key：轮换它会使已有浏览器会话失效，而 Cloudflare 不允许后续升级读取当前 secret。
 
+永久账户安装会创建或复用私有的 `<worker-name>-attachments` R2 bucket，用于 PNG/JPEG prompt；该 Cloudflare 账户必须先启用 R2。临时预览目前尚不支持图片；阶段 3 会增加有界 Durable Object fallback，而不改变浏览器操作流程。
+
 如果使用临时 Cloudflare 账户，必须在 60 分钟内通过输出的 claim URL 完成认领，才能保留 Worker 及其数据。
 
 ## 选择运行时
@@ -69,15 +72,16 @@ Durable Object 数据会保留。Cloudflare secret 只能替换、不能读回�
 
 ## 当前范围
 
-`dsh-edge` 处于开发者预览阶段。当前预览版本聚焦完整的个人使用路径：上游对话和工作区、持久会话、模型选择、Web Search、工作区文件操作、命令执行，以及上游浏览器体验。
+`dsh-edge` 处于开发者预览阶段。当前预览版本聚焦完整的个人使用路径：上游对话和工作区、持久会话、上游三款 DeepSeek 模型、永久部署中的 PNG/JPEG 图片 prompt、Web Search、工作区文件操作、命令执行，以及上游浏览器体验。Vision Exp 仍是实验模型，是否可用可能取决于 DeepSeek 账户。
 
-部署有意采用 single-owner 模式，不提供注册、多用户、角色或租户路由。附件与图片、远程 MCP、Skills、Workflows、Jobs 和 Subagents 尚未适配 Edge 运行时。`web_fetch` 在运行时具备明确的 SSRF、私网地址和重定向策略前保持关闭。
+部署有意采用 single-owner 模式，不提供注册、多用户、角色或租户路由。通用文件附件、临时预览中的图片、远程 MCP、Skills、Workflows、Jobs 和 Subagents 尚未适配 Edge 运行时。`web_fetch` 在运行时具备明确的 SSRF、私网地址和重定向策略前保持关闭。
 
 完整兼容矩阵、限制、安全行为、API 参考、本地开发命令与当前实现状态见 [dsh-edge 运行时参考](apps/dsh-edge/README.md)。
 
 ## 数据与凭据
 
 - 对话、工作区元数据与 `/workspace` 文件存储在当前部署的 Durable Object 存储中。
+- 永久账户安装会把通过校验的 PNG/JPEG 字节存入私有 R2 bucket；session event 只保留上游 content-addressed reference。当前限制为每条消息 4 张、每张 3.5 MiB、合计 7 MiB、4,000 万像素，且单边不超过 2,000 像素。
 - `DEEPSEEK_API_KEY` 与 `DSH_EDGE_ACCESS_KEY` 是 Cloudflare Worker secrets。其字面值不会写入会话事件、Durable Object 状态、虚拟文件系统或浏览器响应。
 - 安装器通过权限模式为 `0600` 的临时文件把 secret 交给 Wrangler，命令结束后删除该文件，也不会把部署绑定到 GitHub 或 Cloudflare Builds。
 - Owner cookie 使用 HttpOnly、`SameSite=Strict`，有效期为 30 天。更换 owner access key 会使它失效。

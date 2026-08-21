@@ -14,6 +14,7 @@
   { "id": "@deepseek-ai/dsh-client-ui-settings-general", "inject": ["@deepseek-ai/dsh-client-runtime", "@deepseek-ai/dsh-client-ui-settings", "@deepseek-ai/dsh-client-locale", "@deepseek-ai/dsh-client-connection", "@deepseek-ai/dsh-api-remotes", "@deepseek-ai/dsh-client-ui-sidebar"] },
   { "id": "@deepseek-ai/dsh-client-ui-conversation", "inject": ["@deepseek-ai/dsh-client-connection", "@deepseek-ai/dsh-client-locale", "@deepseek-ai/dsh-client-runtime", "@deepseek-ai/dsh-client-ui-settings", "@deepseek-ai/dsh-api-remotes", "@deepseek-ai/dsh-client-ui-layout"] },
   { "id": "@deepseek-ai/dsh-client-ui-brand-official", "inject": ["@deepseek-ai/dsh-client-runtime", "@deepseek-ai/dsh-client-ui-conversation", "@deepseek-ai/dsh-client-ui-sidebar"] },
+  { "id": "@deepseek-ai/dsh-client-ui-attachment", "inject": ["@deepseek-ai/dsh-client-ui-conversation"] },
   { "id": "@deepseek-ai/dsh-client-ui-tool", "inject": ["@deepseek-ai/dsh-client-connection", "@deepseek-ai/dsh-client-runtime", "@deepseek-ai/dsh-client-locale", "@deepseek-ai/dsh-client-ui-conversation"] },
   { "id": "@deepseek-ai/dsh-client-ui-workflow-run", "inject": ["@deepseek-ai/dsh-client-locale", "@deepseek-ai/dsh-client-runtime", "@deepseek-ai/dsh-client-ui-conversation"] },
   { "id": "@deepseek-ai/dsh-client-ui-deliverables", "inject": ["@deepseek-ai/dsh-client-connection", "@deepseek-ai/dsh-client-locale", "@deepseek-ai/dsh-client-runtime", "@deepseek-ai/dsh-client-ui-conversation"] },

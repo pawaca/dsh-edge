@@ -19,7 +19,9 @@ describe('dsh-edge assembled browser snapshot', () => {
   it('pins the transcript rendered through the upstream Web client and Edge protocol', async () => {
     const persistedState = mkdtempSync(join(tmpdir(), 'dsh-edge-browser-snapshot-'))
     const config = join(persistedState, 'wrangler.json')
-    await writePrebuiltModeWranglerConfig('direct', config)
+    await writePrebuiltModeWranglerConfig('direct', config, {
+      r2BucketName: 'dsh-edge-browser-attachments',
+    })
     const mock = await startMockDeepSeek()
     let worker
     let browser
@@ -117,11 +119,26 @@ describe('dsh-edge assembled browser snapshot', () => {
         { timeout: 15_000 },
       ).toBe(1)
 
+      const initialSessions = await edgeRpc(worker, ownerCookieHeader, 'session.list', {})
+      const initialSessionId = initialSessions.result.value.items
+        .find(item => item.blank === true)?.sessionId
+      expect(initialSessionId).toBeTypeOf('string')
+      const selectVision = await edgeRpc(worker, ownerCookieHeader, 'session.selectModel', {
+        sessionId: initialSessionId,
+        provider: 'deepseek-official',
+        model: 'deepseek-v4-flash-vision-exp',
+      })
+      expect(selectVision.result.ok).toBe(true)
+
       const composer = page.locator('textarea:enabled').last()
       await composer.waitFor({ timeout: 15_000 })
       await composer.evaluate((textarea) => {
+        const png = Uint8Array.from(
+          atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4XmP4z8DwHwAFAAH/NQZ7kgAAAABJRU5ErkJggg=='),
+          character => character.charCodeAt(0),
+        )
         const transfer = new DataTransfer()
-        transfer.items.add(new File([Uint8Array.of(137, 80, 78, 71)], 'unsupported.png', {
+        transfer.items.add(new File([png], 'one-pixel.png', {
           type: 'image/png',
         }))
         textarea.dispatchEvent(new ClipboardEvent('paste', {
@@ -132,7 +149,7 @@ describe('dsh-edge assembled browser snapshot', () => {
       })
       await expect.poll(
         () => page.getByRole('group', { name: 'Pending images' }).count(),
-      ).toBe(0)
+      ).toBe(1)
       await composer.fill('snapshot the browser edge path')
       await page.getByRole('button', { name: 'Send message', exact: true }).click()
       await expect.poll(
@@ -206,7 +223,7 @@ describe('dsh-edge assembled browser snapshot', () => {
       await expect.poll(() => page.getByRole('tooltip').count()).toBe(0)
       await expect.poll(
         () => page.getByRole('button', {
-          name: 'Select model, current DeepSeek-V4-Flash, reasoning effort Off',
+          name: 'Select model, current DeepSeek-V4-Flash-Vision-Exp, reasoning effort Off',
           exact: true,
         }).count(),
         { timeout: 15_000 },
@@ -268,6 +285,70 @@ describe('dsh-edge assembled browser snapshot', () => {
       await browser?.close()
       await worker?.stop()
       await mock.close()
+      rmSync(persistedState, { recursive: true, force: true })
+    }
+  }, 60_000)
+
+  it('keeps image intake disabled when a temporary preview has no attachment backend', async () => {
+    const persistedState = mkdtempSync(join(tmpdir(), 'dsh-edge-browser-temporary-'))
+    const config = join(persistedState, 'wrangler.json')
+    await writePrebuiltModeWranglerConfig('direct', config)
+    let worker
+    let browser
+
+    try {
+      worker = await unstable_dev(workerArtifactPath('direct'), {
+        config,
+        persistTo: persistedState,
+        vars: {
+          DEEPSEEK_API_KEY: 'keyless-browser-temporary-no-call',
+          DSH_EDGE_ACCESS_KEY: ACCESS_KEY,
+        },
+        logLevel: 'error',
+        experimental: {
+          disableExperimentalWarning: true,
+          showInteractiveDevSession: false,
+          watch: false,
+        },
+      })
+      const channel = process.env.DSH_EDGE_PLAYWRIGHT_CHANNEL
+      browser = await chromium.launch(channel ? { channel } : undefined)
+      const page = await browser.newPage({ locale: 'en-US' })
+      const origin = `http://${worker.address}:${String(worker.port)}`
+      await page.goto(origin, { waitUntil: 'load' })
+      await page.getByLabel('Owner access key').fill(ACCESS_KEY)
+      await page.getByRole('button', { name: 'Unlock', exact: true }).click()
+      await page.waitForURL(`${origin}/`)
+      await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
+      const ownerCookie = (await page.context().cookies())
+        .find(cookie => cookie.name === 'dsh_edge_owner')
+      expect(ownerCookie).toBeDefined()
+      const ownerCookieHeader = `${ownerCookie.name}=${ownerCookie.value}`
+      const sessions = await edgeRpc(worker, ownerCookieHeader, 'session.list', {})
+      expect(sessions.result.ok).toBe(true)
+      expect(sessions.result.value.items[0].projections.values).not.toHaveProperty('imageLimits')
+
+      const composer = page.locator('textarea:enabled').last()
+      await composer.waitFor({ timeout: 15_000 })
+      await composer.evaluate((textarea) => {
+        const png = Uint8Array.from(
+          atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4XmP4z8DwHwAFAAH/NQZ7kgAAAABJRU5ErkJggg=='),
+          character => character.charCodeAt(0),
+        )
+        const transfer = new DataTransfer()
+        transfer.items.add(new File([png], 'one-pixel.png', { type: 'image/png' }))
+        textarea.dispatchEvent(new ClipboardEvent('paste', {
+          bubbles: true,
+          cancelable: true,
+          clipboardData: transfer,
+        }))
+      })
+      expect(await page.getByRole('group', { name: 'Pending images' }).count()).toBe(0)
+      await page.waitForTimeout(250)
+      expect(await page.getByRole('group', { name: 'Pending images' }).count()).toBe(0)
+    } finally {
+      await browser?.close()
+      await worker?.stop()
       rmSync(persistedState, { recursive: true, force: true })
     }
   }, 60_000)

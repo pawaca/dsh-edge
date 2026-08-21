@@ -47,14 +47,15 @@ community project · install
 ◇  DeepSeek API key
 │  ••••••••••••••••••
 │
-◇  Installation summary ─────────╮
-│                                │
-│  Runtime: Free — Direct Shell  │
-│  Account: Temporary account    │
-│  Worker: dsh-edge              │
-│  Cost: Works on Workers Free   │
-│                                │
-├────────────────────────────────╯
+◇  Installation summary ──────────────────────────╮
+│                                                 │
+│  Runtime: Free — Direct Shell                   │
+│  Account: Temporary account                     │
+│  Worker: dsh-edge                               │
+│  Cost: Works on Workers Free                    │
+│  Images: not enabled in temporary previews yet  │
+│                                                 │
+├─────────────────────────────────────────────────╯
 │
 ◆  Install this instance?
 │  ● Yes / ○ No

@@ -30,6 +30,7 @@ export interface InstallerUi {
     accountLabel: string
     workerName: string
     paid: boolean
+    temporary: boolean
   }): Promise<boolean>
   acceptTemporaryTerms(): Promise<boolean>
   deploymentStart?(message: string): void
@@ -86,6 +87,17 @@ export function validateWorkerName(value: string): string | undefined
 export function validateOwnerSecret(value: string): string | undefined
 export function validateDeepSeekKey(value: string): string | undefined
 export function generateOwnerSecret(): string
+export function attachmentBucketName(workerName: string): string
+export function ensureR2Bucket(options: {
+  bucketName: string
+  runWrangler: (args: string[], options?: {
+    environment?: NodeJS.ProcessEnv
+    signal?: AbortSignal
+  }) => Promise<CommandResult>
+  environment?: NodeJS.ProcessEnv
+  profile?: string
+  signal?: AbortSignal
+}): Promise<{ bucketName: string; created: boolean }>
 export function wranglerEnvironment(environment?: NodeJS.ProcessEnv): NodeJS.ProcessEnv
 export function unauthenticatedEnvironment(environment?: NodeJS.ProcessEnv): NodeJS.ProcessEnv
 export function wranglerDeployArgs(options: {

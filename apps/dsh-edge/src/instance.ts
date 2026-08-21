@@ -10,10 +10,10 @@ import {
   type WorkerShellLoader,
 } from '@cloudflare/computer/backends/worker-shell'
 import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
+import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type {
   HostFrame,
   MuxFrame,
-  PromptContentPart,
   QueueAction,
   QueuedInboxItem,
   ServerRequest,
@@ -24,6 +24,7 @@ import type {
 import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { toFetchHandler } from '@deepseek-ai/dsh-host-apiproxy'
 import { freezeMessage, type MessageId } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { normalizeSessionTitle } from '@deepseek-ai/dsh-session-title'
 import { DurableObject } from 'cloudflare:workers'
@@ -81,6 +82,7 @@ import { handleEdgeRemote } from './edge-remotes.ts'
 import type { EdgeApiSessionSummary } from './session-store.ts'
 import { EDGE_WORKSPACE_ID, EdgeWorkspaceStore } from './edge-workspace-store.ts'
 import { DSH_EDGE_VERSION } from './release.ts'
+import { EDGE_R2_IMAGE_LIMITS } from './edge-attachment-store.ts'
 
 const MAX_SESSION_TITLE_LENGTH = 160
 const MAX_SESSION_TITLE_BYTES = 640
@@ -118,6 +120,7 @@ export interface EdgeEnv {
   DSH_EDGE_INSTANCE: DurableObjectNamespace<DshEdgeInstance>
   ASSETS: Fetcher
   LOADER?: WorkerShellLoader
+  DSH_EDGE_ATTACHMENTS?: R2Bucket
   DSH_EDGE_ACCESS_KEY?: string
   DEEPSEEK_API_KEY?: string
   DEEPSEEK_BASE_URL?: string
@@ -178,6 +181,9 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       ...this.env.DEEPSEEK_SEARCH_BASE_URL === undefined
         ? {}
         : { searchBaseURL: this.env.DEEPSEEK_SEARCH_BASE_URL },
+      ...this.env.DSH_EDGE_ATTACHMENTS === undefined
+        ? {}
+        : { attachmentBucket: this.env.DSH_EDGE_ATTACHMENTS },
     },
   )
   private readonly workspaces = new EdgeWorkspaceStore(this.ctx.storage)
@@ -188,6 +194,9 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     sessions: this.sessions,
     model: this.model,
     version: DSH_EDGE_VERSION,
+    ...this.env.DSH_EDGE_ATTACHMENTS === undefined
+      ? {}
+      : { imageLimits: EDGE_R2_IMAGE_LIMITS },
     deploymentProfile: () => resolveEdgeDeploymentProfile(this.env),
     describeCredential: ref => this.sessions.describeCredential(ref),
     isRunning: sessionId => this.activeTurns.has(sessionId),
@@ -634,11 +643,13 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
   private async startApiPrompt(input: {
     sessionId: SessionId
     mode: 'queue' | 'steer'
-    content: Extract<PromptContentPart, { type: 'text' }>[]
+    content: ContentBlock[]
     rpcId: RpcId
     clientTimeZone?: string
   }): Promise<void> {
-    if (messageTextByteLength(input.content) > MAX_MESSAGE_TEXT_BYTES) {
+    if (messageTextByteLength(input.content.filter(
+      (part): part is Extract<ContentBlock, { type: 'text' }> => part.type === 'text',
+    )) > MAX_MESSAGE_TEXT_BYTES) {
       throw new EdgeHttpError(
         413,
         `Prompt text is limited to ${MAX_MESSAGE_TEXT_BYTES} UTF-8 bytes.`,
@@ -706,7 +717,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     sessionId: SessionId,
     itemId: MessageId,
     action: QueueAction,
-  ): 'accepted' | 'queue-item-not-found' | 'steer-unavailable' {
+  ): 'accepted' | 'queue-item-not-found' | 'steer-unavailable' | 'queue-edit-attachment-invalid' {
     const active = this.activeTurns.get(sessionId)
     const agent = active?.agent
     if (agent === undefined) return 'queue-item-not-found'
@@ -722,6 +733,9 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       return 'steer-unavailable'
     }
     if (action.kind === 'edit') {
+      if (!preservesAdmittedQueueImages(message.content, action.content)) {
+        return 'queue-edit-attachment-invalid'
+      }
       agent.inbox.replace(itemId, freezeMessage({ ...message, content: action.content }))
     } else {
       agent.inbox.remove(itemId)
@@ -766,7 +780,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     baseURL: string
     commandTimeoutPolicy: EdgeCommandTimeoutPolicy
     maxTokens: number
-    content: Extract<PromptContentPart, { type: 'text' }>[]
+    content: ContentBlock[]
     reasoningEffort: EdgeReasoningEffort
     streamIdleTimeoutMs: number
     mode: 'queue' | 'steer'
@@ -819,7 +833,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     baseURL: string
     commandTimeoutPolicy: EdgeCommandTimeoutPolicy
     maxTokens: number
-    content: Extract<PromptContentPart, { type: 'text' }>[]
+    content: ContentBlock[]
     reasoningEffort: EdgeReasoningEffort
     streamIdleTimeoutMs: number
     mode: 'queue' | 'steer'
@@ -891,6 +905,31 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       status: this.activeTurns.has(session.id) ? 'running' as const : 'idle' as const,
     }
   }
+}
+
+/** Keep queue edits inside the exact attachment authority of one pending message. */
+function preservesAdmittedQueueImages(
+  original: readonly ContentBlock[],
+  edited: readonly ContentBlock[],
+): boolean {
+  const available = original.flatMap(block => block.type === 'image' ? [block.attachment] : [])
+  for (const block of edited) {
+    if (block.type === 'text') continue
+    if (block.type !== 'image') return false
+    const index = available.findIndex(candidate => sameImageRef(candidate, block.attachment))
+    if (index < 0) return false
+    available.splice(index, 1)
+  }
+  return true
+}
+
+function sameImageRef(left: ImageAttachmentRef, right: ImageAttachmentRef): boolean {
+  return left.attachmentId === right.attachmentId
+    && left.mediaType === right.mediaType
+    && left.bytes === right.bytes
+    && left.width === right.width
+    && left.height === right.height
+    && left.name === right.name
 }
 
 function requireOwnerSessionExpiry(request: Request): number {
