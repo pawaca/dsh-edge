@@ -38,7 +38,9 @@ The installer asks you to:
 3. Generate a high-entropy owner access key or enter your own randomly generated value, then enter your DeepSeek API key through hidden input.
 4. Confirm the cost summary and upload.
 
-Open the printed Worker URL and sign in with the owner access key. Save the key: rotating it invalidates existing browser sessions, and Cloudflare does not expose the current secret to a later upgrade.
+After Cloudflare accepts the upload, the installer waits briefly for the exact package and runtime to appear on the public URL. A ready result can be opened immediately. If Cloudflare is still activating the `workers.dev` route when the bounded wait ends, installation still succeeds and the final card tells you to wait a moment and refresh instead of mistaking the platform placeholder for a failed deployment.
+
+Open the printed Worker URL and sign in with the owner access key. Save the key for future upgrades: rotating it invalidates existing browser sessions, and Cloudflare does not expose the current secret to a later upgrade.
 
 A temporary Cloudflare account must be claimed through the printed claim URL within 60 minutes to retain the Worker and its data.
 

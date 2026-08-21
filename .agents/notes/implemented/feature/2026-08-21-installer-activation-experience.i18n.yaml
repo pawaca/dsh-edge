@@ -2,5 +2,5 @@
 # last confirmed-consistent state. Both languages carry equal authority.
 # After editing either side, update both and re-record every pair with:
 #   pnpm run doc-pairs -- --write
-2026-08-18-edge-install-handoff-without-probing.md: 9c1f769788c27a6262ff247e45b6120ca1a5c8df
-2026-08-18-edge-install-handoff-without-probing.zh.md: 2b4fb474db26374687feb6aad7b082336fa4d09d
+2026-08-21-installer-activation-experience.md: ab12f9770d7f0babc186133a0d56bf41c251e146
+2026-08-21-installer-activation-experience.zh.md: a35cea9bf7dbac42b293c97e1f499f208b70492e

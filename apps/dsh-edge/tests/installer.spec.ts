@@ -579,7 +579,12 @@ describe('dsh-edge installer primitives', () => {
 
 describe('dsh-edge guided installation', () => {
   it('installs a temporary direct Worker, isolates auth, and removes secrets', async () => {
-    const { ui, success } = createUi({ mode: 'direct', accountSelections: ['temporary'] })
+    const {
+      activationFinish,
+      activationStart,
+      ui,
+      success,
+    } = createUi({ mode: 'direct', accountSelections: ['temporary'] })
     let secretsPath = ''
     let configPath = ''
     let deployEnvironment: NodeJS.ProcessEnv | undefined
@@ -623,6 +628,11 @@ describe('dsh-edge guided installation', () => {
     const result = await installEdge({
       ui,
       runWrangler,
+      observeActivation: vi.fn().mockResolvedValue({
+        attempts: 4,
+        elapsedMs: 4_500,
+        status: 'ready',
+      }),
       environment: {
         CLOUDFLARE_API_TOKEN: 'must-not-leak',
         PATH: '/bin',
@@ -634,14 +644,68 @@ describe('dsh-edge guided installation', () => {
       claimUrl: 'https://dash.cloudflare.com/claim-preview?token=claim-secret',
       mode: 'direct',
       temporary: true,
+      activation: { attempts: 4, elapsedMs: 4_500, status: 'ready' },
     })
     expect(deployEnvironment?.CLOUDFLARE_API_TOKEN).toBeUndefined()
     expect(deployEnvironment?.XDG_CONFIG_HOME).toBe(dirname(secretsPath))
     await expect(stat(secretsPath)).rejects.toThrow()
     await expect(stat(configPath)).rejects.toThrow()
     await expect(stat(dirname(secretsPath))).rejects.toThrow()
+    expect(activationStart).toHaveBeenCalledWith(
+      'Activating the public URL… Cloudflare usually takes 10–30 seconds.',
+    )
+    expect(activationFinish).toHaveBeenCalledWith({
+      attempts: 4,
+      elapsedMs: 4_500,
+      status: 'ready',
+    })
     expect(success).toHaveBeenCalledOnce()
   }, 45_000)
+
+  it('reports a successful upload when public activation remains pending', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'dsh-edge-installer-test-'))
+    const { activationFinish, recovery, success, ui } = createUi()
+    const result = await installEdge({
+      ui,
+      runWrangler: successfulRunWrangler(),
+      createTemporaryDirectory: async () => directory,
+      observeActivation: vi.fn().mockResolvedValue({
+        attempts: 12,
+        elapsedMs: 45_000,
+        status: 'pending',
+      }),
+    })
+
+    expect(result.activation).toEqual({
+      attempts: 12,
+      elapsedMs: 45_000,
+      status: 'pending',
+    })
+    expect(activationFinish).toHaveBeenCalledWith(result.activation)
+    expect(recovery).not.toHaveBeenCalled()
+    expect(success).toHaveBeenCalledWith(result)
+  })
+
+  it('preserves recovery details when activation waiting is interrupted', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'dsh-edge-installer-test-'))
+    const { activationFinish, recovery, success, ui } = createUi()
+    const interrupted = new Error('interrupted while waiting')
+
+    await expect(installEdge({
+      ui,
+      runWrangler: successfulRunWrangler(),
+      createTemporaryDirectory: async () => directory,
+      observeActivation: vi.fn().mockRejectedValue(interrupted),
+    })).rejects.toBe(interrupted)
+
+    expect(activationFinish).toHaveBeenCalledWith()
+    expect(recovery).toHaveBeenCalledWith(expect.objectContaining({
+      ownerSecret: OWNER_SECRET,
+      publicUrl: 'https://dsh-edge.owner.workers.dev',
+    }))
+    expect(success).not.toHaveBeenCalled()
+    await expect(stat(directory)).rejects.toThrow()
+  })
 
   it('reports recovery instead of success when final cleanup fails', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'dsh-edge-installer-test-'))
@@ -1237,6 +1301,8 @@ function createUi({
   secretMode?: 'generate' | 'custom'
 } = {}): {
   ui: InstallerUi
+  activationFinish: Mock
+  activationStart: Mock
   cleanupFailure: Mock
   deploymentFinish: Mock
   deploymentStart: Mock
@@ -1257,6 +1323,8 @@ function createUi({
   const cleanupFailure = vi.fn()
   const deploymentStart = vi.fn()
   const deploymentFinish = vi.fn()
+  const activationStart = vi.fn()
+  const activationFinish = vi.fn()
   const failedDeployment = vi.fn()
   const workerConflict = vi.fn().mockResolvedValue(conflictAction)
   const ui: InstallerUi = {
@@ -1274,6 +1342,8 @@ function createUi({
     cleanupFailure,
     deploymentStart,
     deploymentFinish,
+    activationStart,
+    activationFinish,
     failedDeployment,
     recovery,
     outputFailureRecovery,
@@ -1281,6 +1351,8 @@ function createUi({
   }
   return {
     ui,
+    activationFinish,
+    activationStart,
     cleanupFailure,
     deploymentFinish,
     deploymentStart,

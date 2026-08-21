@@ -1,5 +1,11 @@
 TERMINAL
-┌  dsh-edge install
+┌     ____  ____  _   _       _____ ____   ____ _____
+  |  _ \/ ___|| | | |     | ____|  _ \ / ___| ____|
+  | | | \___ \| |_| |_____|  _| | | | | |  _|  _|
+  | |_| |___) |  _  |_____| |___| |_| | |_| | |___
+  |____/|____/|_| |_|     |_____|____/ \____|_____|
+DeepSeek Harness on Cloudflare
+v0.2.0-alpha.1 · community project · install
 │
 ◆  Choose a runtime
 │  ● Free — Direct Shell (recommended; runs on Workers Free)
@@ -69,7 +75,11 @@ TERMINAL
 │
 ◇  Cloudflare accepted the Worker upload. [0s]
 │
-◇  dsh-edge installed ─────────────────────────────────────────────────────────────────╮
+◇  Public URL is ready. [0s]
+│
+◇  dsh-edge is ready ──────────────────────────────────────────────────────────────────╮
+│                                                                                      │
+│  Status: Ready                                                                       │
 │                                                                                      │
 │  URL: https://dsh-edge.preview.workers.dev                                           │
 │  Owner access key: {{generated-access-key}}                       │
@@ -79,10 +89,12 @@ TERMINAL
 │  1. Claim this temporary account within 60 minutes to keep the Worker and its data.  │
 │  2. Open the URL above.                                                              │
 │  3. Enter the owner access key when prompted.                                        │
+│  4. Save the owner access key for future upgrades.                                   │
 │                                                                                      │
 ├──────────────────────────────────────────────────────────────────────────────────────╯
 │
-└  Installation handoff complete.
+└  Your dsh-edge is ready.
 BOUNDARY EVENTS
 {"kind":"wrangler","command":"whoami","hasHome":true,"hasPath":true,"leakedKeys":[]}
 {"kind":"wrangler","command":"deploy","args":["--env","","--name","dsh-edge","--config","{{private-config-file}}","--secrets-file","{{private-secrets-file}}","--temporary"],"hasOutputCapture":true,"leakedKeys":[],"secretNames":["DEEPSEEK_API_KEY","DSH_EDGE_ACCESS_KEY"]}
+{"kind":"activation","url":"https://dsh-edge.preview.workers.dev/api/health","redirect":"manual","leakedHeaders":[]}
