@@ -12,7 +12,8 @@
   "packageManager": "pnpm@11.7.0",
   "scripts": {
     "build": "pnpm --filter dsh-edge run bundle:workers",
-    "check": "pnpm run doc-sync && pnpm run lint && pnpm run test && pnpm run typecheck",
+    "check": "pnpm run dependency-sync && pnpm run doc-sync && pnpm run lint && pnpm run test && pnpm run typecheck",
+    "dependency-sync": "node scripts/verify-root-harness-lock.mjs",
     "doc-pairs": "node scripts/verify-doc-pairs.mjs",
     "doc-sync": "node scripts/verify-doc-pairs.mjs && node apps/dsh-edge/scripts/legal-files.mjs verify",
     "hooks:install": "lefthook install",
