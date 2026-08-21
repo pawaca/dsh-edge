@@ -1134,8 +1134,22 @@ function rejectedDownlinkStatus(path, headers) {
   return new Promise((resolve, reject) => {
     const socket = new WebSocket(`ws://${worker.address}:${worker.port}${path}`, { headers })
     socket.once('unexpected-response', (_request, response) => {
+      const statusCode = response.statusCode
+      const settle = () => { resolve(statusCode) }
+      const settleNetworkError = (error) => {
+        if (error?.code === 'ECONNRESET') {
+          settle()
+          return
+        }
+        reject(error)
+      }
+      response.once('end', settle)
+      response.once('aborted', settle)
+      response.once('error', settleNetworkError)
+      // Windows can reset a rejected upgrade after delivering its HTTP status.
+      // Keep ownership of the raw socket until that rejection has settled.
+      response.socket.once('error', settleNetworkError)
       response.resume()
-      resolve(response.statusCode)
     })
     socket.once('open', () => {
       socket.close(1000, 'unexpected authenticated connection')
