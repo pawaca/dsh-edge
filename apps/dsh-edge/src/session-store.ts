@@ -215,19 +215,16 @@ export class EdgeSessionStore {
     if (persistence.readSessionHeader(id) === undefined) {
       throw new EdgeSessionStoreError('NOT_FOUND', 'Session not found.')
     }
-    const page = await persistence.readEventPage(
+    return await findReferencedImageInPages(
+      fromSeq => persistence.readEventPage(
+        id,
+        fromSeq,
+        MAX_FORK_EVENTS,
+        MAX_FORK_STORED_BYTES,
+      ),
+      attachmentId,
       id,
-      0,
-      MAX_FORK_EVENTS,
-      MAX_FORK_STORED_BYTES,
     )
-    if (page.hasMore) {
-      throw new EdgeSessionStoreError(
-        'INVALID_DATA',
-        `Session ${id} exceeds the Edge attachment authorization history limit.`,
-      )
-    }
-    return referencedImage(page.events, attachmentId)
   }
 
   /** Describe one credential through the mounted upstream provider without exposing its value. */
@@ -1032,6 +1029,28 @@ function referencedImage(
     }
   }
   return undefined
+}
+
+/** Search canonical history through bounded pages without imposing a total-session limit. */
+export async function findReferencedImageInPages(
+  readPage: (fromSeq: number) => Promise<EdgeEventPage>,
+  attachmentId: string,
+  sessionId: SessionId,
+): Promise<ImageAttachmentRef | undefined> {
+  let fromSeq = 0
+  while (true) {
+    const page = await readPage(fromSeq)
+    const found = referencedImage(page.events, attachmentId)
+    if (found !== undefined || !page.hasMore) return found
+    const lastSeq = page.events.at(-1)?.seq
+    if (lastSeq === undefined || lastSeq < fromSeq) {
+      throw new EdgeSessionStoreError(
+        'INVALID_DATA',
+        `Session ${sessionId} contains an event that exceeds the Edge attachment authorization page limit.`,
+      )
+    }
+    fromSeq = lastSeq + 1
+  }
 }
 
 function imageBlockIn(

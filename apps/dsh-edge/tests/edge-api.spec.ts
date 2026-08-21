@@ -21,8 +21,12 @@ import {
   messageTextByteLength,
   type EdgeApiRuntime,
 } from '../src/edge-api.ts'
-import { EDGE_HISTORY_PAGE_LIMITS } from '../src/do-session-persistence.ts'
 import {
+  EDGE_HISTORY_PAGE_LIMITS,
+  type EdgeEventPage,
+} from '../src/do-session-persistence.ts'
+import {
+  findReferencedImageInPages,
   paginateHistory,
   searchSnippet,
   type EdgeApiSessionSummary,
@@ -587,6 +591,85 @@ describe('Edge upstream API invariants', () => {
     expect(prompt).not.toHaveBeenCalled()
   })
 
+  it('keeps model selection behind an in-flight image admission', async () => {
+    const saveStarted = Promise.withResolvers<void>()
+    const releaseSave = Promise.withResolvers<readonly ImageAttachmentRef[]>()
+    const saveImages = vi.fn(async () => {
+      saveStarted.resolve()
+      return await releaseSave.promise
+    })
+    const prompt = vi.fn(async () => {})
+    const selectModel = vi.fn(async () => ({
+      provider: 'deepseek-official',
+      model: 'deepseek-v4-flash',
+    }))
+    const api = createEdgeApi(runtime({
+      attachmentStore: vi.fn(async () => ({ saveImages } as unknown as AttachmentStore)),
+      modelSupportsImages: vi.fn(async () => true),
+      selectModel,
+    }, { imageLimits, prompt }))
+
+    const admitting = api.sessions.prompt(request({
+      sessionId: parentId,
+      mode: 'queue' as const,
+      content: [{ type: 'image' as const, mediaType: 'image/png' as const, data: 'AQID' }],
+    }))
+    await saveStarted.promise
+    const selecting = api.sessions.selectModel(request({
+      sessionId: parentId,
+      provider: 'deepseek-official',
+      model: 'deepseek-v4-flash',
+    }))
+    await Promise.resolve()
+
+    expect(selectModel).not.toHaveBeenCalled()
+    releaseSave.resolve([imageRef])
+    await expect(admitting).resolves.toMatchObject({ result: { ok: true } })
+    await expect(selecting).resolves.toMatchObject({ result: { ok: true } })
+    expect(prompt).toHaveBeenCalledBefore(selectModel)
+  })
+
+  it('rechecks image modality after an earlier model selection completes', async () => {
+    const selectionStarted = Promise.withResolvers<void>()
+    const releaseSelection = Promise.withResolvers<void>()
+    const selectModel = vi.fn(async () => {
+      selectionStarted.resolve()
+      await releaseSelection.promise
+      return { provider: 'deepseek-official', model: 'deepseek-v4-flash' }
+    })
+    const modelSupportsImages = vi.fn(async () => false)
+    const saveImages = vi.fn(async () => [imageRef])
+    const api = createEdgeApi(runtime({
+      attachmentStore: vi.fn(async () => ({ saveImages } as unknown as AttachmentStore)),
+      modelSupportsImages,
+      selectModel,
+    }, { imageLimits }))
+
+    const selecting = api.sessions.selectModel(request({
+      sessionId: parentId,
+      provider: 'deepseek-official',
+      model: 'deepseek-v4-flash',
+    }))
+    await selectionStarted.promise
+    const admitting = api.sessions.prompt(request({
+      sessionId: parentId,
+      mode: 'queue' as const,
+      content: [{ type: 'image' as const, mediaType: 'image/png' as const, data: 'AQID' }],
+    }))
+    await Promise.resolve()
+
+    expect(modelSupportsImages).not.toHaveBeenCalled()
+    releaseSelection.resolve()
+    await expect(selecting).resolves.toMatchObject({ result: { ok: true } })
+    await expect(admitting).resolves.toMatchObject({
+      result: {
+        ok: false,
+        error: { code: 'attachment-error', details: { reason: 'MODEL_DOES_NOT_SUPPORT_IMAGES' } },
+      },
+    })
+    expect(saveImages).not.toHaveBeenCalled()
+  })
+
   it('authorizes attachment reads through canonical session references', async () => {
     const readImage = vi.fn(async () => ({ ref: imageRef, data: Uint8Array.of(1, 2, 3) }))
     const referencedImage = vi.fn(async () => imageRef)
@@ -605,6 +688,53 @@ describe('Edge upstream API invariants', () => {
       value: { attachment: imageRef, data: 'AQID' },
     })
     expect(referencedImage).toHaveBeenCalledWith(parentId, String(imageRef.attachmentId))
+  })
+
+  it('finds an authorized image after a bounded cold-history page', async () => {
+    const prefix = Array.from({ length: EDGE_HISTORY_PAGE_LIMITS.maxEvents }, (_, seq) => (
+      historyMessage(seq)
+    ))
+    const imageEvent: SessionEvent = {
+      type: 'user/message',
+      seq: EDGE_HISTORY_PAGE_LIMITS.maxEvents,
+      time: EDGE_HISTORY_PAGE_LIMITS.maxEvents,
+      data: createUserMessage({
+        content: [{ type: 'image', attachment: imageRef }],
+        source: { kind: 'user' },
+      }),
+      surfaceOp: 'append',
+    }
+    const page = (events: SessionEvent[], hasMore: boolean): EdgeEventPage => ({
+      meta: { id: parentId, version: 0, createdAt: 1 },
+      events,
+      hasMore,
+    })
+    const readPage = vi.fn(async (fromSeq: number) => fromSeq === 0
+      ? page(prefix, true)
+      : page([imageEvent], false))
+
+    await expect(findReferencedImageInPages(
+      readPage,
+      String(imageRef.attachmentId),
+      parentId,
+    )).resolves.toEqual(imageRef)
+    expect(readPage).toHaveBeenNthCalledWith(1, 0)
+    expect(readPage).toHaveBeenNthCalledWith(2, EDGE_HISTORY_PAGE_LIMITS.maxEvents)
+  })
+
+  it('rejects a cold-history page that cannot make bounded progress', async () => {
+    const readPage = vi.fn(async (): Promise<EdgeEventPage> => ({
+      meta: { id: parentId, version: 0, createdAt: 1 },
+      events: [],
+      hasMore: true,
+    }))
+
+    await expect(findReferencedImageInPages(
+      readPage,
+      String(imageRef.attachmentId),
+      parentId,
+    )).rejects.toMatchObject({ code: 'INVALID_DATA' })
+    expect(readPage).toHaveBeenCalledOnce()
   })
 
   it('projects image limits only when an attachment backend is composed', async () => {

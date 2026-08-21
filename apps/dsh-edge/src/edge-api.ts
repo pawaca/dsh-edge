@@ -95,13 +95,13 @@ export interface EdgeApiRuntime {
 
 /** Build the typed upstream API for one isolated Edge instance. */
 export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
-  const imageAdmissionChains = new Map<SessionId, Promise<void>>()
-  const serializeImageAdmission = <T>(sessionId: SessionId, operation: () => Promise<T>) => {
-    const result = (imageAdmissionChains.get(sessionId) ?? Promise.resolve()).then(operation)
+  const imageMutationChains = new Map<SessionId, Promise<void>>()
+  const serializeImageMutation = <T>(sessionId: SessionId, operation: () => Promise<T>) => {
+    const result = (imageMutationChains.get(sessionId) ?? Promise.resolve()).then(operation)
     const tail = result.then(() => undefined, () => undefined)
-    imageAdmissionChains.set(sessionId, tail)
+    imageMutationChains.set(sessionId, tail)
     return result.finally(() => {
-      if (imageAdmissionChains.get(sessionId) === tail) imageAdmissionChains.delete(sessionId)
+      if (imageMutationChains.get(sessionId) === tail) imageMutationChains.delete(sessionId)
     })
   }
   const api: ApiProxy = {
@@ -231,23 +231,25 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
 
       async selectModel(request) {
         const { sessionId, provider, model, reasoningEffort } = request.payload
-        try {
-          const selected = await runtime.sessions.selectModel(sessionId, {
-            provider,
-            model,
-            ...reasoningEffort === undefined ? {} : { reasoningEffort },
-          })
-          return ok(request, { selected })
-        } catch (error) {
-          if (!(error instanceof EdgeSessionStoreError)) {
-            return fail(request, {
-              code: 'model-unavailable',
-              message: error instanceof Error ? error.message : String(error),
-              details: { provider, model },
+        return await serializeImageMutation(sessionId, async () => {
+          try {
+            const selected = await runtime.sessions.selectModel(sessionId, {
+              provider,
+              model,
+              ...reasoningEffort === undefined ? {} : { reasoningEffort },
             })
+            return ok(request, { selected })
+          } catch (error) {
+            if (!(error instanceof EdgeSessionStoreError)) {
+              return fail(request, {
+                code: 'model-unavailable',
+                message: error instanceof Error ? error.message : String(error),
+                details: { provider, model },
+              })
+            }
+            return sessionFailure(request, error, sessionId)
           }
-          return sessionFailure(request, error, sessionId)
-        }
+        })
       },
 
       async rename(request) {
@@ -355,7 +357,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
             return sessionFailure(request, error, sessionId)
           }
         }
-        return hasImage ? serializeImageAdmission(sessionId, admit) : admit()
+        return hasImage ? serializeImageMutation(sessionId, admit) : admit()
       },
 
       async attachment(request): Promise<RpcResponse<{

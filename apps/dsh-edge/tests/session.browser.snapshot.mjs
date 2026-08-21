@@ -288,6 +288,70 @@ describe('dsh-edge assembled browser snapshot', () => {
       rmSync(persistedState, { recursive: true, force: true })
     }
   }, 60_000)
+
+  it('keeps image intake disabled when a temporary preview has no attachment backend', async () => {
+    const persistedState = mkdtempSync(join(tmpdir(), 'dsh-edge-browser-temporary-'))
+    const config = join(persistedState, 'wrangler.json')
+    await writePrebuiltModeWranglerConfig('direct', config)
+    let worker
+    let browser
+
+    try {
+      worker = await unstable_dev(workerArtifactPath('direct'), {
+        config,
+        persistTo: persistedState,
+        vars: {
+          DEEPSEEK_API_KEY: 'keyless-browser-temporary-no-call',
+          DSH_EDGE_ACCESS_KEY: ACCESS_KEY,
+        },
+        logLevel: 'error',
+        experimental: {
+          disableExperimentalWarning: true,
+          showInteractiveDevSession: false,
+          watch: false,
+        },
+      })
+      const channel = process.env.DSH_EDGE_PLAYWRIGHT_CHANNEL
+      browser = await chromium.launch(channel ? { channel } : undefined)
+      const page = await browser.newPage({ locale: 'en-US' })
+      const origin = `http://${worker.address}:${String(worker.port)}`
+      await page.goto(origin, { waitUntil: 'load' })
+      await page.getByLabel('Owner access key').fill(ACCESS_KEY)
+      await page.getByRole('button', { name: 'Unlock', exact: true }).click()
+      await page.waitForURL(`${origin}/`)
+      await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
+      const ownerCookie = (await page.context().cookies())
+        .find(cookie => cookie.name === 'dsh_edge_owner')
+      expect(ownerCookie).toBeDefined()
+      const ownerCookieHeader = `${ownerCookie.name}=${ownerCookie.value}`
+      const sessions = await edgeRpc(worker, ownerCookieHeader, 'session.list', {})
+      expect(sessions.result.ok).toBe(true)
+      expect(sessions.result.value.items[0].projections.values).not.toHaveProperty('imageLimits')
+
+      const composer = page.locator('textarea:enabled').last()
+      await composer.waitFor({ timeout: 15_000 })
+      await composer.evaluate((textarea) => {
+        const png = Uint8Array.from(
+          atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4XmP4z8DwHwAFAAH/NQZ7kgAAAABJRU5ErkJggg=='),
+          character => character.charCodeAt(0),
+        )
+        const transfer = new DataTransfer()
+        transfer.items.add(new File([png], 'one-pixel.png', { type: 'image/png' }))
+        textarea.dispatchEvent(new ClipboardEvent('paste', {
+          bubbles: true,
+          cancelable: true,
+          clipboardData: transfer,
+        }))
+      })
+      expect(await page.getByRole('group', { name: 'Pending images' }).count()).toBe(0)
+      await page.waitForTimeout(250)
+      expect(await page.getByRole('group', { name: 'Pending images' }).count()).toBe(0)
+    } finally {
+      await browser?.close()
+      await worker?.stop()
+      rmSync(persistedState, { recursive: true, force: true })
+    }
+  }, 60_000)
 })
 
 async function stableAria(page, selector) {
