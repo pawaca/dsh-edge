@@ -41,7 +41,10 @@ if (!pinHook.includes("dependencies['@deepseek-ai/dsh-base']")) {
 }
 
 const lock = await readFile(join(standaloneRoot, 'pnpm-lock.yaml'), 'utf8')
-const harnessVersions = new Set(lock.match(/0\.1\.0-rc\.\d+/g) ?? [])
+const harnessVersions = new Set(
+  [...lock.matchAll(/@deepseek-ai\/dsh-[^@:'"\s()]+@(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)/g)]
+    .map(match => match[1]),
+)
 if (harnessVersions.size !== 1 || !harnessVersions.has(targetVersion)) {
   throw new Error(`Standalone lock mixes Harness versions: ${[...harnessVersions].join(', ') || 'none'}.`)
 }
@@ -109,7 +112,7 @@ const index = await readFile(join(webRoot, 'index.html'), 'utf8')
 if (!index.includes('window.__ModuleLoader__=')) {
   throw new Error('Standalone Web shell omitted the upstream module-loader bootstrap facade.')
 }
-const bootMatch = index.match(/window\.__DSH_BOOT__ = (\{.*?\})<\/script>/s)
+const bootMatch = index.match(/globalThis\["__DSH_BOOT__"\] = (\{.*?\})<\/script>/s)
 if (bootMatch === null) throw new Error('Standalone Web shell has no boot manifest.')
 const boot = JSON.parse(bootMatch[1])
 if (!Array.isArray(boot.entries) || boot.entries.length !== expectedBootShape.length) {
@@ -170,5 +173,6 @@ function bootShape(graph) {
     id: entry.id,
     ...(entry.inject === undefined ? {} : { inject: entry.inject }),
     ...(entry.immediately === undefined ? {} : { immediately: entry.immediately }),
+    ...(entry.external === undefined ? {} : { external: entry.external }),
   }))
 }

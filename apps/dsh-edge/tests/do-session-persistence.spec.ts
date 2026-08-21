@@ -3,7 +3,7 @@
 import { DatabaseSync, type SQLInputValue, type SQLOutputValue } from 'node:sqlite'
 import { readFileSync } from 'node:fs'
 import { Context } from '@deepseek-ai/cordis'
-import { createAssistantMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
+import { ReasoningEffortId, createAssistantMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, {
   SESSION_FORMAT_VERSION,
   SessionId,
@@ -89,6 +89,45 @@ function cursor<T extends TestRow>(
 }
 
 describe('durable-object bounded event pages', () => {
+  it('projects the latest upstream request/header model selection with a point read', async () => {
+    const storage = new TestDurableObjectStorage()
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(DurableObjectSessionPersistence, {
+      storage: storage as never,
+    })
+    const persistence = ctx.sessionPersistence as DurableObjectSessionPersistence
+    const id = SessionId('model-selection-projection')
+    try {
+      await persistence.create({ id, version: SESSION_FORMAT_VERSION, createdAt: 1 })
+      await persistence.append(id, [{
+        type: 'request/header',
+        seq: 0,
+        time: 2,
+        data: {
+          header: {
+            config: {
+              provider: 'deepseek-official',
+              model: 'deepseek-v4-flash-vision-exp',
+              reasoningEffort: ReasoningEffortId('high'),
+            },
+          },
+          reason: 'initial',
+        },
+      }])
+
+      expect(persistence.readLatestModelSelection(id)).toEqual({
+        provider: 'deepseek-official',
+        model: 'deepseek-v4-flash-vision-exp',
+        reasoningEffort: 'high',
+      })
+      expect(storage.queries.at(-1)).toMatch(/type = 'request\/header'.*ORDER BY seq DESC LIMIT 1/su)
+    } finally {
+      await fiber.dispose()
+      storage.close()
+    }
+  })
+
   it('resumes and extends the released 0.1.3 session state', async () => {
     const storage = new TestDurableObjectStorage()
     storage.loadFixture(readFileSync(

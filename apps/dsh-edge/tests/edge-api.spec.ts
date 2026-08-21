@@ -180,6 +180,71 @@ describe('Edge upstream API invariants', () => {
     })
   })
 
+  it('projects the upstream DeepSeek catalog and applies a session-local model selection', async () => {
+    const modelCatalog = vi.fn(async () => ({
+      groups: [{
+        id: 'deepseek-official',
+        name: 'DeepSeek',
+        models: [
+          { id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash' },
+          { id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro' },
+          { id: 'deepseek-v4-flash-vision-exp', name: 'DeepSeek-V4-Flash-Vision-Exp' },
+        ],
+      }],
+      failures: [],
+    }))
+    const modelSelection = vi.fn(async () => ({
+      provider: 'deepseek-official',
+      model: 'deepseek-v4-pro',
+    }))
+    const selectModel = vi.fn(async () => ({
+      provider: 'deepseek-official',
+      model: 'deepseek-v4-flash-vision-exp',
+      reasoningEffort: 'high',
+    }))
+    const api = createEdgeApi(runtime({ modelCatalog, modelSelection, selectModel }))
+
+    const current = await api.sessions.models(request({ sessionId: parentId }))
+    expect(current.result).toMatchObject({
+      ok: true,
+      value: {
+        current: { provider: 'deepseek-official', model: 'deepseek-v4-pro' },
+        groups: [{ models: [
+          { id: 'deepseek-v4-flash' },
+          { id: 'deepseek-v4-pro' },
+          { id: 'deepseek-v4-flash-vision-exp' },
+        ] }],
+      },
+    })
+    expect(modelSelection).toHaveBeenCalledWith(parentId, 'deepseek-test')
+
+    const selected = await api.sessions.selectModel(request({
+      sessionId: parentId,
+      provider: 'deepseek-official',
+      model: 'deepseek-v4-flash-vision-exp',
+      reasoningEffort: 'high',
+    }))
+    expect(selected.result).toEqual({
+      ok: true,
+      value: {
+        selected: {
+          provider: 'deepseek-official',
+          model: 'deepseek-v4-flash-vision-exp',
+          reasoningEffort: 'high',
+        },
+      },
+    })
+    expect(selectModel).toHaveBeenCalledWith(parentId, {
+      provider: 'deepseek-official',
+      model: 'deepseek-v4-flash-vision-exp',
+      reasoningEffort: 'high',
+    })
+
+    const global = await api.llm.models(request({}))
+    expect(global.result).toMatchObject({ ok: true, value: { groups: [{ id: 'deepseek-official' }] } })
+    expect(modelCatalog).toHaveBeenCalledTimes(2)
+  })
+
   it('serves bounded content search and preserves cancellation', async () => {
     const searchApiSessions = vi.fn(async (_query: string, _signal?: AbortSignal) => ({
       items: [{ sessionId: parentId, snippet: 'matching current message' }],

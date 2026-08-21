@@ -1,8 +1,8 @@
 diff --git a/lib/client.js b/lib/client.js
-index 4b7dd351633b037c7a2e5b028a739772ae07086e..3d4ac403382f84a9b5d576c9c560a122c8284b76 100644
+index aa3c9c37d1f2932d34085a8dc112ba382069d318..e86e78814bb880076360cb32e3a379f08f8c0326 100644
 --- a/lib/client.js
 +++ b/lib/client.js
-@@ -3742,14 +3742,12 @@ window.__ModuleLoader__.load({
+@@ -3848,14 +3848,12 @@ window.__ModuleLoader__.load({
  				keyboard.track(keyboard.snapshot.draft, caret);
  			};
  			const intakeImages = (0, react.useCallback)((files) => {
@@ -22,7 +22,7 @@ index 4b7dd351633b037c7a2e5b028a739772ae07086e..3d4ac403382f84a9b5d576c9c560a122
  					return addImages(files);
  				})();
  				if (rejected !== null) showToast(rejected);
-@@ -3760,7 +3758,7 @@ window.__ModuleLoader__.load({
+@@ -3866,7 +3864,7 @@ window.__ModuleLoader__.load({
  				showToast,
  				t
  			]);

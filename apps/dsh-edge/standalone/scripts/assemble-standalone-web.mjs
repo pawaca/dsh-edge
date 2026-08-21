@@ -5,7 +5,8 @@ import { createRequire } from 'node:module'
 import { cp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { injectBootManifest } from '@deepseek-ai/dsh-client-modules'
+import { bootInjections, orderByModuleGraph } from '@deepseek-ai/dsh-client-modules'
+import { renderIndexInjections } from '@deepseek-ai/dsh-host-webserver'
 
 const standaloneRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const appRoot = resolve(standaloneRoot, '..')
@@ -155,6 +156,9 @@ async function copyBundle(record, pkg, entries) {
     rev,
     ...(Array.isArray(declaration.inject) ? { inject: declaration.inject } : {}),
     ...(declaration.immediately === true ? { immediately: true } : {}),
+    ...(Array.isArray(declaration.external) && declaration.external.length > 0
+      ? { external: declaration.external }
+      : {}),
   })
 }
 
@@ -200,10 +204,12 @@ async function main() {
     }
   }
 
-  const graph = { rev: shortHash(JSON.stringify(entries)), entries }
+  const orderedEntries = orderByModuleGraph(entries)
+  const graph = { rev: shortHash(JSON.stringify(orderedEntries)), entries: orderedEntries }
   const indexPath = join(outputRoot, 'index.html')
   const index = await readFile(indexPath, 'utf8')
-  await writeFile(indexPath, injectOwnerSessionGuard(injectBootManifest(index, graph)))
+  const bootstrappedIndex = renderIndexInjections(index, bootInjections(graph))
+  await writeFile(indexPath, injectOwnerSessionGuard(bootstrappedIndex))
   await writeFile(join(outputRoot, '_headers'), assetSecurityHeaders)
   console.log(
     `Assembled ${entries.length} published upstream client plugins in ${relative(repoRoot, outputRoot)} (rev ${graph.rev}).`,

@@ -4,7 +4,6 @@ import {
   LlmAdapter,
   LlmError,
   assertUsableApiKey,
-  resolveRetryPolicy,
   type GenerateOptions,
   type LlmModelInfo,
   type LlmProviderInfo,
@@ -14,10 +13,8 @@ import {
 } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import {
-  DEFAULT_CONTEXT_WINDOW,
-  DEFAULT_MAX_REQUEST_IMAGE_BYTES,
   DeepSeekAdapter,
-  type DeepSeekConnectionOptions,
+  resolveAdapterOptions,
 } from '@deepseek-ai/dsh-llm-deepseek'
 
 const API_KEY_REF = 'DEEPSEEK_API_KEY' as CredentialRef
@@ -108,17 +105,13 @@ function createEdgeDeepSeekModel(options: {
   reasoningEffort?: EdgeReasoningEffort
   streamIdleTimeoutMs?: number
 }): DeepSeekAdapter {
-  const connection: DeepSeekConnectionOptions = {
+  const connection = resolveAdapterOptions({
     apiKeyEnv: API_KEY_REF,
     baseURL: options.baseURL ?? DEFAULT_BASE_URL,
-    defaults: { reasoningEffort: options.reasoningEffort ?? DEFAULT_REASONING_EFFORT },
+    reasoningEffort: options.reasoningEffort ?? DEFAULT_REASONING_EFFORT,
     maxTokens: options.maxTokens ?? DEFAULT_MAX_TOKENS,
-    defaultContextWindow: DEFAULT_CONTEXT_WINDOW,
-    models: [],
     streamIdleTimeoutMs: options.streamIdleTimeoutMs ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS,
-    maxRequestImageBytes: DEFAULT_MAX_REQUEST_IMAGE_BYTES,
-    retryPolicy: resolveRetryPolicy(undefined, 'dsh-edge.retryPolicy'),
-  }
+  })
   const anonymousRequestId = crypto.randomUUID() as AnonymousUserId
   return new DeepSeekAdapter({
     options: () => connection,

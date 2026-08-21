@@ -95,6 +95,21 @@ async function followup(agent: Agent, text: string): Promise<void> {
 }
 
 describe('dsh-edge native agent runtime', () => {
+  it('reuses the upstream DeepSeek catalog including the experimental vision model', async () => {
+    const adapter = new EdgeDeepSeekAdapter()
+    const models = await adapter.listModels('deepseek-official')
+
+    expect(models.map(model => model.id)).toEqual([
+      'deepseek-v4-flash',
+      'deepseek-v4-pro',
+      'deepseek-v4-flash-vision-exp',
+    ])
+    await expect(adapter.resolveModel(
+      'deepseek-official',
+      'deepseek-v4-flash-vision-exp',
+    )).resolves.toMatchObject({ inputModalities: ['text', 'image'] })
+  })
+
   it('validates the deployment stream idle timeout', () => {
     expect(resolveEdgeStreamIdleTimeoutMs()).toBe(120_000)
     expect(resolveEdgeStreamIdleTimeoutMs('600000')).toBe(600_000)

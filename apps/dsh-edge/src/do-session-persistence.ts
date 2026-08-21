@@ -82,6 +82,13 @@ interface EventRow extends Record<string, SqlStorageValue> {
   ignorable: number | null
 }
 
+/** Minimal request-routing projection read without materializing a cold log. */
+export interface EdgeStoredModelSelection {
+  provider: string
+  model: string
+  reasoningEffort?: string
+}
+
 interface EventSizeRow extends Record<string, SqlStorageValue> {
   seq: number
   stored_bytes: number
@@ -517,6 +524,28 @@ export class DurableObjectSessionPersistence
       )
     }
     return header
+  }
+
+  /** Read the latest canonical model selection recorded by an upstream request/header. */
+  readLatestModelSelection(id: SessionId): EdgeStoredModelSelection | undefined {
+    const row = this.storage.sql.exec<Pick<EventRow, 'data'>>(
+      `SELECT data FROM dsh_session_events
+       WHERE session_id = ? AND type = 'request/header'
+       ORDER BY seq DESC LIMIT 1`,
+      id,
+    ).toArray()[0]
+    if (row === undefined) return undefined
+    let data: unknown
+    try {
+      data = JSON.parse(row.data)
+    } catch {
+      throw new Error(`stored session ${id} has unparsable request/header data`)
+    }
+    const config = requestHeaderConfig(data)
+    if (config === undefined) {
+      throw new Error(`stored session ${id} has invalid request/header data`)
+    }
+    return config
   }
 
   /** Retain the process-local blank identity across Durable Object hibernation. */
@@ -1001,6 +1030,26 @@ function isSessionTitleMessageSeqs(value: unknown): value is number[] {
     && value.every((seq: unknown) => typeof seq === 'number'
       && Number.isSafeInteger(seq)
       && seq >= 0)
+}
+
+/** Validate only the upstream request-routing fields this abbreviated projection consumes. */
+function requestHeaderConfig(value: unknown): EdgeStoredModelSelection | undefined {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const header = (value as Record<string, unknown>)['header']
+  if (header === null || typeof header !== 'object' || Array.isArray(header)) return undefined
+  const config = (header as Record<string, unknown>)['config']
+  if (config === null || typeof config !== 'object' || Array.isArray(config)) return undefined
+  const fields = config as Record<string, unknown>
+  if (typeof fields['provider'] !== 'string' || fields['provider'].length === 0) return undefined
+  if (typeof fields['model'] !== 'string' || fields['model'].length === 0) return undefined
+  const reasoningEffort = fields['reasoningEffort']
+  if (reasoningEffort !== undefined
+    && (typeof reasoningEffort !== 'string' || reasoningEffort.length === 0)) return undefined
+  return {
+    provider: fields['provider'],
+    model: fields['model'],
+    ...reasoningEffort === undefined ? {} : { reasoningEffort },
+  }
 }
 
 function hasOnlyKeys(

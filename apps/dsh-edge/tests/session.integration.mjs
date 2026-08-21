@@ -131,7 +131,7 @@ try {
   assert.equal(shell.headers.get('x-frame-options'), 'DENY')
   assert.match(shell.headers.get('content-security-policy') ?? '', /frame-ancestors 'none'/u)
   const shellHtml = await shell.text()
-  assert.match(shellHtml, /window\.__DSH_BOOT__/u)
+  assert.match(shellHtml, /globalThis\["__DSH_BOOT__"\]/u)
   assert.match(shellHtml, /@deepseek-ai\/dsh-client-connection/u)
   assert.match(
     shellHtml,
@@ -142,7 +142,7 @@ try {
     assert.equal(aliasShell.status, 200)
     assert.equal(aliasShell.headers.get('x-frame-options'), 'DENY')
     assert.match(aliasShell.headers.get('content-security-policy') ?? '', /frame-ancestors 'none'/u)
-    assert.match(await aliasShell.text(), /window\.__DSH_BOOT__/u)
+    assert.match(await aliasShell.text(), /globalThis\["__DSH_BOOT__"\]/u)
   }
   const connectionBundle = await assetRequest(
     '/plugins/@deepseek-ai/dsh-client-connection/client.js',
@@ -522,6 +522,30 @@ try {
   )
   assert.equal(commandCatalog.response.headers.get('x-dsh-edge-instance'), null)
 
+  const globalModels = await rpc('llm.models', {})
+  assert.equal(globalModels.body.result.ok, true)
+  assert.deepEqual(
+    globalModels.body.result.value.groups.flatMap(group => group.models.map(model => model.id)),
+    ['deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-v4-flash-vision-exp'],
+  )
+  const initialSessionModels = await rpc('session.models', { sessionId: protocolSessionId })
+  assert.equal(initialSessionModels.body.result.ok, true)
+  assert.deepEqual(initialSessionModels.body.result.value.current, {
+    provider: 'deepseek-official',
+    model: 'deepseek-v4-pro',
+  })
+  const selectedVision = await rpc('session.selectModel', {
+    sessionId: protocolSessionId,
+    provider: 'deepseek-official',
+    model: 'deepseek-v4-flash-vision-exp',
+  })
+  assert.equal(selectedVision.body.result.ok, true)
+  assert.deepEqual(selectedVision.body.result.value.selected, {
+    provider: 'deepseek-official',
+    model: 'deepseek-v4-flash-vision-exp',
+    reasoningEffort: 'high',
+  })
+
   const protocolList = await rpc('session.list', {})
   assert.equal(protocolList.response.headers.get('access-control-allow-origin'), '*')
   const protocolSummary = protocolList.body.result.value.items
@@ -541,6 +565,18 @@ try {
     .find(item => item.sessionId === protocolSessionId)
   assert.equal(restoredBlank.blank, true)
   assert.equal(restoredBlank.projections.asOfSeq, -1)
+  const restoredSessionModels = await rpc('session.models', { sessionId: protocolSessionId })
+  assert.deepEqual(restoredSessionModels.body.result.value.current, {
+    provider: 'deepseek-official',
+    model: 'deepseek-v4-flash-vision-exp',
+    reasoningEffort: 'high',
+  })
+  const restoredDefaultModel = await rpc('session.selectModel', {
+    sessionId: protocolSessionId,
+    provider: 'deepseek-official',
+    model: 'deepseek-v4-pro',
+  })
+  assert.equal(restoredDefaultModel.body.result.ok, true)
 
   const blankFork = await rpc('session.fork', { sessionId: protocolSessionId })
   assert.equal(blankFork.body.result.ok, false)

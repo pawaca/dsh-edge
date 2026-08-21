@@ -4,7 +4,6 @@ import type {
   ApiProxy,
   CredentialView,
   HistoryEntry,
-  ModelProviderGroup,
   PromptContentPart,
   QueueAction,
   RpcError,
@@ -88,12 +87,6 @@ export interface EdgeApiRuntime {
 
 /** Build the typed upstream API for one isolated Edge instance. */
 export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
-  const modelGroups = (): ModelProviderGroup[] => [{
-    id: EDGE_PROVIDER,
-    name: 'DeepSeek',
-    models: [{ id: runtime.model, name: runtime.model }],
-  }]
-
   const api: ApiProxy = {
     sessions: {
       async list(request) {
@@ -204,12 +197,15 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
 
       async models(request) {
         try {
-          await runtime.sessions.requireSession(request.payload.sessionId)
+          const [current, catalog] = await Promise.all([
+            runtime.sessions.modelSelection(request.payload.sessionId, runtime.model),
+            runtime.sessions.modelCatalog(),
+          ])
           return ok(request, {
-            current: { provider: EDGE_PROVIDER, model: runtime.model },
+            current,
             routable: true,
-            groups: modelGroups(),
-            failures: [],
+            groups: catalog.groups,
+            failures: catalog.failures,
           })
         } catch (error) {
           return sessionFailure(request, error, request.payload.sessionId)
@@ -218,17 +214,21 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
 
       async selectModel(request) {
         const { sessionId, provider, model, reasoningEffort } = request.payload
-        if (provider !== EDGE_PROVIDER || model !== runtime.model || reasoningEffort !== undefined) {
-          return fail(request, {
-            code: 'model-unavailable',
-            message: `This Edge instance serves only ${EDGE_PROVIDER}/${runtime.model}.`,
-            details: { provider, model },
-          })
-        }
         try {
-          await runtime.sessions.requireSession(sessionId)
-          return ok(request, { selected: { provider, model } })
+          const selected = await runtime.sessions.selectModel(sessionId, {
+            provider,
+            model,
+            ...reasoningEffort === undefined ? {} : { reasoningEffort },
+          })
+          return ok(request, { selected })
         } catch (error) {
+          if (!(error instanceof EdgeSessionStoreError)) {
+            return fail(request, {
+              code: 'model-unavailable',
+              message: error instanceof Error ? error.message : String(error),
+              details: { provider, model },
+            })
+          }
           return sessionFailure(request, error, sessionId)
         }
       },
@@ -544,10 +544,9 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
           declared: false,
         }],
       })),
-      models: request => Promise.resolve(ok(request, {
-        groups: modelGroups(),
-        failures: [],
-      })),
+      async models(request) {
+        return ok(request, await runtime.sessions.modelCatalog())
+      },
       discoverModels: unsupported,
     },
 
