@@ -82,7 +82,11 @@ import { handleEdgeRemote } from './edge-remotes.ts'
 import type { EdgeApiSessionSummary } from './session-store.ts'
 import { EDGE_WORKSPACE_ID, EdgeWorkspaceStore } from './edge-workspace-store.ts'
 import { DSH_EDGE_VERSION } from './release.ts'
-import { EDGE_R2_IMAGE_LIMITS } from './edge-attachment-store.ts'
+import {
+  EDGE_DO_IMAGE_LIMITS,
+  EDGE_R2_IMAGE_LIMITS,
+  resolveEdgeAttachmentStorage,
+} from './edge-attachment-store.ts'
 
 const MAX_SESSION_TITLE_LENGTH = 160
 const MAX_SESSION_TITLE_BYTES = 640
@@ -174,10 +178,15 @@ interface ActiveTurn {
 
 /** One isolated persistent workspace with its conversations and active agent turn. */
 export class DshEdgeInstance extends DshEdgeWorkspace {
+  private readonly attachmentStorage = resolveEdgeAttachmentStorage(
+    this.ctx.storage,
+    this.env.DSH_EDGE_ATTACHMENTS,
+  )
   private readonly sessions = new EdgeSessionStore(
     this.ctx.storage,
     {
       readDeepSeekApiKey: () => this.env.DEEPSEEK_API_KEY,
+      attachmentStorage: this.attachmentStorage,
       ...this.env.DEEPSEEK_SEARCH_BASE_URL === undefined
         ? {}
         : { searchBaseURL: this.env.DEEPSEEK_SEARCH_BASE_URL },
@@ -194,10 +203,10 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     sessions: this.sessions,
     model: this.model,
     version: DSH_EDGE_VERSION,
-    ...this.env.DSH_EDGE_ATTACHMENTS === undefined
-      ? {}
-      : { imageLimits: EDGE_R2_IMAGE_LIMITS },
-    deploymentProfile: () => resolveEdgeDeploymentProfile(this.env),
+    imageLimits: this.attachmentStorage === 'temporary-do'
+      ? EDGE_DO_IMAGE_LIMITS
+      : EDGE_R2_IMAGE_LIMITS,
+    deploymentProfile: () => resolveEdgeDeploymentProfile(this.env, this.attachmentStorage),
     describeCredential: ref => this.sessions.describeCredential(ref),
     isRunning: sessionId => this.activeTurns.has(sessionId),
     prompt: input => this.startApiPrompt(input),

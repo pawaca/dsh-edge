@@ -17,10 +17,16 @@ const RELEASED_ARCHIVED_SESSION_ID = 'session-v0-1-3-blank'
 const persistedState = mkdtempSync(join(tmpdir(), 'dsh-edge-integration-'))
 const runtimeMode = process.env.DSH_EDGE_TEST_RUNTIME_MODE ?? 'direct'
 assert.ok(runtimeMode === 'direct' || runtimeMode === 'isolated', 'invalid test runtime mode')
+const attachmentBackend = process.env.DSH_EDGE_TEST_ATTACHMENT_BACKEND ?? 'private-r2'
+assert.ok(
+  attachmentBackend === 'private-r2' || attachmentBackend === 'temporary-do',
+  'invalid test attachment backend',
+)
 const runtimeConfig = join(persistedState, `wrangler-${runtimeMode}.json`)
-await writePrebuiltModeWranglerConfig(runtimeMode, runtimeConfig, {
-  r2BucketName: 'dsh-edge-integration-attachments',
-})
+await writePrebuiltModeWranglerConfig(runtimeMode, runtimeConfig,
+  attachmentBackend === 'private-r2'
+    ? { r2BucketName: 'dsh-edge-integration-attachments' }
+    : {})
 const mock = await startMockDeepSeek()
 let worker
 let releasedStateSeeder
@@ -1066,7 +1072,7 @@ try {
     && message.payload.sessionId === protocolSessionId
     && message.payload.running === false)
 
-  const imageSessionId = 'session-r2-image'
+  const imageSessionId = 'session-image'
   const createdImageSession = await rpc('session.create', { sessionId: imageSessionId })
   assert.equal(createdImageSession.body.result.ok, true)
   const imageModel = await rpc('session.selectModel', {

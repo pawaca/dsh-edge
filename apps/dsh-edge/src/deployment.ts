@@ -15,6 +15,7 @@ import {
   type EdgeCommandTimeoutPolicy,
 } from './workspace.ts'
 import { DSH_EDGE_UPSTREAM_VERSION, DSH_EDGE_VERSION } from './release.ts'
+import type { EdgeAttachmentStorage } from './edge-attachment-store.ts'
 
 declare const __DSH_EDGE_DEPLOYMENT_ID__: string | undefined
 
@@ -50,7 +51,7 @@ export interface EdgeDeploymentConfig {
 export interface EdgeDeploymentProfile {
   shell: 'just-bash-direct' | 'just-bash-isolated'
   storage: 'durable-object-sqlite-vfs'
-  attachmentStorage: 'private-r2' | 'unavailable'
+  attachmentStorage: 'private-r2' | 'temporary-do'
   deploymentId: string
   apiKeyConfigured: boolean
   baseURL: string
@@ -109,13 +110,14 @@ function projectedEdgeBaseURL(raw?: string): string {
 /** Resolve the effective runtime profile without retaining or returning a credential value. */
 export function resolveEdgeDeploymentProfile(
   source: EdgeDeploymentConfigSource,
+  attachmentStorage?: EdgeAttachmentStorage,
 ): EdgeDeploymentProfile {
   return {
     shell: source.LOADER === undefined ? 'just-bash-direct' : 'just-bash-isolated',
     storage: 'durable-object-sqlite-vfs',
-    attachmentStorage: source.DSH_EDGE_ATTACHMENTS === undefined
-      ? 'unavailable'
-      : 'private-r2',
+    attachmentStorage: attachmentStorage ?? (source.DSH_EDGE_ATTACHMENTS === undefined
+      ? 'temporary-do'
+      : 'private-r2'),
     deploymentId: resolveEdgeDeploymentId(),
     apiKeyConfigured: edgeDeploymentApiKeyConfigured(source),
     baseURL: projectedEdgeBaseURL(source.DEEPSEEK_BASE_URL),

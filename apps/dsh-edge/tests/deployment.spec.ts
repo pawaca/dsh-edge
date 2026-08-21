@@ -62,7 +62,7 @@ describe('dsh-edge deployment configuration', () => {
     expect(profile).toEqual({
       shell: 'just-bash-isolated',
       storage: 'durable-object-sqlite-vfs',
-      attachmentStorage: 'unavailable',
+      attachmentStorage: 'temporary-do',
       deploymentId: 'local-development',
       apiKeyConfigured: true,
       baseURL: 'https://gateway.example/v1',
@@ -93,6 +93,13 @@ describe('dsh-edge deployment configuration', () => {
       DSH_EDGE_ATTACHMENTS: {},
     })).toMatchObject({ attachmentStorage: 'private-r2' })
     expect(JSON.stringify(profile)).not.toContain('binding')
+  })
+
+  it('lets one owner Durable Object project its pinned attachment backend', () => {
+    expect(resolveEdgeDeploymentProfile({
+      ...VALID_SOURCE,
+      DSH_EDGE_ATTACHMENTS: {},
+    }, 'temporary-do')).toMatchObject({ attachmentStorage: 'temporary-do' })
   })
 
   it('omits credential-bearing URL components only from the browser projection', () => {

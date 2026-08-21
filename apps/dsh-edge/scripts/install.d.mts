@@ -31,6 +31,7 @@ export interface InstallerUi {
     workerName: string
     paid: boolean
     temporary: boolean
+    attachmentStorage: 'private-r2' | 'temporary-do'
   }): Promise<boolean>
   acceptTemporaryTerms(): Promise<boolean>
   deploymentStart?(message: string): void
@@ -59,6 +60,7 @@ export interface InstallResult {
   publicUrl: string
   versionId?: string
   account?: CloudflareAccount
+  attachmentStorage: 'private-r2' | 'temporary-do'
   claimUrl?: string
   mode: RuntimeMode
   ownerSecret: string
@@ -111,6 +113,17 @@ export function wranglerDeployArgs(options: {
 export function parseDeploymentOutput(source: string): { publicUrl: string; versionId?: string }
 export function parseClaimUrl(source: string): string | undefined
 export function parseWorkerExistence(result: CommandResult): boolean
+export function detectExistingAttachmentStorage(options: {
+  workerName: string
+  mode: RuntimeMode
+  runWrangler: (args: string[], options?: {
+    environment?: NodeJS.ProcessEnv
+    signal?: AbortSignal
+  }) => Promise<CommandResult>
+  environment?: NodeJS.ProcessEnv
+  profile?: string
+  signal?: AbortSignal
+}): Promise<'private-r2' | 'temporary-do'>
 export function truncateUtf8Tail(value: string, maxBytes: number): string
 export function createOutputForwarder(
   source: NodeJS.ReadableStream,
