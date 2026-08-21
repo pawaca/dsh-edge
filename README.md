@@ -1,106 +1,97 @@
 # dsh-edge
 
+[![npm next](https://img.shields.io/npm/v/dsh-edge/next?label=npm%20next)](https://www.npmjs.com/package/dsh-edge)
+[![CI](https://github.com/pawaca/dsh-edge/actions/workflows/edge-ci.yml/badge.svg)](https://github.com/pawaca/dsh-edge/actions/workflows/edge-ci.yml)
+[![License: MIT](https://img.shields.io/github/license/pawaca/dsh-edge)](LICENSE)
+
 English | [中文](README.zh.md)
 
-Run DeepSeek Harness in your own Cloudflare account and use it from any browser. `dsh-edge` packages the upstream Web UI, agent loop, session protocol, DeepSeek Web Search, and a persistent workspace into one guided Cloudflare Workers installation.
+## DeepSeek Harness in your browser, deployed to Cloudflare with one command
 
-No server or GitHub repository is required. The installer can deploy a free single-owner instance, collect the required secrets without echoing them, and print the URL and owner access key when it finishes.
+DeepSeek Harness combines a capable coding-agent Web UI with a local host runtime. `dsh-edge` packages that experience for Cloudflare Workers so your personal agent is available from any browser—without maintaining a server, creating a GitHub repository, or setting up a build pipeline.
 
-> **Independent project:** `dsh-edge` is maintained by [pawaca](https://github.com/pawaca). It is not affiliated with or endorsed by DeepSeek. [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) remains the upstream project.
+It keeps the upstream UI, agent loop, session protocol, model catalog, image experience, and Web Search intact. The Edge layer supplies the Cloudflare runtime, durable storage, single-owner login, and guided installer.
 
-## What you get
+![dsh-edge running the upstream DeepSeek Harness Web UI with image input and Vision Exp](docs/assets/dsh-edge-browser.png)
 
-- The upstream DeepSeek Harness Web UI and typed HTTP/WebSocket protocol.
-- Persistent conversations and a `/workspace` virtual filesystem backed by Durable Object SQLite.
-- DeepSeek chat and native Web Search using your own API key.
-- The upstream image composer and Vision Exp model, with permanent-account images stored as immutable objects in a private R2 bucket.
-- A `bash` tool over the persistent workspace, with a free direct runtime or an optional isolated runtime.
-- One owner access key exchanged for a signed browser cookie; the installer can generate a high-entropy value.
-- Guided install and upgrade commands that upload directly through Wrangler without creating a source-build pipeline.
+> **Independent community project:** `dsh-edge` is maintained by [pawaca](https://github.com/pawaca). It is not affiliated with or endorsed by DeepSeek. [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) is the upstream project.
 
-## Install
+## Try the 0.3 preview
 
-### Install an Edge instance
-
-You need Node.js 22.14 or newer and a DeepSeek API key. A Cloudflare account is optional for the free temporary-account path; the installer can also use an existing account or open Cloudflare sign-in and registration.
-
-Install the stable release:
+You need Node.js 22.14 or newer and your own DeepSeek API key:
 
 ```sh
-npx dsh-edge install
+npx dsh-edge@next install
 ```
 
-This resolves through npm's `latest` channel. Use `npx dsh-edge@next install` only when you intentionally want to test a future prerelease.
+The installer walks you through the runtime, Cloudflare account, Worker name, owner access key, DeepSeek key, cost summary, upload, and route activation. Choose the temporary-account path to try it without an existing Cloudflare login. Claim that deployment within 60 minutes if you want to keep its Worker and data.
 
-The installer asks you to:
+For the current stable release, use `npx dsh-edge install` instead.
 
-1. Choose **Free — Direct Shell** or **Isolated — Dynamic Worker**.
-2. Select or create a Cloudflare account and choose a Worker name.
-3. Generate a high-entropy owner access key or enter your own randomly generated value, then enter your DeepSeek API key through hidden input.
-4. Confirm the cost summary and upload.
+## What you can do
 
-After Cloudflare accepts the upload, the installer waits briefly for the exact package and runtime to appear on the public URL. A ready result can be opened immediately. If Cloudflare is still activating the `workers.dev` route when the bounded wait ends, installation still succeeds and the final card tells you to wait a moment and refresh instead of mistaking the platform placeholder for a failed deployment.
+- Continue persistent conversations and workspaces from any browser.
+- Use DeepSeek V4 Flash, V4 Pro, or the experimental V4 Flash Vision Exp model through the upstream selector.
+- Paste or drop PNG/JPEG images into the upstream composer and revisit them in conversation history.
+- Search the Web with DeepSeek's native Web Search tool.
+- Read and write a persistent `/workspace` and let the agent use its `bash` tool.
+- Keep your DeepSeek key and data in your own Cloudflare deployment.
+- Upgrade in place without attaching the Worker to this repository or Cloudflare Builds.
 
-Open the printed Worker URL and sign in with the owner access key. Save the key for future upgrades: rotating it invalidates existing browser sessions, and Cloudflare does not expose the current secret to a later upgrade.
+## Two deployment paths
 
-A permanent-account installation creates or reuses a private `<worker-name>-attachments` R2 bucket for PNG and JPEG prompts. R2 must be enabled for that Cloudflare account. Temporary previews do not support images yet; Stage 3 will add a bounded Durable Object fallback without changing the browser workflow.
-
-A temporary Cloudflare account must be claimed through the printed claim URL within 60 minutes to retain the Worker and its data.
-
-## Choose a runtime
-
-| Mode | Cloudflare plan | Command runtime | Use it when |
+| Path | Cloudflare account | Image storage | Best for |
 | --- | --- | --- | --- |
-| **Free — Direct Shell** | Workers Free | Hardened just-bash in the owner Durable Object | You want the lowest-friction personal deployment and trust the single owner. |
-| **Isolated — Dynamic Worker** | Workers Paid | Cloudflare Computer Worker Shell through a Worker Loader binding | You want command execution in a separate Worker and accept the paid-plan requirement. |
+| **Temporary preview** | No existing login required; claim within 60 minutes | Bounded 64 MiB Durable Object backend | Trying the complete browser and image flow with the lowest friction |
+| **Permanent deployment** | Existing or newly authenticated account; R2 must be enabled | Private R2 bucket | Keeping conversations and images in your own long-lived account |
 
-Both modes use the same Web UI, DSH protocol, tools, Durable Object storage, and installer. The selected deployment configuration includes only its command runtime, so isolated deployments do not also load the direct shell implementation.
+The attachment backend is selected once per deployment and remains pinned across Durable Object sleep, claim, and upgrade. Claiming a temporary deployment preserves its existing DO-backed images; it does not silently migrate them to R2.
 
-Direct mode is not a Linux container. It does not provide native binaries, background processes, PTYs, arbitrary Linux behavior, or shell networking. Do not expose a direct-mode instance to untrusted users.
+### Choose a command runtime
+
+| Mode | Cloudflare plan | Command runtime | Trade-off |
+| --- | --- | --- | --- |
+| **Free — Direct Shell** | Workers Free | Hardened just-bash inside the owner Durable Object | Lowest-friction personal deployment |
+| **Isolated — Dynamic Worker** | Workers Paid | Cloudflare Computer Worker Shell through Worker Loader | Command execution in a separate Worker |
+
+Both modes use the same UI, protocol, tools, conversations, workspace, image flow, and installer. Direct Shell is not a Linux container: it has no native binaries, background processes, PTYs, arbitrary Linux behavior, or shell networking. Do not expose it to untrusted users.
 
 ## Upgrade
 
-Run the upgrade command, choose the same runtime, and enter the existing Worker name:
-
 ```sh
-npx dsh-edge upgrade
+npx dsh-edge@next upgrade
 ```
 
-Stable deployments follow npm `latest`. If the installed version is a 0.2 alpha, promote it to the stable channel once with `npx dsh-edge@latest upgrade`; prerelease deployments otherwise remain on `next`. The Edge settings page detects the installed channel and copies the matching command.
+Prerelease deployments stay on npm's `next` channel; stable deployments use `npx dsh-edge upgrade`. Select the existing Worker and the same runtime. Durable Object data and the deployment's pinned attachment backend are retained. Because Cloudflare secrets are write-only, the installer asks for the existing owner access key and DeepSeek API key again.
 
-Durable Object data is retained. The installer asks for the owner access key and DeepSeek API key again because Cloudflare secrets can be replaced but not read back.
-
-## Current scope
-
-`dsh-edge` is a developer preview. The current preview focuses on a complete personal-use path: upstream conversations and workspaces, persistent sessions, the three upstream DeepSeek models, PNG/JPEG image prompts on permanent deployments, Web Search, workspace file operations, command execution, and the upstream browser experience. Vision Exp is experimental and its availability may depend on the DeepSeek account.
-
-The deployment is deliberately single-owner. It does not provide registration, multiple users, roles, or tenant routing. Generic file attachments, images in temporary previews, remote MCP, Skills, Workflows, Jobs, and Subagents are not yet adapted to the Edge runtime. `web_fetch` remains disabled until the runtime has an explicit policy for SSRF, private addresses, and redirects.
-
-See the [dsh-edge runtime reference](apps/dsh-edge/README.md) for the full compatibility matrix, limits, security behavior, API reference, local development commands, and current implementation status.
-
-## Data and credentials
+## Data, credentials, and limits
 
 - Conversations, workspace metadata, and `/workspace` files live in the deployment's Durable Object storage.
-- On permanent-account installations, admitted PNG/JPEG bytes live in a private R2 bucket; session events retain only upstream content-addressed references. The current limits are 4 images per message, 3.5 MiB per image, 7 MiB total, 40 million pixels, and 2,000 pixels per side.
-- `DEEPSEEK_API_KEY` and `DSH_EDGE_ACCESS_KEY` are Cloudflare Worker secrets. Their literal values are not written to session events, Durable Object state, the virtual filesystem, or browser responses.
-- The installer passes secrets to Wrangler through a temporary mode-`0600` file, removes it after the command, and does not bind the deployment to GitHub or Cloudflare Builds.
-- The owner cookie is HttpOnly, `SameSite=Strict`, and valid for 30 days. Changing the owner access key invalidates it.
+- Permanent deployments store admitted images as immutable objects in a private R2 bucket. Temporary deployments use a 64 MiB, 512 KiB-chunked Durable Object backend. Session events retain only upstream content-addressed references.
+- Image admission accepts PNG and JPEG, at most 4 images per message, 3.5 MiB per image, 7 MiB total, 40 million pixels, and 2,000 pixels per side.
+- `DEEPSEEK_API_KEY` and `DSH_EDGE_ACCESS_KEY` are Worker secrets. Their literal values are never written to session events, Durable Object state, the VFS, or browser responses.
+- The installer sends secrets to Wrangler through a temporary mode-`0600` file, removes it afterwards, and never creates a source-build integration.
+- The owner cookie is HttpOnly, `SameSite=Strict`, and valid for 30 days. Rotating the owner access key invalidates existing sessions.
 
-## Relationship to upstream
+## Current boundaries
 
-This repository is a standalone wrapper around exact published DeepSeek Harness packages. The upstream plugin composition, Web UI, agent loop, protocol, and persistence contracts remain the source of truth, but their monorepo source is not copied here. Edge runtime code lives under [`apps/dsh-edge`](apps/dsh-edge), while the Edge-owned [`packages/client/ui-edge`](packages/client/ui-edge) plugin contributes deployment status, upgrade guidance, and owner-session controls through upstream client slots.
+`dsh-edge` is a developer preview and deliberately single-owner. It does not provide registration, multiple users, roles, or tenant routing. Vision Exp is experimental and may not be available to every DeepSeek account.
 
-The isolated assembly under `apps/dsh-edge/standalone` pins one upstream version and records every unavoidable package patch. An upstream-defined schema or service contract remains unchanged unless the Edge environment makes that impossible.
+Non-image file attachments, session export, `@file` and `@session` references, remote MCP, Skills, Workflows, Jobs, and Subagents are not yet adapted to Edge. `web_fetch` remains disabled until the runtime has an explicit policy for SSRF, private addresses, and redirects.
 
-For upstream architecture and plugin development, use the [DeepSeek Harness repository](https://github.com/deepseek-ai/deepseek-harness) and [reference documentation](https://deepseek-harness.github.io/deepseek-harness/reference/).
+See the [runtime reference](apps/dsh-edge/README.md) for the full compatibility matrix, API, limits, security behavior, and implementation details.
 
-Development history before the standalone repository cutover, including PR reviews and the 0.1.3 GitHub Release, remains available in the archived [dsh-edge-history repository](https://github.com/pawaca/dsh-edge-history).
+## How it stays close to upstream
 
-## Run
+This repository wraps exact published DeepSeek Harness packages instead of copying its monorepo. Upstream owns the Web UI, plugin composition, agent loop, model and attachment protocols, and session contracts. dsh-edge implements only the Cloudflare-specific runtime and storage seams.
 
-Use a source checkout only for dsh-edge development. These commands are not required for the guided Cloudflare installation. The repository toolchain requires Node.js `^22.19.0` or `>=24.0.0`, which is stricter than the packaged installer's Node.js requirement.
+Edge runtime code lives in [`apps/dsh-edge`](apps/dsh-edge). The small [`packages/client/ui-edge`](packages/client/ui-edge) plugin contributes deployment status, upgrade guidance, and owner-session controls through upstream client slots. The isolated assembly in `apps/dsh-edge/standalone` pins one upstream version and records every unavoidable version-bound patch.
 
-Install the repository checks and the isolated release assembly separately:
+For upstream architecture and plugin development, see the [DeepSeek Harness repository](https://github.com/deepseek-ai/deepseek-harness) and [reference documentation](https://deepseek-harness.github.io/deepseek-harness/reference/). Pre-cutover development history is archived in [dsh-edge-history](https://github.com/pawaca/dsh-edge-history).
+
+## Develop locally
+
+Source checkout is only required for dsh-edge development. The repository toolchain requires Node.js `^22.19.0` or `>=24.0.0`:
 
 ```sh
 git clone https://github.com/pawaca/dsh-edge.git
@@ -110,9 +101,7 @@ pnpm --dir apps/dsh-edge/standalone install --frozen-lockfile
 pnpm run check
 ```
 
-### Run dsh-edge locally
-
-Complete the [local Edge setup](apps/dsh-edge/README.md#run-locally), including its ignored `.dev.vars` file with an owner access key and DeepSeek API key. Then start the Cloudflare Worker development server:
+Complete the [local Edge setup](apps/dsh-edge/README.md#run-locally), including an ignored `.dev.vars`, then run:
 
 ```sh
 pnpm --filter dsh-edge dev
@@ -120,10 +109,9 @@ pnpm --filter dsh-edge dev
 
 ## Contributing and support
 
-- Report dsh-edge bugs and installation problems in this repository's [Issues](https://github.com/pawaca/dsh-edge/issues).
+- Report dsh-edge bugs and installation problems in [Issues](https://github.com/pawaca/dsh-edge/issues).
 - Report vulnerabilities through the [private security process](SECURITY.md), not a public Issue.
-- Follow [CONTRIBUTING.md](CONTRIBUTING.md) for repository changes.
-- Agents working in the repository must follow [AGENTS.md](AGENTS.md).
+- Follow [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md) when changing the repository.
 
 ## License
 
