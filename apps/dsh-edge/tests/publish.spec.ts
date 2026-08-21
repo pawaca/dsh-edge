@@ -10,6 +10,7 @@ import {
   resolveNpmInvocation,
   targetTag,
 } from '../scripts/publish.mjs'
+import { resolvePnpmInvocation } from '../scripts/pnpm-invocation.mjs'
 
 const temporaryDirectories: string[] = []
 // These contract tests intentionally launch the real npm CLI. A cold hosted
@@ -114,5 +115,25 @@ describe('standalone npm publication', { timeout: NPM_CLI_TEST_TIMEOUT_MS }, () 
       { name: 'dsh-edge', version: '0.1.3' },
       { name: '@example/not-dsh-edge', version: '9.9.9' },
     ))).toThrow('instead of dsh-edge')
+  })
+})
+
+describe('standalone pnpm tooling', () => {
+  it('runs a JavaScript pnpm entry through Node', () => {
+    expect(resolvePnpmInvocation('/tools/pnpm.cjs', ['run', 'build:web'], {
+      nodeExecutable: '/tools/node',
+    })).toEqual({
+      command: '/tools/node',
+      args: ['/tools/pnpm.cjs', 'run', 'build:web'],
+    })
+  })
+
+  it('runs the pnpm standalone executable directly', () => {
+    expect(resolvePnpmInvocation('pnpm', ['run', 'build:web'], {
+      nodeExecutable: '/tools/node',
+    })).toEqual({
+      command: 'pnpm',
+      args: ['run', 'build:web'],
+    })
   })
 })

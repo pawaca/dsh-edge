@@ -27,7 +27,7 @@ jobs:
       release_tag: ${{ steps.source.outputs.release_tag }}
       release_commit: ${{ steps.source.outputs.release_commit }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -88,7 +88,7 @@ jobs:
       RELEASE_TAG: ${{ needs.verify-source.outputs.release_tag }}
       RELEASE_COMMIT: ${{ needs.verify-source.outputs.release_commit }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.verify-source.outputs.release_commit }}
           persist-credentials: false
@@ -101,8 +101,10 @@ jobs:
             echo "Release tag moved from $RELEASE_COMMIT to $actual" >&2
             exit 1
           fi
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v6
+      - uses: pnpm/setup@v2
+        with:
+          install: false
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
           registry-url: https://registry.npmjs.org
