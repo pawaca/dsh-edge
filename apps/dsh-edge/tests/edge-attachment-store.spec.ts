@@ -285,6 +285,57 @@ describe('EdgeDoAttachmentStore', () => {
     }
   })
 
+  it('rejects an over-quota image batch without retaining earlier members', async () => {
+    const storage = new TestDurableObjectStorage()
+    try {
+      resolveEdgeAttachmentStorage(storage as never, undefined)
+      const first = png()
+      const second = jpeg()
+      const attachments = new EdgeDoAttachmentStore(new Context(), {
+        storage: storage as never,
+        maxStoredBytes: first.byteLength + second.byteLength - 1,
+      })
+
+      await expect(attachments.saveImages([
+        { data: first, mediaType: 'image/png' },
+        { data: second, mediaType: 'image/jpeg' },
+      ])).rejects.toMatchObject({ code: 'ATTACHMENT_WRITE_FAILED' })
+      expect(storage.sql.exec('SELECT digest FROM dsh_edge_attachment_objects').toArray())
+        .toEqual([])
+      expect(storage.sql.exec('SELECT digest FROM dsh_edge_attachment_chunks').toArray())
+        .toEqual([])
+      expect(storage.sql.exec('SELECT stored_bytes FROM dsh_edge_attachment_state').toArray())
+        .toEqual([{ stored_bytes: 0 }])
+    } finally {
+      storage.close()
+    }
+  })
+
+  it('accounts duplicate members in one batch only once', async () => {
+    const storage = new TestDurableObjectStorage()
+    try {
+      resolveEdgeAttachmentStorage(storage as never, undefined)
+      const data = png()
+      const attachments = new EdgeDoAttachmentStore(new Context(), {
+        storage: storage as never,
+        maxStoredBytes: data.byteLength,
+      })
+
+      const refs = await attachments.saveImages([
+        { data, mediaType: 'image/png', name: 'first.png' },
+        { data, mediaType: 'image/png', name: 'second.png' },
+      ])
+      expect(refs).toHaveLength(2)
+      expect(refs[0]?.attachmentId).toBe(refs[1]?.attachmentId)
+      expect(storage.sql.exec('SELECT digest FROM dsh_edge_attachment_objects').toArray())
+        .toHaveLength(1)
+      expect(storage.sql.exec('SELECT stored_bytes FROM dsh_edge_attachment_state').toArray())
+        .toEqual([{ stored_bytes: data.byteLength }])
+    } finally {
+      storage.close()
+    }
+  })
+
   it('rolls back metadata, chunks, and accounting after a partial chunk failure', async () => {
     const storage = new TestDurableObjectStorage()
     try {

@@ -12,6 +12,7 @@ const WORKER_ARTIFACTS = Object.freeze({
   isolated: 'worker/isolated/index.js',
 })
 const ATTACHMENT_BINDING = 'DSH_EDGE_ATTACHMENTS'
+const ATTACHMENT_STORAGE_BINDING = 'DSH_EDGE_ATTACHMENT_STORAGE'
 
 /** Render one mode-specific build configuration from an already parsed source object. */
 export function renderParsedSourceModeWranglerConfig(mode, parsed, options = {}) {
@@ -35,7 +36,7 @@ export function renderParsedSourceModeWranglerConfig(mode, parsed, options = {})
   config.main = resolve(root, parsed.main)
   config.assets.directory = options.assetsDirectory ?? resolve(root, parsed.assets.directory)
   config.minify = true
-  applyAttachmentBucket(config, mode, options.r2BucketName)
+  applyAttachmentStorage(config, mode, options.r2BucketName)
   if (mode === 'direct') {
     config.alias = {
       ...config.alias,
@@ -65,24 +66,32 @@ export function renderParsedPrebuiltModeWranglerConfig(mode, parsed, options = {
   config.assets.directory = resolve(root, parsed.assets.directory)
   config.no_bundle = true
   config.find_additional_modules = false
-  applyAttachmentBucket(config, mode, options.r2BucketName)
+  applyAttachmentStorage(config, mode, options.r2BucketName)
   return `${JSON.stringify(config, undefined, 2)}\n`
 }
 
-function applyAttachmentBucket(config, mode, bucketName) {
-  if (bucketName === undefined) return
-  if (typeof bucketName !== 'string' || bucketName.length === 0) {
+function applyAttachmentStorage(config, mode, bucketName) {
+  if (bucketName !== undefined && (typeof bucketName !== 'string' || bucketName.length === 0)) {
     throw new Error('R2 attachment bucket name must be a non-empty string.')
   }
+  const target = mode === 'direct' ? config : config.env?.isolated
+  if (!isRecord(target)) {
+    throw new Error('wrangler.jsonc must declare the isolated environment.')
+  }
+  if (target.vars !== undefined && !isRecord(target.vars)) {
+    throw new Error('wrangler.jsonc vars must be an object.')
+  }
+  target.vars = {
+    ...target.vars,
+    [ATTACHMENT_STORAGE_BINDING]: bucketName === undefined ? 'temporary-do' : 'private-r2',
+  }
+  if (bucketName === undefined) return
   const binding = [{ binding: ATTACHMENT_BINDING, bucket_name: bucketName }]
   if (mode === 'direct') {
     config.r2_buckets = binding
     return
   }
-  if (!isRecord(config.env) || !isRecord(config.env.isolated)) {
-    throw new Error('wrangler.jsonc must declare the isolated environment.')
-  }
-  config.env.isolated.r2_buckets = binding
+  target.r2_buckets = binding
 }
 
 /** Return the released entrypoint for a runtime mode. */

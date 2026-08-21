@@ -93,6 +93,7 @@ const SENSITIVE_ENV_KEY = /(KEY|PASSWORD|SECRET|TOKEN)/iu
 const WORKER_NAME = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/u
 const CLAIM_URL = /https:\/\/dash\.cloudflare\.com\/claim-preview\?[^\s\u001b]+/u
 const MAX_CAPTURE_BYTES = 2 * 1024 * 1024
+const ATTACHMENT_STORAGE_BINDING = 'DSH_EDGE_ATTACHMENT_STORAGE'
 const WINDOWS_ACL_TIMEOUT_MS = 30_000
 const WINDOWS_PRIVATE_DIRECTORY_SCRIPT = String.raw`
 $ErrorActionPreference = 'Stop'
@@ -443,7 +444,20 @@ function versionAttachmentStorage(source) {
     || (attachment.length === 1 && attachment[0].type !== 'r2_bucket')) {
     throw new Error('The existing Worker has an invalid attachment binding.')
   }
-  return attachment.length === 0 ? 'temporary-do' : 'private-r2'
+  const markers = bindings.filter(binding => binding.name === ATTACHMENT_STORAGE_BINDING)
+  if (markers.length > 1 || (markers.length === 1
+    && (markers[0].type !== 'plain_text'
+      || (markers[0].text !== 'temporary-do' && markers[0].text !== 'private-r2')))) {
+    throw new Error('The existing Worker has an invalid attachment storage marker.')
+  }
+  const marker = markers[0]?.text
+  if ((marker === 'temporary-do' && attachment.length !== 0)
+    || (marker === 'private-r2' && attachment.length !== 1)) {
+    throw new Error('The existing Worker attachment marker does not match its binding.')
+  }
+  // Releases before attachment support had neither binding nor marker. An
+  // authenticated upgrade can safely initialize those instances on private R2.
+  return marker ?? 'private-r2'
 }
 
 /** Run the complete guided install with UI and Wrangler supplied as replaceable boundaries. */

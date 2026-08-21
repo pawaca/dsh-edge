@@ -253,58 +253,101 @@ export class EdgeDoAttachmentStore extends EdgeImageAttachmentStore {
     this.initialize()
   }
 
+  override async saveImages(
+    inputs: readonly SaveImageAttachment[],
+  ): Promise<readonly ImageAttachmentRef[]> {
+    const pending: Array<{ digest: AttachmentDigest, data: Uint8Array }> = []
+    const collector = Object.create(this) as EdgeDoAttachmentStore
+    collector.writeBytes = (digest, data) => {
+      pending.push({ digest, data })
+      return Promise.resolve()
+    }
+    const refs = await AttachmentStore.prototype.saveImages.call(collector, inputs)
+    try {
+      this.writeBatch(pending)
+    } catch (error) {
+      if (error instanceof AttachmentError) throw error
+      throw new AttachmentError(
+        'Unable to persist image attachments.',
+        'ATTACHMENT_WRITE_FAILED',
+        { cause: error },
+      )
+    }
+    return refs
+  }
+
   protected override writeBytes(
     digest: AttachmentDigest,
     data: Uint8Array,
   ): Promise<void> {
+    this.writeBatch([{ digest, data }])
+    return Promise.resolve()
+  }
+
+  private writeBatch(
+    pending: readonly { digest: AttachmentDigest, data: Uint8Array }[],
+  ): void {
     this.storage.transactionSync(() => {
-      const existing = this.objectRow(digest.hex)
-      if (existing !== undefined) {
-        if (existing.bytes !== data.byteLength) {
+      const unique = new Map<string, { digest: AttachmentDigest, data: Uint8Array }>()
+      for (const item of pending) {
+        const duplicate = unique.get(item.digest.hex)
+        if (duplicate !== undefined && duplicate.data.byteLength !== item.data.byteLength) {
+          throw new AttachmentError(
+            'Attachment batch has conflicting content identity metadata.',
+            'ATTACHMENT_CORRUPT',
+          )
+        }
+        unique.set(item.digest.hex, item)
+      }
+      const additions = [...unique.values()].filter(({ digest, data }) => {
+        const existing = this.objectRow(digest.hex)
+        if (existing !== undefined && existing.bytes !== data.byteLength) {
           throw new AttachmentError(
             'Stored attachment identity has conflicting metadata.',
             'ATTACHMENT_CORRUPT',
           )
         }
-        return
-      }
+        return existing === undefined
+      })
       const state = this.stateRow()
-      if (state.stored_bytes + data.byteLength > this.maxStoredBytes) {
+      const addedBytes = additions.reduce((sum, item) => sum + item.data.byteLength, 0)
+      if (state.stored_bytes + addedBytes > this.maxStoredBytes) {
         throw new AttachmentError(
           'Temporary attachment storage is full. Install a permanent instance with private R2 storage.',
           'ATTACHMENT_WRITE_FAILED',
         )
       }
-      const chunks = Math.ceil(data.byteLength / DO_ATTACHMENT_CHUNK_BYTES)
-      this.storage.sql.exec(
-        `INSERT INTO dsh_edge_attachment_objects (digest, bytes, chunks, created_at)
-         VALUES (?, ?, ?, ?)`,
-        digest.hex,
-        data.byteLength,
-        chunks,
-        Date.now(),
-      )
-      for (let index = 0; index < chunks; index += 1) {
-        const start = index * DO_ATTACHMENT_CHUNK_BYTES
-        const chunk = ownedArrayBuffer(data.subarray(
-          start,
-          Math.min(start + DO_ATTACHMENT_CHUNK_BYTES, data.byteLength),
-        ))
+      for (const { digest, data } of additions) {
+        const chunks = Math.ceil(data.byteLength / DO_ATTACHMENT_CHUNK_BYTES)
         this.storage.sql.exec(
-          `INSERT INTO dsh_edge_attachment_chunks (digest, chunk_index, data)
-           VALUES (?, ?, ?)`,
+          `INSERT INTO dsh_edge_attachment_objects (digest, bytes, chunks, created_at)
+           VALUES (?, ?, ?, ?)`,
           digest.hex,
-          index,
-          chunk,
+          data.byteLength,
+          chunks,
+          Date.now(),
         )
+        for (let index = 0; index < chunks; index += 1) {
+          const start = index * DO_ATTACHMENT_CHUNK_BYTES
+          const chunk = ownedArrayBuffer(data.subarray(
+            start,
+            Math.min(start + DO_ATTACHMENT_CHUNK_BYTES, data.byteLength),
+          ))
+          this.storage.sql.exec(
+            `INSERT INTO dsh_edge_attachment_chunks (digest, chunk_index, data)
+             VALUES (?, ?, ?)`,
+            digest.hex,
+            index,
+            chunk,
+          )
+        }
       }
       this.storage.sql.exec(
         `UPDATE dsh_edge_attachment_state
          SET stored_bytes = stored_bytes + ? WHERE singleton = 1`,
-        data.byteLength,
+        addedBytes,
       )
     })
-    return Promise.resolve()
   }
 
   protected override readBytes(

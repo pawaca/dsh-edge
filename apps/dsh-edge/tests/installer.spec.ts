@@ -291,6 +291,7 @@ describe('dsh-edge installer primitives', () => {
     expect(direct).toMatchObject({
       main: resolve(root, 'src/index.ts'),
       assets: { directory: resolve(root, 'dist') },
+      vars: { DSH_EDGE_ATTACHMENT_STORAGE: 'temporary-do' },
       minify: true,
       alias: {
         '@cloudflare/computer/shell/core': resolve(root, 'src/direct-shell-core-empty.ts'),
@@ -301,7 +302,10 @@ describe('dsh-edge installer primitives', () => {
       main: resolve(root, 'src/index.ts'),
       assets: { directory: resolve(root, 'dist') },
       minify: true,
-      env: { isolated: { worker_loaders: [{ binding: 'LOADER' }] } },
+      env: { isolated: {
+        vars: { DSH_EDGE_ATTACHMENT_STORAGE: 'temporary-do' },
+        worker_loaders: [{ binding: 'LOADER' }],
+      } },
       alias: {
         './direct-shell.ts': resolve(root, 'src/isolated-direct-shell-unavailable.ts'),
       },
@@ -311,6 +315,7 @@ describe('dsh-edge installer primitives', () => {
       assets: { directory: resolve(root, 'dist') },
       no_bundle: true,
       find_additional_modules: false,
+      vars: { DSH_EDGE_ATTACHMENT_STORAGE: 'private-r2' },
       r2_buckets: [{
         binding: 'DSH_EDGE_ATTACHMENTS',
         bucket_name: 'dsh-edge-attachments',
@@ -321,6 +326,7 @@ describe('dsh-edge installer primitives', () => {
     expect(prebuiltIsolated).toMatchObject({
       main: resolve(root, 'worker/isolated/index.js'),
       env: { isolated: {
+        vars: { DSH_EDGE_ATTACHMENT_STORAGE: 'private-r2' },
         worker_loaders: [{ binding: 'LOADER' }],
         r2_buckets: [{
           binding: 'DSH_EDGE_ATTACHMENTS',
@@ -440,7 +446,11 @@ describe('dsh-edge installer primitives', () => {
         }))
       }
       return commandResult(0, JSON.stringify({
-        resources: { bindings: [{ name: 'DSH_EDGE_INSTANCE', type: 'durable_object_namespace' }] },
+        resources: { bindings: [{
+          name: 'DSH_EDGE_ATTACHMENT_STORAGE',
+          type: 'plain_text',
+          text: 'temporary-do',
+        }] },
       }))
     })
 
@@ -452,6 +462,22 @@ describe('dsh-edge installer primitives', () => {
     expect(runWrangler).toHaveBeenCalledTimes(3)
   })
 
+  it('initializes unmarked pre-attachment versions on private R2', async () => {
+    const runWrangler = vi.fn()
+      .mockResolvedValueOnce(commandResult(0, JSON.stringify({
+        versions: [{ version_id: 'legacy-version', percentage: 100 }],
+      })))
+      .mockResolvedValueOnce(commandResult(0, JSON.stringify({
+        resources: { bindings: [{ name: 'DSH_EDGE_INSTANCE', type: 'durable_object_namespace' }] },
+      })))
+
+    await expect(detectExistingAttachmentStorage({
+      workerName: 'dsh-edge',
+      mode: 'direct',
+      runWrangler,
+    })).resolves.toBe('private-r2')
+  })
+
   it('refuses an ambiguous rollout or malformed attachment binding', async () => {
     const status = commandResult(0, JSON.stringify({
       versions: [
@@ -461,7 +487,13 @@ describe('dsh-edge installer primitives', () => {
     }))
     const runWrangler = vi.fn()
       .mockResolvedValueOnce(status)
-      .mockResolvedValueOnce(commandResult(0, JSON.stringify({ resources: { bindings: [] } })))
+      .mockResolvedValueOnce(commandResult(0, JSON.stringify({
+        resources: { bindings: [{
+          name: 'DSH_EDGE_ATTACHMENT_STORAGE',
+          type: 'plain_text',
+          text: 'temporary-do',
+        }] },
+      })))
       .mockResolvedValueOnce(commandResult(0, JSON.stringify({
         resources: { bindings: [{ name: 'DSH_EDGE_ATTACHMENTS', type: 'r2_bucket' }] },
       })))
@@ -1035,7 +1067,7 @@ describe('dsh-edge guided installation', () => {
       if (args[0] === 'versions') {
         return commandResult(0, JSON.stringify({
           resources: {
-            bindings: [{ name: 'DSH_EDGE_ATTACHMENTS', type: 'r2_bucket' }],
+            bindings: [{ name: 'DSH_EDGE_INSTANCE', type: 'durable_object_namespace' }],
           },
         }))
       }
@@ -1081,7 +1113,13 @@ describe('dsh-edge guided installation', () => {
         }))
       }
       if (args[0] === 'versions') {
-        return commandResult(0, JSON.stringify({ resources: { bindings: [] } }))
+        return commandResult(0, JSON.stringify({
+          resources: { bindings: [{
+            name: 'DSH_EDGE_ATTACHMENT_STORAGE',
+            type: 'plain_text',
+            text: 'temporary-do',
+          }] },
+        }))
       }
       expect(args[0]).toBe('deploy')
       const configPath = args[args.indexOf('--config') + 1]
@@ -1103,6 +1141,10 @@ describe('dsh-edge guided installation', () => {
     expect(result.attachmentStorage).toBe('temporary-do')
     expect(runWrangler.mock.calls.some(([args]) => args[0] === 'r2')).toBe(false)
     expect(deployedConfig).not.toHaveProperty('r2_buckets')
+    expect(deployedConfig).toHaveProperty(
+      'vars.DSH_EDGE_ATTACHMENT_STORAGE',
+      'temporary-do',
+    )
   })
 
   it('refuses to upgrade a missing Worker before collecting secrets', async () => {
