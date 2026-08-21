@@ -70,7 +70,9 @@ describe('dsh-edge assembled browser snapshot', () => {
 
       await page.locator('button[aria-haspopup="dialog"]').last().click()
       const settings = page.getByRole('dialog', { name: 'Settings', exact: true })
-      await settings.getByRole('button', { name: 'DSH Edge', exact: true }).click()
+      await settings.getByRole('navigation')
+        .getByRole('button', { name: 'DSH Edge', exact: true })
+        .click()
       await expect.poll(() => settings.getByText('0.2.0-alpha.3', { exact: true }).count()).toBe(1)
       await settings.getByRole('button', { name: 'Copy upgrade command', exact: true }).click()
       await expect.poll(() => settings.getByRole('button', {
