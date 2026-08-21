@@ -20,6 +20,7 @@ const INTERRUPT_EXIT_CODES = new Map([
 ])
 const OUTPUT_DRAIN_TIMEOUT_MS = 1_000
 const HERO_MIN_COLUMNS = 68
+const CLACK_INTRO_GUTTER = '   '
 const DSH_EDGE_HERO = String.raw`   ____  ____  _   _       _____ ____   ____ _____
   |  _ \/ ___|| | | |     | ____|  _ \ / ___| ____|
   | | | \___ \| |_| |_____|  _| | | | | |  _|  _|
@@ -51,12 +52,15 @@ export function renderInstallerIntro(command, {
   version = edgePackage.version,
 } = {}) {
   if (!isTTY || columns < HERO_MIN_COLUMNS) return `dsh-edge ${command} · v${version}`
-  return [
+  const content = [
     DSH_EDGE_HERO,
     '',
     'DeepSeek Harness on Cloudflare',
     `v${version} · community project · ${command}`,
   ].join('\n')
+  return content.split('\n')
+    .map((line, index) => index === 0 || line === '' ? line : `${CLACK_INTRO_GUTTER}${line}`)
+    .join('\n')
 }
 
 export function createInstallerUi(
