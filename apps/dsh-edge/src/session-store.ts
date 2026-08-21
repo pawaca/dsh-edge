@@ -342,21 +342,33 @@ export class EdgeSessionStore {
     if (agent !== undefined && [...agent.inbox.nextTurn, ...agent.inbox.nextStep]
       .some(message => message.content.some(block => block.type === 'image'))) return true
     const live = sessions.get(id)
-    if (live !== undefined) return referencedImage(live.events) !== undefined
+    if (live !== undefined) return appendSurfaceContainsImage(live.events)
     if (!(persistence instanceof DurableObjectSessionPersistence)) {
       throw new EdgeSessionStoreError('INVALID_DATA', 'Edge persistence backend is unavailable.')
     }
     if (persistence.readBlankSession(id) !== undefined) return false
-    return await findInEventPages(
+    const header = persistence.readSessionHeader(id)
+    if (header === undefined) throw new EdgeSessionStoreError('NOT_FOUND', 'Session not found.')
+    const inbox: EffectiveInboxState = { 'next-turn': [], 'next-step': [] }
+    const surfaceImage = await findInEventPages(
       fromSeq => persistence.readEventPage(
         id,
         fromSeq,
         MAX_FORK_EVENTS,
         MAX_FORK_STORED_BYTES,
       ),
-      events => referencedImage(events),
+      events => {
+        for (const event of events) {
+          if (isAppendSurfaceEvent(event) && referencedImage([event]) !== undefined) return true
+          if (event.seq >= (header.seedLength ?? 0) && event.type === 'agent/inbox/spliced') {
+            applyEffectiveInboxSplice(inbox, event.data)
+          }
+        }
+        return undefined
+      },
       id,
-    ) !== undefined
+    )
+    return surfaceImage === true || effectiveInboxContainsImage(inbox)
   }
 
   async createSession(input: CreateEdgeSessionInput): Promise<EdgeSession> {
@@ -1029,6 +1041,30 @@ function referencedImage(
     }
   }
   return undefined
+}
+
+type EffectiveInboxState = Record<'next-turn' | 'next-step', UserMessage[]>
+
+function appendSurfaceContainsImage(events: readonly SessionEvent[]): boolean {
+  return events.some(event => isAppendSurfaceEvent(event)
+    && referencedImage([event]) !== undefined)
+}
+
+/** Fold the same normalized durable splice semantics as the upstream Agent inbox. */
+function applyEffectiveInboxSplice(
+  inbox: EffectiveInboxState,
+  splice: SessionEventMap['agent/inbox/spliced'],
+): void {
+  inbox[splice.target].splice(
+    splice.start,
+    splice.removedCount ?? 0,
+    ...splice.inserted,
+  )
+}
+
+function effectiveInboxContainsImage(inbox: EffectiveInboxState): boolean {
+  return [...inbox['next-turn'], ...inbox['next-step']]
+    .some(message => message.content.some(block => block.type === 'image'))
 }
 
 /** Evaluate a full-history predicate through bounded pages without a total-session limit. */

@@ -535,6 +535,41 @@ describe('Edge upstream API invariants', () => {
     expect(updateQueue).not.toHaveBeenCalled()
   })
 
+  it('lets the runtime authorize already-admitted images in queue edits', async () => {
+    const updateQueue = vi.fn()
+      .mockReturnValueOnce('accepted')
+      .mockReturnValueOnce('queue-edit-attachment-invalid')
+    const api = createEdgeApi(runtime({}, { updateQueue }))
+    const action = {
+      kind: 'edit' as const,
+      content: [
+        { type: 'text' as const, text: 'edited caption' },
+        { type: 'image' as const, attachment: imageRef },
+      ],
+    }
+
+    const accepted = await api.sessions.updateQueue(request({
+      sessionId: parentId,
+      itemId: 'message-image' as MessageId,
+      action,
+    }))
+    expect(accepted.result).toMatchObject({ ok: true, value: { accepted: true } })
+    expect(updateQueue).toHaveBeenNthCalledWith(1, parentId, 'message-image', action)
+
+    const rejected = await api.sessions.updateQueue(request({
+      sessionId: parentId,
+      itemId: 'message-image' as MessageId,
+      action,
+    }))
+    expect(rejected.result).toMatchObject({
+      ok: false,
+      error: {
+        code: 'attachment-error',
+        details: { reason: 'QUEUE_EDIT_ATTACHMENT_INVALID' },
+      },
+    })
+  })
+
   it('uses upstream image admission and durable refs without changing the prompt wire', async () => {
     const saveImages = vi.fn(async () => [imageRef])
     const attachmentStore = vi.fn(async () => ({ saveImages } as unknown as AttachmentStore))

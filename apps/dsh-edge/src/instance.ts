@@ -10,6 +10,7 @@ import {
   type WorkerShellLoader,
 } from '@cloudflare/computer/backends/worker-shell'
 import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
+import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type {
   HostFrame,
   MuxFrame,
@@ -716,7 +717,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     sessionId: SessionId,
     itemId: MessageId,
     action: QueueAction,
-  ): 'accepted' | 'queue-item-not-found' | 'steer-unavailable' {
+  ): 'accepted' | 'queue-item-not-found' | 'steer-unavailable' | 'queue-edit-attachment-invalid' {
     const active = this.activeTurns.get(sessionId)
     const agent = active?.agent
     if (agent === undefined) return 'queue-item-not-found'
@@ -732,6 +733,9 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       return 'steer-unavailable'
     }
     if (action.kind === 'edit') {
+      if (!preservesAdmittedQueueImages(message.content, action.content)) {
+        return 'queue-edit-attachment-invalid'
+      }
       agent.inbox.replace(itemId, freezeMessage({ ...message, content: action.content }))
     } else {
       agent.inbox.remove(itemId)
@@ -901,6 +905,31 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       status: this.activeTurns.has(session.id) ? 'running' as const : 'idle' as const,
     }
   }
+}
+
+/** Keep queue edits inside the exact attachment authority of one pending message. */
+function preservesAdmittedQueueImages(
+  original: readonly ContentBlock[],
+  edited: readonly ContentBlock[],
+): boolean {
+  const available = original.flatMap(block => block.type === 'image' ? [block.attachment] : [])
+  for (const block of edited) {
+    if (block.type === 'text') continue
+    if (block.type !== 'image') return false
+    const index = available.findIndex(candidate => sameImageRef(candidate, block.attachment))
+    if (index < 0) return false
+    available.splice(index, 1)
+  }
+  return true
+}
+
+function sameImageRef(left: ImageAttachmentRef, right: ImageAttachmentRef): boolean {
+  return left.attachmentId === right.attachmentId
+    && left.mediaType === right.mediaType
+    && left.bytes === right.bytes
+    && left.width === right.width
+    && left.height === right.height
+    && left.name === right.name
 }
 
 function requireOwnerSessionExpiry(request: Request): number {

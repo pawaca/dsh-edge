@@ -71,7 +71,7 @@ export interface EdgeApiRuntime {
     sessionId: SessionId,
     itemId: MessageId,
     action: QueueAction,
-  ): 'accepted' | 'queue-item-not-found' | 'steer-unavailable'
+  ): 'accepted' | 'queue-item-not-found' | 'steer-unavailable' | 'queue-edit-attachment-invalid'
   cancel(sessionId: SessionId): boolean
   workspaceList(sessions: readonly EdgeApiSessionSummary[]): Promise<{
     items: WorkspaceView[]
@@ -400,10 +400,11 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
       },
       updateQueue(request) {
         const { sessionId, itemId, action } = request.payload
-        if (action.kind === 'edit' && action.content.some(block => block.type !== 'text')) {
+        if (action.kind === 'edit'
+          && action.content.some(block => block.type !== 'text' && block.type !== 'image')) {
           return Promise.resolve(fail(request, {
             code: 'attachment-error',
-            message: 'Queue edits accept text content only in this Edge instance.',
+            message: 'Queue edits accept text and previously admitted images only.',
             details: { reason: 'QUEUE_EDIT_NON_TEXT' },
           }))
         }
@@ -430,6 +431,13 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
             code: 'steer-unavailable',
             message: 'The current turn no longer accepts steering.',
             details: { itemId },
+          }))
+        }
+        if (outcome === 'queue-edit-attachment-invalid') {
+          return Promise.resolve(fail(request, {
+            code: 'attachment-error',
+            message: 'Queue edits may only preserve images already admitted for this pending item.',
+            details: { reason: 'QUEUE_EDIT_ATTACHMENT_INVALID' },
           }))
         }
         return Promise.resolve(ok(request, { accepted: true as const }))

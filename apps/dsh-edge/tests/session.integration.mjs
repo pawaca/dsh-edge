@@ -831,6 +831,13 @@ try {
     1,
   )
 
+  const activeVision = await rpc('session.selectModel', {
+    sessionId: protocolSessionId,
+    provider: 'deepseek-official',
+    model: 'deepseek-v4-flash-vision-exp',
+  })
+  assert.equal(activeVision.body.result.ok, true)
+  const imageBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4XmP4z8DwHwAFAAH/NQZ7kgAAAABJRU5ErkJggg=='
   const activePrompt = await rpc('session.prompt', {
     sessionId: protocolSessionId,
     mode: 'queue',
@@ -893,6 +900,69 @@ try {
     && message.payload.items.some(item => item.id === queuedItem.id
       && item.message.content[0]?.text === 'edited queued prompt'))
   assert.equal(editedSnapshot.payload.items.find(item => item.id === queuedItem.id).placement, 'queued')
+
+  const queuedImagePrompt = await rpc('session.prompt', {
+    sessionId: protocolSessionId,
+    mode: 'queue',
+    content: [
+      { type: 'text', text: 'queued image caption' },
+      { type: 'image', mediaType: 'image/png', data: imageBase64, name: 'queued.png' },
+    ],
+  })
+  assert.equal(queuedImagePrompt.body.result.ok, true)
+  const queuedImageSnapshot = await mux.next(message => message.payload.type === 'session/queue'
+    && message.payload.sessionId === protocolSessionId
+    && message.payload.items.some(item => item.message.source.rpcId === queuedImagePrompt.rpcId))
+  const queuedImageItem = queuedImageSnapshot.payload.items.find(
+    item => item.message.source.rpcId === queuedImagePrompt.rpcId,
+  )
+  const queuedImageBlock = queuedImageItem.message.content.find(block => block.type === 'image')
+  assert.notEqual(queuedImageBlock, undefined)
+  const editedImageQueue = await rpc('session.updateQueue', {
+    sessionId: protocolSessionId,
+    itemId: queuedImageItem.id,
+    action: {
+      kind: 'edit',
+      content: [
+        { type: 'text', text: 'edited queued image caption' },
+        queuedImageBlock,
+      ],
+    },
+  })
+  assert.equal(editedImageQueue.body.result.ok, true)
+  await mux.next(message => message.payload.type === 'session/queue'
+    && message.payload.sessionId === protocolSessionId
+    && message.payload.items.some(item => item.id === queuedImageItem.id
+      && item.message.content[0]?.text === 'edited queued image caption'
+      && item.message.content[1]?.type === 'image'))
+  const injectedImageQueue = await rpc('session.updateQueue', {
+    sessionId: protocolSessionId,
+    itemId: queuedImageItem.id,
+    action: {
+      kind: 'edit',
+      content: [{
+        ...queuedImageBlock,
+        attachment: {
+          ...queuedImageBlock.attachment,
+          attachmentId: `sha256:${'b'.repeat(64)}`,
+        },
+      }],
+    },
+  })
+  assert.equal(injectedImageQueue.body.result.ok, false)
+  assert.equal(
+    injectedImageQueue.body.result.error.details.reason,
+    'QUEUE_EDIT_ATTACHMENT_INVALID',
+  )
+  const removedImageQueue = await rpc('session.updateQueue', {
+    sessionId: protocolSessionId,
+    itemId: queuedImageItem.id,
+    action: { kind: 'remove' },
+  })
+  assert.equal(removedImageQueue.body.result.ok, true)
+  await mux.next(message => message.payload.type === 'session/queue'
+    && message.payload.sessionId === protocolSessionId
+    && !message.payload.items.some(item => item.id === queuedImageItem.id))
 
   const removablePrompt = await rpc('session.prompt', {
     sessionId: protocolSessionId,
@@ -1005,7 +1075,6 @@ try {
     model: 'deepseek-v4-flash-vision-exp',
   })
   assert.equal(imageModel.body.result.ok, true)
-  const imageBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4XmP4z8DwHwAFAAH/NQZ7kgAAAABJRU5ErkJggg=='
   const imagePrompt = await rpc('session.prompt', {
     sessionId: imageSessionId,
     mode: 'queue',
@@ -1035,7 +1104,7 @@ try {
   assert.equal(imageRead.body.result.ok, true)
   assert.equal(imageRead.body.result.value.data, imageBase64)
   const crossSessionRead = await rpc('session.attachment', {
-    sessionId: protocolSessionId,
+    sessionId: retrySessionId,
     attachmentId: imageRef.attachmentId,
   })
   assert.equal(crossSessionRead.body.result.ok, false)
@@ -1079,6 +1148,12 @@ try {
   })
   assert.equal(restoredImage.body.result.ok, true)
   assert.equal(restoredImage.body.result.value.data, imageBase64)
+  const textModelAfterRemovedImage = await rpc('session.selectModel', {
+    sessionId: protocolSessionId,
+    provider: 'deepseek-official',
+    model: 'deepseek-v4-pro',
+  })
+  assert.equal(textModelAfterRemovedImage.body.result.ok, true)
   const timedOut = await jsonRequest('/api/workspace/exec', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
