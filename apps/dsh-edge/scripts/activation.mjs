@@ -38,11 +38,12 @@ export async function observePublicActivation({
 
   while (true) {
     signal?.throwIfAborted()
-    if (attempts > 0 && now() >= deadline) {
+    const requestBudget = deadline - now()
+    if (requestBudget <= 0) {
       return activationResult('pending', attempts, startedAt, now())
     }
     attempts += 1
-    const requestTimeout = AbortSignal.timeout(requestTimeoutMs)
+    const requestTimeout = AbortSignal.timeout(Math.min(requestTimeoutMs, requestBudget))
     const requestSignal = signal === undefined
       ? requestTimeout
       : AbortSignal.any([signal, requestTimeout])

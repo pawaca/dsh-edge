@@ -74,6 +74,42 @@ describe('public deployment activation', () => {
     })).resolves.toEqual({ attempts: 3, elapsedMs: 2_500, status: 'pending' })
   })
 
+  it('caps the final request timeout at the remaining activation budget', async () => {
+    let time = 0
+    const requestTimeouts: number[] = []
+    const timeout = vi.spyOn(AbortSignal, 'timeout').mockImplementation((delay) => {
+      requestTimeouts.push(delay)
+      time += delay
+      return new AbortController().signal
+    })
+    try {
+      await expect(observePublicActivation({
+        publicUrl: 'https://dsh-edge.owner.workers.dev',
+        mode: 'direct',
+        fetchImpl: vi.fn(async () => new Response('Not found', { status: 404 })) as typeof fetch,
+        now: () => time,
+        requestTimeoutMs: 4_000,
+        retryMs: 1_500,
+        sleepImpl: async (delay) => { time += delay },
+        waitMs: 45_000,
+      })).resolves.toEqual({ attempts: 9, elapsedMs: 45_000, status: 'pending' })
+
+      expect(requestTimeouts).toEqual([
+        4_000,
+        4_000,
+        4_000,
+        4_000,
+        4_000,
+        4_000,
+        4_000,
+        4_000,
+        1_000,
+      ])
+    } finally {
+      timeout.mockRestore()
+    }
+  })
+
   it('does not accept another release, runtime, or oversized response', async () => {
     const oversized = JSON.stringify({ ...READY_HEALTH, padding: 'x'.repeat(70 * 1024) })
     const responses = [
