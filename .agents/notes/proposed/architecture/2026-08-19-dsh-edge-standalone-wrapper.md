@@ -39,8 +39,8 @@ Each stage has one status: `planned`, `in progress`, `in review`, `merged`, or `
 | 4 | Remove fork source and simplify governance | merged | none | none; archived [PR #28](https://github.com/pawaca/dsh-edge-history/pull/28) merged |
 | 5 | Close post-cutover hygiene and publish the rc.7 standalone baseline | merged | `0.2.0-alpha.1` | none; prerelease published |
 | 6 | Publish installer activation UX and release-tooling hardening on rc.7 | merged | `0.2.0-alpha.2` | none; prerelease published |
-| 7 | Upgrade the exact upstream baseline to the published Harness rc.8 | in review | `0.2.0-alpha.3` | approve prerelease |
-| 8 | Rehearse canary upgrade, beta, rollback, and release 0.2 | planned | `0.2.0-beta.1`, then `0.2.0` | perform account-owned Cloudflare flows; approve beta and stable releases |
+| 7 | Upgrade the exact upstream baseline to the published Harness rc.8 | merged | `0.2.0-alpha.3` | none; prerelease published |
+| 8 | Promote the validated alpha.3 runtime to stable 0.2 | in progress | `0.2.0` | approve and publish the stable release |
 
 ### PR 1 — Freeze the 0.1.3 baseline
 
@@ -188,25 +188,26 @@ Excluded: unpublished source snapshots, piecemeal Dependabot bumps, deferred-plu
 
 Evidence: npm published the complete Harness `0.1.0-rc.8` set consumed here. Local `pnpm run check`, `pnpm run build`, `pnpm --filter dsh-edge run test:snapshot`, and `pnpm --filter dsh-edge run test:integration` pass. Standalone verification proves one exact rc.8 closure, six audited patches (unchanged from rc.7), a reviewed 30-plugin graph, deterministic Web output, and both Worker artifacts. Direct and Dynamic Loader release-artifact integrations pass against Durable Object schema v2. This stage consumes only published packages and introduces no upstream source.
 
-After Stage 7 completes and alpha.3 is published, the project performs one overall ROI review. Durable Object physical-row packing, attachments and images, session export, remote MCP, Skills, Workflows, Jobs, and subagents are reprioritized at that checkpoint. Storage v3 enters Stage 8 only if real Worker measurements of row reads/writes, space, and latency show that it should block 0.2; otherwise it moves to 0.3. The checkpoint is not a hidden Stage 7 acceptance item.
+Stage 7 completed when npm `next`, `dsh-edge-v0.2.0-alpha.3`, the GitHub prerelease, reviewed notes, and release tarball converged on the exact rc.8 assembly. The post-alpha ROI review found no storage evidence or user demand that should delay 0.2, so Durable Object schema v2 remains unchanged. The selected post-0.2 sequence is attachments/images plus a guarded `web_fetch` in 0.3, `@file` plus `@session` references in 0.4, and additional model/provider choices in 0.5; other deferred capabilities will be reconsidered after those releases.
 
-### Stage 8 — Rehearse beta, rollback, and release 0.2
+### Stage 8 — Promote alpha.3 to stable 0.2
 
-Objective: prove fresh installation, existing-instance upgrade, rollback, documentation, and publication before stable release.
+Objective: publish the behaviorally unchanged, user-validated alpha.3 runtime as the first stable standalone 0.2 release.
 
-Scope: validate temporary and claimed Free installs plus an eligible paid Dynamic Loader install; deploy isolated canaries for both modes; rehearse a 0.1.3 durable-data upgrade and rollback; update English and Chinese compatibility information and release notes; publish matching beta and stable npm, tag, and GitHub Release versions after approval.
+Scope: change only the dsh-edge version and stable-channel presentation; update English and Chinese installation, upgrade, compatibility, roadmap, and release information; verify the exact packed artifact, both runtime modes, 0.1.3 durable-state compatibility, browser/runtime snapshots, and stable-channel upgrade behavior; publish matching npm, tag, and GitHub Release identities after approval.
 
 Excluded: attachment, export, remote MCP, Skills, Workflows, Jobs, and commercial authentication.
 
-- [ ] A temporary directory installs using only the npm artifact, without a repository or source-build integration.
-- [ ] Direct mode installs on the anonymous or claimed Free path and Dynamic Loader installs on an eligible paid account.
-- [ ] A 0.1.3 canary upgrades without losing session, message, VFS, settings, authentication state, or deployment identity.
-- [ ] The documented rollback is executed against a canary.
-- [ ] Secrets stay out of logs, committed configuration, package artifacts, and durable state.
-- [ ] No launch-scope P0 or P1 defect remains.
-- [ ] npm, Git tag, GitHub Release, release notes, and deployed health agree first on `0.2.0-beta.1` and then on `0.2.0`.
+- [x] Alpha.3 publishes the exact rc.8 assembly, passes the release-artifact gate, and has no reported launch-scope P0 or P1 defect after real deployment use.
+- [x] The user explicitly chooses direct stable promotion without an additional beta because 0.2 has no external data population or runtime change after alpha.3.
+- [x] A temporary directory installs the stable candidate using only the npm artifact, without a repository or source-build integration.
+- [x] Direct and Dynamic Worker release artifacts preserve the alpha.3 behavior and 0.1.3 durable state.
+- [x] Stable README, Settings, installer, release notes, package identity, and upgrade guidance all report `0.2.0` and npm `latest`.
+- [x] Secrets stay out of logs, committed configuration, package artifacts, and durable state.
+- [x] No launch-scope P0 or P1 defect remains.
+- [ ] npm `latest`, Git tag, GitHub Release, release notes, tarball, and deployed health agree on `0.2.0`.
 
-Evidence: pending.
+Evidence: `pnpm run check` passed documentation, legal, lint, type, and all 205 unit tests. The deterministic standalone build assembled the exact Harness rc.8 closure with six patches and 30 client plugins; the Direct artifact used 688,333 of its 921,600-byte gzip budget, and both Worker artifacts built successfully. All three browser/runtime snapshots and the full Direct and Dynamic integration suites passed against the released 0.1.3 durable-state fixture. A temporary directory installed and started both runtime modes from `dsh-edge-0.2.0.tgz` alone; its SHA-512 is `f03d1bb5232455d84bf1af40942e975beddfe12674a342c10393ca1e95b94b4c2bd759c103edd53e2ebe778ff0c47a6f90acdd1191c773fd4b85495ee4707108`. Hosted CI, review, and final publication convergence remain pending.
 
 ### Parity matrix
 
@@ -257,6 +258,7 @@ Stages may add discovered existing behavior. Removing or weakening a row require
 - 2026-08-21: The user prioritized the already-merged installer activation experience for an intervening `0.2.0-alpha.2` before the upstream-baseline upgrade. Added Stage 6 with unchanged rc.7 runtime, storage, authentication, and API contracts; the upstream upgrade moved from Stage 6/alpha.2 to Stage 7/alpha.3, and beta/canary validation moved from Stage 7 to Stage 8. No acceptance criterion was weakened.
 - 2026-08-21: npm `next`, `dsh-edge-v0.2.0-alpha.2`, the GitHub prerelease, reviewed notes, and the release tarball converged on the same published version, completing Stage 6. The complete published Harness `0.1.0-rc.8` package set became Stage 7's only exact upstream baseline. Stage 7 keeps Edge Durable Object schema v2 and does not mix the rc.8 Node SQLite schema 17 into the compatibility upgrade; after alpha.3, real Cloudflare row-I/O, space, and latency measurements decide whether Edge storage v3 enters 0.2, alongside an ROI review of all other deferred capabilities.
 - 2026-08-21: Stage 7 entered review after the exact rc.8 closure, six rebased patches, reviewed 30-plugin client graph, upstream module-loader bootstrap, multi-query Web Search adaptation, interrupted-prefix cold-load coverage, deterministic build, snapshots, and both release-artifact runtime integrations passed locally. Attachment/reference clients and Node SQLite schema 17 remain explicitly deferred or excluded; Durable Object schema v2 is unchanged.
+- 2026-08-21: Stage 7 completed when `0.2.0-alpha.3` passed the reviewed publication gate and converged across npm `next`, Git tag, GitHub prerelease, notes, and tarball. After real deployment use reported no release blocker, the user chose to skip a mechanically separate beta and promote the unchanged alpha.3 runtime directly to `0.2.0`. Stage 8 retains the full packed-artifact, dual-runtime, durable-state, snapshot, secret, and publication gates while removing account-specific canary and rollback work that has no external user data population to protect. The post-0.2 sequence is 0.3 attachments/images plus guarded `web_fetch`, 0.4 `@file` plus `@session`, and 0.5 additional models/providers; other capabilities remain feedback-driven.
 
 ## Alternatives considered
 
@@ -282,8 +284,8 @@ Stages may add discovered existing behavior. Removing or weakening a row require
 
 Published packages may omit manifests or Web assets required by the assembly. The standalone verifier must discover this before adopting a baseline; a missing artifact warrants an upstream packaging request or narrow adapter input, not a monorepo copy.
 
-Cloudflare size and loader behavior may differ between dry runs and real accounts. Build evidence does not replace Stage 8 account validation.
+Cloudflare size and loader behavior may differ between dry runs and real accounts. The unchanged stable candidate inherits the exercised alpha deployment paths; future runtime changes must restore account-level smoke evidence when they affect either mode.
 
-Logical storage compatibility does not prevent accidental binding or class-name changes. Fixtures, configuration assertions, and canary rehearsal protect separate risks and all remain required.
+Logical storage compatibility does not prevent accidental binding or class-name changes. Fixtures, configuration assertions, release-artifact integration, and the already exercised alpha deployments protect those separate risks.
 
 Governance cleanup can remove a useful check accidentally. Stage 5 audits the clean-root repository against the retained Edge risks before alpha publication.

@@ -146,23 +146,23 @@ Cloudflare static assets -> upstream Web shell + client plugin graph
 
 `wrangler.jsonc` 仍然是两种模式唯一的 canonical configuration。发布打包会从 workspace 源码为每种模式构建一个经过测试、已 minify 的 Worker artifact。Direct 模式只在构建时替换 Computer 中不可达的 Dynamic Worker shell-core module；Computer workspace adapter 与 command export 仍使用上游实现。Isolated 模式保留该 shell core，但把不可达的 Direct backend 替换成 fail-closed module，因此每个 artifact 都只携带所选 command runtime。发布的安装器会生成私有的 mode-specific configuration，指向所选 artifact，并要求 Wrangler 使用 `no_bundle` 上传；用户机器不会重新构建 dsh-edge，也不会把上游 Harness package 解析进一个新的 Worker。CI 会从已安装的 tarball 启动 Direct artifact，并拒绝压缩后超过 900 KiB 的产物，从而在 Cloudflare 匿名临时账户上传路径强制执行的 1 MiB 上限下保留余量。
 
-无需克隆仓库，即可从 `next` 渠道运行当前 0.2 预发布安装器：
+无需克隆仓库，即可运行稳定版安装器：
 
 ```sh
-npx dsh-edge@next install
+npx dsh-edge install
 ```
 
-稳定渠道使用 `npx dsh-edge@latest install`；在 0.2 正式晋级前，它仍指向 0.1.3。
+该命令通过 npm `latest` 渠道解析。只有在明确测试未来预发布版本时，才使用 `npx dsh-edge@next install`。
 
 选择相同 runtime 并输入现有 Worker 名称即可升级。部署会保留 Durable Object 数据；由于 Cloudflare secret 只能写入而不能读取，升级会再次要求 owner access key 与 DeepSeek API key，并用输入值替换当前生效值：
 
-升级时使用与已安装版本相同的渠道。0.2 预发布版本跟随 `next`：
+稳定部署运行：
 
 ```sh
-npx dsh-edge@next upgrade
+npx dsh-edge upgrade
 ```
 
-稳定部署使用 `npx dsh-edge@latest upgrade`。Edge 设置页会根据已安装版本推导渠道，并复制匹配的命令。
+如果当前安装的是 0.2 alpha，需要执行一次 `npx dsh-edge@latest upgrade` 晋级到稳定渠道；其他预发布部署仍跟随 `next`。Edge 设置页会根据已安装版本推导渠道，并复制匹配的命令。
 
 安装器会先询问运行时，再询问账户。推荐的 `Free — Direct Shell` 模式可在 Workers Free 上运行，并可使用检测到的 Cloudflare 账户、打开 Cloudflare 登录或注册，也可在不登录的情况下创建临时账户。`Isolated — Dynamic Worker` 需要 Workers Paid，因此只提供已检测到或新认证的账户。Cloudflare 没有提供可靠的本地 Worker Loader entitlement 检查；isolated 安装会由 Cloudflare 对上传进行授权，并在被拒绝时提示启用 Workers Paid 或改用 direct 模式。
 

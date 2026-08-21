@@ -23,13 +23,13 @@ No server or GitHub repository is required. The installer can deploy a free sing
 
 You need Node.js 22.14 or newer and a DeepSeek API key. A Cloudflare account is optional for the free temporary-account path; the installer can also use an existing account or open Cloudflare sign-in and registration.
 
-Install the current 0.2 prerelease from the `next` channel:
+Install the stable release:
 
 ```sh
-npx dsh-edge@next install
+npx dsh-edge install
 ```
 
-Use `npx dsh-edge@latest install` for the stable channel, which remains on 0.1.3 until 0.2 is promoted.
+This resolves through npm's `latest` channel. Use `npx dsh-edge@next install` only when you intentionally want to test a future prerelease.
 
 The installer asks you to:
 
@@ -57,13 +57,13 @@ Direct mode is not a Linux container. It does not provide native binaries, backg
 
 ## Upgrade
 
-Run the upgrade command for the same release channel, choose the same runtime, and enter the existing Worker name. A 0.2 prerelease deployment follows `next`:
+Run the upgrade command, choose the same runtime, and enter the existing Worker name:
 
 ```sh
-npx dsh-edge@next upgrade
+npx dsh-edge upgrade
 ```
 
-Stable deployments use `npx dsh-edge@latest upgrade`. The Edge settings page detects the installed channel and copies the matching command.
+Stable deployments follow npm `latest`. If the installed version is a 0.2 alpha, promote it to the stable channel once with `npx dsh-edge@latest upgrade`; prerelease deployments otherwise remain on `next`. The Edge settings page detects the installed channel and copies the matching command.
 
 Durable Object data is retained. The installer asks for the owner access key and DeepSeek API key again because Cloudflare secrets can be replaced but not read back.
 
