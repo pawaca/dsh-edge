@@ -1,11 +1,13 @@
 TERMINAL
-┌     ____  ____  _   _       _____ ____   ____ _____
-     |  _ \/ ___|| | | |     | ____|  _ \ / ___| ____|
-     | | | \___ \| |_| |_____|  _| | | | | |  _|  _|
-     | |_| |___) |  _  |_____| |___| |_| | |_| | |___
-     |____/|____/|_| |_|     |_____|____/ \____|_____|
-   DeepSeek Harness on Cloudflare
-   v0.2.0-alpha.2 · community project · install
+┌
+ ____  ____  _   _       _____ ____   ____ _____
+|  _ \/ ___|| | | |     | ____|  _ \ / ___| ____|
+| | | \___ \| |_| |_____|  _| | | | | |  _|  _|
+| |_| |___) |  _  |_____| |___| |_| | |_| | |___
+|____/|____/|_| |_|     |_____|____/ \____|_____|
+DeepSeek Harness on Cloudflare
+dsh-edge 0.2.0-alpha.2 · Harness 0.1.0-rc.7
+community project · install
 │
 ◆  Choose a runtime
 │  ● Free — Direct Shell (recommended; runs on Workers Free)

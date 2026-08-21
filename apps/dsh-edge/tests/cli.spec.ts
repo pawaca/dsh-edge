@@ -81,20 +81,27 @@ describe('dsh-edge CLI', () => {
       columns: 100,
       isTTY: true,
       version: '0.2.0-alpha.2',
+      upstreamVersion: '0.1.0-rc.7',
     })
-    expect(hero).toContain('____  ____  _   _')
+    const lines = hero.split('\n')
+    expect(lines[0]).toBe('')
+    expect(lines[1]).toBe(' ____  ____  _   _       _____ ____   ____ _____')
+    expect(lines[2]).toBe('|  _ \\/ ___|| | | |     | ____|  _ \\ / ___| ____|')
     expect(hero).toContain('DeepSeek Harness on Cloudflare')
-    expect(hero.split('\n').filter(Boolean).slice(1).every(line => line.startsWith('   '))).toBe(true)
+    expect(hero).toContain('dsh-edge 0.2.0-alpha.2 · Harness 0.1.0-rc.7')
+    expect(hero).toContain('community project · install')
     expect(renderInstallerIntro('upgrade', {
       columns: 60,
       isTTY: true,
       version: '0.2.0-alpha.2',
-    })).toBe('dsh-edge upgrade · v0.2.0-alpha.2')
+      upstreamVersion: '0.1.0-rc.7',
+    })).toBe('dsh-edge upgrade · 0.2.0-alpha.2 · Harness 0.1.0-rc.7')
     expect(renderInstallerIntro('install', {
       columns: 100,
       isTTY: false,
       version: '0.2.0-alpha.2',
-    })).toBe('dsh-edge install · v0.2.0-alpha.2')
+      upstreamVersion: '0.1.0-rc.7',
+    })).toBe('dsh-edge install · 0.2.0-alpha.2 · Harness 0.1.0-rc.7')
   })
 
   it('executes through a package-manager-style bin symlink', () => {

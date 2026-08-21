@@ -20,12 +20,11 @@ const INTERRUPT_EXIT_CODES = new Map([
 ])
 const OUTPUT_DRAIN_TIMEOUT_MS = 1_000
 const HERO_MIN_COLUMNS = 68
-const CLACK_INTRO_GUTTER = '   '
-const DSH_EDGE_HERO = String.raw`   ____  ____  _   _       _____ ____   ____ _____
-  |  _ \/ ___|| | | |     | ____|  _ \ / ___| ____|
-  | | | \___ \| |_| |_____|  _| | | | | |  _|  _|
-  | |_| |___) |  _  |_____| |___| |_| | |_| | |___
-  |____/|____/|_| |_|     |_____|____/ \____|_____|`
+const DSH_EDGE_HERO = String.raw` ____  ____  _   _       _____ ____   ____ _____
+|  _ \/ ___|| | | |     | ____|  _ \ / ___| ____|
+| | | \___ \| |_| |_____|  _| | | | | |  _|  _|
+| |_| |___) |  _  |_____| |___| |_| | |_| | |___
+|____/|____/|_| |_|     |_____|____/ \____|_____|`
 
 export class InstallInterruptedError extends InstallCancelledError {
   constructor(signal) {
@@ -50,17 +49,19 @@ export function renderInstallerIntro(command, {
   columns = 80,
   isTTY = false,
   version = edgePackage.version,
+  upstreamVersion = edgePackage.dshEdge.upstreamVersion,
 } = {}) {
-  if (!isTTY || columns < HERO_MIN_COLUMNS) return `dsh-edge ${command} · v${version}`
-  const content = [
+  if (!isTTY || columns < HERO_MIN_COLUMNS) {
+    return `dsh-edge ${command} · ${version} · Harness ${upstreamVersion}`
+  }
+  return [
+    '',
     DSH_EDGE_HERO,
     '',
     'DeepSeek Harness on Cloudflare',
-    `v${version} · community project · ${command}`,
+    `dsh-edge ${version} · Harness ${upstreamVersion}`,
+    `community project · ${command}`,
   ].join('\n')
-  return content.split('\n')
-    .map((line, index) => index === 0 || line === '' ? line : `${CLACK_INTRO_GUTTER}${line}`)
-    .join('\n')
 }
 
 export function createInstallerUi(
