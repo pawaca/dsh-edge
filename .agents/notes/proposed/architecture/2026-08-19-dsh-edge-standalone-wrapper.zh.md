@@ -29,7 +29,7 @@ standalone 仓库负责 Cloudflare Worker、Direct 和 Dynamic Loader runtime、
 
 ### 进度约定
 
-每个阶段只有一种状态：`planned`、`in progress`、`in review`、`merged` 或 `blocked`。只有在 Evidence 字段写明命令、产物、测试或部署证据后，验收项才能勾选。范围或验收标准变化必须附理由追加到 Change log，不能静默降低标准。阶段 1 至阶段 4 是原始迁移序列，对应的 GitHub 工作已作为 PR 25 至 PR 28 归档；阶段 5 至阶段 7 描述 clean-root 切换后的发布路线，不代表新仓库中的 PR 编号。
+每个阶段只有一种状态：`planned`、`in progress`、`in review`、`merged` 或 `blocked`。只有在 Evidence 字段写明命令、产物、测试或部署证据后，验收项才能勾选。范围或验收标准变化必须附理由追加到 Change log，不能静默降低标准。阶段 1 至阶段 4 是原始迁移序列，对应的 GitHub 工作已作为 PR 25 至 PR 28 归档；阶段 5 至阶段 8 描述 clean-root 切换后的发布路线，不代表新仓库中的 PR 编号。
 
 | 阶段 | 目标 | 状态 | 版本 | 用户操作 |
 | --- | --- | --- | --- | --- |
@@ -37,9 +37,10 @@ standalone 仓库负责 Cloudflare Worker、Direct 和 Dynamic Loader runtime、
 | 2 | 增加并行 standalone 装配路径 | merged | 无 | 无；归档的 [PR #26](https://github.com/pawaca/dsh-edge-history/pull/26) 已合并 |
 | 3 | 达到 rc.7 等价后切换 | merged | 无 | 无；归档的 [PR #27](https://github.com/pawaca/dsh-edge-history/pull/27) 已合并 |
 | 4 | 删除 fork 源码并简化规范 | merged | 无 | 无；归档的 [PR #28](https://github.com/pawaca/dsh-edge-history/pull/28) 已合并 |
-| 5 | 完成切换后卫生收尾并发布 rc.7 standalone 基线 | in progress | `0.2.0-alpha.1` | 仓库与发布门禁通过后批准预发布 |
-| 6 | 在新的完整 package 集合发布后升级精确上游基线 | planned | `0.2.0-alpha.2` | 批准预发布 |
-| 7 | 演练 canary 升级、beta、回滚并发布 0.2 | planned | `0.2.0-beta.1`，然后 `0.2.0` | 完成账号所有者才能执行的 Cloudflare 流程；批准 beta 和稳定版发布 |
+| 5 | 完成切换后卫生收尾并发布 rc.7 standalone 基线 | merged | `0.2.0-alpha.1` | 无；预发布已完成 |
+| 6 | 在 rc.7 上发布安装激活体验和发布工具链加固 | in review | `0.2.0-alpha.2` | [PR #16](https://github.com/pawaca/dsh-edge/pull/16) 合并后批准预发布 |
+| 7 | 在新的完整 package 集合发布后升级精确上游基线 | planned | `0.2.0-alpha.3` | 批准预发布 |
+| 8 | 演练 canary 升级、beta、回滚并发布 0.2 | planned | `0.2.0-beta.1`，然后 `0.2.0` | 完成账号所有者才能执行的 Cloudflare 流程；批准 beta 和稳定版发布 |
 
 ### PR 1 — 冻结 0.1.3 基线
 
@@ -140,11 +141,28 @@ Evidence：一个没有父级或根依赖的临时 checkout 在安装根依赖�
 - [x] 稳定部署跟随 npm `latest`，预发布部署跟随 npm `next`，升级指引只要求 Node/npm。
 - [x] 发布 workflow 验证已 Review 的源码、发布精确 tarball，并创建版本匹配且包含 release notes 的 GitHub prerelease。
 - [x] 完整 rc.7 等价性、0.1.3 持久化状态、package 与两种 runtime 安装证据在 release candidate 上通过。
-- [ ] npm `next`、Git tag、GitHub prerelease、release notes 与 tarball identity 均报告 `0.2.0-alpha.1`。
+- [x] npm `next`、Git tag、GitHub prerelease、release notes 与 tarball identity 均报告 `0.2.0-alpha.1`。
 
-Evidence：canonical root `ff2adbd74cf6fe9196460e234180a9f5310c4eee` 没有 parent，tree 为 `ddb4f9b64b059851597fb6a31a1b29680d9cc908`，与归档的 PR 4 一致。[Edge CI run 32385210909](https://github.com/pawaca/dsh-edge/actions/runs/32385210909) 通过 clean repository 的完整验证。随后，[PR #9](https://github.com/pawaca/dsh-edge/pull/9) 增加双语安全报告流程、启用私密漏洞报告、链接归档历史，并把 Dependabot 限制为 GitHub Actions，使 npm 依赖继续作为一个协同更新面；其 [Edge CI run 32390452740](https://github.com/pawaca/dsh-edge/actions/runs/32390452740) 与 HEAD-bound review 在合并前通过。Alpha.1 candidate 会根据已安装的稳定或预发布版本推导 npm 查询与升级命令，聚焦的 client 和 workflow 测试共 22 项 assertion 通过。`pnpm run check` 通过 188 项测试以及 documentation、lint 和 type check；精确 rc.7 装配验证 6 个 patch、28 个 client plugin、确定性 Web 输出、gzip 为 686,070 bytes 且低于 921,600-byte budget 的 Direct 产物，以及两种 Worker 模式。两种已提升 artifact 都通过完整 0.1.3 持久化状态 integration，3 个 assembled snapshot 全部通过，打包后的 `dsh-edge@0.2.0-alpha.1` tarball 也能启动两种已安装模式。Candidate tarball 的 SHA-512 为 `bc3c15c15a937e802816a24f2acc26d3b689e878f821a56dbc6f2d625c061ca10574291b035cf6f0a67ef7e69082857560877d7caad201447bba84d343d0b037`。Hosted review 与实际 npm/tag/GitHub publication 仍待完成。
+Evidence：canonical root `ff2adbd74cf6fe9196460e234180a9f5310c4eee` 没有 parent，tree 为 `ddb4f9b64b059851597fb6a31a1b29680d9cc908`，与归档的 PR 4 一致。[Edge CI run 32385210909](https://github.com/pawaca/dsh-edge/actions/runs/32385210909) 通过 clean repository 的完整验证。随后，[PR #9](https://github.com/pawaca/dsh-edge/pull/9) 增加双语安全报告流程、启用私密漏洞报告、链接归档历史，并把 Dependabot 限制为 GitHub Actions，使 npm 依赖继续作为一个协同更新面；其 [Edge CI run 32390452740](https://github.com/pawaca/dsh-edge/actions/runs/32390452740) 与 HEAD-bound review 在合并前通过。Alpha.1 candidate 会根据已安装的稳定或预发布版本推导 npm 查询与升级命令，聚焦的 client 和 workflow 测试共 22 项 assertion 通过。`pnpm run check` 通过 188 项测试以及 documentation、lint 和 type check；精确 rc.7 装配验证 6 个 patch、28 个 client plugin、确定性 Web 输出、gzip 为 686,070 bytes 且低于 921,600-byte budget 的 Direct 产物，以及两种 Worker 模式。两种已提升 artifact 都通过完整 0.1.3 持久化状态 integration，3 个 assembled snapshot 全部通过，打包后的 `dsh-edge@0.2.0-alpha.1` tarball 也能启动两种已安装模式。Candidate tarball 的 SHA-512 为 `bc3c15c15a937e802816a24f2acc26d3b689e878f821a56dbc6f2d625c061ca10574291b035cf6f0a67ef7e69082857560877d7caad201447bba84d343d0b037`。2026-08-21，npm `next`、经过 Review 的 `dsh-edge-v0.2.0-alpha.1` tag、匹配的 GitHub prerelease 与 notes，以及对应的 `dsh-edge-0.2.0-alpha.1.tgz` asset 完成最终发布门禁。
 
-### 阶段 6 — 升级已发布的上游基线
+### 阶段 6 — 在 rc.7 上发布安装激活体验
+
+目标：在改变上游基线以前，先发布已经 Review 的首次使用与发布工具链改进，让用户可以独立测试更清晰的安装器，而不与上游兼容性升级混在一起。
+
+范围：在保留精确 rc.7 装配的前提下，发布静态安装器 Hero、无凭证且有界的公开激活观察、对齐后的终端输出、GitHub Actions v7 升级、pnpm 11 setup 迁移、可移植的 pnpm 子进程调用，以及匹配的双语 release notes。
+
+不在范围内：上游依赖变化、持久化数据或公开 API 变化、新认证模型、实现暂缓插件和商业账号管理。
+
+- [x] Wrangler 接受上传仍是安装成功边界，同时由 ready、pending 和 recovery 输出解释 Cloudflare 传播状态。
+- [x] 激活观察有明确边界、不跟随 redirect，并且从不发送 owner 或 DeepSeek 凭证。
+- [x] Installer、settings、deployment identity 和 agent-preset snapshot 均报告 `0.2.0-alpha.2`，且 rc.7 基线不变。
+- [x] Linux 与 Windows CI 在 `actions/checkout@v7`、`actions/setup-node@v7` 和 `pnpm/setup@v2` 下通过。
+- [x] 打包后的 alpha.2 artifact 能在 workspace 外启动 Direct 和 Dynamic Worker 两种模式。
+- [ ] npm `next`、Git tag、GitHub prerelease、release notes 与 tarball identity 均报告 `0.2.0-alpha.2`。
+
+Evidence：[PR #13](https://github.com/pawaca/dsh-edge/pull/13) 增加有界激活观察器和安装器表达，[PR #14](https://github.com/pawaca/dsh-edge/pull/14) 修正终端对齐，[PR #15](https://github.com/pawaca/dsh-edge/pull/15) 迁移 Actions 工具链，并让所有 pnpm 子进程调用同时支持 JavaScript 入口和独立可执行文件。Alpha.2 release-prep [PR #16](https://github.com/pawaca/dsh-edge/pull/16) 继续把所有 Harness package 固定在 `0.1.0-rc.7`；[Edge CI run 32451798683](https://github.com/pawaca/dsh-edge/actions/runs/32451798683) 已通过 Linux、Windows installer、204 项 repository 测试、持久化状态 integration、已提升 browser/runtime snapshot，以及两种已打包 Worker 模式的外部安装。实际 alpha.2 publication 是阶段 6 剩余的最终门禁。
+
+### 阶段 7 — 升级已发布的上游基线
 
 目标：在源码抽取和 alpha.1 发布之外，单独升级 standalone wrapper 的上游版本，并且只在出现更新且完整的 Harness package 集合后执行。
 
@@ -161,7 +179,7 @@ Evidence：canonical root `ff2adbd74cf6fe9196460e234180a9f5310c4eee` 没有 pare
 
 Evidence：待补充。Clean-root 切换时，npm registry 仍把 `0.1.0-rc.7` 报告为最新的完整 Harness 发布基线，因此本阶段不能凭空引入 `rc.8` 源码依赖。
 
-### 阶段 7 — 演练 beta、回滚并发布 0.2
+### 阶段 8 — 演练 beta、回滚并发布 0.2
 
 目标：在稳定版发布前证明全新安装、已有实例升级、回滚、文档和发布流程。
 
@@ -224,6 +242,8 @@ Evidence：待补充。
 - 2026-08-20：本地 alpha.1 release candidate 已通过完整 repository、standalone、双 runtime 持久化状态、snapshot 与 installed-tarball 门禁。稳定与预发布部署现在分别保持在 `latest` 和 `next`；发布自动化要求 tag commit 位于已 Review 的 `master` 历史中，先发布 npm，再根据已 Review 的 notes 创建匹配的 GitHub prerelease。这个祖先关系门禁既能在 `master` 前进后继续恢复未完成发布，也不会接受旁支 tag。实际 publication 是阶段 5 剩余的最终门禁。
 - 2026-08-20：最终独立仓库审计确认，canonical GitHub 仓库已不再是 fork，当前项目、package、文档、法律与发布身份都指向 `pawaca/dsh-edge`，CI 中也不存在 Cloudflare 源码部署。审计同时发现一条被静默忽略的已删除测试路径，以及一处依赖固定等待时间维持 model turn 活跃状态的 hosted integration race。package test 现在选择受维护的 Vitest project，mock model 则改用显式 release gate；完整 repository check、两种 runtime integration 和已安装 alpha.1 tarball 已在本地通过。Hosted CI 仍待执行。
 - 2026-08-20：发布重试 contract 的 Review 发现，由 tag 触发的 workflow 仍允许该 tag revision 重新定义自己的 OIDC 发布权限。发布现在从无特权的手动请求与 `repository_dispatch` 开始；GitHub 会从默认分支解析具备权限的 workflow，再由它验证并 checkout 显式指定、已经 Review 的 tag。首次发布必须等于 dispatch 时的 `master` commit，确保 npm provenance 指向实际构建源码；只有该 npm 精确版本已经存在时才允许使用祖先 tag，从而在不授权新的历史版本发布的前提下保留 GitHub Release 恢复能力。workflow 会在 npm publication 与 GitHub Release mutation 前分别重新 fetch 并比对 tag，关闭长时间构建期间的移动窗口。重试只会在 immutable GitHub Release 的 tag、标题、状态、notes、asset 名称、大小与下载后的 SHA-512 都和重建 release 一致时接受它。
+- 2026-08-21：npm `next`、`dsh-edge-v0.2.0-alpha.1`、GitHub prerelease、经过 Review 的 notes 与 release tarball 收敛到同一个已发布版本后，阶段 5 完成。
+- 2026-08-21：用户决定在上游基线升级前，优先把已经合并的安装激活体验作为中间版本 `0.2.0-alpha.2` 发布。新增阶段 6，并保持 rc.7 runtime、storage、authentication 与 API contract 不变；上游升级从阶段 6/alpha.2 顺延到阶段 7/alpha.3，beta/canary 验证从阶段 7 顺延到阶段 8。没有降低任何验收标准。
 
 ## 已考虑的替代方案
 
@@ -239,7 +259,7 @@ Evidence：待补充。
 
 ## 验收标准
 
-- 七个阶段均已完成，各项验收已勾选并记录证据。
+- 八个阶段均已完成，各项验收已勾选并记录证据。
 - 仓库从精确版本的上游 package 构建，并且不包含 Harness 源码副本。
 - 两种 runtime 模式保持等价矩阵和已发布持久化数据。
 - package 无需 clone 仓库即可安装，并发布版本一致的 npm、tag 和 GitHub Release。
@@ -249,7 +269,7 @@ Evidence：待补充。
 
 上游发布包可能缺少装配所需的 manifest 或 Web asset。Standalone verifier 必须在采用基线以前发现这种缺口；缺少产物意味着提出上游打包要求或使用范围严格的 adapter 输入，而不是复制 monorepo。
 
-Cloudflare 体积和 loader 行为可能在 dry run 与真实账号之间存在差异。构建证据不能替代阶段 7 的账号验证。
+Cloudflare 体积和 loader 行为可能在 dry run 与真实账号之间存在差异。构建证据不能替代阶段 8 的账号验证。
 
 逻辑存储兼容不能防止 binding 或 class 名称意外变化。fixture、配置 assertion 和 canary 演练保护不同风险，三者都必须完成。
 

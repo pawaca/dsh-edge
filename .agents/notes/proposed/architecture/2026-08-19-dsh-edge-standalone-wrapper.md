@@ -29,7 +29,7 @@ The standalone repository owns the Cloudflare Worker, Direct and Dynamic Loader 
 
 ### Progress protocol
 
-Each stage has one status: `planned`, `in progress`, `in review`, `merged`, or `blocked`. An acceptance item is checked only when its Evidence field names the command, artifact, test, or deployment that proves it. Scope or acceptance changes are appended to the Change log with a reason; criteria are never weakened silently. Stages 1 through 4 are the original migration sequence whose GitHub work is archived as PRs 25 through 28; stages 5 through 7 describe the post-cutover release track and are not GitHub PR numbers.
+Each stage has one status: `planned`, `in progress`, `in review`, `merged`, or `blocked`. An acceptance item is checked only when its Evidence field names the command, artifact, test, or deployment that proves it. Scope or acceptance changes are appended to the Change log with a reason; criteria are never weakened silently. Stages 1 through 4 are the original migration sequence whose GitHub work is archived as PRs 25 through 28; stages 5 through 8 describe the post-cutover release track and are not GitHub PR numbers.
 
 | Stage | Objective | Status | Release | User action |
 | --- | --- | --- | --- | --- |
@@ -37,9 +37,10 @@ Each stage has one status: `planned`, `in progress`, `in review`, `merged`, or `
 | 2 | Add a parallel standalone assembly path | merged | none | none; archived [PR #26](https://github.com/pawaca/dsh-edge-history/pull/26) merged |
 | 3 | Switch after rc.7 parity | merged | none | none; archived [PR #27](https://github.com/pawaca/dsh-edge-history/pull/27) merged |
 | 4 | Remove fork source and simplify governance | merged | none | none; archived [PR #28](https://github.com/pawaca/dsh-edge-history/pull/28) merged |
-| 5 | Close post-cutover hygiene and publish the rc.7 standalone baseline | in progress | `0.2.0-alpha.1` | approve prerelease after repository and release gates pass |
-| 6 | Upgrade the exact upstream baseline when a newer package set is published | planned | `0.2.0-alpha.2` | approve prerelease |
-| 7 | Rehearse canary upgrade, beta, rollback, and release 0.2 | planned | `0.2.0-beta.1`, then `0.2.0` | perform account-owned Cloudflare flows; approve beta and stable releases |
+| 5 | Close post-cutover hygiene and publish the rc.7 standalone baseline | merged | `0.2.0-alpha.1` | none; prerelease published |
+| 6 | Publish installer activation UX and release-tooling hardening on rc.7 | in review | `0.2.0-alpha.2` | approve prerelease after [PR #16](https://github.com/pawaca/dsh-edge/pull/16) merges |
+| 7 | Upgrade the exact upstream baseline when a newer package set is published | planned | `0.2.0-alpha.3` | approve prerelease |
+| 8 | Rehearse canary upgrade, beta, rollback, and release 0.2 | planned | `0.2.0-beta.1`, then `0.2.0` | perform account-owned Cloudflare flows; approve beta and stable releases |
 
 ### PR 1 — Freeze the 0.1.3 baseline
 
@@ -140,11 +141,28 @@ Excluded: upstream dependency upgrades, deferred-plugin implementation, runtime 
 - [x] Stable deployments follow npm `latest`, prerelease deployments follow npm `next`, and upgrade guidance requires only Node/npm.
 - [x] The release workflow verifies the reviewed source, publishes the exact tarball, and creates a version-matched GitHub prerelease with release notes.
 - [x] The complete rc.7 parity, 0.1.3 durable-state, package, and both-runtime installation evidence passes on the release candidate.
-- [ ] npm `next`, Git tag, GitHub prerelease, release notes, and tarball identity all report `0.2.0-alpha.1`.
+- [x] npm `next`, Git tag, GitHub prerelease, release notes, and tarball identity all report `0.2.0-alpha.1`.
 
-Evidence: canonical root `ff2adbd74cf6fe9196460e234180a9f5310c4eee` has no parent and tree `ddb4f9b64b059851597fb6a31a1b29680d9cc908`, identical to archived PR 4. [Edge CI run 32385210909](https://github.com/pawaca/dsh-edge/actions/runs/32385210909) passed the clean repository's full verification. [PR #9](https://github.com/pawaca/dsh-edge/pull/9) then added bilingual security reporting, enabled private vulnerability reporting, linked the archived history, and limited Dependabot to GitHub Actions so npm dependencies remain one coordinated update surface; its [Edge CI run 32390452740](https://github.com/pawaca/dsh-edge/actions/runs/32390452740) and HEAD-bound review passed before merge. The alpha.1 candidate derives npm lookup and upgrade commands from the installed stable/prerelease version, and its focused client and workflow tests pass 22 assertions. `pnpm run check` passes 188 tests plus documentation, lint, and type checks; the exact rc.7 assembly verifies six patches, 28 client plugins, deterministic Web output, Direct at 686,070 gzip bytes against the 921,600-byte budget, and both Worker modes. Both promoted artifacts pass the complete 0.1.3 durable-state integration, all three assembled snapshots pass, and the packed `dsh-edge@0.2.0-alpha.1` tarball starts both installed modes. The candidate tarball has SHA-512 `bc3c15c15a937e802816a24f2acc26d3b689e878f821a56dbc6f2d625c061ca10574291b035cf6f0a67ef7e69082857560877d7caad201447bba84d343d0b037`. Hosted review and actual npm/tag/GitHub publication remain pending.
+Evidence: canonical root `ff2adbd74cf6fe9196460e234180a9f5310c4eee` has no parent and tree `ddb4f9b64b059851597fb6a31a1b29680d9cc908`, identical to archived PR 4. [Edge CI run 32385210909](https://github.com/pawaca/dsh-edge/actions/runs/32385210909) passed the clean repository's full verification. [PR #9](https://github.com/pawaca/dsh-edge/pull/9) then added bilingual security reporting, enabled private vulnerability reporting, linked the archived history, and limited Dependabot to GitHub Actions so npm dependencies remain one coordinated update surface; its [Edge CI run 32390452740](https://github.com/pawaca/dsh-edge/actions/runs/32390452740) and HEAD-bound review passed before merge. The alpha.1 candidate derives npm lookup and upgrade commands from the installed stable/prerelease version, and its focused client and workflow tests pass 22 assertions. `pnpm run check` passes 188 tests plus documentation, lint, and type checks; the exact rc.7 assembly verifies six patches, 28 client plugins, deterministic Web output, Direct at 686,070 gzip bytes against the 921,600-byte budget, and both Worker modes. Both promoted artifacts pass the complete 0.1.3 durable-state integration, all three assembled snapshots pass, and the packed `dsh-edge@0.2.0-alpha.1` tarball starts both installed modes. The candidate tarball has SHA-512 `bc3c15c15a937e802816a24f2acc26d3b689e878f821a56dbc6f2d625c061ca10574291b035cf6f0a67ef7e69082857560877d7caad201447bba84d343d0b037`. On 2026-08-21, npm `next`, the reviewed `dsh-edge-v0.2.0-alpha.1` tag, the matching GitHub prerelease and notes, and its `dsh-edge-0.2.0-alpha.1.tgz` asset completed the final publication gate.
 
-### Stage 6 — Upgrade the published upstream baseline
+### Stage 6 — Publish installer activation UX on rc.7
+
+Objective: publish the already-reviewed first-run and release-tooling improvements before changing the upstream baseline, so users can test a clearer installer independently from an upstream compatibility upgrade.
+
+Scope: ship the static installer hero, credential-free bounded public activation observation, aligned terminal output, GitHub Actions v7 upgrades, pnpm 11 setup migration, portable pnpm subprocess handling, and matching bilingual release notes while retaining the exact rc.7 assembly.
+
+Excluded: upstream dependency changes, durable-data or public-API changes, new authentication models, deferred-plugin implementation, and commercial account management.
+
+- [x] Wrangler acceptance remains the installation success boundary while ready, pending, and recovery output explain Cloudflare propagation.
+- [x] Activation observation is bounded, does not follow redirects, and never sends owner or DeepSeek credentials.
+- [x] Installer, settings, deployment identity, and agent-preset snapshots report `0.2.0-alpha.2` without changing the rc.7 baseline.
+- [x] Linux and Windows CI pass with `actions/checkout@v7`, `actions/setup-node@v7`, and `pnpm/setup@v2`.
+- [x] The packed alpha.2 artifact starts both Direct and Dynamic Worker modes outside the workspace.
+- [ ] npm `next`, Git tag, GitHub prerelease, release notes, and tarball identity all report `0.2.0-alpha.2`.
+
+Evidence: [PR #13](https://github.com/pawaca/dsh-edge/pull/13) added the bounded activation observer and installer framing, [PR #14](https://github.com/pawaca/dsh-edge/pull/14) corrected terminal alignment, and [PR #15](https://github.com/pawaca/dsh-edge/pull/15) migrated the Actions toolchain while making all pnpm subprocess callers support both JavaScript entrypoints and standalone executables. The alpha.2 release-prep [PR #16](https://github.com/pawaca/dsh-edge/pull/16) keeps every Harness package on `0.1.0-rc.7`; [Edge CI run 32451798683](https://github.com/pawaca/dsh-edge/actions/runs/32451798683) passed Linux, Windows installer, 204 repository tests, durable-state integration, promoted browser/runtime snapshots, and external installation of both packed Worker modes. Actual alpha.2 publication remains the final Stage 6 gate.
+
+### Stage 7 — Upgrade the published upstream baseline
 
 Objective: upgrade the standalone wrapper separately from source extraction and alpha.1 publication, after a newer coherent Harness package set is available.
 
@@ -161,7 +179,7 @@ Excluded: unpublished source snapshots, piecemeal Dependabot bumps, deferred-plu
 
 Evidence: pending. The npm registry still reports `0.1.0-rc.7` as the latest coherent published Harness baseline at the clean-root cutover, so this stage must not invent an `rc.8` source dependency.
 
-### Stage 7 — Rehearse beta, rollback, and release 0.2
+### Stage 8 — Rehearse beta, rollback, and release 0.2
 
 Objective: prove fresh installation, existing-instance upgrade, rollback, documentation, and publication before stable release.
 
@@ -224,6 +242,8 @@ Stages may add discovered existing behavior. Removing or weakening a row require
 - 2026-08-20: The local alpha.1 release candidate passed the complete repository, standalone, dual-runtime durable-state, snapshot, and installed-tarball gates. Stable and prerelease deployments now remain on `latest` and `next` respectively; release automation requires the tag commit to belong to reviewed `master` history, publishes npm first, and only then creates the matching GitHub prerelease from reviewed notes. This ancestry gate keeps a partially completed release recoverable after `master` advances without accepting a side-branch tag. Actual publication remains the final Stage 5 gate.
 - 2026-08-20: The final independent-repository audit confirmed that the canonical GitHub repository is no longer a fork, all current project, package, documentation, legal, and release identities point to `pawaca/dsh-edge`, and CI contains no Cloudflare source deployment. The audit also found a silently ignored deleted test path and a hosted integration race that used wall-clock delay to keep a model turn active. The package test now selects the maintained Vitest project, while the mock model uses an explicit release gate; the complete repository check, both runtime integrations, and installed alpha.1 tarball passed locally. Hosted CI remains pending.
 - 2026-08-20: Review of the release retry contract found that a tag-triggered workflow still let the tagged revision redefine its own OIDC publication authority. Publication now begins with an unprivileged manual request and a `repository_dispatch`; GitHub resolves the privileged workflow from the default branch, while that workflow validates and checks out the explicit reviewed tag. A first publication must equal the dispatch-time `master` commit so npm provenance names the built source; an ancestor tag is accepted only when that exact npm version already exists, preserving GitHub Release recovery without authorizing a new historical publication. The workflow re-fetches and compares the tag immediately before both npm publication and GitHub Release mutation, closing the long-build movement window. A retry accepts an immutable GitHub Release only after its tag, title, state, notes, asset name, size, and downloaded SHA-512 all match the rebuilt release.
+- 2026-08-21: Stage 5 completed when npm `next`, `dsh-edge-v0.2.0-alpha.1`, the GitHub prerelease, reviewed notes, and the release tarball converged on the same published version.
+- 2026-08-21: The user prioritized the already-merged installer activation experience for an intervening `0.2.0-alpha.2` before the upstream-baseline upgrade. Added Stage 6 with unchanged rc.7 runtime, storage, authentication, and API contracts; the upstream upgrade moved from Stage 6/alpha.2 to Stage 7/alpha.3, and beta/canary validation moved from Stage 7 to Stage 8. No acceptance criterion was weakened.
 
 ## Alternatives considered
 
@@ -239,7 +259,7 @@ Stages may add discovered existing behavior. Removing or weakening a row require
 
 ## Acceptance criteria
 
-- All seven stages are complete with checked criteria and recorded evidence.
+- All eight stages are complete with checked criteria and recorded evidence.
 - The repository builds from exact upstream packages and contains no copied Harness source.
 - Both runtime modes preserve the parity matrix and released durable data.
 - The package installs without a repository clone and publishes matching npm, tag, and GitHub Release versions.
@@ -249,7 +269,7 @@ Stages may add discovered existing behavior. Removing or weakening a row require
 
 Published packages may omit manifests or Web assets required by the assembly. The standalone verifier must discover this before adopting a baseline; a missing artifact warrants an upstream packaging request or narrow adapter input, not a monorepo copy.
 
-Cloudflare size and loader behavior may differ between dry runs and real accounts. Build evidence does not replace Stage 7 account validation.
+Cloudflare size and loader behavior may differ between dry runs and real accounts. Build evidence does not replace Stage 8 account validation.
 
 Logical storage compatibility does not prevent accidental binding or class-name changes. Fixtures, configuration assertions, and canary rehearsal protect separate risks and all remain required.
 
