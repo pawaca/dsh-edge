@@ -56,7 +56,7 @@ describe('dsh-edge assembled browser snapshot', () => {
       })
       await page.route('https://registry.npmjs.org/dsh-edge/next', route => route.fulfill({
         contentType: 'application/json',
-        body: JSON.stringify({ version: '0.2.0-alpha.2' }),
+        body: JSON.stringify({ version: '0.2.0-alpha.3' }),
       }))
       await page.goto(origin, { waitUntil: 'load' })
       await page.getByLabel('Owner access key').fill(ACCESS_KEY)
