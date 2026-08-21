@@ -41,6 +41,10 @@ const repositoryRoot = fileURLToPath(new URL('../../../', import.meta.url))
 const packageRoot = fileURLToPath(new URL('../', import.meta.url))
 const standaloneRoot = join(packageRoot, 'standalone')
 const edgeManifest = JSON.parse(readFileSync(join(packageRoot, 'package.json'), 'utf8'))
+const patchAudit = JSON.parse(readFileSync(join(standaloneRoot, 'patches', 'audit.json'), 'utf8'))
+if (!Array.isArray(patchAudit) || patchAudit.length === 0) {
+  throw new Error('The retained patch audit must be a non-empty array.')
+}
 
 function bundledComponents() {
   const invocation = resolvePnpmInvocation(process.env.npm_execpath ?? 'pnpm', [
@@ -212,7 +216,7 @@ function renderNotices(components) {
 
 ## DeepSeek Harness
 
-\`dsh-edge\` assembles published DeepSeek Harness packages and applies six version-bound adaptations to the pinned \`${edgeManifest.dshEdge.upstreamVersion}\` release. DeepSeek Harness remains under its upstream MIT license:
+\`dsh-edge\` assembles published DeepSeek Harness packages and applies ${String(patchAudit.length)} version-bound adaptations to the pinned \`${edgeManifest.dshEdge.upstreamVersion}\` release. DeepSeek Harness remains under its upstream MIT license:
 
 \`\`\`text
 ${upstreamLicense}
