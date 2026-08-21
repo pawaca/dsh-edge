@@ -1,8 +1,8 @@
 diff --git a/lib/client.js b/lib/client.js
-index ec779d5750f3810736ee05290bdd45d858cd00e0..0197ac7e08ecb4b1ad24b61a629b66792a4b014e 100644
+index 7ca5fd3d02cdcc27c05daa23af5879101eb3c97b..b01a1948639625622775160b80c784b9375f3af4 100644
 --- a/lib/client.js
 +++ b/lib/client.js
-@@ -459,12 +459,12 @@ window.__ModuleLoader__.load({
+@@ -460,12 +460,12 @@ window.__ModuleLoader__.load({
  				id: "rename",
  				label: t("rename"),
  				icon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconEditOutline16, {})
@@ -17,7 +17,7 @@ index ec779d5750f3810736ee05290bdd45d858cd00e0..0197ac7e08ecb4b1ad24b61a629b6679
  			const ownRow = (0, react_jsx_runtime.jsxs)("div", {
  				className: clsx(Rows_module_css_default.projectRow, menuOpen && Rows_module_css_default.menuOpen),
  				role: "treeitem",
-@@ -506,7 +506,7 @@ window.__ModuleLoader__.load({
+@@ -507,7 +507,7 @@ window.__ModuleLoader__.load({
  								/* v8 ignore next -- workspaceMenuItems carries exactly these two rows today. */
  								if (id !== "rename" && id !== "delete") return;
  								if (id === "rename") actions.rename();
@@ -26,16 +26,16 @@ index ec779d5750f3810736ee05290bdd45d858cd00e0..0197ac7e08ecb4b1ad24b61a629b6679
  							},
  							portal: true,
  							closeOnPointerLeave: true,
-@@ -1196,7 +1196,7 @@ window.__ModuleLoader__.load({
+@@ -1197,7 +1197,7 @@ window.__ModuleLoader__.load({
  			return e.clientY < rect.top + rect.height / 2 ? "before" : "after";
  		}
  		/** The scrolling session tree; unmounting drops the sessions subscription and expand-all state. */
--		function SessionTree({ useSessions, startSession, open, forkSession, workspaces, archivedSessionIds, onRenameRequest, onDeleteRequest, onSessionRename, onSessionArchive, insertWorkspaceBefore, insertSessionBefore, orderBy, groupExpansion, setGroupExpanded, sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, setSessionOrder, t }) {
-+		function SessionTree({ useSessions, startSession, open, forkSession, workspaces, archivedSessionIds, onRenameRequest, onDeleteRequest, onSessionRename, onSessionArchive, canAddWorkspace, insertWorkspaceBefore, insertSessionBefore, orderBy, groupExpansion, setGroupExpanded, sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, setSessionOrder, t }) {
+-		function SessionTree({ useSessions, startSession, open, forkSession, workspaces, archivedSessionIds, onRenameRequest, onDeleteRequest, onSessionRename, onSessionArchive, insertWorkspaceBefore, insertSessionBefore, orderBy, groupExpansion, setGroupExpanded, sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, setSessionOrder, home, t }) {
++		function SessionTree({ useSessions, startSession, open, forkSession, workspaces, archivedSessionIds, onRenameRequest, onDeleteRequest, onSessionRename, onSessionArchive, insertWorkspaceBefore, insertSessionBefore, orderBy, groupExpansion, setGroupExpanded, sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, setSessionOrder, canAddWorkspace, home, t }) {
  			const list = useSessions((s) => s);
  			const current = list.current;
  			const [expandedSessionGroups, setExpandedSessionGroups] = (0, react.useState)([]);
-@@ -1393,10 +1393,10 @@ window.__ModuleLoader__.load({
+@@ -1395,10 +1395,10 @@ window.__ModuleLoader__.load({
  												/* v8 ignore next -- narrowing guard: the actions object exists only for real-workspace groups. */
  												if (group.workspaceId !== void 0) onRenameRequest(group.workspaceId, group.label);
  											},
@@ -48,11 +48,11 @@ index ec779d5750f3810736ee05290bdd45d858cd00e0..0197ac7e08ecb4b1ad24b61a629b6679
  										}
  									}),
  									(expandedSessionGroups.includes(group.key) ? group.sessions : group.sessions.slice(0, COLLAPSED_SESSION_LIMIT)).map((node) => {
-@@ -2022,6 +2022,7 @@ window.__ModuleLoader__.load({
+@@ -2026,6 +2026,7 @@ window.__ModuleLoader__.load({
  							insertWorkspaceBefore,
  							insertSessionBefore,
  							orderBy,
 +							canAddWorkspace: directoryFlowAvailable,
+ 							home,
  							t,
  							onRenameRequest: (workspaceId, currentTitle) => {
- 								setRenameTarget({

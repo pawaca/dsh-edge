@@ -3,7 +3,7 @@
 import { DatabaseSync, type SQLInputValue, type SQLOutputValue } from 'node:sqlite'
 import { readFileSync } from 'node:fs'
 import { Context } from '@deepseek-ai/cordis'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { createAssistantMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, {
   SESSION_FORMAT_VERSION,
   SessionId,
@@ -197,6 +197,80 @@ describe('durable-object bounded event pages', () => {
         await reloadedCtx.fiber.dispose()
       }
     } finally {
+      storage.close()
+    }
+  })
+
+  it('round-trips an interrupted assistant prefix through cold storage', async () => {
+    const storage = new TestDurableObjectStorage()
+    const id = SessionId('interrupted-assistant-prefix')
+    const message = createAssistantMessage({
+      content: [{ type: 'text', text: 'A visible prefix before cancellation.' }],
+      source: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+    })
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(DurableObjectSessionPersistence, {
+      storage: storage as never,
+    })
+    try {
+      await ctx.sessionPersistence.create({
+        id,
+        version: SESSION_FORMAT_VERSION,
+        createdAt: 1,
+      })
+      await ctx.sessionPersistence.append(id, [
+        { type: 'turn/start', seq: 0, time: 2, data: { turn: 1 } },
+        { type: 'step/start', seq: 1, time: 3, data: { turn: 1, step: 1 } },
+        {
+          type: 'assistant/message',
+          seq: 2,
+          time: 4,
+          data: { turn: 1, step: 1, message, interrupted: true },
+          sourceEventSeqs: [],
+          surfaceOp: 'append',
+        },
+        { type: 'step/end', seq: 3, time: 5, data: { turn: 1, step: 1 } },
+        {
+          type: 'turn/end',
+          seq: 4,
+          time: 6,
+          data: { turn: 1, reason: { kind: 'interrupted' } },
+        },
+      ])
+    } finally {
+      await fiber.dispose()
+      await ctx.fiber.dispose()
+    }
+
+    const coldCtx = new Context()
+    await coldCtx.plugin(SessionStore)
+    const coldFiber = await coldCtx.plugin(DurableObjectSessionPersistence, {
+      storage: storage as never,
+    })
+    const persistence = coldCtx.sessionPersistence as DurableObjectSessionPersistence
+    try {
+      await expect(persistence.load(id)).resolves.toMatchObject({
+        events: [{ seq: 0 }, { seq: 1 }, {
+          type: 'assistant/message',
+          seq: 2,
+          data: {
+            message: { content: [{ type: 'text', text: 'A visible prefix before cancellation.' }] },
+            interrupted: true,
+          },
+        }, { seq: 3 }, { seq: 4 }],
+      })
+      await expect(persistence.readEventPage(id, 2, 1, 8_192)).resolves.toMatchObject({
+        events: [{
+          type: 'assistant/message',
+          seq: 2,
+          data: { interrupted: true },
+        }],
+        hasMore: true,
+      })
+    } finally {
+      await coldFiber.dispose()
+      await coldCtx.fiber.dispose()
       storage.close()
     }
   })

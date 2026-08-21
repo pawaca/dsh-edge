@@ -120,7 +120,7 @@ export async function startMockDeepSeek(port = 0) {
                   type: 'function',
                   function: {
                     name: 'web_search',
-                    arguments: '{"query":"current mock information"}',
+                    arguments: '{"queries":["current mock information"]}',
                   },
                 }],
               },

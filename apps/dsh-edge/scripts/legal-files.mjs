@@ -40,6 +40,7 @@ const LEGAL_FILE = /^(?:licen[cs]e|copying|notice)(?:$|[._-])/iu
 const repositoryRoot = fileURLToPath(new URL('../../../', import.meta.url))
 const packageRoot = fileURLToPath(new URL('../', import.meta.url))
 const standaloneRoot = join(packageRoot, 'standalone')
+const edgeManifest = JSON.parse(readFileSync(join(packageRoot, 'package.json'), 'utf8'))
 
 function bundledComponents() {
   const invocation = resolvePnpmInvocation(process.env.npm_execpath ?? 'pnpm', [
@@ -211,7 +212,7 @@ function renderNotices(components) {
 
 ## DeepSeek Harness
 
-\`dsh-edge\` assembles published DeepSeek Harness packages and applies six version-bound adaptations to the pinned \`0.1.0-rc.7\` release. DeepSeek Harness remains under its upstream MIT license:
+\`dsh-edge\` assembles published DeepSeek Harness packages and applies six version-bound adaptations to the pinned \`${edgeManifest.dshEdge.upstreamVersion}\` release. DeepSeek Harness remains under its upstream MIT license:
 
 \`\`\`text
 ${upstreamLicense}

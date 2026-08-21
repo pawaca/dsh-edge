@@ -1,6 +1,6 @@
 {
   "call": {
-    "arguments": "{"query":"current mock information"}",
+    "arguments": "{"queries":["current mock information"]}",
     "callId": "call_mock_search",
     "name": "web_search",
     "step": 1,
@@ -89,7 +89,7 @@ Cite the relevant URLs above as markdown links in your answer.",
       "truncated": false,
     },
   },
-  "searchGuidance": "Use the web_search tool to discover current information on the web. It returns an optional answer plus a list of source URLs. Use the returned source snippets when available, and cite the relevant URLs as markdown links.",
+  "searchGuidance": "Use the web_search tool to discover current information on the web. The required queries array accepts 1–4 non-empty search queries; use a one-item array for a single search. It returns an optional answer plus a list of source URLs. Use the returned source snippets when available, and cite the relevant URLs as markdown links.",
   "toolNames": [
     "bash",
     "web_search",

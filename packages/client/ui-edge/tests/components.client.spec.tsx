@@ -23,7 +23,7 @@ const READY: EdgeSettingsState = {
     shell: 'just-bash-isolated',
     deploymentId: 'deploy-123',
     version: '1.0.0',
-    upstreamVersion: '0.1.0-rc.7',
+    upstreamVersion: '0.1.0-rc.8',
     status: 'ready',
   },
   copied: false,

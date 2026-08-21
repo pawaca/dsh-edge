@@ -17,10 +17,12 @@ const targetVersion = edgePackage.dshEdge.upstreamVersion
 const excludedClientPackages = [
   '@deepseek-ai/dsh-client-hmr',
   '@deepseek-ai/dsh-cordis-client-runner',
+  '@deepseek-ai/dsh-client-ui-attachment',
   '@deepseek-ai/dsh-client-ui-cordis',
   '@deepseek-ai/dsh-client-ui-goal',
   '@deepseek-ai/dsh-client-ui-message-feedback',
   '@deepseek-ai/dsh-client-ui-plan',
+  '@deepseek-ai/dsh-client-ui-reference',
   '@deepseek-ai/dsh-client-ui-settings-models',
   '@deepseek-ai/dsh-client-ui-settings-plugin-inventory',
   '@deepseek-ai/dsh-client-ui-settings-plugins',
@@ -104,15 +106,26 @@ for (const mode of ['direct', 'isolated']) {
 
 const webRoot = join(standaloneRoot, 'dist')
 const index = await readFile(join(webRoot, 'index.html'), 'utf8')
+if (!index.includes('window.__ModuleLoader__=')) {
+  throw new Error('Standalone Web shell omitted the upstream module-loader bootstrap facade.')
+}
 const bootMatch = index.match(/window\.__DSH_BOOT__ = (\{.*?\})<\/script>/s)
 if (bootMatch === null) throw new Error('Standalone Web shell has no boot manifest.')
 const boot = JSON.parse(bootMatch[1])
-if (!Array.isArray(boot.entries) || boot.entries.length !== 28) {
-  throw new Error(`Expected 28 rc.7 client plugins, found ${String(boot.entries?.length)}.`)
+if (!Array.isArray(boot.entries) || boot.entries.length !== expectedBootShape.length) {
+  throw new Error(
+    `Expected ${String(expectedBootShape.length)} reviewed ${targetVersion} client plugins, found ${String(boot.entries?.length)}.`,
+  )
 }
 const clientIds = new Set(boot.entries.map(entry => entry.id))
 if (!clientIds.has('dsh-edge-client-ui')) {
   throw new Error('Standalone Web shell omitted the Edge client plugin.')
+}
+for (const name of ['@deepseek-ai/dsh-client-modules', '@deepseek-ai/dsh-client-runtime']) {
+  const entry = boot.entries.find(candidate => candidate.id === name)
+  if (entry === undefined || !index.includes(`<script src="${entry.url}"></script>`)) {
+    throw new Error(`Standalone Web shell omitted the parser-blocking preload for ${name}.`)
+  }
 }
 for (const name of excludedClientPackages) {
   if (clientIds.has(name)) throw new Error(`Standalone Web shell included unsupported plugin ${name}.`)
@@ -121,7 +134,7 @@ for (const entry of boot.entries) {
   await access(join(webRoot, 'plugins', entry.id, 'client.js'))
 }
 if (JSON.stringify(bootShape(boot)) !== JSON.stringify(expectedBootShape)) {
-  throw new Error('Standalone Web boot graph differs from the reviewed rc.7 contract.')
+  throw new Error(`Standalone Web boot graph differs from the reviewed ${targetVersion} contract.`)
 }
 const edgeClientBundle = await readFile(join(webRoot, 'plugins', 'dsh-edge-client-ui', 'client.js'), 'utf8')
 if (/require\(["']compare-versions["']\)/u.test(edgeClientBundle)) {

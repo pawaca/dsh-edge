@@ -38,8 +38,8 @@ Each stage has one status: `planned`, `in progress`, `in review`, `merged`, or `
 | 3 | Switch after rc.7 parity | merged | none | none; archived [PR #27](https://github.com/pawaca/dsh-edge-history/pull/27) merged |
 | 4 | Remove fork source and simplify governance | merged | none | none; archived [PR #28](https://github.com/pawaca/dsh-edge-history/pull/28) merged |
 | 5 | Close post-cutover hygiene and publish the rc.7 standalone baseline | merged | `0.2.0-alpha.1` | none; prerelease published |
-| 6 | Publish installer activation UX and release-tooling hardening on rc.7 | in review | `0.2.0-alpha.2` | approve prerelease after [PR #16](https://github.com/pawaca/dsh-edge/pull/16) merges |
-| 7 | Upgrade the exact upstream baseline when a newer package set is published | planned | `0.2.0-alpha.3` | approve prerelease |
+| 6 | Publish installer activation UX and release-tooling hardening on rc.7 | merged | `0.2.0-alpha.2` | none; prerelease published |
+| 7 | Upgrade the exact upstream baseline to the published Harness rc.8 | in review | `0.2.0-alpha.3` | approve prerelease |
 | 8 | Rehearse canary upgrade, beta, rollback, and release 0.2 | planned | `0.2.0-beta.1`, then `0.2.0` | perform account-owned Cloudflare flows; approve beta and stable releases |
 
 ### PR 1 — Freeze the 0.1.3 baseline
@@ -158,26 +158,37 @@ Excluded: upstream dependency changes, durable-data or public-API changes, new a
 - [x] Installer, settings, deployment identity, and agent-preset snapshots report `0.2.0-alpha.2` without changing the rc.7 baseline.
 - [x] Linux and Windows CI pass with `actions/checkout@v7`, `actions/setup-node@v7`, and `pnpm/setup@v2`.
 - [x] The packed alpha.2 artifact starts both Direct and Dynamic Worker modes outside the workspace.
-- [ ] npm `next`, Git tag, GitHub prerelease, release notes, and tarball identity all report `0.2.0-alpha.2`.
+- [x] npm `next`, Git tag, GitHub prerelease, release notes, and tarball identity all report `0.2.0-alpha.2`.
 
-Evidence: [PR #13](https://github.com/pawaca/dsh-edge/pull/13) added the bounded activation observer and installer framing, [PR #14](https://github.com/pawaca/dsh-edge/pull/14) corrected terminal alignment, and [PR #15](https://github.com/pawaca/dsh-edge/pull/15) migrated the Actions toolchain while making all pnpm subprocess callers support both JavaScript entrypoints and standalone executables. The alpha.2 release-prep [PR #16](https://github.com/pawaca/dsh-edge/pull/16) keeps every Harness package on `0.1.0-rc.7`; [Edge CI run 32451798683](https://github.com/pawaca/dsh-edge/actions/runs/32451798683) passed Linux, Windows installer, 204 repository tests, durable-state integration, promoted browser/runtime snapshots, and external installation of both packed Worker modes. Actual alpha.2 publication remains the final Stage 6 gate.
+Evidence: [PR #13](https://github.com/pawaca/dsh-edge/pull/13) added the bounded activation observer and installer framing, [PR #14](https://github.com/pawaca/dsh-edge/pull/14) corrected terminal alignment, and [PR #15](https://github.com/pawaca/dsh-edge/pull/15) migrated the Actions toolchain while making all pnpm subprocess callers support both JavaScript entrypoints and standalone executables. The alpha.2 release-prep [PR #16](https://github.com/pawaca/dsh-edge/pull/16) keeps every Harness package on `0.1.0-rc.7`; [Edge CI run 32451798683](https://github.com/pawaca/dsh-edge/actions/runs/32451798683) passed Linux, Windows installer, 204 repository tests, durable-state integration, promoted browser/runtime snapshots, and external installation of both packed Worker modes. On 2026-08-21, npm `next`, the reviewed `dsh-edge-v0.2.0-alpha.2` tag, the matching GitHub prerelease and notes, and the release tarball completed the final publication gate and Stage 6.
 
 ### Stage 7 — Upgrade the published upstream baseline
 
-Objective: upgrade the standalone wrapper separately from source extraction and alpha.1 publication, after a newer coherent Harness package set is available.
+Objective: upgrade the standalone wrapper separately from source extraction and the alpha.1/alpha.2 publications to the complete published Harness `0.1.0-rc.8` package set.
 
 Scope: update every exact Harness dependency from `0.1.0-rc.7` to one selected published release; regenerate assembly inputs; retire obsolete patches; classify new plugins and visible changes; retain Edge branding and exclude unsupported capabilities.
 
-Excluded: unpublished source snapshots, piecemeal Dependabot bumps, deferred-plugin implementation, unrelated upstream defects, and persistence or authentication redesign.
+Excluded: unpublished source snapshots, piecemeal Dependabot bumps, deferred-plugin implementation, unrelated upstream defects, and persistence or authentication redesign. The rc.8 Node SQLite schema 17 is not migrated into Durable Object storage; Edge schema v2, released durable data, and the rollback boundary remain unchanged.
 
-- [ ] Every Edge-relevant upstream change has an adopted, adapted, deferred, or excluded disposition.
-- [ ] All `@deepseek-ai/dsh-*` packages use one exact published baseline.
-- [ ] Patch count does not increase without an explicit amendment and rationale.
-- [ ] Removing a retained patch fails its regression test.
-- [ ] The parity matrix passes in both runtime modes.
-- [ ] UI manifests expose only capabilities supported by Edge.
+- [x] Every Edge-relevant upstream change has an adopted, adapted, deferred, or excluded disposition.
+- [x] All `@deepseek-ai/dsh-*` packages use one exact published baseline.
+- [x] Patch count does not increase without an explicit amendment and rationale.
+- [x] Removing a retained patch fails its regression test.
+- [x] The parity matrix passes in both runtime modes.
+- [x] UI manifests expose only capabilities supported by Edge.
 
-Evidence: pending. The npm registry still reports `0.1.0-rc.7` as the latest coherent published Harness baseline at the clean-root cutover, so this stage must not invent an `rc.8` source dependency.
+| rc.8 change family | Disposition | Edge result |
+| --- | --- | --- |
+| interrupted assistant prefixes, reasoning continuation, and unified provider retry behavior | adopted | Uses the published rc.8 agent/LLM behavior; an interrupted assistant prefix now has a Durable Object cold-load regression test. |
+| bounded multi-query DeepSeek Web Search | adapted | Edge uses the published `queries[1..4]` contract, preserves request-scoped credentials, and retains the no-follow Worker redirect patch. |
+| client renderer, official-brand slots, and module-loader bootstrap | adopted | The published renderer and brand plugins plus upstream boot injector are assembled; the verifier requires the bootstrap facade and parser-blocking preloads. |
+| required host `home` and request image-byte contract | adapted | Host `home` maps to `/workspace`; the LLM receives rc.8's default request-byte limit without advertising image intake. |
+| attachment/image and `@file`/`@session` reference clients | deferred | Both client plugins are explicitly excluded until Edge implements their host/runtime faces and persistence policy. |
+| Node SQLite schema 17 and local-host-only facilities | excluded | Durable Object schema v2 and its canonical event contract remain unchanged; Node database layout is not an Edge migration input. |
+
+Evidence: npm published the complete Harness `0.1.0-rc.8` set consumed here. Local `pnpm run check`, `pnpm run build`, `pnpm --filter dsh-edge run test:snapshot`, and `pnpm --filter dsh-edge run test:integration` pass. Standalone verification proves one exact rc.8 closure, six audited patches (unchanged from rc.7), a reviewed 30-plugin graph, deterministic Web output, and both Worker artifacts. Direct and Dynamic Loader release-artifact integrations pass against Durable Object schema v2. This stage consumes only published packages and introduces no upstream source.
+
+After Stage 7 completes and alpha.3 is published, the project performs one overall ROI review. Durable Object physical-row packing, attachments and images, session export, remote MCP, Skills, Workflows, Jobs, and subagents are reprioritized at that checkpoint. Storage v3 enters Stage 8 only if real Worker measurements of row reads/writes, space, and latency show that it should block 0.2; otherwise it moves to 0.3. The checkpoint is not a hidden Stage 7 acceptance item.
 
 ### Stage 8 — Rehearse beta, rollback, and release 0.2
 
@@ -244,6 +255,8 @@ Stages may add discovered existing behavior. Removing or weakening a row require
 - 2026-08-20: Review of the release retry contract found that a tag-triggered workflow still let the tagged revision redefine its own OIDC publication authority. Publication now begins with an unprivileged manual request and a `repository_dispatch`; GitHub resolves the privileged workflow from the default branch, while that workflow validates and checks out the explicit reviewed tag. A first publication must equal the dispatch-time `master` commit so npm provenance names the built source; an ancestor tag is accepted only when that exact npm version already exists, preserving GitHub Release recovery without authorizing a new historical publication. The workflow re-fetches and compares the tag immediately before both npm publication and GitHub Release mutation, closing the long-build movement window. A retry accepts an immutable GitHub Release only after its tag, title, state, notes, asset name, size, and downloaded SHA-512 all match the rebuilt release.
 - 2026-08-21: Stage 5 completed when npm `next`, `dsh-edge-v0.2.0-alpha.1`, the GitHub prerelease, reviewed notes, and the release tarball converged on the same published version.
 - 2026-08-21: The user prioritized the already-merged installer activation experience for an intervening `0.2.0-alpha.2` before the upstream-baseline upgrade. Added Stage 6 with unchanged rc.7 runtime, storage, authentication, and API contracts; the upstream upgrade moved from Stage 6/alpha.2 to Stage 7/alpha.3, and beta/canary validation moved from Stage 7 to Stage 8. No acceptance criterion was weakened.
+- 2026-08-21: npm `next`, `dsh-edge-v0.2.0-alpha.2`, the GitHub prerelease, reviewed notes, and the release tarball converged on the same published version, completing Stage 6. The complete published Harness `0.1.0-rc.8` package set became Stage 7's only exact upstream baseline. Stage 7 keeps Edge Durable Object schema v2 and does not mix the rc.8 Node SQLite schema 17 into the compatibility upgrade; after alpha.3, real Cloudflare row-I/O, space, and latency measurements decide whether Edge storage v3 enters 0.2, alongside an ROI review of all other deferred capabilities.
+- 2026-08-21: Stage 7 entered review after the exact rc.8 closure, six rebased patches, reviewed 30-plugin client graph, upstream module-loader bootstrap, multi-query Web Search adaptation, interrupted-prefix cold-load coverage, deterministic build, snapshots, and both release-artifact runtime integrations passed locally. Attachment/reference clients and Node SQLite schema 17 remain explicitly deferred or excluded; Durable Object schema v2 is unchanged.
 
 ## Alternatives considered
 

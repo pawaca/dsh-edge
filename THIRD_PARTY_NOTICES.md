@@ -7,7 +7,7 @@
 
 ## DeepSeek Harness
 
-`dsh-edge` assembles published DeepSeek Harness packages and applies six version-bound adaptations to the pinned `0.1.0-rc.7` release. DeepSeek Harness remains under its upstream MIT license:
+`dsh-edge` assembles published DeepSeek Harness packages and applies six version-bound adaptations to the pinned `0.1.0-rc.8` release. DeepSeek Harness remains under its upstream MIT license:
 
 ```text
 MIT License
@@ -35,7 +35,7 @@ SOFTWARE.
 
 ## Bundled component inventory
 
-The following 538 package versions form the conservative, platform-neutral production closure used to assemble the Web and Worker artifacts in this distribution. Platform-specific build binaries that are not distributed in those artifacts are excluded; tree shaking can omit additional code. The inventory and legal texts are generated during packaging rather than referring recipients to a source checkout. License expressions are SPDX identifiers supplied by each package. Dependencies installed separately by npm remain declared in this package's `package.json`.
+The following 459 package versions form the conservative, platform-neutral production closure used to assemble the Web and Worker artifacts in this distribution. Platform-specific build binaries that are not distributed in those artifacts are excluded; tree shaking can omit additional code. The inventory and legal texts are generated during packaging rather than referring recipients to a source checkout. License expressions are SPDX identifiers supplied by each package. Dependencies installed separately by npm remain declared in this package's `package.json`.
 
 | Component | License |
 | --- | --- |
@@ -80,178 +80,179 @@ The following 538 package versions form the conservative, platform-neutral produ
 | `@deepseek-ai/cordis-plugin-loader@1.0.2` | `MIT` |
 | `@deepseek-ai/cordis-plugin-timer@1.1.3` | `MIT` |
 | `@deepseek-ai/cosmokit@1.8.2` | `MIT` |
-| `@deepseek-ai/dsh-agent@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-agent-default-model@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-agent-instructions@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-agent-loop@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-agent-presets@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-anonymous-user-id@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-api-gateway@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-api-remotes@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-app-boot@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-atomic-write@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-attachment@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-attachment-local@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-base@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-bash-local@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-bash-sandbox@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-brand@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-client-connection@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-client-hmr@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-client-locale@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-client-modules@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-client-runtime@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-client-schema-form@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-agent-preset@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-attachment@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-commands@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-conversation@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-cordis@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-deliverables@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-directory-picker-browse@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-directory-picker-native@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-goal@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-input-trigger@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-jobs@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-layout@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-message-feedback@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-model-selection@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-permission-presets@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-plan@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-primitives@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-settings@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-settings-general@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-settings-models@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-settings-plugin-inventory@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-settings-plugins@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-sidebar@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-skill@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-slots@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-subagent@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-theme@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-tool@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-trajectory@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-user-questions@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-workflow-run@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-workspace@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-client-web@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-client-web-react@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-cmdline@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-code-runtime@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-code-runtime-worker-thread@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-command-compact@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-command-feedback@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-command-goal@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-commands@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-compaction@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-compaction-basic@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-compaction-tool-result-pruner@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-cordis-client-runner@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-cordis-host-runner@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-credentials@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-credentials-local@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-fs@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-fs-local@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-fs-observation-policy@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-fs-sandbox@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-goal@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-goal-round-driver@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-home-paths@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-host-apiproxy@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-host-directory-picker@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-host-directory-picker-auto@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-host-directory-picker-browse@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-host-directory-picker-native@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-host-frontend-static@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-host-plugin-inventory@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-host-webserver@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-invariants@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-jobs@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-jobs-local@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-launch-environment@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-llm@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-llm-deepseek@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-llm-pi-ai@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-llm-retry@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-message-feedback@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-native-command@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-output-retention@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-permission-presets@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-plan-mode@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-pwsh-local@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-pwsh-sandbox@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-repeat-tool-reminder@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-sandbox@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-sandbox-local@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-sandbox-policy@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-sandbox-windows-acl@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-scope@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-session@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-session-checkpoint-policy@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-session-log-export@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-session-persistence@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-session-persistence-jsonl@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-session-projection@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-session-projection-cache@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-session-query@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-session-query-sqlite@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-session-stats@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-session-telemetry@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-session-telemetry-otel@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-session-title@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-session-title-first-prompt-llm@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-session-title-llm@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-settings@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-settings-file@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-shell@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-shell-env@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-skill@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-skill-badge@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-skill-filesystem@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-spill@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-spill-local@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-spill-policy@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-storage@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-storage-domain@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-storage-json@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-subagent@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-subagent-fork-in-process@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-subagent-in-process-driver@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-subagent-spawn-in-process@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-subprocess@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-subprocess-local@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-system-prompt@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-timeout@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-token-meter@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-tool-bash@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-tool-call-timeout-policy@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-tool-fs@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-tool-fs-search@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-tool-goal@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-tool-jobs@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-tool-pwsh@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-tool-ralph@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-tool-skill@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-tool-str-replace-editor@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-tool-subagent@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-tool-subagent-control@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-tool-subagent-report@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-tool-todo@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-tool-web@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-tool-workflow@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-tools@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-typert-loader@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-typert-protocol@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-typert-registry@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-user-approval@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-user-questions@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-web@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-web-app@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-web-frontend@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-web-search-deepseek@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-workflow@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-workflow-worker-thread@0.1.0-rc.7` | `MIT` |
-| `@deepseek-ai/dsh-workspace@0.1.0-rc.7` | `MIT` |
+| `@deepseek-ai/dsh-agent@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-agent-default-model@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-agent-instructions@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-agent-loop@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-agent-presets@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-anonymous-user-id@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-api-gateway@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-api-remotes@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-app-boot@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-atomic-write@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-attachment@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-attachment-local@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-base@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-bash-local@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-bash-sandbox@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-brand@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-client-connection@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-client-hmr@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-client-locale@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-client-modules@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-client-runtime@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-agent-preset@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-attachment@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-brand-official@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-commands@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-conversation@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-cordis@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-deliverables@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-directory-picker-browse@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-directory-picker-native@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-goal@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-input-trigger@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-jobs@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-layout@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-message-feedback@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-model-selection@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-permission-presets@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-plan@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-reference@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-renderer@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-settings@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-settings-general@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-settings-models@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-settings-plugin-inventory@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-settings-plugins@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-sidebar@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-skill@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-subagent@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-theme@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-tool@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-trajectory@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-user-questions@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-workflow-run@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-workspace@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-cmdline@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-code-runtime@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-code-runtime-worker-thread@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-command-compact@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-command-feedback@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-command-goal@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-commands@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-compaction@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-compaction-basic@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-compaction-tool-result-pruner@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-cordis-client-runner@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-cordis-host-runner@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-credentials@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-credentials-local@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-file-reference@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-file-reference-local@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-fs@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-fs-local@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-fs-observation-policy@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-fs-sandbox@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-goal@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-goal-round-driver@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-home-paths@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-host-apiproxy@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-host-directory-picker@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-host-directory-picker-auto@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-host-directory-picker-browse@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-host-directory-picker-native@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-host-frontend-static@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-host-plugin-inventory@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-host-webserver@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-invariants@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-jobs@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-jobs-local@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-launch-environment@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-llm@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-llm-deepseek@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-llm-pi-ai@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-llm-retry@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-message-feedback@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-native-command@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-output-retention@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-permission-presets@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-plan-mode@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-pwsh-local@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-pwsh-sandbox@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-repeat-tool-reminder@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-sandbox@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-sandbox-local@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-sandbox-policy@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-sandbox-windows-acl@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-scope@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-session@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-session-checkpoint-policy@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-session-log-export@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-session-persistence@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-session-persistence-jsonl@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-session-projection@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-session-projection-cache@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-session-query@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-session-query-sqlite@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-session-reference@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-session-stats@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-session-telemetry@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-session-telemetry-otel@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-session-title@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-session-title-first-prompt-llm@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-session-title-llm@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-settings@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-settings-file@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-shell@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-shell-env@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-skill@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-skill-badge@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-skill-filesystem@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-spill@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-spill-local@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-spill-policy@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-storage@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-storage-domain@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-storage-json@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-subagent@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-subagent-fork-in-process@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-subagent-in-process-driver@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-subagent-spawn-in-process@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-subprocess@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-subprocess-local@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-system-prompt@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-timeout@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-token-meter@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-tool-bash@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-tool-call-timeout-policy@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-tool-fs@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-tool-fs-search@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-tool-goal@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-tool-jobs@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-tool-pwsh@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-tool-ralph@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-tool-skill@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-tool-str-replace-editor@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-tool-subagent@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-tool-subagent-control@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-tool-subagent-report@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-tool-todo@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-tool-web@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-tool-workflow@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-tools@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-typert-loader@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-typert-protocol@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-typert-registry@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-user-approval@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-user-questions@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-web@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-web-app@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-web-frontend@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-web-search-deepseek@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-workflow@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-workflow-worker-thread@0.1.0-rc.8` | `MIT` |
+| `@deepseek-ai/dsh-workspace@0.1.0-rc.8` | `MIT` |
 | `@deepseek-ai/node-addon-landlock-run@0.1.1` | `BSD-3-Clause` |
 | `@deepseek-ai/schemastery@3.18.1` | `MIT` |
 | `@earendil-works/pi-ai@0.82.1` | `MIT` |
@@ -297,14 +298,6 @@ The following 538 package versions form the conservative, platform-neutral produ
 | `@protobufjs/pool@1.1.0` | `BSD-3-Clause` |
 | `@protobufjs/utf8@1.1.2` | `BSD-3-Clause` |
 | `@sec-ant/readable-stream@0.4.1` | `MIT` |
-| `@shikijs/core@4.4.3` | `MIT` |
-| `@shikijs/engine-javascript@4.4.3` | `MIT` |
-| `@shikijs/engine-oniguruma@4.4.3` | `MIT` |
-| `@shikijs/langs@4.4.3` | `MIT` |
-| `@shikijs/primitive@4.4.3` | `MIT` |
-| `@shikijs/themes@4.4.3` | `MIT` |
-| `@shikijs/types@4.4.3` | `MIT` |
-| `@shikijs/vscode-textmate@10.0.2` | `MIT` |
 | `@sindresorhus/is@7.2.0` | `MIT` |
 | `@sindresorhus/merge-streams@4.0.0` | `MIT` |
 | `@smithy/core@3.33.2` | `Apache-2.0` |
@@ -323,19 +316,11 @@ The following 538 package versions form the conservative, platform-neutral produ
 | `@tanstack/virtual-core@3.17.8` | `MIT` |
 | `@tokenizer/inflate@0.4.1` | `MIT` |
 | `@tokenizer/token@0.3.0` | `MIT` |
-| `@types/debug@4.1.13` | `MIT` |
-| `@types/hast@3.0.5` | `MIT` |
-| `@types/katex@0.16.8` | `MIT` |
-| `@types/mdast@4.0.4` | `MIT` |
-| `@types/ms@2.1.0` | `MIT` |
 | `@types/node@26.2.0` | `MIT` |
 | `@types/retry@0.12.0` | `MIT` |
-| `@types/unist@3.0.3` | `MIT` |
-| `@ungap/structured-clone@1.3.3` | `ISC` |
 | `@vscode/ripgrep@1.18.0` | `MIT` |
 | `acorn@8.18.0` | `MIT` |
 | `agent-base@7.1.4` | `MIT` |
-| `anser@2.3.5` | `MIT` |
 | `anynum@1.0.1` | `MIT` |
 | `argparse@2.0.1` | `Python-2.0` |
 | `balanced-match@4.0.4` | `MIT` |
@@ -347,36 +332,30 @@ The following 538 package versions form the conservative, platform-neutral produ
 | `brace-expansion@5.0.9` | `MIT` |
 | `buffer@5.7.1` | `MIT` |
 | `buffer-equal-constant-time@1.0.1` | `BSD-3-Clause` |
+| `bundle-name@4.1.0` | `MIT` |
 | `capnweb@0.8.0` | `MIT` |
-| `ccount@2.0.1` | `MIT` |
-| `character-entities@2.0.2` | `MIT` |
-| `character-entities-html4@2.1.0` | `MIT` |
-| `character-entities-legacy@3.0.0` | `MIT` |
 | `chokidar@4.0.3` | `MIT` |
 | `chokidar@5.0.0` | `MIT` |
 | `chownr@1.1.4` | `ISC` |
 | `clsx@2.1.1` | `MIT` |
-| `comma-separated-tokens@2.0.3` | `MIT` |
 | `commander@15.0.0` | `MIT` |
 | `commander@6.2.1` | `MIT` |
-| `commander@8.3.0` | `MIT` |
 | `compare-versions@6.1.1` | `MIT` |
 | `cookie@1.1.1` | `MIT` |
 | `data-uri-to-buffer@4.0.1` | `MIT` |
 | `debug@4.4.3` | `MIT` |
-| `decode-named-character-reference@1.3.0` | `MIT` |
 | `decompress-response@6.0.0` | `MIT` |
 | `deep-extend@0.6.0` | `MIT` |
-| `dequal@2.0.3` | `MIT` |
+| `default-browser@5.5.1` | `MIT` |
+| `default-browser-id@5.0.1` | `MIT` |
+| `define-lazy-prop@3.0.0` | `MIT` |
 | `detect-libc@2.1.2` | `Apache-2.0` |
-| `devlop@1.1.0` | `MIT` |
 | `diff@8.0.4` | `BSD-3-Clause` |
 | `diff@9.0.0` | `BSD-3-Clause` |
 | `ecdsa-sig-formatter@1.0.11` | `Apache-2.0` |
 | `end-of-stream@1.4.5` | `MIT` |
 | `error-stack-parser-es@1.0.5` | `MIT` |
 | `esbuild@0.28.1` | `MIT` |
-| `escape-string-regexp@5.0.0` | `MIT` |
 | `eventsource-parser@3.1.1` | `MIT` |
 | `execa@10.0.0` | `MIT` |
 | `expand-template@2.0.3` | `(MIT OR WTFPL)` |
@@ -395,9 +374,6 @@ The following 538 package versions form the conservative, platform-neutral produ
 | `github-from-package@0.0.0` | `MIT` |
 | `google-auth-library@10.9.1` | `Apache-2.0` |
 | `google-logging-utils@1.1.3` | `Apache-2.0` |
-| `hast-util-to-html@9.0.5` | `MIT` |
-| `hast-util-whitespace@3.0.0` | `MIT` |
-| `html-void-elements@3.0.0` | `MIT` |
 | `http-proxy-agent@7.0.2` | `MIT` |
 | `https-proxy-agent@7.0.6` | `MIT` |
 | `human-signals@8.0.1` | `Apache-2.0` |
@@ -406,10 +382,14 @@ The following 538 package versions form the conservative, platform-neutral produ
 | `inherits@2.0.4` | `ISC` |
 | `ini@1.3.8` | `ISC` |
 | `ini@6.0.0` | `ISC` |
+| `is-docker@3.0.0` | `MIT` |
+| `is-in-ssh@1.0.0` | `MIT` |
+| `is-inside-container@1.0.0` | `MIT` |
 | `is-plain-obj@4.1.0` | `MIT` |
 | `is-stream@4.0.1` | `MIT` |
 | `is-unicode-supported@2.1.0` | `MIT` |
 | `is-unsafe@2.0.2` | `MIT` |
+| `is-wsl@3.1.1` | `MIT` |
 | `js-tokens@4.0.0` | `MIT` |
 | `js-yaml@4.3.1` | `MIT` |
 | `json-bigint@1.0.0` | `MIT` |
@@ -418,55 +398,10 @@ The following 538 package versions form the conservative, platform-neutral produ
 | `just-bash@3.3.0` | `Apache-2.0` |
 | `jwa@2.0.1` | `MIT` |
 | `jws@4.0.1` | `MIT` |
-| `katex@0.16.47` | `MIT` |
 | `kleur@4.1.5` | `MIT` |
 | `koffi@3.1.5` | `MIT` |
 | `long@5.3.2` | `Apache-2.0` |
-| `longest-streak@3.1.0` | `MIT` |
 | `loose-envify@1.4.0` | `MIT` |
-| `markdown-table@3.0.4` | `MIT` |
-| `mdast-util-find-and-replace@3.0.2` | `MIT` |
-| `mdast-util-from-markdown@2.0.3` | `MIT` |
-| `mdast-util-gfm@3.1.0` | `MIT` |
-| `mdast-util-gfm-autolink-literal@2.0.1` | `MIT` |
-| `mdast-util-gfm-footnote@2.1.0` | `MIT` |
-| `mdast-util-gfm-strikethrough@2.0.0` | `MIT` |
-| `mdast-util-gfm-table@2.0.0` | `MIT` |
-| `mdast-util-gfm-task-list-item@2.0.0` | `MIT` |
-| `mdast-util-math@3.0.0` | `MIT` |
-| `mdast-util-phrasing@4.1.0` | `MIT` |
-| `mdast-util-to-hast@13.2.1` | `MIT` |
-| `mdast-util-to-markdown@2.1.2` | `MIT` |
-| `mdast-util-to-string@4.0.0` | `MIT` |
-| `micromark@4.0.2` | `MIT` |
-| `micromark-core-commonmark@2.0.3` | `MIT` |
-| `micromark-extension-gfm@3.0.0` | `MIT` |
-| `micromark-extension-gfm-autolink-literal@2.1.0` | `MIT` |
-| `micromark-extension-gfm-footnote@2.1.0` | `MIT` |
-| `micromark-extension-gfm-strikethrough@2.1.0` | `MIT` |
-| `micromark-extension-gfm-table@2.1.1` | `MIT` |
-| `micromark-extension-gfm-tagfilter@2.0.0` | `MIT` |
-| `micromark-extension-gfm-task-list-item@2.1.0` | `MIT` |
-| `micromark-extension-math@3.1.0` | `MIT` |
-| `micromark-factory-destination@2.0.1` | `MIT` |
-| `micromark-factory-label@2.0.1` | `MIT` |
-| `micromark-factory-space@2.0.1` | `MIT` |
-| `micromark-factory-title@2.0.1` | `MIT` |
-| `micromark-factory-whitespace@2.0.1` | `MIT` |
-| `micromark-util-character@2.1.1` | `MIT` |
-| `micromark-util-chunked@2.0.1` | `MIT` |
-| `micromark-util-classify-character@2.0.1` | `MIT` |
-| `micromark-util-combine-extensions@2.0.1` | `MIT` |
-| `micromark-util-decode-numeric-character-reference@2.0.2` | `MIT` |
-| `micromark-util-decode-string@2.0.1` | `MIT` |
-| `micromark-util-encode@2.0.1` | `MIT` |
-| `micromark-util-html-tag-name@2.0.1` | `MIT` |
-| `micromark-util-normalize-identifier@2.0.1` | `MIT` |
-| `micromark-util-resolve-all@2.0.1` | `MIT` |
-| `micromark-util-sanitize-uri@2.0.1` | `MIT` |
-| `micromark-util-subtokenize@2.1.0` | `MIT` |
-| `micromark-util-symbol@2.0.1` | `MIT` |
-| `micromark-util-types@2.0.2` | `MIT` |
 | `mimic-response@3.1.0` | `MIT` |
 | `miniflare@5.20260811.1-alpha` | `MIT` |
 | `minimatch@10.2.6` | `BlueOak-1.0.0` |
@@ -485,8 +420,7 @@ The following 538 package versions form the conservative, platform-neutral produ
 | `node-pty@1.2.0-beta.15` | `MIT` |
 | `npm-run-path@6.0.0` | `MIT` |
 | `once@1.4.0` | `ISC` |
-| `oniguruma-parser@0.12.2` | `MIT` |
-| `oniguruma-to-es@4.3.6` | `MIT` |
+| `open@11.0.1` | `MIT` |
 | `openai@6.26.0` | `Apache-2.0` |
 | `p-retry@4.6.2` | `MIT` |
 | `papaparse@5.6.0` | `MIT` |
@@ -498,9 +432,10 @@ The following 538 package versions form the conservative, platform-neutral produ
 | `pathe@2.0.3` | `MIT` |
 | `picocolors@1.1.1` | `ISC` |
 | `picomatch@4.0.5` | `MIT` |
+| `powershell-utils@0.1.0` | `MIT` |
+| `powershell-utils@0.2.0` | `MIT` |
 | `prebuild-install@7.1.3` | `MIT` |
 | `pretty-ms@9.3.0` | `MIT` |
-| `property-information@7.2.0` | `MIT` |
 | `protobufjs@7.6.5` | `BSD-3-Clause` |
 | `pump@3.0.4` | `MIT` |
 | `quickjs-emscripten@0.32.0` | `MIT` |
@@ -512,26 +447,21 @@ The following 538 package versions form the conservative, platform-neutral produ
 | `readable-stream@3.6.2` | `MIT` |
 | `readdirp@4.1.2` | `MIT` |
 | `readdirp@5.1.1` | `MIT` |
-| `regex@6.1.0` | `MIT` |
-| `regex-recursion@6.0.2` | `MIT` |
-| `regex-utilities@2.3.0` | `MIT` |
 | `retry@0.13.1` | `MIT` |
+| `run-applescript@7.1.0` | `MIT` |
 | `safe-buffer@5.2.1` | `MIT` |
 | `scheduler@0.23.2` | `MIT` |
 | `seek-bzip@2.0.0` | `MIT` |
 | `semver@7.8.5` | `ISC` |
 | `sharp@0.35.2` | `Apache-2.0` |
 | `sharp@0.35.3` | `Apache-2.0` |
-| `shiki@4.4.3` | `MIT` |
 | `signal-exit@4.1.0` | `ISC` |
 | `simple-concat@1.0.1` | `MIT` |
 | `simple-get@4.0.1` | `MIT` |
 | `smol-toml@1.8.0` | `BSD-3-Clause` |
-| `space-separated-tokens@2.0.2` | `MIT` |
 | `sprintf-js@1.1.3` | `BSD-3-Clause` |
 | `sql.js@1.14.2` | `MIT` |
 | `string_decoder@1.3.0` | `MIT` |
-| `stringify-entities@4.0.4` | `MIT` |
 | `strip-final-newline@4.0.0` | `MIT` |
 | `strip-json-comments@2.0.1` | `MIT` |
 | `strnum@2.4.2` | `MIT` |
@@ -540,7 +470,6 @@ The following 538 package versions form the conservative, platform-neutral produ
 | `tar-fs@2.1.5` | `MIT` |
 | `tar-stream@2.2.0` | `MIT` |
 | `token-types@6.1.2` | `MIT` |
-| `trim-lines@3.0.1` | `MIT` |
 | `ts-algebra@2.0.0` | `MIT` |
 | `tslib@2.8.1` | `0BSD` |
 | `tunnel-agent@0.6.0` | `Apache-2.0` |
@@ -551,16 +480,8 @@ The following 538 package versions form the conservative, platform-neutral produ
 | `undici-types@8.3.0` | `MIT` |
 | `unenv@2.0.0-rc.24` | `MIT` |
 | `unicorn-magic@0.3.0` | `MIT` |
-| `unist-util-is@6.0.1` | `MIT` |
-| `unist-util-position@5.0.0` | `MIT` |
-| `unist-util-remove-position@5.0.0` | `MIT` |
-| `unist-util-stringify-position@4.0.0` | `MIT` |
-| `unist-util-visit@5.1.0` | `MIT` |
-| `unist-util-visit-parents@6.0.2` | `MIT` |
 | `use-sync-external-store@1.2.0` | `MIT` |
 | `util-deprecate@1.0.2` | `MIT` |
-| `vfile@6.0.3` | `MIT` |
-| `vfile-message@4.0.3` | `MIT` |
 | `web-streams-polyfill@3.3.3` | `MIT` |
 | `which-command@0.1.0` | `MIT` |
 | `workerd@1.20260811.1` | `Apache-2.0` |
@@ -568,6 +489,7 @@ The following 538 package versions form the conservative, platform-neutral produ
 | `wrappy@1.0.2` | `ISC` |
 | `ws@8.21.0` | `MIT` |
 | `ws@8.21.3` | `MIT` |
+| `wsl-utils@1.0.0` | `MIT` |
 | `xml-naming@0.3.0` | `MIT` |
 | `yaml@2.9.0` | `ISC` |
 | `yoctocolors@2.2.0` | `MIT` |
@@ -576,7 +498,6 @@ The following 538 package versions form the conservative, platform-neutral produ
 | `zod@4.4.3` | `MIT` |
 | `zod-to-json-schema@3.25.2` | `ISC` |
 | `zustand@4.4.7` | `MIT` |
-| `zwitch@2.0.4` | `MIT` |
 
 ## Bundled license and notice texts
 
@@ -836,47 +757,6 @@ OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
 PERFORMANCE OF THIS SOFTWARE.
 ```
 
-### License/notice 0e99f2710dd2
-
-Applies to:
-
-- `mdast-util-gfm-autolink-literal@2.0.1` (`license`)
-- `mdast-util-gfm-strikethrough@2.0.0` (`license`)
-- `mdast-util-gfm-table@2.0.0` (`license`)
-- `mdast-util-gfm-task-list-item@2.0.0` (`license`)
-- `mdast-util-math@3.0.0` (`license`)
-- `micromark-extension-gfm@3.0.0` (`license`)
-- `micromark-extension-gfm-autolink-literal@2.1.0` (`license`)
-- `micromark-extension-gfm-strikethrough@2.1.0` (`license`)
-- `micromark-extension-gfm-tagfilter@2.0.0` (`license`)
-- `micromark-extension-gfm-task-list-item@2.1.0` (`license`)
-- `micromark-extension-math@3.1.0` (`license`)
-
-```text
-(The MIT License)
-
-Copyright (c) 2020 Titus Wormer <tituswormer@gmail.com>
-
-Permission is hereby granted, free of charge, to any person obtaining
-a copy of this software and associated documentation files (the
-'Software'), to deal in the Software without restriction, including
-without limitation the rights to use, copy, modify, merge, publish,
-distribute, sublicense, and/or sell copies of the Software, and to
-permit persons to whom the Software is furnished to do so, subject to
-the following conditions:
-
-The above copyright notice and this permission notice shall be
-included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND,
-EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
-IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
-TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
-SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-```
-
 ### License/notice 0f3c6ce0dc7f
 
 Applies to:
@@ -944,25 +824,37 @@ Applies to:
 
 - `@sindresorhus/is@7.2.0` (`license`)
 - `@sindresorhus/merge-streams@4.0.0` (`license`)
+- `bundle-name@4.1.0` (`license`)
 - `decompress-response@6.0.0` (`license`)
-- `escape-string-regexp@5.0.0` (`license`)
+- `default-browser@5.5.1` (`license`)
+- `default-browser-id@5.0.1` (`license`)
+- `define-lazy-prop@3.0.0` (`license`)
 - `execa@10.0.0` (`license`)
 - `figures@6.1.0` (`license`)
 - `file-type@21.3.4` (`license`)
 - `get-stream@9.0.1` (`license`)
+- `is-docker@3.0.0` (`license`)
+- `is-in-ssh@1.0.0` (`license`)
+- `is-inside-container@1.0.0` (`license`)
 - `is-plain-obj@4.1.0` (`license`)
 - `is-stream@4.0.1` (`license`)
 - `is-unicode-supported@2.1.0` (`license`)
+- `is-wsl@3.1.1` (`license`)
 - `mimic-response@3.1.0` (`license`)
 - `npm-run-path@6.0.0` (`license`)
+- `open@11.0.1` (`license`)
 - `parse-ms@4.0.0` (`license`)
 - `path-key@4.0.0` (`license`)
+- `powershell-utils@0.1.0` (`license`)
+- `powershell-utils@0.2.0` (`license`)
 - `pretty-ms@9.3.0` (`license`)
+- `run-applescript@7.1.0` (`license`)
 - `strip-final-newline@4.0.0` (`license`)
 - `supports-color@10.2.2` (`license`)
 - `uint8array-extras@1.5.0` (`license`)
 - `unicorn-magic@0.3.0` (`license`)
 - `which-command@0.1.0` (`license`)
+- `wsl-utils@1.0.0` (`license`)
 - `yoctocolors@2.2.0` (`license`)
 
 ```text
@@ -1011,37 +903,6 @@ NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-### License/notice 189cbd7c4b22
-
-Applies to:
-
-- `devlop@1.1.0` (`license`)
-
-```text
-(The MIT License)
-
-Copyright (c) 2023 Titus Wormer <tituswormer@gmail.com>
-
-Permission is hereby granted, free of charge, to any person obtaining
-a copy of this software and associated documentation files (the
-'Software'), to deal in the Software without restriction, including
-without limitation the rights to use, copy, modify, merge, publish,
-distribute, sublicense, and/or sell copies of the Software, and to
-permit persons to whom the Software is furnished to do so, subject to
-the following conditions:
-
-The above copyright notice and this permission notice shall be
-included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND,
-EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
-IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
-TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
-SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-```
-
 ### License/notice 1d660eff8965
 
 Applies to:
@@ -1059,30 +920,6 @@ Permission is hereby granted, free of charge, to any person obtaining a copy of 
 The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-```
-
-### License/notice 22fc2b0e60ba
-
-Applies to:
-
-- `@ungap/structured-clone@1.3.3` (`LICENSE`)
-
-```text
-ISC License
-
-Copyright (c) 2021, Andrea Giammarchi, @WebReflection
-
-Permission to use, copy, modify, and/or distribute this software for any
-purpose with or without fee is hereby granted, provided that the above
-copyright notice and this permission notice appear in all copies.
-
-THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH
-REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY
-AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,
-INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM
-LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE
-OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
-PERFORMANCE OF THIS SOFTWARE.
 ```
 
 ### License/notice 23b57495a1f9
@@ -2479,36 +2316,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### License/notice 4b47df8ec858
-
-Applies to:
-
-- `regex-utilities@2.3.0` (`LICENSE`)
-
-```text
-MIT License
-
-Copyright (c) 2024 Steven Levithan
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-```
-
 ### License/notice 4b68ef983e0f
 
 Applies to:
@@ -2539,46 +2346,12 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-### License/notice 4be46afa7981
-
-Applies to:
-
-- `longest-streak@3.1.0` (`license`)
-- `stringify-entities@4.0.4` (`license`)
-- `trim-lines@3.0.1` (`license`)
-
-```text
-(The MIT License)
-
-Copyright (c) 2015 Titus Wormer <mailto:tituswormer@gmail.com>
-
-Permission is hereby granted, free of charge, to any person obtaining
-a copy of this software and associated documentation files (the
-'Software'), to deal in the Software without restriction, including
-without limitation the rights to use, copy, modify, merge, publish,
-distribute, sublicense, and/or sell copies of the Software, and to
-permit persons to whom the Software is furnished to do so, subject to
-the following conditions:
-
-The above copyright notice and this permission notice shall be
-included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND,
-EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
-IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
-TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
-SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-```
-
 ### License/notice 4cc9c2af4eb0
 
 Applies to:
 
 - `commander@15.0.0` (`LICENSE`)
 - `commander@6.2.1` (`LICENSE`)
-- `commander@8.3.0` (`LICENSE`)
 
 ```text
 (The MIT License)
@@ -3243,37 +3016,6 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-```
-
-### License/notice 59e8b888f1d3
-
-Applies to:
-
-- `micromark-extension-gfm-footnote@2.1.0` (`license`)
-
-```text
-(The MIT License)
-
-Copyright (c) 2021 Titus Wormer <tituswormer@gmail.com>
-
-Permission is hereby granted, free of charge, to any person obtaining
-a copy of this software and associated documentation files (the
-'Software'), to deal in the Software without restriction, including
-without limitation the rights to use, copy, modify, merge, publish,
-distribute, sublicense, and/or sell copies of the Software, and to
-permit persons to whom the Software is furnished to do so, subject to
-the following conditions:
-
-The above copyright notice and this permission notice shall be
-included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND,
-EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
-IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
-TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
-SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
 ### License/notice 5a07ae4bdc6c
@@ -4762,36 +4504,6 @@ ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ```
 
-### License/notice 84a6a26e0f60
-
-Applies to:
-
-- `oniguruma-to-es@4.3.6` (`LICENSE`)
-
-```text
-MIT License
-
-Copyright (c) 2024-2026 Steven Levithan
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-```
-
 ### License/notice 87627835834c
 
 Applies to:
@@ -5724,36 +5436,6 @@ WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
 ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ```
 
-### License/notice 9e5ca16a84c0
-
-Applies to:
-
-- `anser@2.3.5` (`LICENSE`)
-
-```text
-The MIT License (MIT)
-
-Copyright (c) 2012-25 Ionică Bizău <bizauionica@gmail.com> (https://ionicabizau.net)
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-```
-
 ### License/notice 9ff562631a04
 
 Applies to:
@@ -5985,37 +5667,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-### License/notice a1563f431b1f
-
-Applies to:
-
-- `unist-util-is@6.0.1` (`license`)
-
-```text
-(The MIT license)
-
-Copyright (c) 2015 Titus Wormer <tituswormer@gmail.com>
-
-Permission is hereby granted, free of charge, to any person obtaining
-a copy of this software and associated documentation files (the
-'Software'), to deal in the Software without restriction, including
-without limitation the rights to use, copy, modify, merge, publish,
-distribute, sublicense, and/or sell copies of the Software, and to
-permit persons to whom the Software is furnished to do so, subject to
-the following conditions:
-
-The above copyright notice and this permission notice shall be
-included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND,
-EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
-IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
-TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
-SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-```
-
 ### License/notice a3fdf0e3cd42
 
 Applies to:
@@ -6059,36 +5710,6 @@ The MIT branch is reproduced for this distribution:
 MIT License
 
 Published package author: Amit Gupta (https://solothought.com)
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-```
-
-### License/notice a73647cf797f
-
-Applies to:
-
-- `oniguruma-parser@0.12.2` (`LICENSE`)
-
-```text
-MIT License
-
-Copyright (c) 2025-2026 Steven Levithan
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -6576,36 +6197,6 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### License/notice b09ac0e46520
-
-Applies to:
-
-- `@shikijs/vscode-textmate@10.0.2` (`LICENSE.md`)
-
-```text
-The MIT License (MIT)
-
-Copyright (c) Microsoft Corporation
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-```
-
 ### License/notice b72c84b52e8f
 
 Applies to:
@@ -7057,43 +6648,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### License/notice c37a32dd1cd4
-
-Applies to:
-
-- `ccount@2.0.1` (`license`)
-- `character-entities@2.0.2` (`license`)
-- `character-entities-html4@2.1.0` (`license`)
-- `character-entities-legacy@3.0.0` (`license`)
-- `mdast-util-to-string@4.0.0` (`license`)
-- `unist-util-position@5.0.0` (`license`)
-- `unist-util-visit@5.1.0` (`license`)
-
-```text
-(The MIT License)
-
-Copyright (c) 2015 Titus Wormer <tituswormer@gmail.com>
-
-Permission is hereby granted, free of charge, to any person obtaining
-a copy of this software and associated documentation files (the
-'Software'), to deal in the Software without restriction, including
-without limitation the rights to use, copy, modify, merge, publish,
-distribute, sublicense, and/or sell copies of the Software, and to
-permit persons to whom the Software is furnished to do so, subject to
-the following conditions:
-
-The above copyright notice and this permission notice shall be
-included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND,
-EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
-IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
-TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
-SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-```
-
 ### License/notice c46027b5018a
 
 Applies to:
@@ -7127,37 +6681,6 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 The views and conclusions contained in the software and documentation are those
 of the authors and should not be interpreted as representing official policies,
 either expressed or implied, of the FreeBSD Project.
-```
-
-### License/notice c74f9c5a522f
-
-Applies to:
-
-- `property-information@7.2.0` (`license`)
-
-```text
-(The MIT License)
-
-Copyright (c) Titus Wormer <mailto:tituswormer@gmail.com>
-
-Permission is hereby granted, free of charge, to any person obtaining
-a copy of this software and associated documentation files (the
-'Software'), to deal in the Software without restriction, including
-without limitation the rights to use, copy, modify, merge, publish,
-distribute, sublicense, and/or sell copies of the Software, and to
-permit persons to whom the Software is furnished to do so, subject to
-the following conditions:
-
-The above copyright notice and this permission notice shall be
-included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND,
-EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
-IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
-TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
-SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
 ### License/notice c9808a775260
@@ -7406,7 +6929,6 @@ THIS SOFTWARE.
 
 Applies to:
 
-- `dequal@2.0.3` (`license`)
 - `kleur@4.1.5` (`license`)
 
 ```text
@@ -7459,36 +6981,6 @@ Applies to:
 MIT License
 
 Copyright (c) 2017 Amit Kumar Gupta
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-```
-
-### License/notice d3c8c167dfa0
-
-Applies to:
-
-- `katex@0.16.47` (`LICENSE`)
-
-```text
-The MIT License (MIT)
-
-Copyright (c) 2013-2020 Khan Academy and other contributors
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -7926,45 +7418,6 @@ Apache License
    limitations under the License.
 ```
 
-### License/notice d9c32f07344c
-
-Applies to:
-
-- `comma-separated-tokens@2.0.3` (`license`)
-- `hast-util-whitespace@3.0.0` (`license`)
-- `html-void-elements@3.0.0` (`license`)
-- `mdast-util-to-hast@13.2.1` (`license`)
-- `space-separated-tokens@2.0.2` (`license`)
-- `unist-util-remove-position@5.0.0` (`license`)
-- `unist-util-stringify-position@4.0.0` (`license`)
-- `unist-util-visit-parents@6.0.2` (`license`)
-- `zwitch@2.0.4` (`license`)
-
-```text
-(The MIT License)
-
-Copyright (c) 2016 Titus Wormer <tituswormer@gmail.com>
-
-Permission is hereby granted, free of charge, to any person obtaining
-a copy of this software and associated documentation files (the
-'Software'), to deal in the Software without restriction, including
-without limitation the rights to use, copy, modify, merge, publish,
-distribute, sublicense, and/or sell copies of the Software, and to
-permit persons to whom the Software is furnished to do so, subject to
-the following conditions:
-
-The above copyright notice and this permission notice shall be
-included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND,
-EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
-IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
-TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
-SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-```
-
 ### License/notice d9e5aa2747f3
 
 Applies to:
@@ -8235,38 +7688,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### License/notice e11634cfe7bf
-
-Applies to:
-
-- `mdast-util-phrasing@4.1.0` (`license`)
-
-```text
-(The MIT License)
-
-Copyright (c) 2017 Titus Wormer <tituswormer@gmail.com>
-Copyright (c) 2017 Victor Felder <victor@draft.li>
-
-Permission is hereby granted, free of charge, to any person obtaining
-a copy of this software and associated documentation files (the
-'Software'), to deal in the Software without restriction, including
-without limitation the rights to use, copy, modify, merge, publish,
-distribute, sublicense, and/or sell copies of the Software, and to
-permit persons to whom the Software is furnished to do so, subject to
-the following conditions:
-
-The above copyright notice and this permission notice shall be
-included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND,
-EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
-IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
-TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
-SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-```
-
 ### License/notice e257f36bcf5e
 
 Applies to:
@@ -8325,36 +7746,6 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-```
-
-### License/notice e453dafb35c9
-
-Applies to:
-
-- `vfile@6.0.3` (`license`)
-
-```text
-(The MIT License)
-
-Copyright (c) 2015 Titus Wormer <tituswormer@gmail.com>
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
 ```
 
 ### License/notice e4cbb5308011
@@ -8658,67 +8049,6 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-```
-
-### License/notice ea559213e0e9
-
-Applies to:
-
-- `decode-named-character-reference@1.3.0` (`license`)
-- `hast-util-to-html@9.0.5` (`license`)
-- `markdown-table@3.0.4` (`license`)
-- `mdast-util-find-and-replace@3.0.2` (`license`)
-- `mdast-util-from-markdown@2.0.3` (`license`)
-- `mdast-util-gfm@3.1.0` (`license`)
-- `mdast-util-gfm-footnote@2.1.0` (`license`)
-- `mdast-util-to-markdown@2.1.2` (`license`)
-- `micromark@4.0.2` (`license`)
-- `micromark-core-commonmark@2.0.3` (`license`)
-- `micromark-extension-gfm-table@2.1.1` (`license`)
-- `micromark-factory-destination@2.0.1` (`license`)
-- `micromark-factory-label@2.0.1` (`license`)
-- `micromark-factory-space@2.0.1` (`license`)
-- `micromark-factory-title@2.0.1` (`license`)
-- `micromark-factory-whitespace@2.0.1` (`license`)
-- `micromark-util-character@2.1.1` (`license`)
-- `micromark-util-chunked@2.0.1` (`license`)
-- `micromark-util-classify-character@2.0.1` (`license`)
-- `micromark-util-combine-extensions@2.0.1` (`license`)
-- `micromark-util-decode-numeric-character-reference@2.0.2` (`license`)
-- `micromark-util-decode-string@2.0.1` (`license`)
-- `micromark-util-encode@2.0.1` (`license`)
-- `micromark-util-html-tag-name@2.0.1` (`license`)
-- `micromark-util-normalize-identifier@2.0.1` (`license`)
-- `micromark-util-resolve-all@2.0.1` (`license`)
-- `micromark-util-sanitize-uri@2.0.1` (`license`)
-- `micromark-util-subtokenize@2.1.0` (`license`)
-- `micromark-util-symbol@2.0.1` (`license`)
-- `micromark-util-types@2.0.2` (`license`)
-- `vfile-message@4.0.3` (`license`)
-
-```text
-(The MIT License)
-
-Copyright (c) Titus Wormer <tituswormer@gmail.com>
-
-Permission is hereby granted, free of charge, to any person obtaining
-a copy of this software and associated documentation files (the
-'Software'), to deal in the Software without restriction, including
-without limitation the rights to use, copy, modify, merge, publish,
-distribute, sublicense, and/or sell copies of the Software, and to
-permit persons to whom the Software is furnished to do so, subject to
-the following conditions:
-
-The above copyright notice and this permission notice shall be
-included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND,
-EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
-IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
-TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
-SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
 ### License/notice eb9ab4ab212e
@@ -9027,44 +8357,6 @@ FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TOR
 ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### License/notice f20e2ee5da6c
-
-Applies to:
-
-- `@shikijs/core@4.4.3` (`LICENSE`)
-- `@shikijs/engine-javascript@4.4.3` (`LICENSE`)
-- `@shikijs/engine-oniguruma@4.4.3` (`LICENSE`)
-- `@shikijs/langs@4.4.3` (`LICENSE`)
-- `@shikijs/primitive@4.4.3` (`LICENSE`)
-- `@shikijs/themes@4.4.3` (`LICENSE`)
-- `@shikijs/types@4.4.3` (`LICENSE`)
-- `shiki@4.4.3` (`LICENSE`)
-
-```text
-MIT License
-
-Copyright (c) 2021 Pine Wu
-Copyright (c) 2023 Anthony Fu <https://github.com/antfu>
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-```
-
 ### License/notice f2b90afb27a6
 
 Applies to:
@@ -9107,37 +8399,6 @@ MIT License
 Copyright Julian Gruber <julian@juliangruber.com>
 
 TypeScript port Copyright Isaac Z. Schlueter <i@izs.me>
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-```
-
-### License/notice f526adb7b81e
-
-Applies to:
-
-- `regex@6.1.0` (`LICENSE`)
-- `regex-recursion@6.0.2` (`LICENSE`)
-
-```text
-MIT License
-
-Copyright (c) 2025 Steven Levithan
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -9518,178 +8779,179 @@ SOFTWARE.
 
 Applies to:
 
-- `@deepseek-ai/dsh-agent@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-agent-default-model@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-agent-instructions@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-agent-loop@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-agent-presets@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-anonymous-user-id@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-api-gateway@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-api-remotes@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-app-boot@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-atomic-write@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-attachment@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-attachment-local@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-base@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-bash-local@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-bash-sandbox@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-brand@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-client-connection@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-client-hmr@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-client-locale@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-client-modules@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-client-runtime@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-client-schema-form@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-agent-preset@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-attachment@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-commands@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-conversation@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-cordis@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-deliverables@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-directory-picker-browse@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-directory-picker-native@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-goal@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-input-trigger@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-jobs@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-layout@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-message-feedback@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-model-selection@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-permission-presets@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-plan@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-primitives@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-settings@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-settings-general@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-settings-models@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-settings-plugin-inventory@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-settings-plugins@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-sidebar@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-skill@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-slots@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-subagent@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-theme@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-tool@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-trajectory@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-user-questions@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-workflow-run@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-workspace@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-client-web@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-client-web-react@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-cmdline@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-code-runtime@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-code-runtime-worker-thread@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-command-compact@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-command-feedback@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-command-goal@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-commands@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-compaction@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-compaction-basic@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-compaction-tool-result-pruner@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-cordis-client-runner@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-cordis-host-runner@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-credentials@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-credentials-local@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-fs@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-fs-local@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-fs-observation-policy@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-fs-sandbox@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-goal@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-goal-round-driver@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-home-paths@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-host-apiproxy@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-host-directory-picker@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-host-directory-picker-auto@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-host-directory-picker-browse@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-host-directory-picker-native@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-host-frontend-static@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-host-plugin-inventory@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-host-webserver@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-invariants@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-jobs@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-jobs-local@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-launch-environment@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-llm@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-llm-deepseek@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-llm-pi-ai@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-llm-retry@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-message-feedback@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-native-command@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-output-retention@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-permission-presets@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-plan-mode@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-pwsh-local@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-pwsh-sandbox@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-repeat-tool-reminder@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-sandbox@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-sandbox-local@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-sandbox-policy@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-sandbox-windows-acl@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-scope@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-session@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-session-checkpoint-policy@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-session-log-export@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-session-persistence@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-session-persistence-jsonl@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-session-projection@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-session-projection-cache@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-session-query@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-session-query-sqlite@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-session-stats@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-session-telemetry@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-session-telemetry-otel@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-session-title@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-session-title-first-prompt-llm@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-session-title-llm@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-settings@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-settings-file@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-shell@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-shell-env@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-skill@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-skill-badge@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-skill-filesystem@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-spill@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-spill-local@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-spill-policy@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-storage@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-storage-domain@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-storage-json@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-subagent@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-subagent-fork-in-process@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-subagent-in-process-driver@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-subagent-spawn-in-process@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-subprocess@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-subprocess-local@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-system-prompt@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-timeout@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-token-meter@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-tool-bash@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-tool-call-timeout-policy@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-tool-fs@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-tool-fs-search@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-tool-goal@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-tool-jobs@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-tool-pwsh@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-tool-ralph@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-tool-skill@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-tool-str-replace-editor@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-tool-subagent@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-tool-subagent-control@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-tool-subagent-report@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-tool-todo@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-tool-web@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-tool-workflow@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-tools@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-typert-loader@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-typert-protocol@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-typert-registry@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-user-approval@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-user-questions@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-web@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-web-app@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-web-frontend@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-web-search-deepseek@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-workflow@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-workflow-worker-thread@0.1.0-rc.7` (`LICENSE`)
-- `@deepseek-ai/dsh-workspace@0.1.0-rc.7` (`LICENSE`)
+- `@deepseek-ai/dsh-agent@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-agent-default-model@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-agent-instructions@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-agent-loop@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-agent-presets@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-anonymous-user-id@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-api-gateway@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-api-remotes@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-app-boot@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-atomic-write@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-attachment@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-attachment-local@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-base@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-bash-local@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-bash-sandbox@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-brand@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-client-connection@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-client-hmr@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-client-locale@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-client-modules@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-client-runtime@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-agent-preset@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-attachment@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-brand-official@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-commands@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-conversation@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-cordis@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-deliverables@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-directory-picker-browse@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-directory-picker-native@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-goal@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-input-trigger@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-jobs@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-layout@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-message-feedback@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-model-selection@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-permission-presets@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-plan@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-reference@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-renderer@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-settings@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-settings-general@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-settings-models@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-settings-plugin-inventory@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-settings-plugins@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-sidebar@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-skill@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-subagent@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-theme@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-tool@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-trajectory@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-user-questions@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-workflow-run@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-workspace@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-cmdline@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-code-runtime@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-code-runtime-worker-thread@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-command-compact@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-command-feedback@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-command-goal@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-commands@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-compaction@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-compaction-basic@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-compaction-tool-result-pruner@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-cordis-client-runner@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-cordis-host-runner@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-credentials@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-credentials-local@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-file-reference@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-file-reference-local@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-fs@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-fs-local@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-fs-observation-policy@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-fs-sandbox@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-goal@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-goal-round-driver@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-home-paths@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-host-apiproxy@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-host-directory-picker@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-host-directory-picker-auto@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-host-directory-picker-browse@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-host-directory-picker-native@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-host-frontend-static@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-host-plugin-inventory@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-host-webserver@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-invariants@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-jobs@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-jobs-local@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-launch-environment@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-llm@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-llm-deepseek@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-llm-pi-ai@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-llm-retry@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-message-feedback@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-native-command@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-output-retention@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-permission-presets@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-plan-mode@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-pwsh-local@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-pwsh-sandbox@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-repeat-tool-reminder@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-sandbox@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-sandbox-local@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-sandbox-policy@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-sandbox-windows-acl@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-scope@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-session@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-session-checkpoint-policy@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-session-log-export@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-session-persistence@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-session-persistence-jsonl@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-session-projection@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-session-projection-cache@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-session-query@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-session-query-sqlite@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-session-reference@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-session-stats@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-session-telemetry@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-session-telemetry-otel@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-session-title@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-session-title-first-prompt-llm@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-session-title-llm@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-settings@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-settings-file@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-shell@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-shell-env@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-skill@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-skill-badge@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-skill-filesystem@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-spill@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-spill-local@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-spill-policy@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-storage@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-storage-domain@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-storage-json@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-subagent@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-subagent-fork-in-process@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-subagent-in-process-driver@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-subagent-spawn-in-process@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-subprocess@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-subprocess-local@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-system-prompt@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-timeout@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-token-meter@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-tool-bash@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-tool-call-timeout-policy@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-tool-fs@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-tool-fs-search@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-tool-goal@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-tool-jobs@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-tool-pwsh@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-tool-ralph@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-tool-skill@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-tool-str-replace-editor@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-tool-subagent@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-tool-subagent-control@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-tool-subagent-report@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-tool-todo@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-tool-web@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-tool-workflow@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-tools@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-typert-loader@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-typert-protocol@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-typert-registry@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-user-approval@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-user-questions@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-web@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-web-app@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-web-frontend@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-web-search-deepseek@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-workflow@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-workflow-worker-thread@0.1.0-rc.8` (`LICENSE`)
+- `@deepseek-ai/dsh-workspace@0.1.0-rc.8` (`LICENSE`)
 - `@deepseek-ai/node-addon-landlock-run@0.1.1` (`LICENSE`)
 
 ```text
@@ -10026,13 +9288,7 @@ OTHER DEALINGS IN THE SOFTWARE.
 
 Applies to:
 
-- `@types/debug@4.1.13` (`LICENSE`)
-- `@types/hast@3.0.5` (`LICENSE`)
-- `@types/katex@0.16.8` (`LICENSE`)
-- `@types/mdast@4.0.4` (`LICENSE`)
-- `@types/ms@2.1.0` (`LICENSE`)
 - `@types/node@26.2.0` (`LICENSE`)
-- `@types/unist@3.0.3` (`LICENSE`)
 
 ```text
 MIT License

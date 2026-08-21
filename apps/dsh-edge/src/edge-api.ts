@@ -369,6 +369,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
           provider: EDGE_PROVIDER,
           model: runtime.model,
           attachedSessions: await runtime.sessions.attachedSessionCount(),
+          home: EDGE_WORKSPACE_PATH,
           canOpenPath: false,
         })
       },

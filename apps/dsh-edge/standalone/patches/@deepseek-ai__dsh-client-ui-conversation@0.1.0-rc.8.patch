@@ -1,8 +1,8 @@
 diff --git a/lib/client.js b/lib/client.js
-index 1dd0e89e7b91ba87610fafe5b7df8693d7485333..66b2e695a1d60705a7f89f637e091bc56bf3fce6 100644
+index 4b7dd351633b037c7a2e5b028a739772ae07086e..3d4ac403382f84a9b5d576c9c560a122c8284b76 100644
 --- a/lib/client.js
 +++ b/lib/client.js
-@@ -3597,14 +3597,12 @@ window.__ModuleLoader__.load({
+@@ -3742,14 +3742,12 @@ window.__ModuleLoader__.load({
  				keyboard.track(keyboard.snapshot.draft, caret);
  			};
  			const intakeImages = (0, react.useCallback)((files) => {
@@ -22,12 +22,12 @@ index 1dd0e89e7b91ba87610fafe5b7df8693d7485333..66b2e695a1d60705a7f89f637e091bc5
  					return addImages(files);
  				})();
  				if (rejected !== null) showToast(rejected);
-@@ -3615,7 +3613,7 @@ window.__ModuleLoader__.load({
+@@ -3760,7 +3758,7 @@ window.__ModuleLoader__.load({
  				showToast,
  				t
  			]);
 -			const canAcceptDrop = !locked && !machineBusy && addImages !== void 0;
 +			const canAcceptDrop = !locked && !machineBusy && imageLimits !== void 0 && addImages !== void 0;
- 			(0, react.useEffect)(() => {
- 				const hasFiles = (event) => event.dataTransfer?.types.includes("Files") ?? false;
- 				const reset = () => {
+ 			const onSelect = (e) => {
+ 				if (keyboard !== void 0 && keyboard.snapshot.paste !== void 0) keyboard.invalidatePaste();
+ 			};

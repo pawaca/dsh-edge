@@ -1,5 +1,5 @@
 diff --git a/lib/index.js b/lib/index.js
-index 178ec2da947f243323bf4482dfe32bb29bb346de..54e9c60f16955c4bc6c0f985bc550e65db3acad1 100644
+index 2340fbd5adae991ac1da82017e152c592d97b5b1..be4f992c671ee2c8ab5e5a9c3f0077788696e778 100644
 --- a/lib/index.js
 +++ b/lib/index.js
 @@ -351,6 +351,17 @@ var SessionWriteBehind = class {
