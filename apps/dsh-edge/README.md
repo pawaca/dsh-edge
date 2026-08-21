@@ -146,23 +146,23 @@ The same file also defines `env.isolated`, a complete Workers Paid target with t
 
 `wrangler.jsonc` remains the single canonical configuration for both modes. Release packaging builds one tested, minified Worker artifact per mode from the workspace sources. Direct mode replaces only Computer's unreachable Dynamic Worker shell-core module at build time; the Computer workspace adapter and command exports remain the upstream implementations. Isolated mode preserves that shell core but replaces the unreachable Direct backend with a fail-closed module, so each artifact carries only its selected command runtime. The published installer generates a private mode-specific configuration that points at the selected artifact and asks Wrangler to upload it with `no_bundle`; the user's machine does not rebuild dsh-edge or resolve the upstream Harness packages into a new Worker. CI starts the Direct artifact from an installed tarball and rejects it above a 900 KiB compressed budget, leaving headroom below the 1 MiB limit enforced by Cloudflare's anonymous temporary-account upload path.
 
-Run the current 0.2 prerelease installer from the `next` channel without cloning this repository:
+Run the stable installer without cloning this repository:
 
 ```sh
-npx dsh-edge@next install
+npx dsh-edge install
 ```
 
-Use `npx dsh-edge@latest install` for the stable channel, which remains on 0.1.3 until 0.2 is promoted.
+This resolves through npm's `latest` channel. Use `npx dsh-edge@next install` only when intentionally testing a future prerelease.
 
 Upgrade an existing named Worker with the same runtime choice. The deployment keeps its Durable Object data; because Cloudflare secrets are write-only, the upgrade asks for the owner access key and DeepSeek API key again and replaces their active values:
 
-Use the same channel as the installed release. A 0.2 prerelease follows `next`:
+For a stable deployment, run:
 
 ```sh
-npx dsh-edge@next upgrade
+npx dsh-edge upgrade
 ```
 
-Stable deployments use `npx dsh-edge@latest upgrade`. The Edge settings page derives the channel from the installed version and copies the matching command.
+If the installed version is a 0.2 alpha, promote it to the stable channel once with `npx dsh-edge@latest upgrade`; prerelease deployments otherwise remain on `next`. The Edge settings page derives the channel from the installed version and copies the matching command.
 
 The installer asks for the runtime before the account. The recommended `Free — Direct Shell` mode works on Workers Free and can use a detected Cloudflare account, open Cloudflare sign-in or registration, or create a temporary account without login. `Isolated — Dynamic Worker` requires Workers Paid and therefore offers only a detected or newly authenticated account. Cloudflare does not expose a reliable local entitlement check for Worker Loader, so an isolated install lets Cloudflare authorize the upload and turns a rejection into a choice between enabling Workers Paid and using direct mode.
 

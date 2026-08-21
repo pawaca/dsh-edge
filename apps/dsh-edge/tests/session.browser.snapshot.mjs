@@ -54,9 +54,9 @@ describe('dsh-edge assembled browser snapshot', () => {
           },
         })
       })
-      await page.route('https://registry.npmjs.org/dsh-edge/next', route => route.fulfill({
+      await page.route('https://registry.npmjs.org/dsh-edge/latest', route => route.fulfill({
         contentType: 'application/json',
-        body: JSON.stringify({ version: '0.2.0-alpha.4' }),
+        body: JSON.stringify({ version: '0.2.1' }),
       }))
       await page.goto(origin, { waitUntil: 'load' })
       await page.getByLabel('Owner access key').fill(ACCESS_KEY)
@@ -73,14 +73,14 @@ describe('dsh-edge assembled browser snapshot', () => {
       await settings.getByRole('navigation')
         .getByRole('button', { name: 'DSH Edge', exact: true })
         .click()
-      await expect.poll(() => settings.getByText('0.2.0-alpha.3', { exact: true }).count()).toBe(1)
+      await expect.poll(() => settings.getByText('0.2.0', { exact: true }).count()).toBe(1)
       await settings.getByRole('button', { name: 'Copy upgrade command', exact: true }).click()
       await expect.poll(() => settings.getByRole('button', {
         name: 'Upgrade command copied', exact: true,
       }).count())
         .toBe(1)
       expect(await page.evaluate(() => globalThis.__dshEdgeCopiedText))
-        .toBe('npx dsh-edge@next upgrade')
+        .toBe('npx dsh-edge@latest upgrade')
       const edgeSettingsSnapshot = await stableAria(page, '[role="dialog"]')
       await expect(normalize(edgeSettingsSnapshot))
         .toMatchFileSnapshot('./snapshots/edge-settings.expected.md')
