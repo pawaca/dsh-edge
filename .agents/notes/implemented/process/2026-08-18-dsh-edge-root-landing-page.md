@@ -2,7 +2,7 @@
 
 Status: implemented
 
-Repository-structure and inherited-document details in this note are superseded by the [standalone wrapper plan](../../proposed/architecture/2026-08-19-dsh-edge-standalone-wrapper.md). The product-first dsh-edge landing-page decision remains in force.
+Repository-structure and inherited-document details in this note are superseded by the [implemented standalone wrapper architecture](../architecture/2026-08-19-dsh-edge-standalone-wrapper.md). The product-first dsh-edge landing-page decision remains in force.
 
 English | [中文](2026-08-18-dsh-edge-root-landing-page.zh.md)
 

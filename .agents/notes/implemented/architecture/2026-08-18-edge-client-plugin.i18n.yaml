@@ -2,5 +2,5 @@
 # last confirmed-consistent state. Both languages carry equal authority.
 # After editing either side, update both and re-record every pair with:
 #   pnpm run doc-pairs -- --write
-2026-08-18-edge-client-plugin.md: de5023344469703873bc9d28daaec736df698ede
-2026-08-18-edge-client-plugin.zh.md: 9294f818de90ad69882ccf90ec136576f14df334
+2026-08-18-edge-client-plugin.md: 6b8862ec74d83f857af35e20fc7887bd2a2c95c5
+2026-08-18-edge-client-plugin.zh.md: dbc9815adfb7a82eaa00c0fc35c4fc8336459124
