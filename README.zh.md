@@ -1,4 +1,4 @@
-![dsh-edge——你的 DeepSeek Harness，随处可用。一条命令部署到 Cloudflare。](docs/assets/dsh-edge-hero.png)
+![dsh-edge——你的 DeepSeek Harness，随处可用。一条命令部署到 Cloudflare。](docs/assets/dsh-edge-hero.jpg)
 
 [![npm](https://img.shields.io/npm/v/dsh-edge)](https://www.npmjs.com/package/dsh-edge)
 [![CI](https://github.com/pawaca/dsh-edge/actions/workflows/edge-ci.yml/badge.svg)](https://github.com/pawaca/dsh-edge/actions/workflows/edge-ci.yml)
