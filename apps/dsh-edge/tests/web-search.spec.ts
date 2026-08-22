@@ -24,7 +24,8 @@ describe('dsh-edge Web Search composition', () => {
 
     const ctx = new Context()
     try {
-      await ctx.plugin(EdgeCredentialProvider, { readDeepSeekApiKey: () => 'search-key' })
+      const storage = { get: () => Promise.resolve(undefined), put: () => Promise.resolve(), delete: () => Promise.resolve(true) } as unknown as DurableObjectStorage
+      await ctx.plugin(EdgeCredentialProvider, { storage, readDeepSeekApiKey: () => 'search-key' })
       await ctx.plugin(SystemPrompt)
       await ctx.plugin(ToolRuntime)
       await installEdgeWebSearch(ctx, 'https://search.test/anthropic/v1')

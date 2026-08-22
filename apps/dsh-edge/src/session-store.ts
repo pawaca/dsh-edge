@@ -174,6 +174,7 @@ export class EdgeSessionStore {
           bucket: requireAttachmentBucket(config.attachmentBucket),
         }))
     await this.context.plugin(EdgeCredentialProvider, {
+      storage,
       readDeepSeekApiKey: () => config.readDeepSeekApiKey(),
     })
     await this.context.plugin(LlmRuntime)
