@@ -1,7 +1,7 @@
 {
   "name": "dsh-edge",
   "version": "0.3.0",
-  "description": "Run DeepSeek Harness on Cloudflare Workers as an independent community project",
+  "description": "Your DeepSeek Harness, anywhere — deploy a persistent personal coding agent to Cloudflare Workers in one command",
   "author": "pawaca",
   "license": "MIT",
   "type": "module",
@@ -24,15 +24,18 @@
     "url": "git+https://github.com/pawaca/dsh-edge.git",
     "directory": "apps/dsh-edge"
   },
-  "homepage": "https://github.com/pawaca/dsh-edge/tree/master/apps/dsh-edge#readme",
+  "homepage": "https://github.com/pawaca/dsh-edge#readme",
   "bugs": {
     "url": "https://github.com/pawaca/dsh-edge/issues"
   },
   "keywords": [
     "deepseek",
-    "agent",
+    "deepseek-harness",
+    "ai-agents",
+    "byok",
     "cloudflare-workers",
-    "durable-objects"
+    "durable-objects",
+    "self-hosted"
   ],
   "engines": {
     "node": ">=22.14.0"

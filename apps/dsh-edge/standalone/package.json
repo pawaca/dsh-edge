@@ -1,7 +1,7 @@
 {
   "name": "dsh-edge-standalone-assembly",
-  "version": "0.0.0",
   "private": true,
+  "description": "Pinned release assembly for dsh-edge Web and Cloudflare Worker artifacts",
   "type": "module",
   "engines": {
     "node": "^22.19.0 || >=24.0.0"

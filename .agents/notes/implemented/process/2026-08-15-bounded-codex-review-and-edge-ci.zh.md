@@ -14,7 +14,7 @@ Status: implemented
 
 当前 CI 拓扑在下文最初的单 job 描述上进一步收敛：完整的 Linux release-contract job 与聚焦 Windows installer security 的 job 并行运行，随后由一个轻量 `edge / verify` gate 同时要求两者成功。Windows job 只安装仓库依赖并运行 installer suite，不会重新构建 Worker artifact、安装浏览器、部署或读取 credential。这样可以在 release tag 到达 Windows publication verifier 前发现 Windows ACL 与进程生命周期问题，同时保持既有 required-check 名称不变。
 
-`Edge CI` workflow 在非 Draft 拉取请求、推送到 `master` 和手动触发时，使用标准 GitHub-hosted Ubuntu runner 运行唯一的 `edge / verify` job。它只构建一次上游 Web 产物，随后验证文档，基于已构建的 host declaration 执行 lint，验证 workflow 与评审状态约定，测试 Edge runtime 并进行类型检查，对组装后的 runtime 与浏览器路径执行快照测试，并在 workspace 外验证打包后的公共安装器。包的 `prepack` 负责两种 Worker bundle 和 Direct bundle 的 gzip 体积检查，因此 workflow 不会重复执行这两个由包拥有的 bundle 命令。Isolated bundle 没有体积预算。workflow 不部署、不读取 provider credential，也不调用真实模型 API。依赖构建策略允许 workerd 选择平台二进制文件，同时拒绝 Workerd 无法加载的 just-bash 原生压缩 addon。
+`Edge CI` workflow 在非 Draft 拉取请求、推送到 `main` 和手动触发时，使用标准 GitHub-hosted Ubuntu runner 运行唯一的 `edge / verify` job。它只构建一次上游 Web 产物，随后验证文档，基于已构建的 host declaration 执行 lint，验证 workflow 与评审状态约定，测试 Edge runtime 并进行类型检查，对组装后的 runtime 与浏览器路径执行快照测试，并在 workspace 外验证打包后的公共安装器。包的 `prepack` 负责两种 Worker bundle 和 Direct bundle 的 gzip 体积检查，因此 workflow 不会重复执行这两个由包拥有的 bundle 命令。Isolated bundle 没有体积预算。workflow 不部署、不读取 provider credential，也不调用真实模型 API。依赖构建策略允许 workerd 选择平台二进制文件，同时拒绝 Workerd 无法加载的 just-bash 原生压缩 addon。
 
 托管 job 会通过显式的测试专用 channel 选择，启动 `ubuntu-latest` runner 自带的 Google Chrome。它既不下载第二份浏览器，也不通过 Playwright 的系统软件包安装器修改托管镜像。本地运行不设置这个选项，继续使用开发者 Playwright 安装所管理的浏览器。
 
