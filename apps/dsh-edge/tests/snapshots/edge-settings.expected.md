@@ -19,12 +19,12 @@
   - region "Release":
     - heading "Release" [level=3]
     - term: Installed version
-    - definition: 0.3.0-alpha.2
+    - definition: 0.3.0
     - term: Update channel
     - definition:
-      - code: next
+      - code: latest
     - term: Channel version
-    - definition: 0.3.0-alpha.3
+    - definition: 0.3.1
     - term: DeepSeek Harness base
     - definition: 0.1.1-rc.1
     - paragraph: Update available
@@ -39,7 +39,7 @@
     - definition: Durable Object SQLite VFS
     - term: Deployment ID
     - definition:
-      - code: dsh-edge@0.3.0-alpha.2/direct
+      - code: dsh-edge@0.3.0/direct
   - region "Owner session":
     - heading "Owner session" [level=3]
     - paragraph: Signing out clears this browser’s owner session. Your deployment and data remain unchanged.

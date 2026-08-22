@@ -1,6 +1,6 @@
 # dsh-edge
 
-[![npm next](https://img.shields.io/npm/v/dsh-edge/next?label=npm%20next)](https://www.npmjs.com/package/dsh-edge)
+[![npm](https://img.shields.io/npm/v/dsh-edge)](https://www.npmjs.com/package/dsh-edge)
 [![CI](https://github.com/pawaca/dsh-edge/actions/workflows/edge-ci.yml/badge.svg)](https://github.com/pawaca/dsh-edge/actions/workflows/edge-ci.yml)
 [![License: MIT](https://img.shields.io/github/license/pawaca/dsh-edge)](LICENSE)
 
@@ -16,17 +16,17 @@ It keeps the upstream UI, agent loop, session protocol, model catalog, image exp
 
 > **Independent community project:** `dsh-edge` is maintained by [pawaca](https://github.com/pawaca). It is not affiliated with or endorsed by DeepSeek. [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) is the upstream project.
 
-## Try the 0.3 preview
+## Install
 
 You need Node.js 22.14 or newer and your own DeepSeek API key:
 
 ```sh
-npx dsh-edge@next install
+npx dsh-edge install
 ```
 
 The installer walks you through the runtime, Cloudflare account, Worker name, owner access key, DeepSeek key, cost summary, upload, and route activation. Choose the temporary-account path to try it without an existing Cloudflare login. Claim that deployment within 60 minutes if you want to keep its Worker and data.
 
-For the current stable release, use `npx dsh-edge install` instead.
+The command installs the current stable release from npm. Prereleases, when available, remain opt-in through `npx dsh-edge@next install`.
 
 ## What you can do
 
@@ -45,9 +45,13 @@ For the current stable release, use `npx dsh-edge install` instead.
 | **Temporary preview** | No existing login required; claim within 60 minutes | Bounded 64 MiB Durable Object backend | Trying the complete browser and image flow with the lowest friction |
 | **New permanent deployment** | Existing or newly authenticated account; R2 subscription must be enabled | Private R2 bucket | Keeping conversations and images in your own long-lived account |
 
-The attachment backend is selected once per deployment and remains pinned across Durable Object sleep, claim, and upgrade. Claiming a temporary deployment preserves its existing DO-backed images; it does not silently migrate them to R2.
+The attachment backend is selected once per deployment and remains pinned across Durable Object sleep, claim, and upgrade:
 
-Cloudflare gives R2 Standard an [included monthly free tier](https://developers.cloudflare.com/r2/pricing/), but R2 is a separate usage-based subscription that must first be [enabled through its Dashboard checkout](https://developers.cloudflare.com/r2/get-started/). A Worker created before dsh-edge 0.3 has no image backend or image references; its first 0.3 upgrade therefore asks once between no-setup Durable Object storage (64 MiB per instance) and private R2. The installer checks an R2 choice before asking for Worker secrets. If Cloudflare reports that R2 is not enabled, it shows the account-specific activation link and offers retry, cancellation, or—only when no existing image reference can be stranded—a safe switch to DO storage. Later upgrades preserve the resulting choice and never migrate image data automatically.
+- Claiming a temporary deployment preserves its DO-backed images; it does not silently migrate them to R2.
+- R2 Standard has an [included monthly free tier](https://developers.cloudflare.com/r2/pricing/), but its separate usage-based subscription must first be [enabled in the Dashboard](https://developers.cloudflare.com/r2/get-started/).
+- The first 0.3 upgrade of an older Worker asks once between no-setup Durable Object storage (64 MiB per instance) and private R2.
+- The installer validates an R2 choice before collecting Worker secrets and, when safe, offers a switch back to DO storage if R2 is unavailable.
+- Later upgrades preserve the selected backend and never migrate image data automatically.
 
 ### Choose a command runtime
 
@@ -61,10 +65,10 @@ Both modes use the same UI, protocol, tools, conversations, workspace, image flo
 ## Upgrade
 
 ```sh
-npx dsh-edge@next upgrade
+npx dsh-edge upgrade
 ```
 
-Prerelease deployments stay on npm's `next` channel; stable deployments use `npx dsh-edge upgrade`. Select the existing Worker and the same runtime. Durable Object data and the deployment's pinned attachment backend are retained. Because Cloudflare secrets are write-only, the installer asks for the existing owner access key and DeepSeek API key again.
+Select the existing Worker and the same runtime. Durable Object data and the deployment's pinned attachment backend are retained. Because Cloudflare secrets are write-only, the installer asks for the existing owner access key and DeepSeek API key again. Use `npx dsh-edge@next upgrade` only when you deliberately installed a prerelease.
 
 ## Data, credentials, and limits
 
@@ -77,7 +81,7 @@ Prerelease deployments stay on npm's `next` channel; stable deployments use `npx
 
 ## Current boundaries
 
-`dsh-edge` is a developer preview and deliberately single-owner. It does not provide registration, multiple users, roles, or tenant routing. Vision Exp is experimental and may not be available to every DeepSeek account.
+`dsh-edge` is deliberately single-owner. It does not provide registration, multiple users, roles, or tenant routing. Vision Exp is experimental and may not be available to every DeepSeek account.
 
 Non-image file attachments, session export, `@file` and `@session` references, remote MCP, Skills, Workflows, Jobs, and Subagents are not yet adapted to Edge. `web_fetch` remains disabled until the runtime has an explicit policy for SSRF, private addresses, and redirects.
 
@@ -89,7 +93,7 @@ This repository wraps exact published DeepSeek Harness packages instead of copyi
 
 Edge runtime code lives in [`apps/dsh-edge`](apps/dsh-edge). The small [`packages/client/ui-edge`](packages/client/ui-edge) plugin contributes deployment status, upgrade guidance, and owner-session controls through upstream client slots. The isolated assembly in `apps/dsh-edge/standalone` pins one upstream version and records every unavoidable version-bound patch.
 
-For upstream architecture and plugin development, see the [DeepSeek Harness repository](https://github.com/deepseek-ai/deepseek-harness) and [reference documentation](https://deepseek-harness.github.io/deepseek-harness/reference/). Pre-cutover development history is archived in [dsh-edge-history](https://github.com/pawaca/dsh-edge-history).
+For upstream architecture and plugin development, see the [DeepSeek Harness repository](https://github.com/deepseek-ai/deepseek-harness) and [reference documentation](https://deepseek-harness.github.io/deepseek-harness/reference/).
 
 ## Develop locally
 
