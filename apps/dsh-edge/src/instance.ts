@@ -216,6 +216,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     updateSettings: (ns, patch, rev) => this.sessions.updateSettings(ns, patch, rev),
     replaceSettings: (ns, section, rev) => this.sessions.replaceSettings(ns, section, rev),
     mutateSettings: (ns, ops, rev) => this.sessions.mutateSettings(ns, ops, rev),
+    listConfigurableProviders: () => this.sessions.listConfigurableProviders(),
     isRunning: sessionId => this.activeTurns.has(sessionId),
     prompt: input => this.startApiPrompt(input),
     updateQueue: (sessionId, itemId, action) => this.updateQueue(sessionId, itemId, action),

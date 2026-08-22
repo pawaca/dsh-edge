@@ -145,6 +145,7 @@ function runtime(
     updateSettings: vi.fn(async () => undefined),
     replaceSettings: vi.fn(async () => undefined),
     mutateSettings: vi.fn(async () => undefined),
+    listConfigurableProviders: vi.fn(async () => []),
     isRunning: () => false,
     prompt: vi.fn(async () => {}),
     updateQueue: vi.fn(() => 'accepted' as const),
