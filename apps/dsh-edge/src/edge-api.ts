@@ -74,6 +74,14 @@ export interface EdgeApiRuntime {
   updateSettings(ns: string, patch: object, expectedRevision?: number): Promise<SettingsDescriptor | undefined>
   replaceSettings(ns: string, section: object, expectedRevision?: number): Promise<SettingsDescriptor | undefined>
   mutateSettings(ns: string, ops: readonly SettingsPathOp[], expectedRevision?: number): Promise<SettingsDescriptor | undefined>
+  listConfigurableProviders(): Promise<{
+    provider: string
+    displayName: string
+    settingsNs: string
+    settingsPath: readonly string[]
+    active: boolean
+    declared?: boolean
+  }[]>
   isRunning(sessionId: SessionId): boolean
   prompt(input: {
     sessionId: SessionId
@@ -717,16 +725,28 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
     },
 
     llm: {
-      providers: request => Promise.resolve(ok(request, {
-        providers: [{
-          provider: EDGE_PROVIDER,
-          displayName: 'DeepSeek',
-          settingsNs: 'llm-deepseek',
-          settingsPath: [],
-          active: true,
-          declared: false,
-        }],
-      })),
+      async providers(request) {
+        const configurable = await runtime.listConfigurableProviders()
+        const providers = [
+          {
+            provider: EDGE_PROVIDER,
+            displayName: 'DeepSeek',
+            settingsNs: 'llm-deepseek',
+            settingsPath: [] as string[],
+            active: true,
+            declared: false,
+          },
+          ...configurable.map(entry => ({
+            provider: entry.provider,
+            displayName: entry.displayName,
+            settingsNs: entry.settingsNs,
+            settingsPath: [...entry.settingsPath],
+            active: entry.active,
+            ...entry.declared === undefined ? {} : { declared: entry.declared },
+          })),
+        ]
+        return ok(request, { providers })
+      },
       async models(request) {
         return ok(request, await runtime.sessions.modelCatalog())
       },

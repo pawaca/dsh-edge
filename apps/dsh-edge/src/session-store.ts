@@ -62,6 +62,10 @@ import {
 } from '@deepseek-ai/dsh-settings'
 import DurableObjectSettingsProvider from './do-settings-provider.ts'
 import EdgeCredentialProvider, { EDGE_DEEPSEEK_API_KEY_REF } from './edge-credentials.ts'
+import {
+  installConfiguredProviders,
+  readConfiguredProviders,
+} from './edge-provider-manager.ts'
 import DurableObjectSessionPersistence, {
   EDGE_HISTORY_PAGE_LIMITS,
   type EdgeEventPage,
@@ -196,6 +200,17 @@ export class EdgeSessionStore {
       () => this.context.llm.registerAdapter([EDGE_PROVIDER], this.model),
       'dsh-edge: model adapter',
     )
+    const configuredProviders = await readConfiguredProviders(storage)
+    if (configuredProviders.length > 0) {
+      this.context.effect(
+        () => installConfiguredProviders(
+          this.context,
+          configuredProviders,
+          () => this.context.get('attachments'),
+        ),
+        'dsh-edge: configured providers',
+      )
+    }
     this.context.effect(
       () => this.context.tools.register(createEdgeBashTool(this.shells)),
       'dsh-edge: bash tool',
@@ -263,6 +278,27 @@ export class EdgeSessionStore {
   async unsetCredential(ref: string): Promise<void> {
     await this.ready
     await this.context.credentials.unset(credentialRef(ref))
+  }
+
+  /** List every configurable provider with its live/dormant state. */
+  async listConfigurableProviders(): Promise<{
+    provider: string
+    displayName: string
+    settingsNs: string
+    settingsPath: readonly string[]
+    active: boolean
+    declared?: boolean
+  }[]> {
+    await this.ready
+    const live = new Set(this.context.llm.listProviders().map(p => p.id))
+    return this.context.llm.listConfigurableProviders().map(entry => ({
+      provider: entry.provider,
+      displayName: entry.displayName,
+      settingsNs: entry.settingsNs,
+      settingsPath: [...entry.settingsPath],
+      active: live.has(entry.provider),
+      ...entry.declared === undefined ? {} : { declared: entry.declared },
+    }))
   }
 
   /** Whether the mounted settings provider accepts runtime writes. */
