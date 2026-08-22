@@ -22,6 +22,8 @@ npx dsh-edge install
 
 The installer guides you through every choice and deploys the Worker. You can try it without an existing Cloudflare login, or install it permanently in your own Cloudflare account. No source checkout is required.
 
+[![Install dsh-edge, unlock the deployment, select Vision Exp, and analyze an image](docs/assets/dsh-edge-demo.gif)](docs/assets/dsh-edge-demo.mp4)
+
 ## What you get
 
 - Persistent conversations and workspaces from any browser.
@@ -30,8 +32,6 @@ The installer guides you through every choice and deploys the Worker. You can tr
 - A persistent `/workspace` with the native DSH `bash` tool.
 - Your own Cloudflare deployment, credentials, and data.
 - In-place upgrades without a repository or Cloudflare Builds integration.
-
-![dsh-edge running the upstream DeepSeek Harness Web UI with image input and Vision Exp](docs/assets/dsh-edge-browser.png)
 
 ## Choose your deployment
 

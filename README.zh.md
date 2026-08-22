@@ -22,6 +22,8 @@ npx dsh-edge install
 
 安装器会引导你完成所有选择并部署 Worker。你可以在没有现成 Cloudflare 登录的情况下先试用，也可以永久安装到自己的 Cloudflare 账户；不需要 checkout 源码。
 
+[![安装 dsh-edge、解锁部署、选择 Vision Exp 并识别图片](docs/assets/dsh-edge-demo.gif)](docs/assets/dsh-edge-demo.mp4)
+
 ## 你会得到什么
 
 - 在任意浏览器继续持久对话和工作区。
@@ -30,8 +32,6 @@ npx dsh-edge install
 - 持久 `/workspace` 与 DSH 原生 `bash` 工具。
 - 属于你自己的 Cloudflare 部署、凭据和数据。
 - 无需绑定仓库或 Cloudflare Builds 即可原地升级。
-
-![dsh-edge 运行上游 DeepSeek Harness Web UI，并使用图片输入与 Vision Exp](docs/assets/dsh-edge-browser.png)
 
 ## 选择部署方式
 
