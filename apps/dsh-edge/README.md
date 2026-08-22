@@ -8,9 +8,29 @@ English | [中文](README.zh.md)
 
 The checked-in Wrangler configuration exposes two deployment targets from the same application graph. The default target is direct mode for Workers Free and has no Worker Loader binding. The named `isolated` target adds the `LOADER` binding and requires Workers Paid, but does not fork the DSH protocol, storage, UI, or tool implementation.
 
-The runtime runs persistent conversations through the upstream Cordis-composed `ReactLoopAgent`, `AgentRegistry`, `LlmRuntime`, `ToolRuntime`, `SystemPrompt`, `SessionStore`, and `SessionPersistence`. Edge code only binds a request-scoped DeepSeek adapter and maps one native DSH `bash` tool definition onto Cloudflare Computer. Durable Object SQLite implements the upstream persistence backend contract; `PersistenceCoordinator` still owns write-behind, revisions, resume preparation, and crash recovery. Model history is projected from canonical events rather than persisted separately.
+The runtime keeps upstream ownership clear:
 
-The browser is the upstream Web shell and upstream client-plugin bundles. A build-time assembler derives the browser roster from the upstream base and Web bundle configs, injects the standard `window.__DSH_BOOT__` graph, and publishes the result as Cloudflare static assets. The Durable Object implements the supported upstream `ApiProxy` methods through the standard HTTP carrier and supplies the two upstream downlinks as hibernatable WebSockets. The upstream image composer, gallery, lightbox, attachment wire contract, and DeepSeek serializer are reused unchanged; the storage seam selects private R2 for new permanent deployments, bounded Durable Object storage for temporary deployments, and a one-time owner choice for pre-0.3 Workers. Edge excludes client plugins whose host domains are absent instead of forking their UI code; this includes session-log export until its server endpoint exists. A small Edge-owned login shell protects the upstream UI and protocol without changing either one. Optional local-host plugins remain unavailable.
+- `ReactLoopAgent`, `AgentRegistry`, `LlmRuntime`, `ToolRuntime`, `SystemPrompt`, `SessionStore`, and `SessionPersistence` run through the upstream Cordis composition.
+- Edge binds a request-scoped DeepSeek adapter and maps the native DSH `bash` tool onto Cloudflare Computer.
+- Durable Object SQLite implements the upstream persistence backend contract. `PersistenceCoordinator` still owns write-behind, revisions, resume preparation, and crash recovery.
+- Model history is projected from canonical events rather than persisted in a second Edge schema.
+
+The browser also remains upstream-owned:
+
+- A build-time assembler derives the Web roster from upstream configs, injects the standard `window.__DSH_BOOT__` graph, and emits Cloudflare static assets.
+- The Durable Object implements supported upstream `ApiProxy` methods through the standard HTTP carrier and supplies both downlinks as hibernatable WebSockets.
+- The image composer, gallery, lightbox, attachment wire contract, and DeepSeek serializer are reused unchanged.
+- The storage seam chooses private R2 for new permanent deployments, bounded Durable Object storage for temporary deployments, and a one-time owner choice for pre-0.3 Workers.
+- Client plugins whose host domains are unavailable are excluded instead of forked. Session-log export and optional local-host plugins remain unavailable.
+- A small Edge-owned login shell protects the upstream UI and protocol without changing either one.
+
+## Find what you need
+
+- [Install or upgrade on Cloudflare](#install-on-cloudflare)
+- [Compare native, adapted, and unavailable capabilities](#cloudflare-compatibility-matrix)
+- [Configure DeepSeek credentials, models, timeouts, and owner authentication](#api-key-boundary)
+- [Run the release runtime locally](#run-locally)
+- [Inspect routes, limits, and durability behavior](#edge-api)
 
 ## Run locally
 
@@ -70,13 +90,15 @@ curl -b /tmp/dsh-edge-cookie -N -X POST -H 'content-type: application/json' \
   http://localhost:8787/api/sessions/SESSION_ID/turn
 ```
 
-The session turn sends upstream `SessionEvent` values directly as SSE data, including `agent/inbox/spliced`, `assistant/chunk`, `assistant/message`, `tool/call`, `tool/result`, and turn/step boundaries. The live stream queues at most 1 MiB for its client; a slower reader is disconnected without cancelling the turn or its persistence. `GET /api/sessions/SESSION_ID` returns bounded session metadata only; clients obtain history from `GET /api/sessions/SESSION_ID/events?after=SEQ&limit=COUNT`, which replays a bounded page by upstream `seq`. Replay defaults to 128 events, accepts at most 256, preflights stored payload bytes before loading rows, and retains at most 1 MiB of encoded SSE; `x-dsh-edge-has-more` and `x-dsh-edge-next-after` drive the next request.
+The diagnostic session APIs preserve upstream events while bounding every read:
 
-Session listing is also bounded: `GET /api/sessions?after=SESSION_ID&limit=COUNT` defaults to 50 summaries, accepts at most 100, and returns `hasMore` plus `nextAfter` in the JSON body. The Durable Object derives titles and latest timestamps from canonical rows without loading each session log. The upstream Web session list additionally includes retained blank headers that have no canonical event yet.
-
-The upstream `session.history` browser RPC uses one Edge admission budget before live and cold paths diverge: every request is capped at the browser's 50-message page size. Cold logs apply that boundary in Durable Object SQL before decoding payloads and validate the selected contiguous window under 8,192-event and 8 MiB stored-payload ceilings. Live logs locate the same boundary without first copying the complete in-memory window, then enforce the same event ceiling and an 8 MiB encoded-response ceiling. An over-budget window is refused instead of truncated. Model-directory, model-selection, and turn-admission existence checks use header point reads; only a turn that must resume the agent decodes canonical history.
-
-The upstream sidebar's `session.search` RPC scans canonical current user and assistant messages without a second Edge index or wire format. One request examines at most the 32 sessions with the most recent human activity and searches only complete logs of at most 512 events; a cold log must also fit within 256 KiB of stored payload. It returns the upstream maximum of 20 bounded snippets; `hasMore` is true when a result or work bound prevents an exhaustive answer.
+- A turn streams upstream `SessionEvent` values directly as SSE, including inbox splices, assistant chunks/messages, tool calls/results, and turn/step boundaries.
+- A live stream queues at most 1 MiB per client. A slower reader is disconnected without cancelling the turn or its persistence.
+- Session detail returns bounded metadata. Event replay defaults to 128 events, accepts at most 256, preflights stored bytes, retains at most 1 MiB of encoded SSE, and exposes continuation headers.
+- Session listing defaults to 50 summaries and accepts at most 100. The Durable Object derives titles and timestamps from canonical rows without loading each log; upstream Web also receives retained blank headers.
+- Browser history is capped at 50 messages and refuses, rather than truncates, windows above 8,192 events or 8 MiB. Cold paths apply the boundary in SQL; live paths locate it without copying the complete in-memory log.
+- Sidebar search uses canonical current user/assistant messages without a second index or wire format. It examines at most 32 recent sessions, requires complete logs of at most 512 events and 256 KiB when cold, and returns at most 20 snippets with `hasMore` when a bound is reached.
+- Model lookup and selection use header point reads. Only a turn that resumes the agent decodes canonical history.
 
 Every authenticated request uses the deployment's fixed `owner` Durable Object. The legacy `x-dsh-edge-instance` header and `instance` query parameter are rejected rather than treated as identities. `/api/sessions/SESSION_ID/turn` continues the stored canonical history.
 
@@ -131,23 +153,63 @@ Cloudflare static assets -> upstream Web shell + client plugin graph
   -> upstream Web runtime reconciles and renders the canonical events
 ```
 
-The local integration check uses an SSE stand-in and the real Wrangler, Durable Object SQLite, local R2, the default direct Computer workspace backend, static asset service, HTTP carrier, and WebSockets. Direct mode exercises the temporary DO attachment backend while Isolated mode exercises private R2. It verifies owner login, API and WebSocket cookie enforcement, rejection of legacy instance selectors, disabled direct-shell networking, the upstream session create/list/history/search/prompt/rename/fork flow; an image prompt through the upstream composer/protocol/provider path; authorized attachment reads, cross-session rejection, fork reuse, and attachment persistence after restart; queue edit, removal, and promotion to steering; workspace create/list/rename/delete/session reorder/archive; the corresponding live and reconnect baselines and Host frames; real browser boot and UI-issued workspace rename, image turn, content search, branch, and archive actions; automatic return to login when the browser session expires; conversation continuity, event replay, two-step bash and Web Search tool exchanges, and restoration after a Wrangler restart. A focused failure test proves that a post-enqueue durability failure blocks model use without reporting the already-woken prompt as rejected. Committed model-visible and ARIA goldens pin the tool transcripts and the assembled upstream Web client through the Edge HTTP/WebSocket protocol. A live DeepSeek call requires the developer's own key and is intentionally not part of the repository test suite.
+The local integration suite uses an SSE stand-in with real Wrangler, Durable Object SQLite, local R2, the Direct Computer workspace backend, static assets, the HTTP carrier, and WebSockets. Direct mode exercises DO attachment storage; Isolated mode exercises private R2. Together they verify:
+
+- owner login, API/WebSocket cookie enforcement, legacy-selector rejection, and disabled Direct-shell networking;
+- upstream session create/list/history/search/prompt/rename/fork and queue edit/remove/steering flows;
+- image admission through the upstream composer, protocol, provider, authorization, fork reuse, and restart persistence;
+- Workspace create/list/rename/delete/reorder/archive, live/reconnect baselines, and Host frames;
+- real browser boot, UI-issued Workspace rename, image turn, content search, branch, archive, and expired-session login recovery;
+- conversation continuity, event replay, two-step bash and Web Search tool exchanges, and Wrangler-restart restoration.
+
+A focused failure test proves that post-enqueue durability failure blocks model use without reporting the already-woken prompt as rejected. Committed model-visible and ARIA goldens pin tool transcripts and the assembled upstream Web client. A live DeepSeek call requires the developer's key and is intentionally outside the repository test suite.
 
 ## API-key boundary
 
-`DEEPSEEK_API_KEY` from `.dev.vars` is the local credential source. A read-only Edge provider exposes that Worker secret through the upstream `ctx.credentials` service for each chat or search operation without writing it to Durable Object storage, the VFS, session events, or responses. It removes surrounding whitespace and treats a blank value as unconfigured. `DEEPSEEK_BASE_URL` controls chat and must be an HTTP(S) URL without URL userinfo; its read-only browser projection omits query and fragment components that may carry gateway credentials. `DEEPSEEK_SEARCH_BASE_URL` independently controls the Anthropic-compatible Messages endpoint used by DeepSeek native search, defaults to `https://api.deepseek.com/anthropic/v1`, and must be an HTTP(S) URL without userinfo, query, or fragment. Edge mounts the upstream `web_search` tool, its 30-second tool-call timeout policy, and structured Web result presentation; `web_fetch` remains disabled because the runtime has no arbitrary-URL network policy. Search requests do not follow redirects. `DEEPSEEK_MODEL` selects the validated deployment default and defaults to `deepseek-v4-flash`; each session can choose another entry from the upstream provider catalog. `DEEPSEEK_REASONING_EFFORT` accepts `off`, `low`, `high`, or `max` and defaults to `off`. `DEEPSEEK_MAX_OUTPUT_TOKENS` optionally overrides the 8,192-token chat default and must be a positive safe integer. `DEEPSEEK_STREAM_IDLE_TIMEOUT_MS` optionally overrides the 120,000 ms chat default and must be a positive integer no greater than 2,147,483,647. Invalid deployment configuration fails before session lookup or the SSE response opens.
+`DEEPSEEK_API_KEY` from `.dev.vars` is the local credential source. A read-only Edge provider exposes it through upstream `ctx.credentials` for each chat or search operation without writing the value to Durable Object storage, the VFS, session events, or responses. Surrounding whitespace is removed; a blank value is unconfigured.
 
-`DSH_EDGE_DEFAULT_COMMAND_TIMEOUT_MS` applies to every Computer command that omits a caller timeout, and `DSH_EDGE_MAX_COMMAND_TIMEOUT_MS` limits caller-selected values. Both default to 120,000 ms, must be positive integers no greater than 2,147,483,647, and the default cannot exceed the maximum.
+| Variable | Purpose and validation |
+| --- | --- |
+| `DEEPSEEK_BASE_URL` | Chat endpoint. Must be HTTP(S) without URL userinfo. The browser projection omits query and fragment components that may carry gateway credentials. |
+| `DEEPSEEK_SEARCH_BASE_URL` | Anthropic-compatible Messages endpoint for native Web Search. Defaults to `https://api.deepseek.com/anthropic/v1`; must be HTTP(S) without userinfo, query, or fragment. Search does not follow redirects. |
+| `DEEPSEEK_MODEL` | Validated deployment default; defaults to `deepseek-v4-flash`. Each session may choose another upstream catalog entry. |
+| `DEEPSEEK_REASONING_EFFORT` | `off`, `low`, `high`, or `max`; defaults to `off`. |
+| `DEEPSEEK_MAX_OUTPUT_TOKENS` | Optional positive safe integer overriding the 8,192-token chat default. |
+| `DEEPSEEK_STREAM_IDLE_TIMEOUT_MS` | Optional positive integer up to 2,147,483,647; defaults to 120,000 ms. |
+| `DSH_EDGE_DEFAULT_COMMAND_TIMEOUT_MS` | Default Computer command timeout; defaults to 120,000 ms. |
+| `DSH_EDGE_MAX_COMMAND_TIMEOUT_MS` | Caller-selectable timeout ceiling; defaults to 120,000 ms and cannot be lower than the default. |
 
-`DSH_EDGE_ACCESS_KEY` is the deployment's single-owner boundary. It must contain 32–512 UTF-8 bytes without surrounding whitespace or control characters; generate a random value rather than reusing a human password. A successful form login creates a signed 30-day HttpOnly `SameSite=Strict` cookie. HTTPS deployments use the host-only `__Host-dsh_edge_owner` name and `Secure`; local HTTP development uses an unprefixed cookie because browsers reject `__Host-` cookies without HTTPS. The cookie carries no user data, is not forwarded to the Durable Object, and becomes invalid when the access key rotates. Unauthenticated API and WebSocket requests return 401. Owner-authentication API failures also carry `WWW-Authenticate: DshEdgeOwner`; only that exact same-origin 401 makes the Edge-assembled shell navigate to `/login`, so provider or configuration 401 diagnostics remain visible while an expired browser session still escapes the upstream reconnect loop. Authenticated browser API and WebSocket requests from a different origin return 403 even when they carry a same-site cookie. The Cloudflare asset policy prevents the shell from being embedded in a frame whether it is reached through `/`, `/index.html`, or an SPA fallback alias. `/` redirects to `/login`; `/api/health` and immutable asset files remain public. This deliberately is not an account system or a multi-tenant boundary.
+Invalid deployment configuration fails before session lookup or SSE response creation. Edge mounts upstream `web_search` with a 30-second tool-call timeout and structured results. `web_fetch` remains disabled because the runtime has no arbitrary-URL network policy.
+
+### Owner authentication
+
+- `DSH_EDGE_ACCESS_KEY` is the single-owner boundary. It must contain 32–512 UTF-8 bytes without surrounding whitespace or control characters; generate a random value instead of reusing a human password.
+- Login creates a signed 30-day HttpOnly `SameSite=Strict` cookie. HTTPS uses the host-only `__Host-dsh_edge_owner` name with `Secure`; local HTTP uses an unprefixed cookie.
+- The cookie carries no user data, is never forwarded to the Durable Object, and becomes invalid when the access key rotates.
+- Unauthenticated API and WebSocket requests return 401. Only an owner-authentication 401 carrying `WWW-Authenticate: DshEdgeOwner` makes the same-origin shell navigate to `/login`; provider/configuration 401 diagnostics remain visible.
+- Authenticated browser API and WebSocket requests from another origin return 403 even with a same-site cookie.
+- The asset policy prevents framing through `/`, `/index.html`, or an SPA fallback. `/` redirects to `/login`; `/api/health` and immutable assets remain public.
+
+This deliberately is not an account system or multi-tenant boundary.
 
 ## Install on Cloudflare
 
-The top level of the committed `wrangler.jsonc` is the default direct target and does not require a Worker Loader. Direct shell code executes in the same Durable Object isolate as the agent and VFS, so just-bash's hardened execution limits, explicit command timeout, bounded output, explicit environment, and disabled network command are the primary command boundary. This is a lighter isolation model than a separate Worker; do not expose the single-owner deployment to untrusted users.
+| Target | Cloudflare requirement | Command boundary | Health identifier |
+| --- | --- | --- | --- |
+| Direct (default top level) | Workers Free; no Loader binding | Hardened just-bash in the agent/VFS Durable Object, with explicit timeouts, bounded output/environment, and no network command | `just-bash-direct` |
+| `env.isolated` | Workers Paid with `LOADER` | Computer Worker Shell in a separate Dynamic Worker | `just-bash-isolated` |
 
-The same file also defines `env.isolated`, a complete Workers Paid target with the `LOADER` binding. The application code sees `LOADER` and chooses Computer's Worker Shell backend, so `/api/health` reports `just-bash-isolated` instead of `just-bash-direct`. Workers Paid is a Workers subscription starting at $5 per month, not the Cloudflare Pro website plan. Each Worker name has independent Durable Object storage and secrets, so install both modes under different names when both should remain live.
+Direct mode is lighter isolation than a separate Worker; do not expose the single-owner deployment to untrusted users. Workers Paid is a Workers subscription starting at $5 per month, not the Cloudflare Pro website plan. Worker names have independent Durable Object storage and secrets, so use different names when both modes should remain live.
 
-`wrangler.jsonc` remains the single canonical configuration for both modes. Release packaging builds one tested, minified Worker artifact per mode from the workspace sources. Direct mode replaces only Computer's unreachable Dynamic Worker shell-core module at build time; the Computer workspace adapter and command exports remain the upstream implementations. Isolated mode preserves that shell core but replaces the unreachable Direct backend with a fail-closed module, so each artifact carries only its selected command runtime. The published installer generates a private mode-specific configuration that points at the selected artifact and asks Wrangler to upload it with `no_bundle`; the user's machine does not rebuild dsh-edge or resolve the upstream Harness packages into a new Worker. CI starts the Direct artifact from an installed tarball and rejects it above a 900 KiB compressed budget, leaving headroom below the 1 MiB limit enforced by Cloudflare's anonymous temporary-account upload path.
+`wrangler.jsonc` remains the canonical source for both modes:
+
+- Release packaging builds one tested, minified artifact per mode.
+- Direct replaces only Computer's unreachable Dynamic Worker shell-core module; its Workspace adapter and command exports remain upstream.
+- Isolated preserves that shell core and replaces the unreachable Direct backend with a fail-closed module. Each artifact therefore carries only its selected command runtime.
+- The installer generates a private mode-specific config, points it at the selected artifact, and uploads with `no_bundle`. The user's machine does not rebuild dsh-edge or resolve Harness packages into a new Worker.
+- CI starts the Direct artifact from an installed tarball and rejects gzip output above 900 KiB, preserving headroom below the 1 MiB anonymous temporary-account limit.
+
+### Install and upgrade
 
 Run the stable installer without cloning this repository:
 
@@ -155,7 +217,7 @@ Run the stable installer without cloning this repository:
 npx dsh-edge install
 ```
 
-This resolves through npm's `latest` channel. Use `npx dsh-edge@next install` to test the current 0.3 prerelease with upstream model selection and image prompts.
+This resolves through npm's `latest` channel. Use `npx dsh-edge@next install` only to opt into a newer prerelease when one is available.
 
 Upgrade an existing named Worker with the same runtime choice. The deployment keeps its Durable Object data; because Cloudflare secrets are write-only, the upgrade asks for the owner access key and DeepSeek API key again and replaces their active values:
 
@@ -165,13 +227,32 @@ For a stable deployment, run:
 npx dsh-edge upgrade
 ```
 
-If the installed version is a 0.2 alpha, promote it to the stable channel once with `npx dsh-edge@latest upgrade`; prerelease deployments otherwise remain on `next`. The Edge settings page derives the channel from the installed version and copies the matching command.
+If the installed version contains `-alpha` or `-rc`, promote it to the stable channel once with `npx dsh-edge@latest upgrade`. The Edge settings page derives its command from the installed version; without that explicit `@latest` command, an existing prerelease remains on `next`.
 
-The installer asks for the runtime before the account. The recommended `Free — Direct Shell` mode works on Workers Free and can use a detected Cloudflare account, open Cloudflare sign-in or registration, or create a temporary account without login. `Isolated — Dynamic Worker` requires Workers Paid and therefore offers only a detected or newly authenticated account. Cloudflare does not expose a reliable local entitlement check for Worker Loader, so an isolated install lets Cloudflare authorize the upload and turns a rejection into a choice between enabling Workers Paid and using direct mode. For a new permanent account installation, the installer creates or reuses a private `<worker-name>-attachments` R2 bucket and writes only its binding to the generated private Wrangler config. It never deletes the bucket on deployment failure. R2 Standard has an included monthly free tier, but Cloudflare requires the selected account to enable its separate usage-based R2 subscription through the Dashboard checkout. The installer checks R2 before collecting Worker secrets. Cloudflare error `10042` opens an account-specific recovery choice: retry after activation, cancel, or safely switch an unmarked pre-attachment Worker to DO storage. A new or already R2-pinned deployment cannot switch backends because doing so could violate the documented storage decision or strand references. Temporary accounts use a 64 MiB Durable Object attachment backend and support the same upstream image UI. Claiming preserves that backend and its existing image history; automatic migration to R2 is not implemented. Each new deployment records an explicit attachment-storage marker. Before updating an existing Worker, the installer inspects every active version and preserves a marked or bound R2-or-DO choice. A Worker from before image support has neither marker nor attachment binding and cannot contain image references, so its first 0.3 upgrade asks once between no-setup 64 MiB DO storage and private R2. The chosen backend is then pinned. Mixed active rollouts are refused rather than guessed.
+### Accounts and attachment storage
 
-The remaining prompts select a Worker name, generate or accept the owner access key, collect the DeepSeek API key through hidden input, and show a final cost summary. A temporary-account install also asks the user to accept Cloudflare's Terms of Service and Privacy Policy explicitly. An existing Worker is never overwritten without confirmation. The installer passes both credentials through a mode-`0600` temporary secrets file and gives Wrangler only an allowlisted runtime environment plus the Cloudflare authentication selected for that command; unrelated ambient keys, tokens, passwords, secrets, and Node injection options do not reach the child. It removes the secret file after the command and discovers the resulting URL from Wrangler's structured output. Deployment output is hidden behind one progress indicator by default; add `--verbose` to either command to inspect Wrangler diagnostics.
+- The installer asks for the runtime before the account.
+- Recommended `Free — Direct Shell` works on Workers Free with a detected account, a new sign-in/registration, or a temporary account without login.
+- `Isolated — Dynamic Worker` requires Workers Paid and offers only a detected or newly authenticated account. Cloudflare authorizes the Loader upload; rejection becomes a choice between enabling Workers Paid and switching to Direct mode.
+- New permanent installs create or reuse a private `<worker-name>-attachments` R2 bucket and place only its binding in the generated private Wrangler config. Deployment failure never deletes the bucket.
+- R2 Standard has an included monthly free tier, but the account must enable its separate usage-based subscription. The installer checks R2 before collecting Worker secrets.
+- Cloudflare error `10042` offers account-specific activation, retry, and cancellation. Only an unmarked pre-attachment Worker may safely switch to DO storage; a new or R2-pinned deployment cannot switch and strand references.
+- Temporary accounts use the same image UI with a 64 MiB DO backend. Claiming preserves that backend and history; automatic R2 migration is not implemented.
+- Every new deployment records its attachment-storage marker. Upgrades inspect every active version and preserve the marked or bound backend.
+- A pre-image Worker has no marker, binding, or image references, so its first 0.3 upgrade asks once between 64 MiB DO storage and private R2, then pins the choice. Mixed active rollouts are refused rather than guessed.
 
-After an accepted upload, a second progress indicator observes the public `/api/health` route for at most 45 seconds without sending either credential or following redirects. It accepts only the exact packaged version and selected runtime. A matching response produces a ready card. Cloudflare propagation, challenge, placeholder, transport, and older-release responses remain pending; expiry still exits successfully and tells the owner to wait briefly and refresh. This observation does not call DeepSeek or touch Durable Object state. The final card prints the URL, owner access key, and concrete next steps; a temporary account also receives a bearer claim URL that must be claimed within 60 minutes to retain the Worker and its data. A rejected upload is reported as not installed and, when Wrangler created a temporary account first, still prints its claim URL without presenting the unused owner key as active. If upload succeeds but output parsing, claim-URL extraction, interruption handling, activation interruption, or local cleanup prevents a normal handoff, a recovery card still prints the active owner key and any known URLs before the command exits unsuccessfully. The installation uploads directly through Wrangler and does not create or bind a GitHub repository, Cloudflare Builds project, or source-build pipeline.
+### Credential handoff and activation
+
+- The remaining prompts select a Worker name, generate or accept the owner access key, collect the DeepSeek key through hidden input, and show a final cost summary. Temporary installs also require explicit acceptance of Cloudflare's terms and privacy policy.
+- Existing Workers are never overwritten without confirmation.
+- Both credentials travel through a mode-`0600` temporary secrets file. Wrangler receives only an allowlisted runtime environment and the selected Cloudflare authentication; unrelated ambient secrets and Node injection options do not reach the child.
+- The secret file is removed after the command. Wrangler's structured output supplies the deployed URL. Add `--verbose` to inspect full deployment diagnostics.
+- After upload, the installer observes public `/api/health` for up to 45 seconds without credentials or redirects. Only the exact package version and selected runtime produce a ready card; propagation, challenge, placeholder, transport, and older-release responses remain pending.
+- Observation expiry exits successfully and asks the owner to refresh shortly. It never calls DeepSeek or touches Durable Object state.
+- The final card prints the URL, active owner key, and next steps. Temporary accounts also receive a bearer claim URL that must be claimed within 60 minutes.
+- A rejected upload is reported as not installed. If Wrangler created a temporary account, its claim URL is still shown without presenting the unused owner key as active.
+- If upload succeeds but handoff fails, a recovery card prints the active owner key and all known URLs before the command exits unsuccessfully.
+- Installation uploads directly through Wrangler; it does not create or bind a GitHub repository, Cloudflare Builds project, or source-build pipeline.
 
 Contributors working from a checkout can reproduce the two release artifacts locally with `pnpm --filter dsh-edge bundle:direct` and `pnpm --filter dsh-edge bundle:isolated`. The first command also enforces the compressed-size budget.
 
@@ -183,11 +264,27 @@ pnpm --filter dsh-edge example:install
 
 ## Edge API
 
-- `POST /api/<upstream-method>` accepts the upstream `ClientRequest` envelope for the supported `ApiProxy` methods. The Web client currently uses session list/search/create/history/models/select/prompt/updateQueue/rename/fork/cancel, host description, workspace list/create/rename/delete/reorder/archive, skills, agent presets, settings and credential descriptions, and LLM catalogs. `agentPreset.read` renders the programmatic Edge composition through the upstream read-only viewer, and `credentials.describe` returns credential state without a value. Search projects canonical current-message surfaces and returns only bounded upstream result values. Fork copies a completed-turn prefix through the canonical session seed format and retains parent lineage; Edge refuses a seed above 8,192 events or 8 MiB rather than materializing an unbounded Durable Object history. Queue mutations edit, remove, or promote an item through the live upstream Agent inbox; the synchronous inbox mutation is the upstream acceptance point, while the persistence coordinator owns later write-behind and retirement retry. Workspace mutations persist the upstream workspace-domain global and record shapes through the Durable Object backend. Archive preserves the session log and workspace slot; unary responses and Host frames carry the same full snapshots as upstream.
-- `GET /login` renders the Edge-owned owner form; `POST /api/auth/login` exchanges the configured access key for a signed cookie, `GET /api/auth/session` reports cookie validity, and `POST /api/auth/logout` clears it.
-- `GET /api/events.mux` and `GET /api/events.host` upgrade to the upstream downlink WebSockets. The Durable Object serializes each socket's channel and verified owner-session expiry as its hibernation attachment, closes it at that expiry through an alarm, and reconstructs canonical sessions plus retained blank headers from Durable Object SQL. The mux stream publishes a complete `session/queue` snapshot after each committed inbox splice and sends pending live inbox baselines when a client reconnects.
-- `POST /api/commands/list` implements the upstream generated-Remote envelope with an empty catalog because the Edge preset registers no human commands.
-- `GET /api/health` returns the public package-and-mode release identifier and configured attachment default (`private-r2` or `temporary-do`), and validates owner authentication, the deployment-scoped DeepSeek credential, model and transport choices, and the command-timeout policy before reporting the runtime components as ready. It does not call the provider, Durable Object, R2, VFS, or shell. The authenticated agent-preset projection reports the actual backend pinned by the owner Durable Object, the temporary storage cap, the deployment-default model, and the runtime-derived upstream model catalog with session selection scope.
+### Upstream RPC carrier
+
+- `POST /api/<upstream-method>` accepts the upstream `ClientRequest` envelope for supported `ApiProxy` methods.
+- The Web client uses session list/search/create/history/models/select/prompt/updateQueue/rename/fork/cancel; host description; Workspace list/create/rename/delete/reorder/archive; skills; agent presets; settings and credential descriptions; and LLM catalogs.
+- `agentPreset.read` renders the programmatic Edge composition through the upstream read-only viewer. `credentials.describe` returns credential state without a value.
+- Search projects canonical current-message surfaces and returns bounded upstream result values.
+- Fork copies a completed-turn prefix through the canonical session seed format and retains parent lineage. Edge refuses seeds above 8,192 events or 8 MiB instead of materializing unbounded history.
+- Queue mutations edit, remove, or promote an item through the live upstream Agent inbox. The synchronous mutation is the acceptance point; the persistence coordinator owns later write-behind and retirement retry.
+- Workspace mutations persist upstream workspace-domain global and record shapes through the Durable Object backend. Archive preserves the session log and Workspace slot; unary responses and Host frames carry the same full snapshots as upstream.
+
+### Authentication and downlinks
+
+- `GET /login` renders the owner form. `POST /api/auth/login` exchanges the configured key for a signed cookie; `GET /api/auth/session` reports validity; `POST /api/auth/logout` clears it.
+- `GET /api/events.mux` and `GET /api/events.host` upgrade to upstream downlink WebSockets. The Durable Object serializes each socket's channel and verified owner-session expiry as a hibernation attachment, closes it at expiry through an alarm, and reconstructs canonical sessions plus retained blank headers from SQL.
+- After each committed inbox splice, mux publishes a complete `session/queue` snapshot. Reconnecting clients receive pending live-inbox baselines.
+- `POST /api/commands/list` uses the upstream generated-Remote envelope with an empty catalog because the Edge preset registers no human commands.
+- `GET /api/health` returns the public release/mode identifier and configured attachment default (`private-r2` or `temporary-do`). It validates owner authentication, deployment-scoped DeepSeek credentials, model/transport choices, and command timeouts before reporting ready.
+- Health does not call the provider, Durable Object, R2, VFS, or shell. The authenticated agent-preset projection reports the pinned backend, temporary cap, deployment-default model, and runtime-derived upstream catalog with session selection scope.
+
+### Diagnostic REST routes
+
 - `PUT /api/workspace/file?path=/workspace/...` writes a UTF-8 file.
 - `GET /api/workspace/file?path=/workspace/...` reads a UTF-8 file.
 - `DELETE /api/workspace/file?path=/workspace/...` removes a file.
@@ -198,6 +295,49 @@ pnpm --filter dsh-edge example:install
 - `GET /api/sessions/:sessionId/events?after=...&limit=...` replays a bounded event page and returns continuation headers.
 - `POST /api/sessions/:sessionId/cancel` aborts the active turn owned by the current Durable Object process.
 
-Upstream session creation and fork return `workspace-attach-failed` with the published session and Workspace ids when publication succeeds but Workspace attachment fails; the diagnostic creation route returns the same code plus its complete created session. Prompt and queue-edit text share the same 64 KiB semantic limit. Their RPC carrier accepts up to 10 MiB so a projected 7 MiB raw-image batch still fits after base64 and envelope overhead. Because the Edge composition has no directory-flow provider, the upstream browser hides Delete on its sole Workspace and exposes it again whenever restoration remains possible.
+### Session and Workspace behavior
 
-The API limits text files to 1 MiB, commands to 16 KiB, user messages to 64 KiB, and retained shell stdout plus stderr to 64 KiB; these are UTF-8 byte limits. Both attachment backends accept PNG and JPEG only, at most 4 images per message, 3.5 MiB per image, 7 MiB total, 40 million pixels, and 2,000 pixels per side; admission fully decodes the declared raster format before writing. Request bodies are consumed incrementally before parsing or forwarding: session creation accepts at most 8 KiB of JSON, workspace execution 128 KiB, and message-bearing turn or queue-update RPCs 10 MiB, while file uploads enforce their 1 MiB bound during consumption and reject malformed UTF-8. Once a body exceeds its route limit, later chunks are drained without being retained and the route returns 413. File reads first check VFS metadata, then collect the opened raw byte stream through the same 1 MiB cap, closing the growth race between `stat()` and `readFile()` without retaining an unbounded value. The runtime requests interruption when combined shell output crosses the retention bound and does not accumulate later output. Command status reports cancellation only when the adapter requested interruption, independently of the shell exit code; `timedOut` separately records deadline expiry. Failed initial session persistence discards the retained unmaterialized batch before disposing the newly published upstream agent handle, so teardown cannot later commit a session whose create request returned an error. A lazy blank session retains only its upstream header until the first canonical event; that materialization removes the retained header in the same SQL transaction. Each turn owns one upstream handle and disposes it after the stream completes, so previously accessed conversations do not remain resident for the Durable Object lifetime. Deployment settings resolve before the process-local owner claim. An upstream protocol prompt returns accepted and publishes running state only after its inbox event crosses `SessionStore.flush()`; later streamed events cross the same barrier before WebSocket or SSE delivery. Queue edits, removals, and steering promotion use the synchronous live-inbox mutation as their acceptance point; `PersistenceCoordinator` owns subsequent write-behind or retirement retry, so a later storage attempt cannot turn an accepted mutation into a rejected response. Session rename follows the same upstream metadata contract: the synchronous title append is its acceptance point for both active and cold sessions. Workspace global state and records use the upstream logical schemas under Edge-specific physical keys; DO transactions atomically pair record and registry-order changes, while a process-local chain serializes workspace mutations. Committed rename, delete, recreation, session reorder, attachment, and archive changes publish the matching upstream Host frames, and `workspace.list` restores their complete baseline after restart. A process-local owner rejects a concurrent turn, and cancel calls the native agent cancellation path. On the next cold resume, upstream interrupted-turn repair closes an open persisted tail and canonical `session/end-seed` markers preserve lifecycle boundaries. Replay checks session absence separately so persistence corruption or SQL failures are not collapsed into 404, reads only one bounded SQL page rather than the full suffix, and caps the encoded response. `PersistenceCoordinator.readValidatedPage()` performs identity, format, legacy-shape, and event-vocabulary validation on every page without adding Edge pagination to the public persistence service. If legacy normalization needs earlier messages, it rereads only one prefix through the same byte-bounded loader and refuses the page when that required prefix does not fit. Cold browser history selects its message boundary in SQL and loads only the resulting contiguous range under fixed event and stored-byte ceilings. Session listing queries one bounded canonical header/title summary page; detail reads its durable canonical point summary or retained blank header, while turn existence checks use point queries instead of listing headers or projecting a complete log. Effective model, system prompt, adapter defaults, and tools are recorded in standard `request/header` events. The request-scoped adapter uses the validated deployment reasoning and output policies. Workspace paths must stay below `/workspace/`.
+- Session creation and fork return `workspace-attach-failed` with the published session and Workspace ids when publication succeeds but Workspace attachment fails. The diagnostic route returns the same code plus the complete created session.
+- Prompt and queue-edit text share a 64 KiB semantic limit. Their 10 MiB RPC carrier leaves room for a 7 MiB raw-image batch after base64 and envelope overhead.
+- Because Edge has no directory-flow provider, the upstream browser hides Delete on its sole Workspace and exposes it again whenever restoration remains possible.
+
+### Limits and request admission
+
+| Surface | Limit |
+| --- | --- |
+| UTF-8 text file | 1 MiB |
+| Shell command | 16 KiB |
+| User message or queue-edit text | 64 KiB |
+| Retained shell stdout + stderr | 64 KiB |
+| Session-create JSON body | 8 KiB |
+| Workspace-exec JSON body | 128 KiB |
+| Message-bearing turn or queue-update RPC | 10 MiB |
+| Images | PNG/JPEG; 4 per message; 3.5 MiB each; 7 MiB total; 40 million pixels; 2,000 px per side |
+
+- Request bodies are consumed incrementally. Once a route limit is crossed, later chunks are drained without being retained and the route returns 413. File uploads also reject malformed UTF-8.
+- File reads check VFS metadata, then collect the opened byte stream through the same 1 MiB cap. This closes the growth race between `stat()` and `readFile()` without retaining an unbounded value.
+- Image admission fully decodes the declared raster format before writing.
+- When combined shell output crosses its retention bound, the runtime requests interruption and stops accumulating later output. `cancelled` reflects an adapter-requested interruption; `timedOut` independently records deadline expiry.
+
+### Durability and concurrency
+
+- Failed initial session persistence discards the retained unmaterialized batch before disposing the new upstream agent handle, so teardown cannot commit a session whose create request returned an error.
+- A lazy blank session retains only its upstream header. The first canonical event removes that header in the same SQL transaction.
+- Each turn owns one upstream handle and disposes it after streaming, so previously accessed conversations do not remain resident for the Durable Object lifetime.
+- Deployment settings resolve before the process-local owner claim. One owner process rejects concurrent turns; cancellation uses the native agent path.
+- A prompt is accepted and running state is published only after its inbox event crosses `SessionStore.flush()`. Streamed events cross the same durability barrier before WebSocket or SSE delivery.
+- Queue edits, removals, and steering promotion use the synchronous live-inbox mutation as their acceptance point. `PersistenceCoordinator` owns later write-behind and retirement retries, so a later storage attempt cannot reverse an accepted mutation.
+- Session rename uses the synchronous title append as its acceptance point for both active and cold sessions.
+- Workspace global state and records keep upstream logical schemas under Edge-specific physical keys. DO transactions atomically pair record and registry-order changes; a process-local chain serializes Workspace mutations.
+- Committed rename, delete, recreation, session reorder, attachment, and archive changes publish matching upstream Host frames. `workspace.list` restores the complete baseline after restart.
+- Cold resume uses upstream interrupted-turn repair to close an open persisted tail. Canonical `session/end-seed` markers preserve lifecycle boundaries.
+
+### Bounded reads and canonical history
+
+- Replay checks session absence separately, so persistence corruption and SQL failures do not collapse into 404. It reads one bounded SQL page and caps the encoded response.
+- `PersistenceCoordinator.readValidatedPage()` validates identity, format, legacy shape, and event vocabulary on every page without adding Edge pagination to the public persistence service.
+- If legacy normalization needs earlier messages, it rereads one prefix through the same byte-bounded loader and refuses the page when that prefix does not fit.
+- Cold browser history selects its message boundary in SQL and loads only the resulting contiguous range under fixed event and stored-byte ceilings.
+- Session listing queries one bounded canonical header/title summary page. Detail reads a canonical point summary or retained blank header; turn existence checks use point queries instead of projecting a complete log.
+- Effective model, system prompt, adapter defaults, and tools remain standard `request/header` events. The request-scoped adapter applies validated deployment reasoning and output policies.
+- Workspace paths must stay below `/workspace/`.
