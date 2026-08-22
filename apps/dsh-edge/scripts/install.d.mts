@@ -1,5 +1,6 @@
 export type RuntimeMode = 'direct' | 'isolated'
 export type InstallerCommand = 'install' | 'upgrade'
+export type AttachmentStorage = 'private-r2' | 'temporary-do'
 
 export interface CloudflareAccount {
   id: string
@@ -21,6 +22,11 @@ export interface InstallerUi {
   selectAccount(choices: Array<{ value: string; label: string; hint?: string }>): Promise<string>
   workerName(initialValue: string, validate: (value: string) => string | undefined): Promise<string>
   workerConflict(workerName: string): Promise<'rename' | 'update' | 'cancel'>
+  selectInitialAttachmentStorage(): Promise<AttachmentStorage>
+  r2SubscriptionUnavailable(options: {
+    activationUrl: string
+    canSwitchToDurableObject: boolean
+  }): Promise<'retry' | 'temporary-do' | 'cancel'>
   selectOwnerSecretMode(): Promise<'generate' | 'custom'>
   ownerSecret(validate: (value: string) => string | undefined): Promise<string>
   deepSeekKey(validate: (value: string) => string | undefined): Promise<string>
@@ -31,7 +37,7 @@ export interface InstallerUi {
     workerName: string
     paid: boolean
     temporary: boolean
-    attachmentStorage: 'private-r2' | 'temporary-do'
+    attachmentStorage: AttachmentStorage
   }): Promise<boolean>
   acceptTemporaryTerms(): Promise<boolean>
   deploymentStart?(message: string): void
@@ -60,7 +66,7 @@ export interface InstallResult {
   publicUrl: string
   versionId?: string
   account?: CloudflareAccount
-  attachmentStorage: 'private-r2' | 'temporary-do'
+  attachmentStorage: AttachmentStorage
   claimUrl?: string
   mode: RuntimeMode
   ownerSecret: string
@@ -123,7 +129,7 @@ export function detectExistingAttachmentStorage(options: {
   environment?: NodeJS.ProcessEnv
   profile?: string
   signal?: AbortSignal
-}): Promise<'private-r2' | 'temporary-do'>
+}): Promise<AttachmentStorage | undefined>
 export function truncateUtf8Tail(value: string, maxBytes: number): string
 export function createOutputForwarder(
   source: NodeJS.ReadableStream,

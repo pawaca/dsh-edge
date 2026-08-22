@@ -152,6 +152,13 @@ export class InstallerOutputError extends Error {
   }
 }
 
+class R2SubscriptionUnavailableError extends Error {
+  constructor(message) {
+    super(message)
+    this.name = 'R2SubscriptionUnavailableError'
+  }
+}
+
 /** Return account choices permitted by the selected runtime. */
 export function accountChoices(mode, accounts, command = 'install') {
   requireRuntimeMode(mode)
@@ -243,6 +250,10 @@ export function attachmentBucketName(workerName) {
   return `${prefix}-${digest}${suffix}`
 }
 
+function r2ActivationUrl(accountId) {
+  return `https://dash.cloudflare.com/${encodeURIComponent(accountId)}/r2/overview`
+}
+
 /** Create or reuse the permanent deployment's private R2 attachment bucket. */
 export async function ensureR2Bucket({
   bucketName,
@@ -253,6 +264,7 @@ export async function ensureR2Bucket({
 }) {
   const infoArgs = ['r2', 'bucket', 'info', bucketName, '--json', ...profileArgs(profile)]
   const initial = await runWrangler(infoArgs, { environment, signal })
+  throwIfR2SubscriptionUnavailable(initial)
   if (initial.status === 0) {
     requireR2BucketInfo(initial.stdout, bucketName)
     return { bucketName, created: false }
@@ -260,16 +272,35 @@ export async function ensureR2Bucket({
   const created = await runWrangler([
     'r2', 'bucket', 'create', bucketName, ...profileArgs(profile),
   ], { environment, signal })
+  throwIfR2SubscriptionUnavailable(created)
   if (created.status === 0) return { bucketName, created: true }
   // A concurrent installer may have won the create race; prove exact existence.
   const recovered = await runWrangler(infoArgs, { environment, signal })
+  throwIfR2SubscriptionUnavailable(recovered)
   if (recovered.status === 0) {
     requireR2BucketInfo(recovered.stdout, bucketName)
     return { bucketName, created: false }
   }
   throw new Error(commandFailure(
-    `Could not create or access private R2 bucket "${bucketName}". Enable R2 for this Cloudflare account (or use a temporary preview), then retry`,
+    `Could not create or access private R2 bucket "${bucketName}". Check this account's R2 access and permissions, then retry`,
     created,
+  ))
+}
+
+/** Verify R2 availability without creating a bucket or collecting deployment credentials. */
+async function verifyR2Subscription({ runWrangler, environment, profile, signal }) {
+  const result = await runWrangler([
+    'r2', 'bucket', 'list', ...profileArgs(profile),
+  ], { environment, signal })
+  throwIfR2SubscriptionUnavailable(result)
+  requireSuccess(result, 'Could not check Cloudflare R2 availability')
+}
+
+function throwIfR2SubscriptionUnavailable(result) {
+  if (!/\[code:\s*10042\]/u.test(`${result.stdout}\n${result.stderr}`)) return
+  throw new R2SubscriptionUnavailableError(commandFailure(
+    'Cloudflare R2 is not enabled for this account',
+    result,
   ))
 }
 
@@ -455,9 +486,11 @@ function versionAttachmentStorage(source) {
     || (marker === 'private-r2' && attachment.length !== 1)) {
     throw new Error('The existing Worker attachment marker does not match its binding.')
   }
-  // Releases before attachment support had neither binding nor marker. An
-  // authenticated upgrade can safely initialize those instances on private R2.
-  return marker ?? 'private-r2'
+  if (marker !== undefined) return marker
+  // An R2 binding predating the explicit marker is still authoritative. A
+  // release with neither binding nor marker predates image attachments, so it
+  // has no image references to strand and can ask the owner to choose once.
+  return attachment.length === 1 ? 'private-r2' : undefined
 }
 
 /** Run the complete guided install with UI and Wrangler supplied as replaceable boundaries. */
@@ -552,7 +585,7 @@ export async function installEdge({
     const commandEnvironment = temporary
       ? unauthenticatedEnvironment(environment)
       : accountEnvironment(profileEnvironment ?? environment, account.id)
-    const attachmentStorage = updatingExisting
+    const existingAttachmentStorage = updatingExisting
       ? await detectExistingAttachmentStorage({
           workerName,
           mode,
@@ -561,17 +594,34 @@ export async function installEdge({
           profile,
           signal,
         })
+      : undefined
+    let attachmentStorage = updatingExisting
+      ? existingAttachmentStorage ?? await ui.selectInitialAttachmentStorage()
       : temporary ? 'temporary-do' : 'private-r2'
+    requireAttachmentStorage(attachmentStorage)
 
-    const secretMode = await ui.selectOwnerSecretMode()
-    const ownerSecret = secretMode === 'generate'
-      ? generateOwnerSecret()
-      : await ui.ownerSecret(validateOwnerSecret)
-    const secretError = validateOwnerSecret(ownerSecret)
-    if (secretError !== undefined) throw new Error(secretError)
-    const deepSeekKey = await ui.deepSeekKey(validateDeepSeekKey)
-    const deepSeekError = validateDeepSeekKey(deepSeekKey)
-    if (deepSeekError !== undefined) throw new Error(deepSeekError)
+    const canSwitchToDurableObject = updatingExisting
+      && existingAttachmentStorage === undefined
+    while (attachmentStorage === 'private-r2') {
+      ui.step('Checking Cloudflare R2 availability…')
+      try {
+        await verifyR2Subscription({
+          runWrangler,
+          environment: commandEnvironment,
+          profile,
+          signal,
+        })
+        break
+      } catch (error) {
+        if (!(error instanceof R2SubscriptionUnavailableError)) throw error
+        const resolution = await promptR2Recovery(
+          ui,
+          account.id,
+          canSwitchToDurableObject,
+        )
+        if (resolution === 'temporary-do') attachmentStorage = 'temporary-do'
+      }
+    }
 
     const confirmed = await ui.confirm({
       mode,
@@ -587,17 +637,44 @@ export async function installEdge({
       throw new InstallCancelledError()
     }
 
+    const secretMode = await ui.selectOwnerSecretMode()
+    const ownerSecret = secretMode === 'generate'
+      ? generateOwnerSecret()
+      : await ui.ownerSecret(validateOwnerSecret)
+    const secretError = validateOwnerSecret(ownerSecret)
+    if (secretError !== undefined) throw new Error(secretError)
+    const deepSeekKey = await ui.deepSeekKey(validateDeepSeekKey)
+    const deepSeekError = validateDeepSeekKey(deepSeekKey)
+    if (deepSeekError !== undefined) throw new Error(deepSeekError)
+
     let bucketName
     if (attachmentStorage === 'private-r2') {
       bucketName = attachmentBucketName(workerName)
       ui.step(`Preparing private image storage (${bucketName})…`)
-      await ensureR2Bucket({
-        bucketName,
-        runWrangler,
-        environment: commandEnvironment,
-        profile,
-        signal,
-      })
+      while (true) {
+        try {
+          await ensureR2Bucket({
+            bucketName,
+            runWrangler,
+            environment: commandEnvironment,
+            profile,
+            signal,
+          })
+          break
+        } catch (error) {
+          if (!(error instanceof R2SubscriptionUnavailableError)) throw error
+          const resolution = await promptR2Recovery(
+            ui,
+            account.id,
+            canSwitchToDurableObject,
+          )
+          if (resolution === 'temporary-do') {
+            attachmentStorage = 'temporary-do'
+            bucketName = undefined
+            break
+          }
+        }
+      }
     }
 
     temporaryDirectory = await createTemporaryDirectory()
@@ -1162,14 +1239,46 @@ function requireRuntimeMode(mode) {
   }
 }
 
+function requireAttachmentStorage(storage) {
+  if (storage !== 'temporary-do' && storage !== 'private-r2') {
+    throw new Error(`Unsupported attachment storage: ${String(storage)}`)
+  }
+}
+
+function requireR2RecoveryAction(action, canSwitchToDurableObject) {
+  if (action === 'cancel') throw new InstallCancelledError()
+  if (action === 'retry') return action
+  if (action === 'temporary-do' && canSwitchToDurableObject) return action
+  throw new Error(`Unsupported R2 recovery action: ${String(action)}`)
+}
+
+async function promptR2Recovery(ui, accountId, canSwitchToDurableObject) {
+  return requireR2RecoveryAction(
+    await ui.r2SubscriptionUnavailable({
+      activationUrl: r2ActivationUrl(accountId),
+      canSwitchToDurableObject,
+    }),
+    canSwitchToDurableObject,
+  )
+}
+
 function requireSuccess(result, prefix) {
   if (result.outputFailure !== undefined) throw result.outputFailure
   if (result.status !== 0) throw new Error(commandFailure(prefix, result))
 }
 
 function commandFailure(prefix, result) {
-  const detail = stripAnsi(result.stderr || result.stdout).trim()
+  const detail = conciseDiagnostic(result.stderr || result.stdout)
   return detail === '' ? `${prefix}.` : `${prefix}: ${detail}`
+}
+
+/** Remove known Node dependency noise from concise errors while verbose output stays unchanged. */
+function conciseDiagnostic(value) {
+  return stripAnsi(value).split(/\r?\n/u)
+    .filter(line => !/^\(node:\d+\) \[DEP0040\] DeprecationWarning: The `punycode` module is deprecated\./u.test(line.trim()))
+    .filter(line => !/^\(Use `node --trace-deprecation \.\.\.` to show where the warning was created\)$/u.test(line.trim()))
+    .join('\n')
+    .trim()
 }
 
 function describeError(error) {

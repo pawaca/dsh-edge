@@ -138,6 +138,68 @@ describe('dsh-edge CLI', () => {
     expect(select).toHaveBeenCalledWith(expect.objectContaining({ signal: controller.signal }))
   })
 
+  it('explains and defaults the one-time storage choice for legacy Workers', async () => {
+    const select = vi.fn().mockResolvedValue('temporary-do')
+    const note = vi.fn()
+    const clack = { ...prompt, note, select } as unknown as typeof prompt
+
+    await expect(createInstallerUi(clack).selectInitialAttachmentStorage())
+      .resolves.toBe('temporary-do')
+
+    expect(note).toHaveBeenCalledWith(
+      expect.stringContaining('pinned for future upgrades'),
+      'Choose image storage once',
+    )
+    expect(select).toHaveBeenCalledWith(expect.objectContaining({
+      initialValue: 'temporary-do',
+      message: 'Where should this Worker store new images?',
+      options: [
+        expect.objectContaining({
+          value: 'temporary-do',
+          label: 'Durable Object — no R2 setup',
+        }),
+        expect.objectContaining({
+          value: 'private-r2',
+          label: 'Private R2 bucket',
+        }),
+      ],
+    }))
+  })
+
+  it('offers a no-R2 recovery only when switching storage is safe', async () => {
+    const answers = ['temporary-do', 'retry']
+    const calls: Array<{
+      initialValue: string
+      options: Array<{ value: string }>
+    }> = []
+    const select = vi.fn(async (options: unknown) => {
+      calls.push(options as typeof calls[number])
+      return answers.shift()
+    })
+    const note = vi.fn()
+    const clack = { ...prompt, note, select } as unknown as typeof prompt
+
+    await expect(createInstallerUi(clack).r2SubscriptionUnavailable({
+      activationUrl: 'https://dash.cloudflare.com/account-1/r2/overview',
+      canSwitchToDurableObject: true,
+    })).resolves.toBe('temporary-do')
+
+    expect(note).toHaveBeenCalledWith(
+      expect.stringContaining('https://dash.cloudflare.com/account-1/r2/overview'),
+      'R2 is not enabled for this account',
+    )
+    expect(calls[0]?.initialValue).toBe('temporary-do')
+    expect(calls[0]?.options.map(option => option.value))
+      .toEqual(['temporary-do', 'retry', 'cancel'])
+
+    await expect(createInstallerUi(clack).r2SubscriptionUnavailable({
+      activationUrl: 'https://dash.cloudflare.com/account-1/r2/overview',
+      canSwitchToDurableObject: false,
+    })).resolves.toBe('retry')
+    expect(calls[1]?.initialValue).toBe('retry')
+    expect(calls[1]?.options.map(option => option.value)).toEqual(['retry', 'cancel'])
+  })
+
   it.each([
     ['SIGHUP', 129],
     ['SIGINT', 130],

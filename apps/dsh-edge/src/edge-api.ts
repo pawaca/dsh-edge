@@ -574,28 +574,33 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
         }
         return Promise.resolve(ok(request, { agentPreset: 'dsh-edge' }))
       },
-      read(request) {
+      async read(request) {
         if (request.payload.agentPreset !== 'dsh-edge') {
-          return Promise.resolve(fail(request, {
+          return fail(request, {
             code: 'agent-preset-not-found',
             message: `Agent preset "${request.payload.agentPreset}" is not available.`,
             details: { agentPreset: request.payload.agentPreset, available: ['dsh-edge'] },
-          }))
+          })
         }
         try {
-          return Promise.resolve(ok(request, {
+          const catalog = await runtime.sessions.modelCatalog()
+          return ok(request, {
             agentPreset: 'dsh-edge',
             trust: 'system' as const,
             name: 'DSH Edge',
             description: 'DeepSeek Harness running in a Cloudflare Durable Object.',
-            content: edgeAgentPresetContent(runtime, runtime.deploymentProfile()),
-          }))
+            content: edgeAgentPresetContent(
+              runtime,
+              runtime.deploymentProfile(),
+              catalog.groups.flatMap(group => group.models),
+            ),
+          })
         } catch (error) {
-          return Promise.resolve(fail(request, {
+          return fail(request, {
             code: 'internal',
             message: error instanceof Error ? error.message : String(error),
             details: {},
-          }))
+          })
         }
       },
       copy: unsupported,
@@ -672,6 +677,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
 function edgeAgentPresetContent(
   runtime: EdgeApiRuntime,
   deployment: EdgeDeploymentProfile,
+  availableModels: readonly { id: string; name: string }[],
 ): string {
   return [
     '# Effective dsh-edge composition (read-only)',
@@ -695,7 +701,14 @@ function edgeAgentPresetContent(
     `  systemPrompt: ${yamlString(EDGE_SYSTEM_PROMPT)}`,
     'model:',
     `  provider: ${yamlString(EDGE_PROVIDER)}`,
-    `  id: ${yamlString(runtime.model)}`,
+    `  defaultId: ${yamlString(runtime.model)}`,
+    '  selectionScope: session',
+    '  catalogSource: upstream-provider',
+    '  available:',
+    ...availableModels.flatMap(model => [
+      `    - id: ${yamlString(model.id)}`,
+      `      name: ${yamlString(model.name)}`,
+    ]),
     `  baseURL: ${yamlString(deployment.baseURL)}`,
     `  reasoningEffort: ${yamlString(deployment.reasoningEffort)}`,
     `  maxOutputTokens: ${String(deployment.maxTokens)}`,

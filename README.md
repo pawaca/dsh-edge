@@ -43,9 +43,11 @@ For the current stable release, use `npx dsh-edge install` instead.
 | Path | Cloudflare account | Image storage | Best for |
 | --- | --- | --- | --- |
 | **Temporary preview** | No existing login required; claim within 60 minutes | Bounded 64 MiB Durable Object backend | Trying the complete browser and image flow with the lowest friction |
-| **Permanent deployment** | Existing or newly authenticated account; R2 must be enabled | Private R2 bucket | Keeping conversations and images in your own long-lived account |
+| **New permanent deployment** | Existing or newly authenticated account; R2 subscription must be enabled | Private R2 bucket | Keeping conversations and images in your own long-lived account |
 
 The attachment backend is selected once per deployment and remains pinned across Durable Object sleep, claim, and upgrade. Claiming a temporary deployment preserves its existing DO-backed images; it does not silently migrate them to R2.
+
+Cloudflare gives R2 Standard an [included monthly free tier](https://developers.cloudflare.com/r2/pricing/), but R2 is a separate usage-based subscription that must first be [enabled through its Dashboard checkout](https://developers.cloudflare.com/r2/get-started/). A Worker created before dsh-edge 0.3 has no image backend or image references; its first 0.3 upgrade therefore asks once between no-setup Durable Object storage (64 MiB per instance) and private R2. The installer checks an R2 choice before asking for Worker secrets. If Cloudflare reports that R2 is not enabled, it shows the account-specific activation link and offers retry, cancellation, or—only when no existing image reference can be stranded—a safe switch to DO storage. Later upgrades preserve the resulting choice and never migrate image data automatically.
 
 ### Choose a command runtime
 
@@ -67,7 +69,7 @@ Prerelease deployments stay on npm's `next` channel; stable deployments use `npx
 ## Data, credentials, and limits
 
 - Conversations, workspace metadata, and `/workspace` files live in the deployment's Durable Object storage.
-- Permanent deployments store admitted images as immutable objects in a private R2 bucket. Temporary deployments use a 64 MiB, 512 KiB-chunked Durable Object backend. Session events retain only upstream content-addressed references.
+- R2-backed deployments store admitted images as immutable objects in a private bucket. DO-backed deployments use a 64 MiB, 512 KiB-chunked backend in the owner instance. Session events retain only upstream content-addressed references.
 - Image admission accepts PNG and JPEG, at most 4 images per message, 3.5 MiB per image, 7 MiB total, 40 million pixels, and 2,000 pixels per side.
 - `DEEPSEEK_API_KEY` and `DSH_EDGE_ACCESS_KEY` are Worker secrets. Their literal values are never written to session events, Durable Object state, the VFS, or browser responses.
 - The installer sends secrets to Wrangler through a temporary mode-`0600` file, removes it afterwards, and never creates a source-build integration.

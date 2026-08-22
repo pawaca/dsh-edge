@@ -100,7 +100,21 @@ function runtime(
     updatedAt: new Date(0).toISOString(),
   }
   return {
-    sessions: sessions as unknown as EdgeApiRuntime['sessions'],
+    sessions: {
+      modelCatalog: vi.fn(async () => ({
+        groups: [{
+          id: 'deepseek-official',
+          name: 'DeepSeek',
+          models: [
+            { id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash' },
+            { id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro' },
+            { id: 'deepseek-v4-flash-vision-exp', name: 'DeepSeek-V4-Flash-Vision-Exp' },
+          ],
+        }],
+        failures: [],
+      })),
+      ...sessions,
+    } as unknown as EdgeApiRuntime['sessions'],
     model: 'deepseek-test',
     version: 'test',
     deploymentProfile: () => ({
@@ -160,7 +174,10 @@ describe('Edge upstream API invariants', () => {
     if (!response.result.ok) throw new Error('unreachable')
     expect(response.result.value.content).toContain('# Effective dsh-edge composition (read-only)')
     expect(response.result.value.content).toContain('shell: "just-bash-direct"')
-    expect(response.result.value.content).toContain('id: "deepseek-test"')
+    expect(response.result.value.content).toContain('defaultId: "deepseek-test"')
+    expect(response.result.value.content).toContain('selectionScope: session')
+    expect(response.result.value.content).toContain('id: "deepseek-v4-pro"')
+    expect(response.result.value.content).toContain('id: "deepseek-v4-flash-vision-exp"')
     expect(response.result.value.content).toContain('configured: true')
     expect(response.result.value.content).toContain('deploymentId: "test-deployment"')
     expect(response.result.value.content).not.toContain('apiKey:')

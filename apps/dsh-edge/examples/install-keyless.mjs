@@ -26,10 +26,10 @@ steps = [
     (b"Choose a runtime", b"\r"),
     (b"Choose a Cloudflare account", b"\r"),
     (b"Worker name", b"\r"),
-    (b"Set the owner access key", b"\r"),
-    (b"DeepSeek API key", b"sk-keyless-no-call\r"),
     (b"Install this instance?", b"\r"),
     (b"Accept these terms and create a temporary Cloudflare account?", b"y\r"),
+    (b"Set the owner access key", b"\r"),
+    (b"DeepSeek API key", b"sk-keyless-no-call\r"),
 ]
 output = bytearray()
 step = 0
