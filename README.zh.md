@@ -1,4 +1,4 @@
-# dsh-edge
+![dsh-edge——你的 DeepSeek Harness，随处可用。一条命令部署到 Cloudflare。](docs/assets/dsh-edge-hero.png)
 
 [![npm](https://img.shields.io/npm/v/dsh-edge)](https://www.npmjs.com/package/dsh-edge)
 [![CI](https://github.com/pawaca/dsh-edge/actions/workflows/edge-ci.yml/badge.svg)](https://github.com/pawaca/dsh-edge/actions/workflows/edge-ci.yml)
@@ -6,13 +6,9 @@
 
 [English](README.md) | 中文
 
-## 一条命令部署到 Cloudflare，在任意浏览器使用 DeepSeek Harness
-
 `dsh-edge` 把已发布的 DeepSeek Harness Web 体验运行在 Cloudflare Workers 上，让你的个人 coding agent 在任何有浏览器的地方都能使用。无需维护服务器、绑定 GitHub 仓库或配置构建流水线。
 
 它保留上游 UI、agent loop、模型选择、图片体验和 Web Search；dsh-edge 只提供 Cloudflare runtime、持久工作区、owner 登录与引导式安装器。
-
-![dsh-edge 运行上游 DeepSeek Harness Web UI，并使用图片输入与 Vision Exp](docs/assets/dsh-edge-browser.png)
 
 > **独立社区项目：** `dsh-edge` 由 [pawaca](https://github.com/pawaca) 维护，与 DeepSeek 没有关联，也未获得其背书。[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 是上游项目。
 
@@ -34,6 +30,8 @@ npx dsh-edge install
 - 持久 `/workspace` 与 DSH 原生 `bash` 工具。
 - 属于你自己的 Cloudflare 部署、凭据和数据。
 - 无需绑定仓库或 Cloudflare Builds 即可原地升级。
+
+![dsh-edge 运行上游 DeepSeek Harness Web UI，并使用图片输入与 Vision Exp](docs/assets/dsh-edge-browser.png)
 
 ## 选择部署方式
 

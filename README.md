@@ -1,4 +1,4 @@
-# dsh-edge
+![dsh-edge — Your DeepSeek Harness, anywhere. Deploy to Cloudflare in one command.](docs/assets/dsh-edge-hero.png)
 
 [![npm](https://img.shields.io/npm/v/dsh-edge)](https://www.npmjs.com/package/dsh-edge)
 [![CI](https://github.com/pawaca/dsh-edge/actions/workflows/edge-ci.yml/badge.svg)](https://github.com/pawaca/dsh-edge/actions/workflows/edge-ci.yml)
@@ -6,13 +6,9 @@
 
 English | [中文](README.zh.md)
 
-## DeepSeek Harness in any browser, deployed with one command
-
 `dsh-edge` runs the published DeepSeek Harness Web experience on Cloudflare Workers, so your personal coding agent is available wherever you have a browser. No server to maintain, GitHub repository to connect, or build pipeline to configure.
 
 It keeps the upstream UI, agent loop, model selection, image experience, and Web Search. dsh-edge supplies only the Cloudflare runtime, durable workspace, owner login, and guided installer.
-
-![dsh-edge running the upstream DeepSeek Harness Web UI with image input and Vision Exp](docs/assets/dsh-edge-browser.png)
 
 > **Independent community project:** `dsh-edge` is maintained by [pawaca](https://github.com/pawaca). It is not affiliated with or endorsed by DeepSeek. [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) is the upstream project.
 
@@ -34,6 +30,8 @@ The installer guides you through every choice and deploys the Worker. You can tr
 - A persistent `/workspace` with the native DSH `bash` tool.
 - Your own Cloudflare deployment, credentials, and data.
 - In-place upgrades without a repository or Cloudflare Builds integration.
+
+![dsh-edge running the upstream DeepSeek Harness Web UI with image input and Vision Exp](docs/assets/dsh-edge-browser.png)
 
 ## Choose your deployment
 
