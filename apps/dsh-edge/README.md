@@ -2,7 +2,9 @@
 
 English | [中文](README.zh.md)
 
-`dsh-edge` is the Cloudflare runtime for DeepSeek Harness. One deployment maps its authenticated owner to one Durable Object whose SQLite-backed virtual filesystem survives requests. By default, an in-process just-bash backend runs commands against that same filesystem without a Linux container or Dynamic Worker.
+`dsh-edge` deploys your own persistent DeepSeek Harness to Cloudflare Workers in one command, then makes it available from any browser. The public CLI installs and upgrades it without a source checkout, connected repository, or build pipeline.
+
+Under the hood, one deployment maps its authenticated owner to one Durable Object whose SQLite-backed virtual filesystem survives requests. By default, an in-process just-bash backend runs commands against that same filesystem without a Linux container or Dynamic Worker.
 
 `dsh-edge` is an independent community project. It is not affiliated with or endorsed by DeepSeek; DeepSeek Harness remains an upstream dependency under its own license.
 

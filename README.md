@@ -48,7 +48,7 @@ The default **Free — Direct Shell** runtime works on Cloudflare Workers Free. 
 npx dsh-edge upgrade
 ```
 
-The installer finds your Worker and upgrades it in place while preserving its durable data. See the [release notes](docs/releases/0.3.0.md) for version-specific details.
+The installer finds your Worker and upgrades it in place while preserving its durable data. See the [release notes](docs/releases/) for version-specific details.
 
 ## Important boundaries
 
@@ -65,7 +65,7 @@ For the upstream architecture and plugin APIs, see the [DeepSeek Harness reposit
 ## Documentation
 
 - [Runtime reference, compatibility, security, and limits](apps/dsh-edge/README.md)
-- [dsh-edge 0.3 release notes](docs/releases/0.3.0.md)
+- [Release notes](docs/releases/)
 - [DeepSeek Harness upstream documentation](https://deepseek-harness.github.io/deepseek-harness/reference/)
 
 ## Develop locally

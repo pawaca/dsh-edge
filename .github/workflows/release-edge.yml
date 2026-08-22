@@ -44,11 +44,11 @@ jobs:
           fi
           git fetch --force origin "refs/tags/$tag:refs/tags/$tag"
           tag_commit="$(git rev-list -n 1 "$tag")"
-          master_commit="$(git rev-parse HEAD)"
-          # Master may advance after npm succeeds but GitHub Release recovery
+          default_commit="$(git rev-parse HEAD)"
+          # The default branch may advance after npm succeeds but GitHub Release recovery
           # is still pending. The tag must remain in canonical reviewed history.
-          if ! git merge-base --is-ancestor "$tag_commit" "$master_commit"; then
-            echo "Release tag $tag_commit is not in reviewed master history ending at $master_commit" >&2
+          if ! git merge-base --is-ancestor "$tag_commit" "$default_commit"; then
+            echo "Release tag $tag_commit is not in reviewed default-branch history ending at $default_commit" >&2
             exit 1
           fi
           package_json="$RUNNER_TEMP/dsh-edge-release-package.json"
@@ -66,11 +66,11 @@ jobs:
           # A first publication must describe the exact default-branch commit
           # named by the OIDC provenance. An older reviewed tag is accepted
           # only to recover its already-published npm artifact and GitHub Release.
-          if [[ "$tag_commit" != "$master_commit" ]]; then
+          if [[ "$tag_commit" != "$default_commit" ]]; then
             integrity_json="$RUNNER_TEMP/dsh-edge-release-integrity.json"
             if ! npm view "dsh-edge@$version" dist.integrity --json > "$integrity_json" \
               || ! node -e "const fs=require('fs'); const value=JSON.parse(fs.readFileSync(process.argv[1], 'utf8')); if (typeof value !== 'string' || value === '') process.exit(1)" "$integrity_json"; then
-              echo "Release tag $tag_commit is behind $master_commit and dsh-edge@$version is not already published" >&2
+              echo "Release tag $tag_commit is behind $default_commit and dsh-edge@$version is not already published" >&2
               exit 1
             fi
           fi

@@ -1,8 +1,7 @@
 {
   "name": "dsh-edge-client-ui",
-  "description": "Edge deployment status and owner-session controls for the dsh-edge Web composition",
-  "version": "0.1.1-rc.1",
   "private": true,
+  "description": "Browser settings for dsh-edge deployment status, upgrades, and owner-session controls",
   "author": "pawaca",
   "repository": {
     "type": "git",

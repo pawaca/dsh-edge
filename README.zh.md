@@ -48,7 +48,7 @@ npx dsh-edge install
 npx dsh-edge upgrade
 ```
 
-安装器会找到已有 Worker 并原地升级，同时保留持久数据。特定版本的注意事项见 [release notes](docs/releases/0.3.0.zh.md)。
+安装器会找到已有 Worker 并原地升级，同时保留持久数据。特定版本的注意事项见 [release notes](docs/releases/)。
 
 ## 重要边界
 
@@ -65,7 +65,7 @@ dsh-edge 依赖精确发布的 DeepSeek Harness package，而不是复制其 mon
 ## 文档
 
 - [Runtime reference、兼容性、安全与限制](apps/dsh-edge/README.zh.md)
-- [dsh-edge 0.3 release notes](docs/releases/0.3.0.zh.md)
+- [Release notes](docs/releases/)
 - [DeepSeek Harness 上游文档](https://deepseek-harness.github.io/deepseek-harness/reference/)
 
 ## 本地开发

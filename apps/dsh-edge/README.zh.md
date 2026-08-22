@@ -2,7 +2,9 @@
 
 [English](README.md) | 中文
 
-`dsh-edge` 是 DeepSeek Harness 的 Cloudflare 运行时。每次部署把通过认证的 owner 固定映射到一个 Durable Object，其基于 SQLite 的虚拟文件系统可跨请求持久保存。默认情况下，进程内 just-bash 后端直接在同一文件系统上执行命令，不依赖 Linux 容器或 Dynamic Worker。
+`dsh-edge` 用一条命令把你自己的持久 DeepSeek Harness 部署到 Cloudflare Workers，之后便能从任意浏览器使用。公共 CLI 无需 checkout 源码、绑定仓库或配置构建流水线，即可完成安装与升级。
+
+在底层，每次部署把通过认证的 owner 固定映射到一个 Durable Object，其基于 SQLite 的虚拟文件系统可跨请求持久保存。默认情况下，进程内 just-bash 后端直接在同一文件系统上执行命令，不依赖 Linux 容器或 Dynamic Worker。
 
 `dsh-edge` 是独立的社区项目，与 DeepSeek 没有隶属关系，也未获得 DeepSeek 官方背书；DeepSeek Harness 仍是按其自身许可证使用的上游依赖。
 
