@@ -55,6 +55,12 @@ import {
   EdgeR2AttachmentStore,
   type EdgeAttachmentStorage,
 } from './edge-attachment-store.ts'
+import {
+  settingsNamespace,
+  type SettingsDescriptor,
+  type SettingsPathOp,
+} from '@deepseek-ai/dsh-settings'
+import DurableObjectSettingsProvider from './do-settings-provider.ts'
 import EdgeCredentialProvider, { EDGE_DEEPSEEK_API_KEY_REF } from './edge-credentials.ts'
 import DurableObjectSessionPersistence, {
   EDGE_HISTORY_PAGE_LIMITS,
@@ -177,6 +183,7 @@ export class EdgeSessionStore {
       storage,
       readDeepSeekApiKey: () => config.readDeepSeekApiKey(),
     })
+    await this.context.plugin(DurableObjectSettingsProvider, { storage })
     await this.context.plugin(LlmRuntime)
     await this.context.plugin(SessionStore)
     await this.context.plugin(SystemPrompt, { persona: EDGE_SYSTEM_PROMPT })
@@ -256,6 +263,60 @@ export class EdgeSessionStore {
   async unsetCredential(ref: string): Promise<void> {
     await this.ready
     await this.context.credentials.unset(credentialRef(ref))
+  }
+
+  /** Whether the mounted settings provider accepts runtime writes. */
+  async settingsWritable(): Promise<boolean> {
+    await this.ready
+    return this.context.settings?.writable ?? false
+  }
+
+  /** Whether the mounted settings provider owns a user-editable file. */
+  async settingsHasDocument(): Promise<boolean> {
+    await this.ready
+    return this.context.settings?.documentPath !== undefined
+  }
+
+  /** Describe all registered settings namespaces with redacted secrets. */
+  async describeSettings(): Promise<SettingsDescriptor[]> {
+    await this.ready
+    return this.context.settings?.describe({ redactSecrets: true }) ?? []
+  }
+
+  /** Merge a patch into one namespace's user section. */
+  async updateSettings(
+    ns: string,
+    patch: object,
+    expectedRevision?: number,
+  ): Promise<SettingsDescriptor | undefined> {
+    await this.ready
+    await this.context.settings.update(settingsNamespace(ns), patch, expectedRevision)
+    return this.context.settings.describe({ redactSecrets: true })
+      .find(d => (d.ns as string) === ns)
+  }
+
+  /** Replace one namespace's user section wholesale. */
+  async replaceSettings(
+    ns: string,
+    section: object,
+    expectedRevision?: number,
+  ): Promise<SettingsDescriptor | undefined> {
+    await this.ready
+    await this.context.settings.replace(settingsNamespace(ns), section, expectedRevision)
+    return this.context.settings.describe({ redactSecrets: true })
+      .find(d => (d.ns as string) === ns)
+  }
+
+  /** Apply path-addressed edits to one namespace's user section. */
+  async mutateSettings(
+    ns: string,
+    ops: readonly SettingsPathOp[],
+    expectedRevision?: number,
+  ): Promise<SettingsDescriptor | undefined> {
+    await this.ready
+    await this.context.settings.mutate(settingsNamespace(ns), ops, expectedRevision)
+    return this.context.settings.describe({ redactSecrets: true })
+      .find(d => (d.ns as string) === ns)
   }
 
   /** Project the registered upstream provider catalog into the upstream Web wire shape. */
