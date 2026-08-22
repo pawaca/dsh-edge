@@ -17,9 +17,15 @@ import type {
   RpcResponse,
   SessionProjectionsBlock,
   SessionSummary,
+  SettingsNamespaceView,
   WorkspaceId,
   WorkspaceView,
 } from '@deepseek-ai/dsh-host-apiproxy/api'
+import {
+  SettingsConflictError,
+  type SettingsDescriptor,
+  type SettingsPathOp,
+} from '@deepseek-ai/dsh-settings'
 import type { MessageId } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
@@ -62,6 +68,12 @@ export interface EdgeApiRuntime {
   describeCredential(ref: string): Promise<CredentialView>
   setCredential(ref: string, value: string): Promise<void>
   unsetCredential(ref: string): Promise<void>
+  settingsWritable(): Promise<boolean>
+  settingsHasDocument(): Promise<boolean>
+  describeSettings(): Promise<SettingsDescriptor[]>
+  updateSettings(ns: string, patch: object, expectedRevision?: number): Promise<SettingsDescriptor | undefined>
+  replaceSettings(ns: string, section: object, expectedRevision?: number): Promise<SettingsDescriptor | undefined>
+  mutateSettings(ns: string, ops: readonly SettingsPathOp[], expectedRevision?: number): Promise<SettingsDescriptor | undefined>
   isRunning(sessionId: SessionId): boolean
   prompt(input: {
     sessionId: SessionId
@@ -620,15 +632,53 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
     },
 
     settings: {
-      describe: request => Promise.resolve(ok(request, {
-        writable: false,
-        hasDocument: false,
-        namespaces: [],
-      })),
+      async describe(request) {
+        const [writable, hasDocument, descriptors] = await Promise.all([
+          runtime.settingsWritable(),
+          runtime.settingsHasDocument(),
+          runtime.describeSettings(),
+        ])
+        return ok(request, {
+          writable,
+          hasDocument,
+          namespaces: descriptors.map(descriptorToView),
+        })
+      },
       openDocument: unsupported,
-      update: unsupported,
-      replace: unsupported,
-      mutate: unsupported,
+      async update(request) {
+        const { ns, patch, expectedRevision } = request.payload
+        try {
+          const descriptor = await runtime.updateSettings(ns, patch, expectedRevision)
+          if (descriptor === undefined) return settingsNotRegistered(request, ns)
+          return ok(request, descriptorToView(descriptor))
+        } catch (error) {
+          return settingsWriteFailure(request, error)
+        }
+      },
+      async replace(request) {
+        const { ns, section, expectedRevision } = request.payload
+        try {
+          const descriptor = await runtime.replaceSettings(ns, section, expectedRevision)
+          if (descriptor === undefined) return settingsNotRegistered(request, ns)
+          return ok(request, descriptorToView(descriptor))
+        } catch (error) {
+          return settingsWriteFailure(request, error)
+        }
+      },
+      async mutate(request) {
+        const { ns, ops, expectedRevision } = request.payload
+        try {
+          const descriptor = await runtime.mutateSettings(
+            ns,
+            ops as readonly SettingsPathOp[],
+            expectedRevision,
+          )
+          if (descriptor === undefined) return settingsNotRegistered(request, ns)
+          return ok(request, descriptorToView(descriptor))
+        } catch (error) {
+          return settingsWriteFailure(request, error)
+        }
+      },
     },
 
     credentials: {
@@ -955,6 +1005,49 @@ function sessionFailure<T>(
     code: 'internal',
     message: error instanceof Error ? error.message : String(error),
     details: {},
+  })
+}
+
+function descriptorToView(d: SettingsDescriptor): SettingsNamespaceView {
+  return {
+    ns: d.ns as string,
+    schema: d.schema,
+    value: d.value,
+    revision: d.revision,
+    applies: d.applies,
+    secrets: (d.secrets ?? []).map(s => ({ path: s.path, set: s.set })),
+    ...d.base === undefined ? {} : { base: d.base },
+    ...d.user === undefined ? {} : { user: d.user },
+  }
+}
+
+function settingsNotRegistered<T>(
+  request: RpcRequest<{ ns: string }>,
+  ns: string,
+): RpcResponse<T> {
+  return fail(request, {
+    code: 'settings-rejected',
+    message: `Settings namespace "${ns}" is not registered.`,
+    details: { ns },
+  })
+}
+
+function settingsWriteFailure<T>(
+  request: RpcRequest<{ ns: string }>,
+  error: unknown,
+): RpcResponse<T> {
+  const ns = request.payload.ns
+  if (error instanceof SettingsConflictError) {
+    return fail(request, {
+      code: 'settings-conflict',
+      message: error.message,
+      details: { ns, expected: error.expected, actual: error.actual },
+    })
+  }
+  return fail(request, {
+    code: 'settings-rejected',
+    message: error instanceof Error ? error.message : String(error),
+    details: { ns },
   })
 }
 
