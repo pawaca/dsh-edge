@@ -493,7 +493,7 @@ try {
   assert.deepEqual(credential.body.result.value.credentials.DEEPSEEK_API_KEY, {
     configured: true,
     source: 'worker-secret',
-    writable: false,
+    writable: true,
   })
   await new Promise(resolve => { setTimeout(resolve, 2_500) })
 

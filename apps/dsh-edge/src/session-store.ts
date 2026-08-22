@@ -174,6 +174,7 @@ export class EdgeSessionStore {
           bucket: requireAttachmentBucket(config.attachmentBucket),
         }))
     await this.context.plugin(EdgeCredentialProvider, {
+      storage,
       readDeepSeekApiKey: () => config.readDeepSeekApiKey(),
     })
     await this.context.plugin(LlmRuntime)
@@ -243,6 +244,18 @@ export class EdgeSessionStore {
   async describeCredential(ref: string): Promise<CredentialInfo> {
     await this.ready
     return await this.context.credentials.describe(credentialRef(ref))
+  }
+
+  /** Persist one credential through the mounted upstream provider. */
+  async setCredential(ref: string, value: string): Promise<void> {
+    await this.ready
+    await this.context.credentials.set(credentialRef(ref), value)
+  }
+
+  /** Remove one credential from the mounted upstream provider. */
+  async unsetCredential(ref: string): Promise<void> {
+    await this.ready
+    await this.context.credentials.unset(credentialRef(ref))
   }
 
   /** Project the registered upstream provider catalog into the upstream Web wire shape. */

@@ -1,4 +1,4 @@
-/** Read-only upstream credential provider over Cloudflare Worker secrets. */
+/** Upstream credential provider over Cloudflare Worker secrets and Durable Object storage. */
 
 import type { Context } from '@deepseek-ai/cordis'
 import CredentialProvider, {
@@ -14,46 +14,63 @@ import CredentialProvider, {
 
 export const EDGE_DEEPSEEK_API_KEY_REF = credentialRef('DEEPSEEK_API_KEY')
 
+const CREDENTIAL_STORAGE_KEY_PREFIX = 'dsh-edge:credential:'
+
 export interface EdgeCredentialProviderConfig {
-  /** Read the current deployment secret without copying it into Durable Object storage. */
+  /** Durable Object storage for runtime-writable credentials. */
+  storage: DurableObjectStorage
+  /** Read the current deployment secret as an immutable fallback. */
   readDeepSeekApiKey(): string | undefined
 }
 
-/** Resolve deployment credentials through the same seam used by upstream providers. */
+/** Resolve credentials from Durable Object storage with Worker environment fallback. */
 export class EdgeCredentialProvider extends CredentialProvider {
+  private readonly storage: DurableObjectStorage
+
   constructor(
     ctx: Context,
     private readonly config: EdgeCredentialProviderConfig,
   ) {
     super(ctx)
+    this.storage = config.storage
   }
 
-  /** Resolve the supported Worker secret for one operation. */
-  override resolve(ref: CredentialRef): Promise<ResolvedCredential | undefined> {
-    if (ref !== EDGE_DEEPSEEK_API_KEY_REF) return Promise.resolve(undefined)
-    const value = this.config.readDeepSeekApiKey()?.trim()
-    if (value === undefined || value.length === 0) return Promise.resolve(undefined)
-    return Promise.resolve({ value, source: 'worker-secret' })
+  /** Resolve one credential: DO storage first, then Worker env fallback for DEEPSEEK_API_KEY. */
+  override async resolve(ref: CredentialRef): Promise<ResolvedCredential | undefined> {
+    const stored = await this.storage.get<string>(storageKey(ref))
+    if (typeof stored === 'string' && stored.trim().length > 0) {
+      return { value: stored.trim(), source: 'do-storage' }
+    }
+    if (ref === EDGE_DEEPSEEK_API_KEY_REF) {
+      const value = this.config.readDeepSeekApiKey()?.trim()
+      if (value !== undefined && value.length > 0) {
+        return { value, source: 'worker-secret' }
+      }
+    }
+    return undefined
   }
 
-  /** Describe a Worker secret without exposing its value. */
+  /** Describe a credential without exposing its value. */
   override async describe(ref: CredentialRef): Promise<CredentialInfo> {
     const resolved = await this.resolve(ref)
     return {
       configured: resolved !== undefined,
       ...resolved === undefined ? {} : { source: resolved.source },
-      writable: false,
+      writable: true,
     }
   }
 
-  /** Cloudflare secrets are changed through deployment tooling, not runtime RPCs. */
-  override set(_ref: CredentialRef, _value: string): Promise<void> {
-    return Promise.reject(new Error('dsh-edge credentials are read-only; update the Cloudflare Worker secret.'))
+  /** Store a credential in Durable Object storage. */
+  override async set(ref: CredentialRef, value: string): Promise<void> {
+    if (value.trim().length === 0) {
+      throw new Error('Credential value must not be empty.')
+    }
+    await this.storage.put(storageKey(ref), value)
   }
 
-  /** Cloudflare secrets are changed through deployment tooling, not runtime RPCs. */
-  override unset(_ref: CredentialRef): Promise<void> {
-    return Promise.reject(new Error('dsh-edge credentials are read-only; update the Cloudflare Worker secret.'))
+  /** Remove a credential from Durable Object storage. */
+  override async unset(ref: CredentialRef): Promise<void> {
+    await this.storage.delete(storageKey(ref))
   }
 
   /** Edge currently exposes deployment-secret references, not provider-owned authorization records. */
@@ -85,6 +102,10 @@ export class EdgeCredentialProvider extends CredentialProvider {
   override deleteRecord(_key: CredentialKey): Promise<void> {
     return Promise.resolve()
   }
+}
+
+function storageKey(ref: CredentialRef): string {
+  return CREDENTIAL_STORAGE_KEY_PREFIX + ref
 }
 
 export default EdgeCredentialProvider

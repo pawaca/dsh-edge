@@ -60,6 +60,8 @@ export interface EdgeApiRuntime {
   readonly imageLimits?: ImageAttachmentLimits
   deploymentProfile(): EdgeDeploymentProfile
   describeCredential(ref: string): Promise<CredentialView>
+  setCredential(ref: string, value: string): Promise<void>
+  unsetCredential(ref: string): Promise<void>
   isRunning(sessionId: SessionId): boolean
   prompt(input: {
     sessionId: SessionId
@@ -636,8 +638,32 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
         )))
         return ok(request, { credentials: Object.fromEntries(entries) })
       },
-      set: unsupported,
-      unset: unsupported,
+      async set(request) {
+        const { ref, value } = request.payload
+        try {
+          await runtime.setCredential(ref, value)
+          return ok(request, {})
+        } catch (error) {
+          return fail(request, {
+            code: 'internal',
+            message: error instanceof Error ? error.message : String(error),
+            details: {},
+          })
+        }
+      },
+      async unset(request) {
+        const { ref } = request.payload
+        try {
+          await runtime.unsetCredential(ref)
+          return ok(request, {})
+        } catch (error) {
+          return fail(request, {
+            code: 'internal',
+            message: error instanceof Error ? error.message : String(error),
+            details: {},
+          })
+        }
+      },
     },
 
     llm: {
