@@ -166,15 +166,19 @@ describe('dsh-edge installer primitives', () => {
   })
 
   it('fails with an actionable R2 recovery path and never deletes a bucket', async () => {
-    const unavailable = vi.fn(async (_args: string[]) => (
-      commandResult(1, '', 'R2 subscription is not enabled')
-    ))
+    const unavailable = vi.fn(async (_args: string[]) => commandResult(1, '', [
+      '(node:26776) [DEP0040] DeprecationWarning: The `punycode` module is deprecated.',
+      '(Use `node --trace-deprecation ...` to show where the warning was created)',
+      'Please enable R2 through the Cloudflare Dashboard. [code: 10042]',
+    ].join('\n')))
 
-    await expect(ensureR2Bucket({
+    const pending = ensureR2Bucket({
       bucketName: 'dsh-edge-attachments',
       runWrangler: unavailable,
-    })).rejects.toThrow(/Enable R2.*temporary preview.*retry/u)
-    expect(unavailable).toHaveBeenCalledTimes(3)
+    })
+    await expect(pending).rejects.toThrow(/R2 is not enabled.*10042/u)
+    await expect(pending).rejects.not.toThrow(/punycode|trace-deprecation/u)
+    expect(unavailable).toHaveBeenCalledOnce()
     expect(unavailable.mock.calls.flatMap(call => call[0])).not.toContain('delete')
   })
 
@@ -462,13 +466,29 @@ describe('dsh-edge installer primitives', () => {
     expect(runWrangler).toHaveBeenCalledTimes(3)
   })
 
-  it('initializes unmarked pre-attachment versions on private R2', async () => {
+  it('leaves unmarked pre-attachment versions available for an explicit storage choice', async () => {
     const runWrangler = vi.fn()
       .mockResolvedValueOnce(commandResult(0, JSON.stringify({
         versions: [{ version_id: 'legacy-version', percentage: 100 }],
       })))
       .mockResolvedValueOnce(commandResult(0, JSON.stringify({
         resources: { bindings: [{ name: 'DSH_EDGE_INSTANCE', type: 'durable_object_namespace' }] },
+      })))
+
+    await expect(detectExistingAttachmentStorage({
+      workerName: 'dsh-edge',
+      mode: 'direct',
+      runWrangler,
+    })).resolves.toBeUndefined()
+  })
+
+  it('recognizes an unmarked R2 binding as authoritative', async () => {
+    const runWrangler = vi.fn()
+      .mockResolvedValueOnce(commandResult(0, JSON.stringify({
+        versions: [{ version_id: 'r2-version', percentage: 100 }],
+      })))
+      .mockResolvedValueOnce(commandResult(0, JSON.stringify({
+        resources: { bindings: [{ name: 'DSH_EDGE_ATTACHMENTS', type: 'r2_bucket' }] },
       })))
 
     await expect(detectExistingAttachmentStorage({
@@ -1053,7 +1073,13 @@ describe('dsh-edge guided installation', () => {
 
   it('upgrades only an existing authenticated Worker', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'dsh-edge-upgrade-test-'))
-    const { ui, selectAccount, success, workerConflict } = createUi()
+    const {
+      ui,
+      selectAccount,
+      selectInitialAttachmentStorage,
+      success,
+      workerConflict,
+    } = createUi({ initialAttachmentStorage: 'private-r2' })
     const runWrangler = vi.fn(async (args: string[], options: RunOptions = {}): Promise<CommandResult> => {
       if (args[0] === 'whoami') {
         return commandResult(0, JSON.stringify({ loggedIn: true, accounts: [ACCOUNT] }))
@@ -1087,12 +1113,184 @@ describe('dsh-edge guided installation', () => {
       expect.objectContaining({ value: 'temporary' }),
     ]))
     expect(workerConflict).not.toHaveBeenCalled()
+    expect(selectInitialAttachmentStorage).toHaveBeenCalledOnce()
     expect(result).toMatchObject({
       attachmentStorage: 'private-r2',
       temporary: false,
       workerName: 'dsh-edge',
     })
     expect(success).toHaveBeenCalledOnce()
+  })
+
+  it('upgrades an unmarked Worker on Durable Object storage without requiring R2', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'dsh-edge-upgrade-do-choice-test-'))
+    const { ui, selectInitialAttachmentStorage } = createUi({
+      initialAttachmentStorage: 'temporary-do',
+    })
+    let deployedConfig: unknown
+    const runWrangler = vi.fn(async (
+      args: string[],
+      options: RunOptions = {},
+    ): Promise<CommandResult> => {
+      if (args[0] === 'whoami') {
+        return commandResult(0, JSON.stringify({ loggedIn: true, accounts: [ACCOUNT] }))
+      }
+      if (args[0] === 'deployments' && args[1] === 'list') return commandResult(0, '[]')
+      if (args[0] === 'deployments' && args[1] === 'status') {
+        return commandResult(0, JSON.stringify({
+          versions: [{ version_id: 'legacy-version', percentage: 100 }],
+        }))
+      }
+      if (args[0] === 'versions') {
+        return commandResult(0, JSON.stringify({
+          resources: {
+            bindings: [{ name: 'DSH_EDGE_INSTANCE', type: 'durable_object_namespace' }],
+          },
+        }))
+      }
+      expect(args[0]).toBe('deploy')
+      const configPath = args[args.indexOf('--config') + 1]
+      if (configPath === undefined) throw new Error('deploy command omitted its config path')
+      deployedConfig = JSON.parse(await readFile(configPath, 'utf8')) as unknown
+      await writeFile(options.environment?.WRANGLER_OUTPUT_FILE_PATH ?? '', JSON.stringify({
+        type: 'deploy', version: 1, targets: ['dsh-edge.owner.workers.dev'],
+      }))
+      return commandResult(0)
+    })
+
+    const result = await installEdge({
+      command: 'upgrade',
+      ui,
+      runWrangler,
+      createTemporaryDirectory: async () => directory,
+    })
+
+    expect(selectInitialAttachmentStorage).toHaveBeenCalledOnce()
+    expect(result.attachmentStorage).toBe('temporary-do')
+    expect(runWrangler.mock.calls.some(([args]) => args[0] === 'r2')).toBe(false)
+    expect(deployedConfig).not.toHaveProperty('r2_buckets')
+    expect(deployedConfig).toHaveProperty(
+      'vars.DSH_EDGE_ATTACHMENT_STORAGE',
+      'temporary-do',
+    )
+  })
+
+  it('switches an unmarked Worker from unavailable R2 to DO before collecting secrets', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'dsh-edge-upgrade-r2-recovery-test-'))
+    const {
+      ui,
+      confirm,
+      deepSeekKey,
+      ownerSecret,
+      r2SubscriptionUnavailable,
+    } = createUi({
+      initialAttachmentStorage: 'private-r2',
+      r2RecoveryActions: ['retry', 'temporary-do'],
+    })
+    let deployedConfig: unknown
+    const runWrangler = vi.fn(async (
+      args: string[],
+      options: RunOptions = {},
+    ): Promise<CommandResult> => {
+      if (args[0] === 'whoami') {
+        return commandResult(0, JSON.stringify({ loggedIn: true, accounts: [ACCOUNT] }))
+      }
+      if (args[0] === 'deployments' && args[1] === 'list') return commandResult(0, '[]')
+      if (args[0] === 'deployments' && args[1] === 'status') {
+        return commandResult(0, JSON.stringify({
+          versions: [{ version_id: 'legacy-version', percentage: 100 }],
+        }))
+      }
+      if (args[0] === 'versions') {
+        return commandResult(0, JSON.stringify({
+          resources: {
+            bindings: [{ name: 'DSH_EDGE_INSTANCE', type: 'durable_object_namespace' }],
+          },
+        }))
+      }
+      if (args[0] === 'r2') {
+        return commandResult(1, '', 'Enable R2 in the Dashboard. [code: 10042]')
+      }
+      expect(args[0]).toBe('deploy')
+      const configPath = args[args.indexOf('--config') + 1]
+      if (configPath === undefined) throw new Error('deploy command omitted its config path')
+      deployedConfig = JSON.parse(await readFile(configPath, 'utf8')) as unknown
+      await writeFile(options.environment?.WRANGLER_OUTPUT_FILE_PATH ?? '', JSON.stringify({
+        type: 'deploy', version: 1, targets: ['dsh-edge.owner.workers.dev'],
+      }))
+      return commandResult(0)
+    })
+
+    const result = await installEdge({
+      command: 'upgrade',
+      ui,
+      runWrangler,
+      createTemporaryDirectory: async () => directory,
+    })
+
+    expect(r2SubscriptionUnavailable).toHaveBeenCalledTimes(2)
+    expect(r2SubscriptionUnavailable).toHaveBeenLastCalledWith({
+      activationUrl: 'https://dash.cloudflare.com/account-1/r2/overview',
+      canSwitchToDurableObject: true,
+    })
+    expect(confirm).toHaveBeenCalledWith(expect.objectContaining({
+      attachmentStorage: 'temporary-do',
+    }))
+    expect(r2SubscriptionUnavailable.mock.invocationCallOrder[0])
+      .toBeLessThan(confirm.mock.invocationCallOrder[0]!)
+    expect(confirm.mock.invocationCallOrder[0])
+      .toBeLessThan(ownerSecret.mock.invocationCallOrder[0]!)
+    expect(confirm.mock.invocationCallOrder[0])
+      .toBeLessThan(deepSeekKey.mock.invocationCallOrder[0]!)
+    expect(runWrangler.mock.calls.filter(([args]) => args[0] === 'r2')).toHaveLength(2)
+    expect(result.attachmentStorage).toBe('temporary-do')
+    expect(deployedConfig).not.toHaveProperty('r2_buckets')
+    expect(deployedConfig).toHaveProperty(
+      'vars.DSH_EDGE_ATTACHMENT_STORAGE',
+      'temporary-do',
+    )
+  })
+
+  it('refuses DO recovery when an existing deployment is pinned to R2', async () => {
+    const { ui, deepSeekKey, ownerSecret, r2SubscriptionUnavailable } = createUi({
+      r2RecoveryActions: ['temporary-do'],
+    })
+    const runWrangler = vi.fn(async (args: string[]): Promise<CommandResult> => {
+      if (args[0] === 'whoami') {
+        return commandResult(0, JSON.stringify({ loggedIn: true, accounts: [ACCOUNT] }))
+      }
+      if (args[0] === 'deployments' && args[1] === 'list') return commandResult(0, '[]')
+      if (args[0] === 'deployments' && args[1] === 'status') {
+        return commandResult(0, JSON.stringify({
+          versions: [{ version_id: 'r2-version', percentage: 100 }],
+        }))
+      }
+      if (args[0] === 'versions') {
+        return commandResult(0, JSON.stringify({
+          resources: { bindings: [
+            { name: 'DSH_EDGE_ATTACHMENTS', type: 'r2_bucket' },
+            {
+              name: 'DSH_EDGE_ATTACHMENT_STORAGE',
+              type: 'plain_text',
+              text: 'private-r2',
+            },
+          ] },
+        }))
+      }
+      if (args[0] === 'r2') {
+        return commandResult(1, '', 'Enable R2 in the Dashboard. [code: 10042]')
+      }
+      throw new Error(`unexpected command: ${args.join(' ')}`)
+    })
+
+    await expect(installEdge({ command: 'upgrade', ui, runWrangler }))
+      .rejects.toThrow('Unsupported R2 recovery action')
+
+    expect(r2SubscriptionUnavailable).toHaveBeenCalledWith(expect.objectContaining({
+      canSwitchToDurableObject: false,
+    }))
+    expect(ownerSecret).not.toHaveBeenCalled()
+    expect(deepSeekKey).not.toHaveBeenCalled()
   })
 
   it('upgrades a claimed temporary Worker without provisioning or binding R2', async () => {
@@ -1527,35 +1725,50 @@ function createUi({
   accountSelections = ['account:account-1'],
   conflictAction = 'update',
   acceptTemporaryTerms = true,
+  initialAttachmentStorage = 'temporary-do',
+  r2RecoveryActions = ['temporary-do'],
   secretMode = 'custom',
 }: {
   mode?: RuntimeMode
   accountSelections?: string[]
   conflictAction?: 'rename' | 'update' | 'cancel'
   acceptTemporaryTerms?: boolean
+  initialAttachmentStorage?: 'private-r2' | 'temporary-do'
+  r2RecoveryActions?: Array<'retry' | 'temporary-do' | 'cancel'>
   secretMode?: 'generate' | 'custom'
 } = {}): {
   ui: InstallerUi
   activationFinish: Mock
   activationStart: Mock
   cleanupFailure: Mock
+  confirm: Mock
   deploymentFinish: Mock
   deploymentStart: Mock
   failedDeployment: Mock
+  deepSeekKey: Mock
   outputFailureRecovery: Mock
+  ownerSecret: Mock
   recovery: Mock
+  r2SubscriptionUnavailable: Mock
   selectAccount: Mock
+  selectInitialAttachmentStorage: Mock
   selectOwnerSecretMode: Mock
   success: Mock
   workerConflict: Mock
 } {
   const selectAccount = vi.fn()
     .mockImplementation(async () => accountSelections.shift() ?? 'account:account-1')
+  const selectInitialAttachmentStorage = vi.fn().mockResolvedValue(initialAttachmentStorage)
+  const r2SubscriptionUnavailable = vi.fn()
+    .mockImplementation(async () => r2RecoveryActions.shift() ?? 'cancel')
   const selectOwnerSecretMode = vi.fn().mockResolvedValue(secretMode)
+  const ownerSecret = vi.fn().mockResolvedValue(OWNER_SECRET)
+  const deepSeekKey = vi.fn().mockResolvedValue('sk-test')
   const success = vi.fn()
   const recovery = vi.fn()
   const outputFailureRecovery = vi.fn()
   const cleanupFailure = vi.fn()
+  const confirm = vi.fn().mockResolvedValue(true)
   const deploymentStart = vi.fn()
   const deploymentFinish = vi.fn()
   const activationStart = vi.fn()
@@ -1569,10 +1782,12 @@ function createUi({
     selectAccount,
     workerName: vi.fn().mockImplementation(async (initialValue: string) => initialValue),
     workerConflict,
+    selectInitialAttachmentStorage,
+    r2SubscriptionUnavailable,
     selectOwnerSecretMode,
-    ownerSecret: vi.fn().mockResolvedValue(OWNER_SECRET),
-    deepSeekKey: vi.fn().mockResolvedValue('sk-test'),
-    confirm: vi.fn().mockResolvedValue(true),
+    ownerSecret,
+    deepSeekKey,
+    confirm,
     acceptTemporaryTerms: vi.fn().mockResolvedValue(acceptTemporaryTerms),
     cleanupFailure,
     deploymentStart,
@@ -1589,12 +1804,17 @@ function createUi({
     activationFinish,
     activationStart,
     cleanupFailure,
+    confirm,
     deploymentFinish,
     deploymentStart,
+    deepSeekKey,
     failedDeployment,
+    ownerSecret,
     outputFailureRecovery,
     recovery,
+    r2SubscriptionUnavailable,
     selectAccount,
+    selectInitialAttachmentStorage,
     selectOwnerSecretMode,
     success,
     workerConflict,

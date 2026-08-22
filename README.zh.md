@@ -43,9 +43,11 @@ npx dsh-edge@next install
 | 路径 | Cloudflare 账户 | 图片存储 | 适用场景 |
 | --- | --- | --- | --- |
 | **临时预览** | 不要求已有登录；需在 60 分钟内认领 | 有界的 64 MiB Durable Object backend | 以最低门槛试用完整浏览器与图片流程 |
-| **永久部署** | 使用已有或新登录的账户；必须启用 R2 | 私有 R2 bucket | 在自己的长期账户中保留对话和图片 |
+| **新的永久部署** | 使用已有或新登录的账户；必须启用 R2 subscription | 私有 R2 bucket | 在自己的长期账户中保留对话和图片 |
 
 每个部署只选择一次 attachment backend，并在 Durable Object 休眠、认领和升级后保持固定。认领临时部署会保留原有 DO 图片，不会静默迁移到 R2。
+
+Cloudflare 为 R2 Standard 提供[月度免费额度](https://developers.cloudflare.com/r2/pricing/)，但 R2 是独立的按量 subscription，必须先[在 Dashboard 完成启用流程](https://developers.cloudflare.com/r2/get-started/)。dsh-edge 0.3 之前创建的 Worker 没有图片 backend，也没有图片引用；因此首次升级到 0.3 时会询问一次：选择无需额外开通的 Durable Object storage（每个实例 64 MiB），或选择私有 R2。安装器会在索取 Worker secret 前检查 R2 选择；若 Cloudflare 报告尚未启用 R2，它会显示当前账户的启用链接，并提供重试、取消，或者——仅当不会导致既有图片引用失联时——安全切换到 DO storage。后续升级固定保留最终选择，绝不会自动迁移图片数据。
 
 ### 选择命令运行时
 
@@ -67,7 +69,7 @@ npx dsh-edge@next upgrade
 ## 数据、凭据与限制
 
 - 对话、工作区元数据与 `/workspace` 文件存储在当前部署的 Durable Object 中。
-- 永久部署把通过校验的图片作为不可变对象写入私有 R2 bucket；临时部署使用 64 MiB、按 512 KiB 分块的 Durable Object backend。Session event 只保留上游 content-addressed reference。
+- 使用 R2 的部署把通过校验的图片作为不可变对象写入私有 bucket；使用 DO 的部署在 owner instance 中使用 64 MiB、按 512 KiB 分块的 backend。Session event 只保留上游 content-addressed reference。
 - 图片仅接受 PNG 和 JPEG：每条消息最多 4 张、每张 3.5 MiB、合计 7 MiB、最多 4,000 万像素，且单边不超过 2,000 像素。
 - `DEEPSEEK_API_KEY` 与 `DSH_EDGE_ACCESS_KEY` 是 Worker secret，其字面值不会写入会话事件、Durable Object 状态、VFS 或浏览器响应。
 - 安装器通过权限模式为 `0600` 的临时文件把 secret 交给 Wrangler，随后删除，也不会创建源码构建集成。

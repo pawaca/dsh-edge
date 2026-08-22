@@ -480,7 +480,10 @@ try {
     preset.body.result.value.content,
     new RegExp(`shell: "just-bash-${runtimeMode}"`, 'u'),
   )
-  assert.match(preset.body.result.value.content, /id: "deepseek-v4-pro"/u)
+  assert.match(preset.body.result.value.content, /defaultId: "deepseek-v4-pro"/u)
+  assert.match(preset.body.result.value.content, /selectionScope: session/u)
+  assert.match(preset.body.result.value.content, /id: "deepseek-v4-flash"/u)
+  assert.match(preset.body.result.value.content, /id: "deepseek-v4-flash-vision-exp"/u)
   assert.match(preset.body.result.value.content, /configured: true/u)
   assert.match(preset.body.result.value.content, /id: web_search/u)
   assert.doesNotMatch(preset.body.result.value.content, /integration-test-key/u)

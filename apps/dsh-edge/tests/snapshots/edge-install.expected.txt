@@ -6,7 +6,7 @@ TERMINAL
 | |_| |___) |  _  |_____| |___| |_| | |_| | |___
 |____/|____/|_| |_|     |_____|____/ \____|_____|
 DeepSeek Harness on Cloudflare
-dsh-edge 0.3.0-alpha.1 · Harness 0.1.1-rc.1
+dsh-edge 0.3.0-alpha.2 · Harness 0.1.1-rc.1
 community project · install
 │
 ◆  Choose a runtime
@@ -32,20 +32,6 @@ community project · install
 └
 ◇  Worker name
 │  dsh-edge
-│
-◆  Set the owner access key
-│  ● Generate a secure key (recommended)
-│  ○ Enter my own key
-│  ↑/↓ to navigate • Enter: confirm
-└
-◇  Set the owner access key
-│  Generate a secure key
-│
-◆  DeepSeek API key
-│  _
-└
-◇  DeepSeek API key
-│  ••••••••••••••••••
 │
 ◇  Installation summary ───────────────────────────╮
 │                                                  │
@@ -75,6 +61,20 @@ community project · install
 └
 ◇  Accept these terms and create a temporary Cloudflare account?
 │  Yes
+│
+◆  Set the owner access key
+│  ● Generate a secure key (recommended)
+│  ○ Enter my own key
+│  ↑/↓ to navigate • Enter: confirm
+└
+◇  Set the owner access key
+│  Generate a secure key
+│
+◆  DeepSeek API key
+│  _
+└
+◇  DeepSeek API key
+│  ••••••••••••••••••
 │
 ◇  Cloudflare accepted the Worker upload. [0s]
 │

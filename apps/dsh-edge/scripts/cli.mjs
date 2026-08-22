@@ -133,6 +133,58 @@ export function createInstallerUi(
         ],
       })))
     },
+    async selectInitialAttachmentStorage() {
+      note([
+        'This Worker predates image attachments, so no existing image references need migration.',
+        'The selected backend is pinned for future upgrades and is not changed automatically.',
+      ].join('\n'), 'Choose image storage once')
+      return await requireAnswer(await clack.select(withOutput({
+        message: 'Where should this Worker store new images?',
+        initialValue: 'temporary-do',
+        signal,
+        options: [
+          {
+            value: 'temporary-do',
+            label: 'Durable Object — no R2 setup',
+            hint: 'recommended for Workers Free; 64 MiB per instance',
+          },
+          {
+            value: 'private-r2',
+            label: 'Private R2 bucket',
+            hint: 'requires an enabled R2 subscription; includes a free tier',
+          },
+        ],
+      })))
+    },
+    async r2SubscriptionUnavailable({ activationUrl, canSwitchToDurableObject }) {
+      note([
+        'Cloudflare requires R2 to be enabled before dsh-edge can create a private bucket.',
+        `Enable R2: ${activationUrl}`,
+        'R2 Standard includes monthly free usage, but activation requires Dashboard checkout.',
+        'After checkout completes, return here and retry.',
+      ].join('\n'), 'R2 is not enabled for this account')
+      const options = [
+        ...(canSwitchToDurableObject
+          ? [{
+              value: 'temporary-do',
+              label: 'Use Durable Object storage',
+              hint: 'continue now without R2; 64 MiB per instance',
+            }]
+          : []),
+        {
+          value: 'retry',
+          label: 'Retry R2',
+          hint: 'choose this after enabling R2 in the Dashboard',
+        },
+        { value: 'cancel', label: 'Cancel installation' },
+      ]
+      return await requireAnswer(await clack.select(withOutput({
+        message: 'How should dsh-edge continue?',
+        initialValue: canSwitchToDurableObject ? 'temporary-do' : 'retry',
+        signal,
+        options,
+      })))
+    },
     async selectOwnerSecretMode() {
       return await requireAnswer(await clack.select(withOutput({
         message: 'Set the owner access key',
@@ -169,7 +221,7 @@ export function createInstallerUi(
         `Images: ${summary.attachmentStorage === 'temporary-do'
           ? 'stored in this instance (64 MiB limit)'
           : 'stored privately in Cloudflare R2'}`,
-        ...(command === 'upgrade' ? ['Existing Durable Object data is preserved.', 'The entered secrets replace the active values.'] : []),
+        ...(command === 'upgrade' ? ['Existing Durable Object data is preserved.', 'You will re-enter the two Worker secrets after confirming.'] : []),
       ].join('\n'), command === 'upgrade' ? 'Upgrade summary' : 'Installation summary')
       return await requireAnswer(await clack.confirm(withOutput({
         message: command === 'upgrade' ? 'Upgrade this instance?' : 'Install this instance?',
