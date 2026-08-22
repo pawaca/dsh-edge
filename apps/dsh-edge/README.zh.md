@@ -227,7 +227,7 @@ npx dsh-edge install
 npx dsh-edge upgrade
 ```
 
-如果当前安装的是 0.2 alpha，需要执行一次 `npx dsh-edge@latest upgrade` 晋级到稳定渠道；其他预发布部署仍跟随 `next`。Edge 设置页会根据已安装版本推导渠道，并复制匹配的命令。
+如果当前安装版本包含 `-alpha` 或 `-rc`，请执行一次 `npx dsh-edge@latest upgrade` 切换到稳定渠道。Edge 设置页会根据已安装版本推导命令；如果不明确使用这条 `@latest` 命令，现有预发布部署会继续跟随 `next`。
 
 ### 账户与 attachment storage
 

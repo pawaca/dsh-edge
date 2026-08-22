@@ -68,7 +68,9 @@ Both modes use the same UI, protocol, tools, conversations, workspace, image flo
 npx dsh-edge upgrade
 ```
 
-Select the existing Worker and the same runtime. Durable Object data and the deployment's pinned attachment backend are retained. Because Cloudflare secrets are write-only, the installer asks for the existing owner access key and DeepSeek API key again. Use `npx dsh-edge@next upgrade` only when you deliberately installed a prerelease.
+Select the existing Worker and the same runtime. Durable Object data and the deployment's pinned attachment backend are retained. Because Cloudflare secrets are write-only, the installer asks for the existing owner access key and DeepSeek API key again.
+
+If the installed version contains `-alpha` or `-rc`, promote it to the stable channel once with `npx dsh-edge@latest upgrade`. Use `npx dsh-edge@next upgrade` only when you deliberately want to remain on prereleases.
 
 ## Data, credentials, and limits
 

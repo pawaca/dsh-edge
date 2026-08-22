@@ -68,7 +68,9 @@ npx dsh-edge install
 npx dsh-edge upgrade
 ```
 
-请选择已有 Worker 和相同 runtime。Durable Object 数据与已经固定的 attachment backend 都会保留。Cloudflare secret 只能写入、不能读回，因此安装器会再次询问已有 owner access key 和 DeepSeek API key。只有在你明确安装了预发布版时，才使用 `npx dsh-edge@next upgrade`。
+请选择已有 Worker 和相同 runtime。Durable Object 数据与已经固定的 attachment backend 都会保留。Cloudflare secret 只能写入、不能读回，因此安装器会再次询问已有 owner access key 和 DeepSeek API key。
+
+如果当前安装版本包含 `-alpha` 或 `-rc`，请执行一次 `npx dsh-edge@latest upgrade` 切换到稳定渠道。只有在你明确希望继续使用预发布版时，才使用 `npx dsh-edge@next upgrade`。
 
 ## 数据、凭据与限制
 

@@ -227,7 +227,7 @@ For a stable deployment, run:
 npx dsh-edge upgrade
 ```
 
-If the installed version is a 0.2 alpha, promote it to the stable channel once with `npx dsh-edge@latest upgrade`; prerelease deployments otherwise remain on `next`. The Edge settings page derives the channel from the installed version and copies the matching command.
+If the installed version contains `-alpha` or `-rc`, promote it to the stable channel once with `npx dsh-edge@latest upgrade`. The Edge settings page derives its command from the installed version; without that explicit `@latest` command, an existing prerelease remains on `next`.
 
 ### Accounts and attachment storage
 
