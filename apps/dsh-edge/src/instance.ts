@@ -208,6 +208,8 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       : EDGE_R2_IMAGE_LIMITS,
     deploymentProfile: () => resolveEdgeDeploymentProfile(this.env, this.attachmentStorage),
     describeCredential: ref => this.sessions.describeCredential(ref),
+    setCredential: (ref, value) => this.sessions.setCredential(ref, value),
+    unsetCredential: ref => this.sessions.unsetCredential(ref),
     isRunning: sessionId => this.activeTurns.has(sessionId),
     prompt: input => this.startApiPrompt(input),
     updateQueue: (sessionId, itemId, action) => this.updateQueue(sessionId, itemId, action),
