@@ -80,6 +80,17 @@ describe('dsh-edge assembled browser snapshot', () => {
       })
       await page.reload({ waitUntil: 'load' })
       await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
+      const modelsOverlay = page.locator('[role="presentation"]')
+      if (await modelsOverlay.count() > 0) {
+        await modelsOverlay.locator('[aria-hidden="true"]').click({ force: true, position: { x: 0, y: 0 } })
+        await page.waitForTimeout(500)
+        if (await modelsOverlay.count() > 0) {
+          await page.evaluate(() => {
+            document.querySelectorAll('[role="presentation"]').forEach(el => el.remove())
+          })
+          await page.waitForTimeout(200)
+        }
+      }
       await page.locator('button[aria-haspopup="dialog"]').last().click()
       const settings = page.getByRole('dialog', { name: 'Settings', exact: true })
       await settings.getByRole('navigation')
