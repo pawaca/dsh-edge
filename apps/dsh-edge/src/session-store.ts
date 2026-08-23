@@ -187,17 +187,21 @@ export class EdgeSessionStore {
     })
     await this.context.plugin(DurableObjectSettingsProvider, { storage })
     await this.context.plugin(LlmRuntime)
-    await this.context.plugin(dshLlmDeepseek, {
-      ...config.baseURL === undefined ? {} : { baseURL: config.baseURL },
-      ...config.maxTokens === undefined ? {} : { maxTokens: config.maxTokens },
-      ...config.reasoningEffort === undefined ? {} : { reasoningEffort: config.reasoningEffort },
-      ...config.reasoningEffort === undefined
-        ? {}
-        : { thinking: config.reasoningEffort === 'off' ? 'disabled' as const : 'enabled' as const },
-      ...config.streamIdleTimeoutMs === undefined
-        ? {}
-        : { streamIdleTimeoutMs: config.streamIdleTimeoutMs },
-    })
+    try {
+      await this.context.plugin(dshLlmDeepseek, {
+        ...config.baseURL === undefined ? {} : { baseURL: config.baseURL },
+        ...config.maxTokens === undefined ? {} : { maxTokens: config.maxTokens },
+        ...config.reasoningEffort === undefined ? {} : { reasoningEffort: config.reasoningEffort },
+        ...config.reasoningEffort === undefined
+          ? {}
+          : { thinking: config.reasoningEffort === 'off' ? 'disabled' as const : 'enabled' as const },
+        ...config.streamIdleTimeoutMs === undefined
+          ? {}
+          : { streamIdleTimeoutMs: config.streamIdleTimeoutMs },
+      })
+    } catch (error) {
+      console.error('dsh-edge: LLM provider plugin failed to initialize; model operations will be unavailable.', error)
+    }
     await this.context.plugin(SessionStore)
     await this.context.plugin(SystemPrompt, { persona: EDGE_SYSTEM_PROMPT })
     await this.context.plugin(ToolRuntime)
