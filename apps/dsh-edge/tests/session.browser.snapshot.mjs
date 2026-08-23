@@ -74,11 +74,10 @@ describe('dsh-edge assembled browser snapshot', () => {
       expect(ownerCookie).toBeDefined()
       const ownerCookieHeader = `${ownerCookie.name}=${ownerCookie.value}`
 
-      const firstRunModal = page.locator('[role="presentation"] [aria-hidden="true"]')
-      if (await firstRunModal.count() > 0) {
-        await page.keyboard.press('Escape')
-        await expect.poll(() => firstRunModal.count(), { timeout: 5_000 }).toBe(0)
-      }
+      await edgeRpc(worker, ownerCookieHeader, 'credentials.set', {
+        ref: 'DEEPSEEK_API_KEY',
+        value: 'keyless-browser-snapshot-no-call',
+      })
       await page.locator('button[aria-haspopup="dialog"]').last().click()
       const settings = page.getByRole('dialog', { name: 'Settings', exact: true })
       await settings.getByRole('navigation')
