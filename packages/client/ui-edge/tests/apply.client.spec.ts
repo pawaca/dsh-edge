@@ -4,13 +4,15 @@ import { EdgeSettingsSection } from '../src/client/EdgeSettingsSection.tsx'
 
 describe('ui-edge apply', () => {
   it('registers one localized Edge section through the standard settings slot', () => {
-    expect(inject).toEqual(['slots', 'locale'])
+    expect(inject).toEqual(['slots', 'locale', 'connection'])
     let entry: {
       options: Record<string, unknown> & { inject?: () => unknown }
       component: unknown
     } | undefined
     const registerLocale = vi.fn()
+    const connection = { isLoopback: false }
     const ctx = {
+      get: (key: string) => key === 'connection' ? connection : undefined,
       effect: (callback: () => unknown) => callback(),
       locale: {
         register: registerLocale,
@@ -25,6 +27,7 @@ describe('ui-edge apply', () => {
       },
     }
     apply(ctx as never)
+    expect(connection.isLoopback).toBe(true)
     expect(registerLocale).toHaveBeenCalledOnce()
     expect(entry).toBeDefined()
     if (entry === undefined) throw new Error('Edge settings slot was not registered')
