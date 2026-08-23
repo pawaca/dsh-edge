@@ -124,9 +124,21 @@ function isValidProviderEntry(value: unknown): value is EdgeProviderEntry {
   return typeof entry['id'] === 'string' && entry['id'].length > 0
     && typeof entry['name'] === 'string'
     && typeof entry['baseURL'] === 'string' && entry['baseURL'].length > 0
+    && isCredentialFreeHttpUrl(entry['baseURL'])
     && typeof entry['apiKeyRef'] === 'string'
     && Array.isArray(entry['models'])
     && entry['models'].every(isValidModelEntry)
+}
+
+function isCredentialFreeHttpUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value)
+    return (parsed.protocol === 'http:' || parsed.protocol === 'https:')
+      && parsed.username.length === 0
+      && parsed.password.length === 0
+  } catch {
+    return false
+  }
 }
 
 function isValidModelEntry(value: unknown): value is { id: string; name: string } {
