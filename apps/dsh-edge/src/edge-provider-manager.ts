@@ -14,6 +14,7 @@ import {
 import type { AnonymousUserId } from '@deepseek-ai/dsh-anonymous-user-id'
 
 const PROVIDERS_STORAGE_KEY = 'dsh-edge:configured-providers'
+const RESERVED_PROVIDER_ID = 'deepseek-official'
 
 /** One user-configured LLM provider stored in DO KV. */
 export interface EdgeProviderEntry {
@@ -123,6 +124,7 @@ function isValidProviderEntry(value: unknown): value is EdgeProviderEntry {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
   const entry = value as Record<string, unknown>
   return typeof entry['id'] === 'string' && entry['id'].length > 0
+    && entry['id'] !== RESERVED_PROVIDER_ID
     && typeof entry['name'] === 'string'
     && typeof entry['baseURL'] === 'string' && entry['baseURL'].length > 0
     && isCredentialFreeHttpUrl(entry['baseURL'])
