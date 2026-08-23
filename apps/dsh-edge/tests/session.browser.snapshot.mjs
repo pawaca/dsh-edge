@@ -78,6 +78,8 @@ describe('dsh-edge assembled browser snapshot', () => {
         ref: 'DEEPSEEK_API_KEY',
         value: 'keyless-browser-snapshot-no-call',
       })
+      await page.reload({ waitUntil: 'load' })
+      await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
       await page.locator('button[aria-haspopup="dialog"]').last().click()
       const settings = page.getByRole('dialog', { name: 'Settings', exact: true })
       await settings.getByRole('navigation')
