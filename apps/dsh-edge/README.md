@@ -221,7 +221,7 @@ npx dsh-edge install
 
 This resolves through npm's `latest` channel. Use `npx dsh-edge@next install` only to opt into a newer prerelease when one is available.
 
-Upgrade an existing named Worker with the same runtime choice. The deployment keeps its Durable Object data; because Cloudflare secrets are write-only, the upgrade asks for the owner access key and DeepSeek API key again and replaces their active values:
+Upgrade an existing named Worker with the same runtime choice. The deployment keeps its Durable Object data; because Cloudflare secrets are write-only, the upgrade asks for the owner access key again. The DeepSeek API key prompt is optional — press Enter to skip it and configure the key later through Settings → Models:
 
 For a stable deployment, run:
 
