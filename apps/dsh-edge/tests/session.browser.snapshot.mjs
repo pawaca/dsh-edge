@@ -223,7 +223,7 @@ describe('dsh-edge assembled browser snapshot', () => {
       await expect.poll(() => page.getByRole('tooltip').count()).toBe(0)
       await expect.poll(
         () => page.getByRole('button', {
-          name: 'Select model, current DeepSeek-V4-Flash-Vision-Exp, reasoning effort High',
+          name: 'Select model, current DeepSeek-V4-Flash-Vision-Exp, reasoning effort Off',
           exact: true,
         }).count(),
         { timeout: 15_000 },

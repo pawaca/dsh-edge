@@ -82,7 +82,7 @@
             "maxTokens": 8192,
             "model": "deepseek-v4-flash",
             "provider": "deepseek-official",
-            "reasoningEffort": "high",
+            "reasoningEffort": "off",
           },
           "system": "You are an AI agent powered by DeepSeek Harness.
 
@@ -348,7 +348,7 @@ Use the web_search tool to discover current information on the web. The required
             "maxTokens": 8192,
             "model": "deepseek-v4-flash",
             "provider": "deepseek-official",
-            "reasoningEffort": "high",
+            "reasoningEffort": "off",
           },
           "system": "You are an AI agent powered by DeepSeek Harness.
 
@@ -646,7 +646,7 @@ Use the web_search tool to discover current information on the web. The required
             "maxTokens": 8192,
             "model": "deepseek-v4-flash",
             "provider": "deepseek-official",
-            "reasoningEffort": "high",
+            "reasoningEffort": "off",
           },
           "system": "You are an AI agent powered by DeepSeek Harness.
 
@@ -912,7 +912,7 @@ Use the web_search tool to discover current information on the web. The required
             "maxTokens": 8192,
             "model": "deepseek-v4-flash",
             "provider": "deepseek-official",
-            "reasoningEffort": "high",
+            "reasoningEffort": "off",
           },
           "system": "You are an AI agent powered by DeepSeek Harness.
 

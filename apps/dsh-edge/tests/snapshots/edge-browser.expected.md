@@ -20,8 +20,8 @@
 - textbox "Message the agent"
 - button "Commands":
   - img
-- button "Select model, current DeepSeek-V4-Flash-Vision-Exp, reasoning effort High":
-  - text: DeepSeek-V4-Flash-Vision-Exp High
+- button "Select model, current DeepSeek-V4-Flash-Vision-Exp, reasoning effort Off":
+  - text: DeepSeek-V4-Flash-Vision-Exp Off
   - img
 - button "Send message" [disabled]
 - text: 1 turns · 1 steps LLM {{metric}} TTFT avg {{metric}} · {{metric}}
