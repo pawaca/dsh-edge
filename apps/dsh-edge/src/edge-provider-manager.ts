@@ -49,7 +49,10 @@ function deduplicateProviders(entries: EdgeProviderEntry[]): EdgeProviderEntry[]
     if (seen.has(entry.id)) return false
     seen.add(entry.id)
     return true
-  })
+  }).map(entry => ({
+    ...entry,
+    models: deduplicateModels(entry.models),
+  }))
 }
 
 /** Register configured providers as LLM adapters on the cordis context. */
@@ -148,9 +151,20 @@ function isCredentialFreeHttpUrl(value: string): boolean {
     return (parsed.protocol === 'http:' || parsed.protocol === 'https:')
       && parsed.username.length === 0
       && parsed.password.length === 0
+      && parsed.search.length === 0
+      && parsed.hash.length === 0
   } catch {
     return false
   }
+}
+
+function deduplicateModels(models: { id: string; name: string }[]): { id: string; name: string }[] {
+  const seen = new Set<string>()
+  return models.filter(model => {
+    if (seen.has(model.id)) return false
+    seen.add(model.id)
+    return true
+  })
 }
 
 function isValidModelEntry(value: unknown): value is { id: string; name: string } {
