@@ -31,7 +31,7 @@ export async function readConfiguredProviders(
 ): Promise<EdgeProviderEntry[]> {
   const stored = await storage.get(PROVIDERS_STORAGE_KEY)
   if (!Array.isArray(stored)) return []
-  return stored.filter(isValidProviderEntry)
+  return deduplicateProviders(stored.filter(isValidProviderEntry))
 }
 
 /** Persist configured providers to Durable Object storage. */
@@ -39,8 +39,17 @@ export async function writeConfiguredProviders(
   storage: DurableObjectStorage,
   providers: EdgeProviderEntry[],
 ): Promise<void> {
-  const validated = providers.filter(isValidProviderEntry)
+  const validated = deduplicateProviders(providers.filter(isValidProviderEntry))
   await storage.put(PROVIDERS_STORAGE_KEY, validated)
+}
+
+function deduplicateProviders(entries: EdgeProviderEntry[]): EdgeProviderEntry[] {
+  const seen = new Set<string>()
+  return entries.filter(entry => {
+    if (seen.has(entry.id)) return false
+    seen.add(entry.id)
+    return true
+  })
 }
 
 /** Register configured providers as LLM adapters on the cordis context. */
