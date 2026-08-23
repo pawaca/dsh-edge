@@ -7,6 +7,7 @@ node_modules/
 pnpm-debug.log
 
 apps/dsh-edge/.dev.vars
+apps/dsh-edge/.wrangler.dev.*.json
 apps/dsh-edge/dist/
 apps/dsh-edge/worker/
 apps/dsh-edge/standalone/dist/
