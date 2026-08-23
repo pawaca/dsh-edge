@@ -48,9 +48,9 @@ pnpm --dir apps/dsh-edge/standalone install --frozen-lockfile
 ```dotenv
 DSH_EDGE_ACCESS_KEY=replace-with-at-least-32-random-bytes
 DEEPSEEK_API_KEY=replace-with-your-key
-DEEPSEEK_MAX_OUTPUT_TOKENS=8192
+DEEPSEEK_MAX_OUTPUT_TOKENS=256000
 DEEPSEEK_MODEL=deepseek-v4-flash
-DEEPSEEK_REASONING_EFFORT=off
+DEEPSEEK_REASONING_EFFORT=high
 DEEPSEEK_STREAM_IDLE_TIMEOUT_MS=120000
 DSH_EDGE_DEFAULT_COMMAND_TIMEOUT_MS=120000
 DSH_EDGE_MAX_COMMAND_TIMEOUT_MS=120000
@@ -117,7 +117,7 @@ curl -b /tmp/dsh-edge-cookie -N -X POST -H 'content-type: application/json' \
 | Bash tool | Node subprocess、sandbox、terminal 和 job services | 在原生 tool seam 上适配 | 注册上游 `ToolDefinition`，但通过配置的 Computer workspace backend 和 just-bash 执行其 body。默认 direct backend 在 owner Durable Object 内运行，启用 hardened interpreter limits 且不提供网络命令；添加 `LOADER` binding 后会选择 Computer 的 isolated Worker Shell backend。原生 tool cancellation 会通过 Computer execution handle 发送 `SIGINT`。部署配置提供明确的默认 timeout 与调用方可选值上限，`timedOut` 则独立于 exit 与 cancellation status 报告 deadline。不支持原生二进制、后台进程、PTY 和任意 Linux 行为。 |
 | Workspace filesystem | 本地 filesystem services 和 host paths | 适配 | 在 owner 基于 SQLite 的 Durable Object VFS 中保存 `/workspace`。 |
 | Session persistence | `SessionPersistence` service、`PersistenceCoordinator` 及本地 JSONL/SQLite backends | 原生 backend 适配 | 复用上游 service 及 coordinator 的职责划分，在 Durable Object SQL 上实现存储原语，并使用上游 header/event 映射。一个 Edge 独有表会在透明休眠期间保留 empty session header，并在 canonical rows 物化时删除；Edge 不定义 turn 或 message schema。内部 coordinator helper 负责校验有界 replay loader，并在 disposal 前放弃失败且尚未物化的创建。 |
-| Settings and credentials | 基于文件的 settings、launch environment 和 credential services | 可写，使用 DO 存储 | 上游 `dsh-settings` 插件通过 `DurableObjectSettingsProvider` 把 user section 持久化到 Durable Object KV。上游 `dsh-llm-deepseek` cordis 插件直接安装，自动注册 `llm-deepseek` Settings 命名空间和可配置 Provider 条目；Settings → Models 页面可在运行时读取和修改 Provider 配置（base URL、model catalog、API key reference、reasoning effort），无需重新部署。`EdgeCredentialProvider` 先从 DO KV 解析凭证，然后降级到 Worker 环境变量 secret；`set`/`unset` 通过上游接缝持久化。Edge 默认值（maxTokens 8,192，reasoningEffort off）显式传递，确保未设置部署变量时保持文档化行为。 |
+| Settings and credentials | 基于文件的 settings、launch environment 和 credential services | 可写，使用 DO 存储 | 上游 `dsh-settings` 插件通过 `DurableObjectSettingsProvider` 把 user section 持久化到 Durable Object KV。上游 `dsh-llm-deepseek` cordis 插件直接安装，自动注册 `llm-deepseek` Settings 命名空间和可配置 Provider 条目；Settings → Models 页面可在运行时读取和修改 Provider 配置（base URL、model catalog、API key reference、reasoning effort），无需重新部署。`EdgeCredentialProvider` 先从 DO KV 解析凭证，然后降级到 Worker 环境变量 secret；`set`/`unset` 通过上游接缝持久化。部署默认值（maxTokens 256,000，reasoningEffort high）与上游插件对齐，未设置部署变量时与上游行为一致。 |
 | Host boot and plugins | Node 命令行、Cordis profile loading、package resolution 和 HMR | 显式 Edge composition | 不在 Workerd 中运行本地 boot profile。部署前构建 immutable 客户端包，并排除 HMR 及 Edge `ApiProxy` 未暴露的 host domain。 |
 | DSH transport | Typed HTTP RPC 加 mux/host WebSocket downlink | 复用并提供 Edge 服务端实现 | 对 unary method 使用上游 fetch carrier，并保留其 envelope、schema、projection、lazy blank-session 行为、有界内容搜索、prompt 与 queue mutation、workspace mutation、queue snapshot 和 event frame。两条 downlink 都由 Durable Object WebSocket 休眠机制持有；mux 重连会重放 live inbox 的待处理状态，REST/SSE 路由则保留为诊断兼容路径。 |
 | Workspace registry | Storage-domain global state 加 `WorkspaceRecord` rows | 原生 backend 适配 | 保持上游 global 和 record value shape，包括手动 session 顺序与 archive membership；仅把物理 key 和原子写入映射到 Durable Object storage。Edge 把 registry 限制为一个原生 `/workspace` VFS；rename、delete、recreate 与 session reorder 保持上游 RPC 和 Host-frame 语义。 |
@@ -175,8 +175,8 @@ Cloudflare static assets -> upstream Web shell + client plugin graph
 | `DEEPSEEK_BASE_URL` | Chat endpoint。必须是不含 URL userinfo 的 HTTP(S) URL。Browser 投影会省略可能携带 gateway credential 的 query 与 fragment。 |
 | `DEEPSEEK_SEARCH_BASE_URL` | Native Web Search 的 Anthropic-compatible Messages endpoint。默认为 `https://api.deepseek.com/anthropic/v1`；必须是不含 userinfo、query 与 fragment 的 HTTP(S) URL。Search 不跟随 redirect。 |
 | `DEEPSEEK_MODEL` | 已校验的部署默认模型；默认 `deepseek-v4-flash`。每个 session 可选择其他上游 catalog 条目。 |
-| `DEEPSEEK_REASONING_EFFORT` | `off`、`low`、`high` 或 `max`；默认 `off`。 |
-| `DEEPSEEK_MAX_OUTPUT_TOKENS` | 可选正安全整数，用于覆盖默认的 8,192-token chat 上限。 |
+| `DEEPSEEK_REASONING_EFFORT` | `off`、`low`、`high` 或 `max`；默认 `high`。 |
+| `DEEPSEEK_MAX_OUTPUT_TOKENS` | 可选正安全整数，用于覆盖默认的 256,000-token chat 上限。 |
 | `DEEPSEEK_STREAM_IDLE_TIMEOUT_MS` | 可选正整数，上限 2,147,483,647；默认 120,000 ms。 |
 | `DSH_EDGE_DEFAULT_COMMAND_TIMEOUT_MS` | Computer 命令默认 timeout；默认 120,000 ms。 |
 | `DSH_EDGE_MAX_COMMAND_TIMEOUT_MS` | 调用方可选 timeout 上限；默认 120,000 ms，且不能低于默认 timeout。 |
