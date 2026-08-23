@@ -221,7 +221,7 @@ npx dsh-edge install
 
 该命令通过 npm `latest` 渠道解析。只有在存在更新的预发布版且你想主动试用时，才使用 `npx dsh-edge@next install`。
 
-选择相同 runtime 并输入现有 Worker 名称即可升级。部署会保留 Durable Object 数据；由于 Cloudflare secret 只能写入而不能读取，升级会再次要求 owner access key 与 DeepSeek API key，并用输入值替换当前生效值：
+选择相同 runtime 并输入现有 Worker 名称即可升级。部署会保留 Durable Object 数据；由于 Cloudflare secret 只能写入而不能读取，升级会再次要求 owner access key。DeepSeek API key 提示为可选——直接按 Enter 跳过，稍后通过 Settings → Models 配置：
 
 稳定部署运行：
 

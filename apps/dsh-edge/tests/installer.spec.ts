@@ -191,7 +191,7 @@ describe('dsh-edge installer primitives', () => {
     expect(validateOwnerSecret(`${OWNER_SECRET}\n`)).toContain('whitespace')
     expect(validateOwnerSecret(`${OWNER_SECRET}\u202E`)).toContain('bidirectional')
     expect(validateDeepSeekKey('sk-test')).toBeUndefined()
-    expect(validateDeepSeekKey('')).toContain('Enter')
+    expect(validateDeepSeekKey('')).toBeUndefined()
     expect(validateDeepSeekKey(' sk-test')).toContain('whitespace')
   })
 
