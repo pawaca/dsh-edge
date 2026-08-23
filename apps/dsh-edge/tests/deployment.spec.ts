@@ -23,9 +23,9 @@ describe('dsh-edge deployment configuration', () => {
   it('resolves the complete default turn configuration before reporting ready', () => {
     expect(resolveEdgeDeploymentConfig(VALID_SOURCE)).toEqual({
       baseURL: 'https://api.deepseek.com',
-      maxTokens: 8_192,
+      maxTokens: 256_000,
       model: 'deepseek-v4-flash',
-      reasoningEffort: 'off',
+      reasoningEffort: 'high',
       searchBaseURL: 'https://api.deepseek.com/anthropic/v1',
       streamIdleTimeoutMs: 120_000,
       commandTimeoutPolicy: {

@@ -124,7 +124,7 @@ describe('dsh-edge native agent runtime', () => {
   })
 
   it('validates the deployment model output cap', () => {
-    expect(resolveEdgeMaxOutputTokens()).toBe(8_192)
+    expect(resolveEdgeMaxOutputTokens()).toBe(256_000)
     expect(resolveEdgeMaxOutputTokens('32768')).toBe(32_768)
     expect(() => resolveEdgeMaxOutputTokens('0')).toThrow(/positive integer/)
     expect(() => resolveEdgeMaxOutputTokens('1.5')).toThrow(/positive integer/)
@@ -141,7 +141,7 @@ describe('dsh-edge native agent runtime', () => {
     expect(resolveEdgeModel('deepseek-v4-pro')).toBe('deepseek-v4-pro')
     expect(() => resolveEdgeModel('bad model')).toThrow(/valid model id/)
     expect(() => resolveEdgeModel('x'.repeat(129))).toThrow(/valid model id/)
-    expect(resolveEdgeReasoningEffort()).toBe('off')
+    expect(resolveEdgeReasoningEffort()).toBe('high')
     expect(resolveEdgeReasoningEffort('low')).toBe('low')
     expect(resolveEdgeReasoningEffort('high')).toBe('high')
     expect(resolveEdgeReasoningEffort('max')).toBe('max')
