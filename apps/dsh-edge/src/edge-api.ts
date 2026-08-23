@@ -620,7 +620,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
           const liveMaxTokens = llmSection?.['maxTokens']
           const liveProfile = {
             ...deployment,
-            ...(typeof liveBaseURL === 'string' ? { baseURL: liveBaseURL } : {}),
+            ...(typeof liveBaseURL === 'string' ? { baseURL: sanitizeProjectedURL(liveBaseURL) } : {}),
             ...(typeof liveEffort === 'string'
               ? { reasoningEffort: liveEffort as typeof deployment.reasoningEffort } : {}),
             ...(typeof liveMaxTokens === 'number' ? { maxTokens: liveMaxTokens } : {}),
@@ -996,6 +996,18 @@ function unsupported<T>(request: RpcRequest<unknown>): Promise<RpcResponse<T>> {
     message: 'This capability is not available in the Edge runtime.',
     details: {},
   }))
+}
+
+function sanitizeProjectedURL(raw: string): string {
+  try {
+    const parsed = new URL(raw)
+    if (parsed.search.length === 0 && parsed.hash.length === 0) return raw
+    parsed.search = ''
+    parsed.hash = ''
+    return parsed.href
+  } catch {
+    return raw
+  }
 }
 
 function sessionFailure<T>(
