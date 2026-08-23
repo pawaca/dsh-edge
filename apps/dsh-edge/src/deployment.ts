@@ -53,6 +53,7 @@ export interface EdgeDeploymentProfile {
   attachmentStorage: 'private-r2' | 'temporary-do'
   deploymentId: string
   apiKeyConfigured: boolean
+  apiKeyPersisted?: boolean
   baseURL: string
   maxTokens: number
   model: string
