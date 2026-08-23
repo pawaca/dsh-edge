@@ -1447,13 +1447,13 @@ function summarizeApiLive(
   }
 }
 
+const EDGE_DEFAULT_MAX_TOKENS = 8_192
+
 function buildEdgeLlmPluginConfig(config: EdgeSessionStoreConfig): Record<string, unknown> {
   const out: Record<string, unknown> = {}
   if (config.baseURL !== undefined) out['baseURL'] = config.baseURL
-  if (config.maxTokens !== undefined) {
-    const n = Number(config.maxTokens)
-    if (Number.isFinite(n)) out['maxTokens'] = n
-  }
+  const maxTokens = config.maxTokens === undefined ? EDGE_DEFAULT_MAX_TOKENS : Number(config.maxTokens)
+  if (Number.isFinite(maxTokens)) out['maxTokens'] = maxTokens
   if (config.reasoningEffort !== undefined) {
     out['reasoningEffort'] = config.reasoningEffort
     out['thinking'] = config.reasoningEffort === 'off' ? 'disabled' : 'enabled'
