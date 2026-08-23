@@ -76,8 +76,10 @@ describe('dsh-edge assembled browser snapshot', () => {
 
       await page.evaluate(() => {
         document.querySelectorAll('[role="presentation"]').forEach(el => el.remove())
+        document.body.style.pointerEvents = ''
+        document.documentElement.style.pointerEvents = ''
       })
-      await page.waitForTimeout(200)
+      await page.waitForTimeout(300)
       await page.locator('button[aria-haspopup="dialog"]').last().click()
       const settings = page.getByRole('dialog', { name: 'Settings', exact: true })
       await settings.getByRole('navigation')
