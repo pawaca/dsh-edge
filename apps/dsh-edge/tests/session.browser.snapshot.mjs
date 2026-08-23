@@ -78,6 +78,11 @@ describe('dsh-edge assembled browser snapshot', () => {
       expect(ownerCookie).toBeDefined()
       const ownerCookieHeader = `${ownerCookie.name}=${ownerCookie.value}`
 
+      const continueButton = page.getByRole('button', { name: 'Continue', exact: true })
+      await expect.poll(() => continueButton.count(), { timeout: 15_000 }).toBe(1)
+      await continueButton.click()
+      await expect.poll(() => continueButton.count(), { timeout: 5_000 }).toBe(0)
+
       await page.locator('button[aria-haspopup="dialog"]').last().click()
       const settings = page.getByRole('dialog', { name: 'Settings', exact: true })
       await settings.getByRole('navigation')
