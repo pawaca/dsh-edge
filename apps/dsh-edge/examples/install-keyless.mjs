@@ -29,7 +29,7 @@ steps = [
     (b"Install this instance?", b"\r"),
     (b"Accept these terms and create a temporary Cloudflare account?", b"y\r"),
     (b"Set the owner access key", b"\r"),
-    (b"DeepSeek API key setup", b"\r"),
+    (b"Configure provider key", b"\r"),
     (b"DeepSeek API key", b"sk-keyless-no-call\r"),
 ]
 output = bytearray()

@@ -206,7 +206,7 @@ export function createInstallerUi(
     },
     async deepSeekKey(validate) {
       const mode = await requireAnswer(await clack.select(withOutput({
-        message: 'DeepSeek API key setup',
+        message: 'Configure provider key',
         initialValue: 'enter',
         signal,
         options: [

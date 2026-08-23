@@ -6,7 +6,7 @@ TERMINAL
 | |_| |___) |  _  |_____| |___| |_| | |_| | |___
 |____/|____/|_| |_|     |_____|____/ \____|_____|
 DeepSeek Harness on Cloudflare
-dsh-edge 0.4.0-alpha.4 · Harness 0.1.1-rc.1
+dsh-edge 0.4.0 · Harness 0.1.1-rc.1
 community project · install
 │
 ◆  Choose a runtime
@@ -70,12 +70,12 @@ community project · install
 ◇  Set the owner access key
 │  Generate a secure key
 │
-◆  DeepSeek API key setup
+◆  Configure provider key
 │  ● Enter now
 │  ○ Configure later in Settings → Models
 │  ↑/↓ to navigate • Enter: confirm
 └
-◇  DeepSeek API key setup
+◇  Configure provider key
 │  Enter now
 │
 ◆  DeepSeek API key
