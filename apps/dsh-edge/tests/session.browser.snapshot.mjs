@@ -16,11 +16,7 @@ import { startMockDeepSeek } from './fixtures/mock-deepseek.mjs'
 const ACCESS_KEY = 'browser-snapshot-owner-key-32-bytes'
 
 describe('dsh-edge assembled browser snapshot', () => {
-  // TODO: The upstream settings-models plugin's onboarding overlay blocks all pointer
-  // events on the page body. The overlay is React-state-driven and cannot be dismissed
-  // programmatically without understanding its full readiness state machine. Requires
-  // interactive browser debugging to determine the correct pre-configuration sequence.
-  it.skip('pins the transcript rendered through the upstream Web client and Edge protocol', async () => {
+  it('pins the transcript rendered through the upstream Web client and Edge protocol', async () => {
     const persistedState = mkdtempSync(join(tmpdir(), 'dsh-edge-browser-snapshot-'))
     const config = join(persistedState, 'wrangler.json')
     await writePrebuiltModeWranglerConfig('direct', config, {
@@ -77,6 +73,11 @@ describe('dsh-edge assembled browser snapshot', () => {
         .find(cookie => cookie.name === 'dsh_edge_owner')
       expect(ownerCookie).toBeDefined()
       const ownerCookieHeader = `${ownerCookie.name}=${ownerCookie.value}`
+
+      const continueButton = page.getByRole('button', { name: 'Continue', exact: true })
+      await expect.poll(() => continueButton.count(), { timeout: 15_000 }).toBe(1)
+      await continueButton.click()
+      await expect.poll(() => continueButton.count(), { timeout: 5_000 }).toBe(0)
 
       await page.locator('button[aria-haspopup="dialog"]').last().click()
       const settings = page.getByRole('dialog', { name: 'Settings', exact: true })
