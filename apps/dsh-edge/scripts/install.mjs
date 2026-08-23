@@ -231,7 +231,7 @@ export function validateOwnerSecret(value) {
 
 /** Validate a provider key without encoding assumptions that DeepSeek does not promise. */
 export function validateDeepSeekKey(value) {
-  if (value === '') return undefined
+  if (value === undefined || value === '') return undefined
   if (value !== value.trim()) return 'The DeepSeek API key cannot start or end with whitespace.'
   if (CONTROL_CHARACTER.test(value)) return 'The DeepSeek API key cannot contain control characters.'
 }

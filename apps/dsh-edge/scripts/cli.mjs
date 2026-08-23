@@ -205,6 +205,16 @@ export function createInstallerUi(
       })))
     },
     async deepSeekKey(validate) {
+      const mode = await requireAnswer(await clack.select(withOutput({
+        message: 'DeepSeek API key setup',
+        initialValue: 'enter',
+        signal,
+        options: [
+          { value: 'enter', label: 'Enter now' },
+          { value: 'skip', label: 'Configure later in Settings → Models', hint: 'optional' },
+        ],
+      })))
+      if (mode === 'skip') return ''
       return await requireAnswer(await clack.password(withOutput({
         message: 'DeepSeek API key',
         mask: '•',

@@ -70,6 +70,14 @@ community project · install
 ◇  Set the owner access key
 │  Generate a secure key
 │
+◆  DeepSeek API key setup
+│  ● Enter now
+│  ○ Configure later in Settings → Models
+│  ↑/↓ to navigate • Enter: confirm
+└
+◇  DeepSeek API key setup
+│  Enter now
+│
 ◆  DeepSeek API key
 │  _
 └
