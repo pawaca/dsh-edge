@@ -185,6 +185,11 @@ export class EdgeSessionStore {
       readDeepSeekApiKey: () => config.readDeepSeekApiKey(),
     })
     await this.context.plugin(DurableObjectSettingsProvider, { storage })
+    const onboardingSchema = Object.assign(
+      (value: unknown) => value ?? {},
+      { toJSON: () => ({ type: 'object' }) },
+    ) as never
+    this.context.settings.register(settingsNamespace('ui-onboarding'), onboardingSchema, {})
     await this.context.plugin(LlmRuntime)
     try {
       await this.context.plugin(dshLlmDeepseek, buildEdgeLlmPluginConfig(config))
