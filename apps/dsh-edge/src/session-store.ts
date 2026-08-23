@@ -1454,10 +1454,9 @@ function buildEdgeLlmPluginConfig(config: EdgeSessionStoreConfig): Record<string
   if (config.baseURL !== undefined) out['baseURL'] = config.baseURL
   const maxTokens = config.maxTokens === undefined ? EDGE_DEFAULT_MAX_TOKENS : Number(config.maxTokens)
   if (Number.isFinite(maxTokens)) out['maxTokens'] = maxTokens
-  if (config.reasoningEffort !== undefined) {
-    out['reasoningEffort'] = config.reasoningEffort
-    out['thinking'] = config.reasoningEffort === 'off' ? 'disabled' : 'enabled'
-  }
+  const effort = config.reasoningEffort ?? 'off'
+  out['reasoningEffort'] = effort
+  out['thinking'] = effort === 'off' ? 'disabled' : 'enabled'
   if (config.streamIdleTimeoutMs !== undefined) {
     const n = Number(config.streamIdleTimeoutMs)
     if (Number.isFinite(n)) out['streamIdleTimeoutMs'] = n
