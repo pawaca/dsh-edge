@@ -23,9 +23,9 @@ describe('dsh-edge deployment configuration', () => {
   it('resolves the complete default turn configuration before reporting ready', () => {
     expect(resolveEdgeDeploymentConfig(VALID_SOURCE)).toEqual({
       baseURL: 'https://api.deepseek.com',
-      maxTokens: 8_192,
+      maxTokens: 256_000,
       model: 'deepseek-v4-flash',
-      reasoningEffort: 'off',
+      reasoningEffort: 'high',
       searchBaseURL: 'https://api.deepseek.com/anthropic/v1',
       streamIdleTimeoutMs: 120_000,
       commandTimeoutPolicy: {
@@ -116,7 +116,6 @@ describe('dsh-edge deployment configuration', () => {
   })
 
   it.each([
-    [{}, /Configure the DEEPSEEK_API_KEY Worker secret/u],
     [{ ...VALID_SOURCE, DEEPSEEK_BASE_URL: 'file:///tmp/model' }, /valid HTTP\(S\) URL/u],
     [{ ...VALID_SOURCE, DEEPSEEK_MAX_OUTPUT_TOKENS: '0' }, /positive integer/u],
     [{ ...VALID_SOURCE, DEEPSEEK_MODEL: 'bad model' }, /valid model id/u],
@@ -142,6 +141,13 @@ describe('dsh-edge deployment configuration', () => {
       ...VALID_SOURCE,
       DEEPSEEK_REASONING_EFFORT: 'low',
     }).reasoningEffort).toBe('low')
+  })
+
+  it('reports ready health without a deployment API key', () => {
+    const { DEEPSEEK_API_KEY: _, ...sourceWithoutKey } = VALID_SOURCE
+    const health = resolveEdgeDeploymentHealth(sourceWithoutKey)
+    expect(health.ok).toBe(true)
+    expect(health.status).toBe('ready')
   })
 
 })

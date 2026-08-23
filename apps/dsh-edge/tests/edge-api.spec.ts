@@ -135,8 +135,18 @@ function runtime(
       },
     }),
     describeCredential: vi.fn(async ref => ref === 'DEEPSEEK_API_KEY'
-      ? { configured: true, source: 'worker-secret', writable: false }
-      : { configured: false, writable: false }),
+      ? { configured: true, source: 'worker-secret', writable: true }
+      : { configured: false, writable: true }),
+    setCredential: vi.fn(async () => {}),
+    unsetCredential: vi.fn(async () => {}),
+    settingsWritable: vi.fn(async () => true),
+    settingsHasDocument: vi.fn(async () => false),
+    describeSettings: vi.fn(async () => []),
+    updateSettings: vi.fn(async () => undefined),
+    replaceSettings: vi.fn(async () => undefined),
+    mutateSettings: vi.fn(async () => undefined),
+    listConfigurableProviders: vi.fn(async () => []),
+    listLlmProviders: vi.fn(async () => [{ id: 'deepseek-official', name: 'DeepSeek' }]),
     isRunning: () => false,
     prompt: vi.fn(async () => {}),
     updateQueue: vi.fn(() => 'accepted' as const),
@@ -205,20 +215,20 @@ describe('Edge upstream API invariants', () => {
       ok: true,
       value: {
         credentials: {
-          DEEPSEEK_API_KEY: { configured: true, source: 'worker-secret', writable: false },
-          OTHER_KEY: { configured: false, writable: false },
+          DEEPSEEK_API_KEY: { configured: true, source: 'worker-secret', writable: true },
+          OTHER_KEY: { configured: false, writable: true },
         },
       },
     })
 
     const unconfigured = await createEdgeApi(runtime({}, {
-      describeCredential: vi.fn(async () => ({ configured: false, writable: false })),
+      describeCredential: vi.fn(async () => ({ configured: false, writable: true })),
     })).credentials.describe(request({ refs: ['DEEPSEEK_API_KEY'] }))
     expect(unconfigured.result).toEqual({
       ok: true,
       value: {
         credentials: {
-          DEEPSEEK_API_KEY: { configured: false, writable: false },
+          DEEPSEEK_API_KEY: { configured: false, writable: true },
         },
       },
     })

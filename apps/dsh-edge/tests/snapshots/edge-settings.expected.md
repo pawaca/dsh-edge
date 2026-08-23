@@ -4,6 +4,9 @@
     - button "General":
       - img
       - text: General
+    - button "Models":
+      - img
+      - text: Models
     - button "Agent presets":
       - img
       - text: Agent presets
@@ -19,12 +22,12 @@
   - region "Release":
     - heading "Release" [level=3]
     - term: Installed version
-    - definition: 0.3.0
+    - definition: 0.4.0-alpha.1
     - term: Update channel
     - definition:
-      - code: latest
+      - code: next
     - term: Channel version
-    - definition: 0.3.1
+    - definition: 0.5.0
     - term: DeepSeek Harness base
     - definition: 0.1.1-rc.1
     - paragraph: Update available
@@ -39,7 +42,7 @@
     - definition: Durable Object SQLite VFS
     - term: Deployment ID
     - definition:
-      - code: dsh-edge@0.3.0/direct
+      - code: dsh-edge@0.4.0-alpha.1/direct
   - region "Owner session":
     - heading "Owner session" [level=3]
     - paragraph: Signing out clears this browser’s owner session. Your deployment and data remain unchanged.

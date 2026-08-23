@@ -231,7 +231,7 @@ export function validateOwnerSecret(value) {
 
 /** Validate a provider key without encoding assumptions that DeepSeek does not promise. */
 export function validateDeepSeekKey(value) {
-  if (value === '') return 'Enter a DeepSeek API key.'
+  if (value === '') return undefined
   if (value !== value.trim()) return 'The DeepSeek API key cannot start or end with whitespace.'
   if (CONTROL_CHARACTER.test(value)) return 'The DeepSeek API key cannot contain control characters.'
 }
@@ -685,7 +685,7 @@ export async function installEdge({
       ...bucketName === undefined ? {} : { r2BucketName: bucketName },
     })
     await writeFile(secretsFile, JSON.stringify({
-      DEEPSEEK_API_KEY: deepSeekKey,
+      ...deepSeekKey !== '' ? { DEEPSEEK_API_KEY: deepSeekKey } : {},
       DSH_EDGE_ACCESS_KEY: ownerSecret,
     }), { encoding: 'utf8', mode: 0o600, flag: 'wx' })
 

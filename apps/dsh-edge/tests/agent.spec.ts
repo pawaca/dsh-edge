@@ -21,7 +21,10 @@ import {
   type EdgeShell,
 } from '../src/agent.ts'
 import {
-  EdgeDeepSeekAdapter,
+  DeepSeekAdapter,
+  resolveAdapterOptions,
+} from '@deepseek-ai/dsh-llm-deepseek'
+import {
   resolveEdgeBaseURL,
   resolveEdgeMaxOutputTokens,
   resolveEdgeModel,
@@ -65,10 +68,9 @@ async function harness(replies: readonly (readonly StreamChunk[])[], shell: Edge
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(AgentLoop, { agents: [] })
 
-  const route = new EdgeDeepSeekAdapter()
   const adapter = new ScriptedAdapter(replies)
   const shells = new EdgeShellBindings()
-  ctx.llm.registerAdapter(['deepseek-official'], route)
+  ctx.llm.registerAdapter(['deepseek-official'], adapter)
   ctx.tools.register(createEdgeBashTool(shells))
 
   const sessionId = SessionId(crypto.randomUUID())
@@ -81,9 +83,8 @@ async function harness(replies: readonly (readonly StreamChunk[])[], shell: Edge
   ctx.on('session/event', (subject, event) => {
     if (subject === agent.session) events.push(event)
   })
-  const releaseModel = route.bindAdapter(sessionId, adapter)
   const releaseShell = shells.bind(sessionId, shell)
-  return { ctx, agent, adapter, events, releaseModel, releaseShell }
+  return { ctx, agent, adapter, events, releaseShell }
 }
 
 async function followup(agent: Agent, text: string): Promise<void> {
@@ -96,7 +97,11 @@ async function followup(agent: Agent, text: string): Promise<void> {
 
 describe('dsh-edge native agent runtime', () => {
   it('reuses the upstream DeepSeek catalog including the experimental vision model', async () => {
-    const adapter = new EdgeDeepSeekAdapter()
+    const adapter = new DeepSeekAdapter({
+      options: () => resolveAdapterOptions({}),
+      resolveApiKey: async () => 'test-key',
+      resolveUserId: () => 'test-user' as never,
+    })
     const models = await adapter.listModels('deepseek-official')
 
     expect(models.map(model => model.id)).toEqual([
@@ -119,7 +124,7 @@ describe('dsh-edge native agent runtime', () => {
   })
 
   it('validates the deployment model output cap', () => {
-    expect(resolveEdgeMaxOutputTokens()).toBe(8_192)
+    expect(resolveEdgeMaxOutputTokens()).toBe(256_000)
     expect(resolveEdgeMaxOutputTokens('32768')).toBe(32_768)
     expect(() => resolveEdgeMaxOutputTokens('0')).toThrow(/positive integer/)
     expect(() => resolveEdgeMaxOutputTokens('1.5')).toThrow(/positive integer/)
@@ -136,7 +141,7 @@ describe('dsh-edge native agent runtime', () => {
     expect(resolveEdgeModel('deepseek-v4-pro')).toBe('deepseek-v4-pro')
     expect(() => resolveEdgeModel('bad model')).toThrow(/valid model id/)
     expect(() => resolveEdgeModel('x'.repeat(129))).toThrow(/valid model id/)
-    expect(resolveEdgeReasoningEffort()).toBe('off')
+    expect(resolveEdgeReasoningEffort()).toBe('high')
     expect(resolveEdgeReasoningEffort('low')).toBe('low')
     expect(resolveEdgeReasoningEffort('high')).toBe('high')
     expect(resolveEdgeReasoningEffort('max')).toBe('max')
@@ -173,7 +178,6 @@ describe('dsh-edge native agent runtime', () => {
       })
     } finally {
       runtime.releaseShell()
-      runtime.releaseModel()
       await runtime.ctx.fiber.dispose()
     }
   })
@@ -202,7 +206,6 @@ describe('dsh-edge native agent runtime', () => {
     } finally {
       admission.dispose()
       runtime.releaseShell()
-      runtime.releaseModel()
       await runtime.ctx.fiber.dispose()
     }
   })
@@ -244,7 +247,6 @@ describe('dsh-edge native agent runtime', () => {
       expect(runtime.events.filter(event => event.type === 'step/start')).toHaveLength(2)
     } finally {
       runtime.releaseShell()
-      runtime.releaseModel()
       await runtime.ctx.fiber.dispose()
     }
   })

@@ -58,7 +58,11 @@ describe('dsh-edge assembled browser snapshot', () => {
       })
       await page.route('https://registry.npmjs.org/dsh-edge/latest', route => route.fulfill({
         contentType: 'application/json',
-        body: JSON.stringify({ version: '0.3.1' }),
+        body: JSON.stringify({ version: '0.5.0' }),
+      }))
+      await page.route('https://registry.npmjs.org/dsh-edge/next', route => route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({ version: '0.5.0' }),
       }))
       await page.goto(origin, { waitUntil: 'load' })
       await page.getByLabel('Owner access key').fill(ACCESS_KEY)
@@ -70,19 +74,26 @@ describe('dsh-edge assembled browser snapshot', () => {
       expect(ownerCookie).toBeDefined()
       const ownerCookieHeader = `${ownerCookie.name}=${ownerCookie.value}`
 
+      const continueButton = page.getByRole('button', { name: 'Continue', exact: true })
+      if (await continueButton.count() > 0
+        || await continueButton.waitFor({ timeout: 5_000 }).then(() => true, () => false)) {
+        await continueButton.click()
+        await expect.poll(() => continueButton.count(), { timeout: 5_000 }).toBe(0)
+      }
+
       await page.locator('button[aria-haspopup="dialog"]').last().click()
       const settings = page.getByRole('dialog', { name: 'Settings', exact: true })
       await settings.getByRole('navigation')
         .getByRole('button', { name: 'DSH Edge', exact: true })
         .click()
-      await expect.poll(() => settings.getByText('0.3.0', { exact: true }).count()).toBe(1)
+      await expect.poll(() => settings.getByText('0.4.0-alpha.1', { exact: true }).count()).toBe(1)
       await settings.getByRole('button', { name: 'Copy upgrade command', exact: true }).click()
       await expect.poll(() => settings.getByRole('button', {
         name: 'Upgrade command copied', exact: true,
       }).count())
         .toBe(1)
       expect(await page.evaluate(() => globalThis.__dshEdgeCopiedText))
-        .toBe('npx dsh-edge@latest upgrade')
+        .toBe('npx dsh-edge@next upgrade')
       const edgeSettingsSnapshot = await stableAria(page, '[role="dialog"]')
       await expect(normalize(edgeSettingsSnapshot))
         .toMatchFileSnapshot('./snapshots/edge-settings.expected.md')
@@ -223,7 +234,7 @@ describe('dsh-edge assembled browser snapshot', () => {
       await expect.poll(() => page.getByRole('tooltip').count()).toBe(0)
       await expect.poll(
         () => page.getByRole('button', {
-          name: 'Select model, current DeepSeek-V4-Flash-Vision-Exp, reasoning effort Off',
+          name: 'Select model, current DeepSeek-V4-Flash-Vision-Exp, reasoning effort High',
           exact: true,
         }).count(),
         { timeout: 15_000 },

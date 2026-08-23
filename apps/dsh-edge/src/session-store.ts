@@ -49,13 +49,19 @@ import {
   createEdgeBashTool,
   type EdgeShell,
 } from './agent.ts'
-import { EdgeDeepSeekAdapter, type EdgeReasoningEffort } from './deepseek.ts'
+import * as dshLlmDeepseek from '@deepseek-ai/dsh-llm-deepseek'
 import {
   EdgeDoAttachmentStore,
   EdgeR2AttachmentStore,
   type EdgeAttachmentStorage,
 } from './edge-attachment-store.ts'
-import EdgeCredentialProvider, { EDGE_DEEPSEEK_API_KEY_REF } from './edge-credentials.ts'
+import {
+  settingsNamespace,
+  type SettingsDescriptor,
+  type SettingsPathOp,
+} from '@deepseek-ai/dsh-settings'
+import DurableObjectSettingsProvider from './do-settings-provider.ts'
+import EdgeCredentialProvider from './edge-credentials.ts'
 import DurableObjectSessionPersistence, {
   EDGE_HISTORY_PAGE_LIMITS,
   type EdgeEventPage,
@@ -72,6 +78,10 @@ interface EdgeSessionStoreConfig {
   searchBaseURL?: string
   attachmentStorage: EdgeAttachmentStorage
   attachmentBucket?: R2Bucket
+  baseURL?: string
+  maxTokens?: string
+  reasoningEffort?: string
+  streamIdleTimeoutMs?: string
 }
 const MAX_FORK_STORED_BYTES = 8 * 1_024 * 1_024
 const MAX_SEARCH_SESSIONS = 32
@@ -147,9 +157,6 @@ export class EdgeSessionStoreError extends Error {
  */
 export class EdgeSessionStore {
   private readonly context = new Context()
-  private readonly model = new EdgeDeepSeekAdapter(async () => (
-    await this.context.credentials.resolve(EDGE_DEEPSEEK_API_KEY_REF)
-  )?.value, () => this.context.get('attachments'))
   private readonly shells = new EdgeShellBindings()
   private readonly blankHandles = new Map<SessionId, AgentHandle>()
   private readonly modelSelections: EdgeModelSelectionBridge
@@ -174,9 +181,21 @@ export class EdgeSessionStore {
           bucket: requireAttachmentBucket(config.attachmentBucket),
         }))
     await this.context.plugin(EdgeCredentialProvider, {
+      storage,
       readDeepSeekApiKey: () => config.readDeepSeekApiKey(),
     })
+    await this.context.plugin(DurableObjectSettingsProvider, { storage })
+    const onboardingSchema = Object.assign(
+      (value: unknown) => value ?? {},
+      { toJSON: () => ({ type: 'object' }) },
+    ) as never
+    this.context.settings.register(settingsNamespace('ui-onboarding'), onboardingSchema, {})
     await this.context.plugin(LlmRuntime)
+    try {
+      await this.context.plugin(dshLlmDeepseek, buildEdgeLlmPluginConfig(config))
+    } catch (error) {
+      console.error('dsh-edge: LLM provider plugin failed to initialize; model operations will be unavailable.', error)
+    }
     await this.context.plugin(SessionStore)
     await this.context.plugin(SystemPrompt, { persona: EDGE_SYSTEM_PROMPT })
     await this.context.plugin(ToolRuntime)
@@ -184,10 +203,6 @@ export class EdgeSessionStore {
     await installEdgeWebSearch(this.context, config.searchBaseURL)
     await this.context.plugin(DurableObjectSessionPersistence, { storage })
     await this.context.plugin(AgentLoop, { agents: [] })
-    this.context.effect(
-      () => this.context.llm.registerAdapter([EDGE_PROVIDER], this.model),
-      'dsh-edge: model adapter',
-    )
     this.context.effect(
       () => this.context.tools.register(createEdgeBashTool(this.shells)),
       'dsh-edge: bash tool',
@@ -243,6 +258,99 @@ export class EdgeSessionStore {
   async describeCredential(ref: string): Promise<CredentialInfo> {
     await this.ready
     return await this.context.credentials.describe(credentialRef(ref))
+  }
+
+  /** Persist one credential through the mounted upstream provider. */
+  async setCredential(ref: string, value: string): Promise<void> {
+    await this.ready
+    await this.context.credentials.set(credentialRef(ref), value)
+  }
+
+  /** Remove one credential from the mounted upstream provider. */
+  async unsetCredential(ref: string): Promise<void> {
+    await this.ready
+    await this.context.credentials.unset(credentialRef(ref))
+  }
+
+  /** List every configurable provider with its live/dormant state. */
+  async listConfigurableProviders(): Promise<{
+    provider: string
+    displayName: string
+    settingsNs: string
+    settingsPath: readonly string[]
+    active: boolean
+    declared?: boolean
+  }[]> {
+    await this.ready
+    const live = new Set(this.context.llm.listProviders().map(p => p.id))
+    return this.context.llm.listConfigurableProviders().map(entry => ({
+      provider: entry.provider,
+      displayName: entry.displayName,
+      settingsNs: entry.settingsNs,
+      settingsPath: [...entry.settingsPath],
+      active: live.has(entry.provider),
+      ...entry.declared === undefined ? {} : { declared: entry.declared },
+    }))
+  }
+
+  /** List provider identities from the upstream LLM runtime. */
+  async listLlmProviders(): Promise<{ id: string; name: string }[]> {
+    await this.ready
+    return this.context.llm.listProviders().map(p => ({ id: p.id, name: p.name }))
+  }
+
+  /** Whether the mounted settings provider accepts runtime writes. */
+  async settingsWritable(): Promise<boolean> {
+    await this.ready
+    return this.context.settings?.writable ?? false
+  }
+
+  /** Whether the mounted settings provider owns a user-editable file. */
+  async settingsHasDocument(): Promise<boolean> {
+    await this.ready
+    return this.context.settings?.documentPath !== undefined
+  }
+
+  /** Describe all registered settings namespaces with redacted secrets. */
+  async describeSettings(): Promise<SettingsDescriptor[]> {
+    await this.ready
+    return this.context.settings?.describe({ redactSecrets: true }) ?? []
+  }
+
+  /** Merge a patch into one namespace's user section. */
+  async updateSettings(
+    ns: string,
+    patch: object,
+    expectedRevision?: number,
+  ): Promise<SettingsDescriptor | undefined> {
+    await this.ready
+    await this.context.settings.update(settingsNamespace(ns), patch, expectedRevision)
+    return this.context.settings.describe({ redactSecrets: true })
+      .find(d => (d.ns as string) === ns)
+  }
+
+  /** Replace one namespace's user section wholesale. */
+  async replaceSettings(
+    ns: string,
+    section: object,
+    expectedRevision?: number,
+  ): Promise<SettingsDescriptor | undefined> {
+    await this.ready
+    await this.context.settings.replace(settingsNamespace(ns), section, expectedRevision)
+    return this.context.settings.describe({ redactSecrets: true })
+      .find(d => (d.ns as string) === ns)
+  }
+
+  /** Apply path-addressed edits to one namespace's user section. */
+  async mutateSettings(
+    ns: string,
+    ops: readonly SettingsPathOp[],
+    expectedRevision?: number,
+  ): Promise<SettingsDescriptor | undefined> {
+    await this.ready
+    await this.context.settings.mutate(settingsNamespace(ns), ops, expectedRevision)
+    return this.context.settings.describe({ redactSecrets: true })
+      .find(d => (d.ns as string) === ns)
   }
 
   /** Project the registered upstream provider catalog into the upstream Web wire shape. */
@@ -886,10 +994,6 @@ export class EdgeSessionStore {
   /** Drive one turn through ReactLoopAgent and publish only durable events. */
   async runAgentTurn(input: {
     agent: Agent
-    baseURL?: string
-    maxTokens?: number
-    reasoningEffort?: EdgeReasoningEffort
-    streamIdleTimeoutMs?: number
     mode: 'queue' | 'steer'
     content: ContentBlock[]
     rpcId?: RpcId
@@ -907,23 +1011,7 @@ export class EdgeSessionStore {
       throw new EdgeSessionStoreError('INVALID_DATA', 'Agent is not the live persistence owner.')
     }
 
-    const releaseModel = this.model.bind(agent.id, {
-      ...input.baseURL === undefined ? {} : { baseURL: input.baseURL },
-      ...input.maxTokens === undefined ? {} : { maxTokens: input.maxTokens },
-      ...input.reasoningEffort === undefined
-        ? {}
-        : { reasoningEffort: input.reasoningEffort },
-      ...input.streamIdleTimeoutMs === undefined
-        ? {}
-        : { streamIdleTimeoutMs: input.streamIdleTimeoutMs },
-    })
-    let releaseShell: () => void
-    try {
-      releaseShell = this.shells.bind(agent.id, input.shell)
-    } catch (error) {
-      releaseModel()
-      throw error
-    }
+    const releaseShell = this.shells.bind(agent.id, input.shell)
     let delivery = Promise.resolve()
     let deliveryError: unknown
     const stopObserving = this.context.on('session/event', (subject, event) => {
@@ -980,7 +1068,6 @@ export class EdgeSessionStore {
       stopObserving()
       this.turnPublishedAgents.delete(agent)
       releaseShell()
-      releaseModel()
     }
   }
 
@@ -1363,6 +1450,21 @@ function summarizeApiLive(
     ...header.cwd === undefined ? {} : { cwd: header.cwd },
     ...header.agentPreset === undefined ? {} : { agentPreset: header.agentPreset },
   }
+}
+
+function buildEdgeLlmPluginConfig(config: EdgeSessionStoreConfig): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  if (config.baseURL !== undefined) out['baseURL'] = config.baseURL
+  if (config.maxTokens !== undefined) {
+    const n = Number(config.maxTokens)
+    if (Number.isFinite(n)) out['maxTokens'] = n
+  }
+  if (config.reasoningEffort !== undefined) out['reasoningEffort'] = config.reasoningEffort
+  if (config.streamIdleTimeoutMs !== undefined) {
+    const n = Number(config.streamIdleTimeoutMs)
+    if (Number.isFinite(n)) out['streamIdleTimeoutMs'] = n
+  }
+  return out
 }
 
 function defaultModelSelection(model: string): ModelSelection {

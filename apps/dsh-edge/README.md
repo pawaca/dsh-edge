@@ -13,7 +13,7 @@ The checked-in Wrangler configuration exposes two deployment targets from the sa
 The runtime keeps upstream ownership clear:
 
 - `ReactLoopAgent`, `AgentRegistry`, `LlmRuntime`, `ToolRuntime`, `SystemPrompt`, `SessionStore`, and `SessionPersistence` run through the upstream Cordis composition.
-- Edge binds a request-scoped DeepSeek adapter and maps the native DSH `bash` tool onto Cloudflare Computer.
+- The upstream `dsh-llm-deepseek` cordis plugin is installed directly, auto-registering its settings namespace and configurable provider entry. Edge maps the native DSH `bash` tool onto Cloudflare Computer.
 - Durable Object SQLite implements the upstream persistence backend contract. `PersistenceCoordinator` still owns write-behind, revisions, resume preparation, and crash recovery.
 - Model history is projected from canonical events rather than persisted in a second Edge schema.
 
@@ -48,9 +48,9 @@ To call DeepSeek, create an ignored `apps/dsh-edge/.dev.vars` file:
 ```dotenv
 DSH_EDGE_ACCESS_KEY=replace-with-at-least-32-random-bytes
 DEEPSEEK_API_KEY=replace-with-your-key
-DEEPSEEK_MAX_OUTPUT_TOKENS=8192
+DEEPSEEK_MAX_OUTPUT_TOKENS=256000
 DEEPSEEK_MODEL=deepseek-v4-flash
-DEEPSEEK_REASONING_EFFORT=off
+DEEPSEEK_REASONING_EFFORT=high
 DEEPSEEK_STREAM_IDLE_TIMEOUT_MS=120000
 DSH_EDGE_DEFAULT_COMMAND_TIMEOUT_MS=120000
 DSH_EDGE_MAX_COMMAND_TIMEOUT_MS=120000
@@ -117,7 +117,7 @@ This reference separates code that runs natively in Workers, code adapted at an 
 | Bash tool | Node subprocess, sandbox, terminal, and job services | Adapted at the native tool seam | Register an upstream `ToolDefinition`, but execute its body through the configured Computer workspace backend and just-bash. The default direct backend runs inside the owner Durable Object with hardened interpreter limits and no network command; adding a `LOADER` binding selects Computer's isolated Worker Shell backend. Native tool cancellation sends `SIGINT` through the Computer execution handle. Deployment configuration supplies an explicit default timeout and caller-selectable ceiling, while `timedOut` reports the deadline independently from exit and cancellation status. Native binaries, background processes, PTYs, and arbitrary Linux behavior are unavailable. |
 | Workspace filesystem | Local filesystem services and host paths | Adapted | Store `/workspace` in the owner's SQLite-backed Durable Object VFS. |
 | Session persistence | `SessionPersistence` service, `PersistenceCoordinator`, and local JSONL/SQLite backends | Native backend adaptation | Reuse the upstream service and coordinator ownership. Implement storage primitives over Durable Object SQL with the upstream header/event mapping. One Edge-only table retains empty session headers across transparent hibernation and is removed when canonical rows materialize; no Edge turn or message schema exists. Internal coordinator helpers validate the bounded replay loader and abandon a failed unmaterialized creation before disposal. |
-| Settings and credentials | File-backed settings, launch environment, and credential services | Read-only edge projection | Resolve the Worker secret per operation; never persist or return the literal key. Blank secrets are unconfigured, while surrounding whitespace is removed before use. `credentials.describe` reports only whether `DEEPSEEK_API_KEY` is configured and that its read-only source is `worker-secret`. The built-in `dsh-edge` preset projects its effective release, shell/VFS, deployment-default model, runtime-derived upstream model catalog, per-session selection scope, limits, credential state, prompt, and tools through the upstream read-only composition viewer. Writable settings and authenticated per-user secret storage remain open. |
+| Settings and credentials | File-backed settings, launch environment, and credential services | Writable with DO storage | The upstream `dsh-settings` plugin persists user sections in Durable Object KV via `DurableObjectSettingsProvider`. The upstream `dsh-llm-deepseek` cordis plugin is installed directly, auto-registering the `llm-deepseek` settings namespace and configurable provider entry; the Settings → Models page can read and modify provider configuration (base URL, model catalog, API key reference, reasoning effort) at runtime without redeployment. `EdgeCredentialProvider` resolves credentials from DO KV first, then falls back to Worker environment secrets; `set`/`unset` persist through the upstream seam. Deployment defaults (maxTokens 256,000, reasoningEffort high) are aligned with the upstream plugin so unset deployment variables match upstream behavior. |
 | Host boot and plugins | Node command line, Cordis profile loading, package resolution, and HMR | Explicit Edge composition | Keep the local boot profile out of Workerd. Build immutable client bundles ahead of deployment; exclude HMR and host domains that the Edge `ApiProxy` does not expose. |
 | DSH transport | Typed HTTP RPC plus mux and host WebSocket downlinks | Reused with an Edge server implementation | Use the upstream fetch carrier for unary methods and preserve its envelopes, schemas, projections, lazy blank-session behavior, bounded content search, prompt and queue mutations, workspace mutations, queue snapshots, and event frames. Durable Object WebSocket hibernation owns both downlinks; mux reconnects replay pending live inbox state, while REST/SSE routes remain a diagnostic compatibility path. |
 | Workspace registry | Storage-domain global state plus `WorkspaceRecord` rows | Native backend adaptation | Keep the upstream global and record value shapes, including manual session order and archive membership, but map their physical keys and atomic writes to Durable Object storage. Edge constrains the registry to the one native `/workspace` VFS; rename, delete, recreation, and session reordering retain the upstream RPC and Host-frame semantics. |
@@ -140,7 +140,7 @@ Cloudflare static assets -> upstream Web shell + client plugin graph
   -> ReactLoopAgent.followup(queue) or ReactLoopAgent.steer(steer)
   -> pre-step admission gate waits for the sessions.flush durability barrier
   -> session/queue snapshots publish live and replay on mux reconnect
-  -> turn-scoped DeepSeekAdapter configuration selected by sessionId
+  -> upstream dsh-llm-deepseek plugin resolves configuration from settings + launch environment
   -> upstream attachment resolver reads and verifies authorized backend bytes
   -> upstream LlmRuntime + ReactLoopAgent stream/event pipeline
   -> upstream ToolRuntime native bash or web_search call
@@ -168,15 +168,15 @@ A focused failure test proves that post-enqueue durability failure blocks model 
 
 ## API-key boundary
 
-`DEEPSEEK_API_KEY` from `.dev.vars` is the local credential source. A read-only Edge provider exposes it through upstream `ctx.credentials` for each chat or search operation without writing the value to Durable Object storage, the VFS, session events, or responses. Surrounding whitespace is removed; a blank value is unconfigured.
+`DEEPSEEK_API_KEY` may be set as a Worker secret at deployment or entered later through the Settings → Models page. The Edge credential provider checks Durable Object KV first, then falls back to the Worker environment variable; resolved values remain request-scoped and are never written to session events or responses. Surrounding whitespace is removed; a blank value is unconfigured.
 
 | Variable | Purpose and validation |
 | --- | --- |
 | `DEEPSEEK_BASE_URL` | Chat endpoint. Must be HTTP(S) without URL userinfo. The browser projection omits query and fragment components that may carry gateway credentials. |
 | `DEEPSEEK_SEARCH_BASE_URL` | Anthropic-compatible Messages endpoint for native Web Search. Defaults to `https://api.deepseek.com/anthropic/v1`; must be HTTP(S) without userinfo, query, or fragment. Search does not follow redirects. |
 | `DEEPSEEK_MODEL` | Validated deployment default; defaults to `deepseek-v4-flash`. Each session may choose another upstream catalog entry. |
-| `DEEPSEEK_REASONING_EFFORT` | `off`, `low`, `high`, or `max`; defaults to `off`. |
-| `DEEPSEEK_MAX_OUTPUT_TOKENS` | Optional positive safe integer overriding the 8,192-token chat default. |
+| `DEEPSEEK_REASONING_EFFORT` | `off`, `low`, `high`, or `max`; defaults to `high`. |
+| `DEEPSEEK_MAX_OUTPUT_TOKENS` | Optional positive safe integer overriding the 256,000-token chat default. |
 | `DEEPSEEK_STREAM_IDLE_TIMEOUT_MS` | Optional positive integer up to 2,147,483,647; defaults to 120,000 ms. |
 | `DSH_EDGE_DEFAULT_COMMAND_TIMEOUT_MS` | Default Computer command timeout; defaults to 120,000 ms. |
 | `DSH_EDGE_MAX_COMMAND_TIMEOUT_MS` | Caller-selectable timeout ceiling; defaults to 120,000 ms and cannot be lower than the default. |
@@ -221,7 +221,7 @@ npx dsh-edge install
 
 This resolves through npm's `latest` channel. Use `npx dsh-edge@next install` only to opt into a newer prerelease when one is available.
 
-Upgrade an existing named Worker with the same runtime choice. The deployment keeps its Durable Object data; because Cloudflare secrets are write-only, the upgrade asks for the owner access key and DeepSeek API key again and replaces their active values:
+Upgrade an existing named Worker with the same runtime choice. The deployment keeps its Durable Object data; because Cloudflare secrets are write-only, the upgrade asks for the owner access key again. The DeepSeek API key prompt is optional — press Enter to skip it and configure the key later through Settings → Models:
 
 For a stable deployment, run:
 

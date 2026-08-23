@@ -8,7 +8,6 @@ import {
   resolveEdgeReasoningEffort,
   resolveEdgeStreamIdleTimeoutMs,
 } from './deepseek.ts'
-import { resolveDeepSeekApiKey } from './http.ts'
 import { resolveEdgeSearchBaseURL } from './web-search.ts'
 import {
   resolveEdgeCommandTimeoutPolicy,
@@ -70,11 +69,10 @@ export function resolveEdgeDeploymentId(): string {
     : LOCAL_DEPLOYMENT_ID
 }
 
-/** Resolve every deployment choice before health succeeds or a turn is claimed. */
+/** Resolve every deployment choice before a turn is claimed. */
 export function resolveEdgeDeploymentConfig(
   source: EdgeDeploymentConfigSource,
 ): EdgeDeploymentConfig {
-  resolveDeepSeekApiKey(source.DEEPSEEK_API_KEY)
   return {
     baseURL: resolveEdgeBaseURL(source.DEEPSEEK_BASE_URL),
     maxTokens: resolveEdgeMaxOutputTokens(source.DEEPSEEK_MAX_OUTPUT_TOKENS),
