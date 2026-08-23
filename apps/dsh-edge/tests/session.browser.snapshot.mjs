@@ -74,7 +74,11 @@ describe('dsh-edge assembled browser snapshot', () => {
       expect(ownerCookie).toBeDefined()
       const ownerCookieHeader = `${ownerCookie.name}=${ownerCookie.value}`
 
-      await page.locator('button[aria-haspopup="dialog"]').last().click({ force: true })
+      await page.evaluate(() => {
+        const buttons = document.querySelectorAll('button[aria-haspopup="dialog"]')
+        const settingsButton = buttons[buttons.length - 1]
+        if (settingsButton) settingsButton.click()
+      })
       const settings = page.getByRole('dialog', { name: 'Settings', exact: true })
       await settings.getByRole('navigation')
         .getByRole('button', { name: 'DSH Edge', exact: true })
