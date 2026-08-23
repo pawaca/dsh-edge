@@ -82,6 +82,7 @@ export interface EdgeApiRuntime {
     active: boolean
     declared?: boolean
   }[]>
+  listLlmProviders(): Promise<{ id: string; name: string }[]>
   isRunning(sessionId: SessionId): boolean
   prompt(input: {
     sessionId: SessionId
@@ -727,16 +728,8 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
     llm: {
       async providers(request) {
         const configurable = await runtime.listConfigurableProviders()
-        const providers = [
-          {
-            provider: EDGE_PROVIDER,
-            displayName: 'DeepSeek',
-            settingsNs: 'llm-deepseek',
-            settingsPath: [] as string[],
-            active: true,
-            declared: false,
-          },
-          ...configurable.map(entry => ({
+        return ok(request, {
+          providers: configurable.map(entry => ({
             provider: entry.provider,
             displayName: entry.displayName,
             settingsNs: entry.settingsNs,
@@ -744,8 +737,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
             active: entry.active,
             ...entry.declared === undefined ? {} : { declared: entry.declared },
           })),
-        ]
-        return ok(request, { providers })
+        })
       },
       async models(request) {
         return ok(request, await runtime.sessions.modelCatalog())

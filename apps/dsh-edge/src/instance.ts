@@ -32,7 +32,6 @@ import { OWNER_SESSION_EXPIRY_HEADER } from './auth.ts'
 import { DirectShellBackend } from './direct-shell.ts'
 import {
   resolveEdgeModel,
-  type EdgeReasoningEffort,
 } from './deepseek.ts'
 import {
   resolveEdgeDeploymentConfig,
@@ -193,6 +192,18 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       ...this.env.DSH_EDGE_ATTACHMENTS === undefined
         ? {}
         : { attachmentBucket: this.env.DSH_EDGE_ATTACHMENTS },
+      ...this.env.DEEPSEEK_BASE_URL === undefined
+        ? {}
+        : { baseURL: this.env.DEEPSEEK_BASE_URL },
+      ...this.env.DEEPSEEK_MAX_OUTPUT_TOKENS === undefined
+        ? {}
+        : { maxTokens: this.env.DEEPSEEK_MAX_OUTPUT_TOKENS },
+      ...this.env.DEEPSEEK_REASONING_EFFORT === undefined
+        ? {}
+        : { reasoningEffort: this.env.DEEPSEEK_REASONING_EFFORT },
+      ...this.env.DEEPSEEK_STREAM_IDLE_TIMEOUT_MS === undefined
+        ? {}
+        : { streamIdleTimeoutMs: this.env.DEEPSEEK_STREAM_IDLE_TIMEOUT_MS },
     },
   )
   private readonly workspaces = new EdgeWorkspaceStore(this.ctx.storage)
@@ -217,6 +228,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     replaceSettings: (ns, section, rev) => this.sessions.replaceSettings(ns, section, rev),
     mutateSettings: (ns, ops, rev) => this.sessions.mutateSettings(ns, ops, rev),
     listConfigurableProviders: () => this.sessions.listConfigurableProviders(),
+    listLlmProviders: () => this.sessions.listLlmProviders(),
     isRunning: sessionId => this.activeTurns.has(sessionId),
     prompt: input => this.startApiPrompt(input),
     updateQueue: (sessionId, itemId, action) => this.updateQueue(sessionId, itemId, action),
@@ -625,25 +637,15 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
   private async startTurn(request: Request, sessionId: SessionId): Promise<Response> {
     const body = await readJsonObject(request, MAX_TURN_BODY_BYTES)
     const message = requireBoundedUtf8String(body.message, 'message', MAX_MESSAGE_TEXT_BYTES)
-    const {
-      baseURL,
-      maxTokens,
-      reasoningEffort,
-      commandTimeoutPolicy,
-      streamIdleTimeoutMs,
-    } = resolveEdgeDeploymentConfig(this.env)
+    const { commandTimeoutPolicy } = resolveEdgeDeploymentConfig(this.env)
     const claimed = await this.claimTurn(sessionId)
 
     const { stream, completion } = createLiveSessionEventStream(
       publish => this.runClaimedTurn({
-        baseURL,
         claimed,
         commandTimeoutPolicy,
         mode: 'queue',
         content: [{ type: 'text', text: message }],
-        maxTokens,
-        reasoningEffort,
-        streamIdleTimeoutMs,
         publish,
       }),
       (error) => {
@@ -694,13 +696,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         continue
       }
 
-      const {
-        baseURL,
-        maxTokens,
-        reasoningEffort,
-        streamIdleTimeoutMs,
-        commandTimeoutPolicy,
-      } = resolveEdgeDeploymentConfig(this.env)
+      const { commandTimeoutPolicy } = resolveEdgeDeploymentConfig(this.env)
       let claimed: Awaited<ReturnType<DshEdgeInstance['claimTurn']>>
       try {
         claimed = await this.claimTurn(input.sessionId)
@@ -710,10 +706,6 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       }
       const running = this.runClaimedTurn({
         claimed,
-        baseURL,
-        maxTokens,
-        reasoningEffort,
-        streamIdleTimeoutMs,
         commandTimeoutPolicy,
         mode: input.mode,
         content: input.content,
@@ -795,12 +787,8 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
 
   private async runClaimedTurn(input: {
     claimed: { sessionId: SessionId; turn: ActiveTurn; handle: AgentHandle }
-    baseURL: string
     commandTimeoutPolicy: EdgeCommandTimeoutPolicy
-    maxTokens: number
     content: ContentBlock[]
-    reasoningEffort: EdgeReasoningEffort
-    streamIdleTimeoutMs: number
     mode: 'queue' | 'steer'
     rpcId?: RpcId
     clientTimeZone?: string
@@ -848,12 +836,8 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
 
   private async runTurn(input: {
     agent: Agent
-    baseURL: string
     commandTimeoutPolicy: EdgeCommandTimeoutPolicy
-    maxTokens: number
     content: ContentBlock[]
-    reasoningEffort: EdgeReasoningEffort
-    streamIdleTimeoutMs: number
     mode: 'queue' | 'steer'
     turn: ActiveTurn
     rpcId?: RpcId
@@ -866,10 +850,6 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     using workspace = await getWorkspace(this)
     await this.sessions.runAgentTurn({
       agent: input.agent,
-      baseURL: input.baseURL,
-      maxTokens: input.maxTokens,
-      reasoningEffort: input.reasoningEffort,
-      streamIdleTimeoutMs: input.streamIdleTimeoutMs,
       mode: input.mode,
       content: input.content,
       ...input.rpcId === undefined ? {} : { rpcId: input.rpcId },

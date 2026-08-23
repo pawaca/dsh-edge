@@ -146,6 +146,7 @@ function runtime(
     replaceSettings: vi.fn(async () => undefined),
     mutateSettings: vi.fn(async () => undefined),
     listConfigurableProviders: vi.fn(async () => []),
+    listLlmProviders: vi.fn(async () => [{ id: 'deepseek-official', name: 'DeepSeek' }]),
     isRunning: () => false,
     prompt: vi.fn(async () => {}),
     updateQueue: vi.fn(() => 'accepted' as const),

@@ -49,7 +49,7 @@ import {
   createEdgeBashTool,
   type EdgeShell,
 } from './agent.ts'
-import { EdgeDeepSeekAdapter, type EdgeReasoningEffort } from './deepseek.ts'
+import * as dshLlmDeepseek from '@deepseek-ai/dsh-llm-deepseek'
 import {
   EdgeDoAttachmentStore,
   EdgeR2AttachmentStore,
@@ -61,11 +61,7 @@ import {
   type SettingsPathOp,
 } from '@deepseek-ai/dsh-settings'
 import DurableObjectSettingsProvider from './do-settings-provider.ts'
-import EdgeCredentialProvider, { EDGE_DEEPSEEK_API_KEY_REF } from './edge-credentials.ts'
-import {
-  installConfiguredProviders,
-  readConfiguredProviders,
-} from './edge-provider-manager.ts'
+import EdgeCredentialProvider from './edge-credentials.ts'
 import DurableObjectSessionPersistence, {
   EDGE_HISTORY_PAGE_LIMITS,
   type EdgeEventPage,
@@ -82,6 +78,10 @@ interface EdgeSessionStoreConfig {
   searchBaseURL?: string
   attachmentStorage: EdgeAttachmentStorage
   attachmentBucket?: R2Bucket
+  baseURL?: string
+  maxTokens?: string
+  reasoningEffort?: string
+  streamIdleTimeoutMs?: string
 }
 const MAX_FORK_STORED_BYTES = 8 * 1_024 * 1_024
 const MAX_SEARCH_SESSIONS = 32
@@ -157,9 +157,6 @@ export class EdgeSessionStoreError extends Error {
  */
 export class EdgeSessionStore {
   private readonly context = new Context()
-  private readonly model = new EdgeDeepSeekAdapter(async () => (
-    await this.context.credentials.resolve(EDGE_DEEPSEEK_API_KEY_REF)
-  )?.value, () => this.context.get('attachments'))
   private readonly shells = new EdgeShellBindings()
   private readonly blankHandles = new Map<SessionId, AgentHandle>()
   private readonly modelSelections: EdgeModelSelectionBridge
@@ -189,6 +186,11 @@ export class EdgeSessionStore {
     })
     await this.context.plugin(DurableObjectSettingsProvider, { storage })
     await this.context.plugin(LlmRuntime)
+    try {
+      await this.context.plugin(dshLlmDeepseek, buildEdgeLlmPluginConfig(config))
+    } catch (error) {
+      console.error('dsh-edge: LLM provider plugin failed to initialize; model operations will be unavailable.', error)
+    }
     await this.context.plugin(SessionStore)
     await this.context.plugin(SystemPrompt, { persona: EDGE_SYSTEM_PROMPT })
     await this.context.plugin(ToolRuntime)
@@ -196,21 +198,6 @@ export class EdgeSessionStore {
     await installEdgeWebSearch(this.context, config.searchBaseURL)
     await this.context.plugin(DurableObjectSessionPersistence, { storage })
     await this.context.plugin(AgentLoop, { agents: [] })
-    this.context.effect(
-      () => this.context.llm.registerAdapter([EDGE_PROVIDER], this.model),
-      'dsh-edge: model adapter',
-    )
-    const configuredProviders = await readConfiguredProviders(storage)
-    if (configuredProviders.length > 0) {
-      this.context.effect(
-        () => installConfiguredProviders(
-          this.context,
-          configuredProviders,
-          () => this.context.get('attachments'),
-        ),
-        'dsh-edge: configured providers',
-      )
-    }
     this.context.effect(
       () => this.context.tools.register(createEdgeBashTool(this.shells)),
       'dsh-edge: bash tool',
@@ -299,6 +286,12 @@ export class EdgeSessionStore {
       active: live.has(entry.provider),
       ...entry.declared === undefined ? {} : { declared: entry.declared },
     }))
+  }
+
+  /** List provider identities from the upstream LLM runtime. */
+  async listLlmProviders(): Promise<{ id: string; name: string }[]> {
+    await this.ready
+    return this.context.llm.listProviders().map(p => ({ id: p.id, name: p.name }))
   }
 
   /** Whether the mounted settings provider accepts runtime writes. */
@@ -996,10 +989,6 @@ export class EdgeSessionStore {
   /** Drive one turn through ReactLoopAgent and publish only durable events. */
   async runAgentTurn(input: {
     agent: Agent
-    baseURL?: string
-    maxTokens?: number
-    reasoningEffort?: EdgeReasoningEffort
-    streamIdleTimeoutMs?: number
     mode: 'queue' | 'steer'
     content: ContentBlock[]
     rpcId?: RpcId
@@ -1017,23 +1006,7 @@ export class EdgeSessionStore {
       throw new EdgeSessionStoreError('INVALID_DATA', 'Agent is not the live persistence owner.')
     }
 
-    const releaseModel = this.model.bind(agent.id, {
-      ...input.baseURL === undefined ? {} : { baseURL: input.baseURL },
-      ...input.maxTokens === undefined ? {} : { maxTokens: input.maxTokens },
-      ...input.reasoningEffort === undefined
-        ? {}
-        : { reasoningEffort: input.reasoningEffort },
-      ...input.streamIdleTimeoutMs === undefined
-        ? {}
-        : { streamIdleTimeoutMs: input.streamIdleTimeoutMs },
-    })
-    let releaseShell: () => void
-    try {
-      releaseShell = this.shells.bind(agent.id, input.shell)
-    } catch (error) {
-      releaseModel()
-      throw error
-    }
+    const releaseShell = this.shells.bind(agent.id, input.shell)
     let delivery = Promise.resolve()
     let deliveryError: unknown
     const stopObserving = this.context.on('session/event', (subject, event) => {
@@ -1090,7 +1063,6 @@ export class EdgeSessionStore {
       stopObserving()
       this.turnPublishedAgents.delete(agent)
       releaseShell()
-      releaseModel()
     }
   }
 
@@ -1473,6 +1445,23 @@ function summarizeApiLive(
     ...header.cwd === undefined ? {} : { cwd: header.cwd },
     ...header.agentPreset === undefined ? {} : { agentPreset: header.agentPreset },
   }
+}
+
+const EDGE_DEFAULT_MAX_TOKENS = 8_192
+
+function buildEdgeLlmPluginConfig(config: EdgeSessionStoreConfig): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  if (config.baseURL !== undefined) out['baseURL'] = config.baseURL
+  const maxTokens = config.maxTokens === undefined ? EDGE_DEFAULT_MAX_TOKENS : Number(config.maxTokens)
+  if (Number.isFinite(maxTokens)) out['maxTokens'] = maxTokens
+  const effort = config.reasoningEffort ?? 'off'
+  out['reasoningEffort'] = effort
+  out['thinking'] = effort === 'off' ? 'disabled' : 'enabled'
+  if (config.streamIdleTimeoutMs !== undefined) {
+    const n = Number(config.streamIdleTimeoutMs)
+    if (Number.isFinite(n)) out['streamIdleTimeoutMs'] = n
+  }
+  return out
 }
 
 function defaultModelSelection(model: string): ModelSelection {
