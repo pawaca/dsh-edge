@@ -38,7 +38,8 @@ export async function writeConfiguredProviders(
   storage: DurableObjectStorage,
   providers: EdgeProviderEntry[],
 ): Promise<void> {
-  await storage.put(PROVIDERS_STORAGE_KEY, providers)
+  const validated = providers.filter(isValidProviderEntry)
+  await storage.put(PROVIDERS_STORAGE_KEY, validated)
 }
 
 /** Register configured providers as LLM adapters on the cordis context. */
