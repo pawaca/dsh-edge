@@ -4,6 +4,9 @@
     - button "General":
       - img
       - text: General
+    - button "Models":
+      - img
+      - text: Models
     - button "Agent presets":
       - img
       - text: Agent presets
