@@ -50,7 +50,6 @@ import {
   type EdgeShell,
 } from './agent.ts'
 import * as dshLlmDeepseek from '@deepseek-ai/dsh-llm-deepseek'
-import type { EdgeReasoningEffort } from './deepseek.ts'
 import {
   EdgeDoAttachmentStore,
   EdgeR2AttachmentStore,
@@ -80,9 +79,9 @@ interface EdgeSessionStoreConfig {
   attachmentStorage: EdgeAttachmentStorage
   attachmentBucket?: R2Bucket
   baseURL?: string
-  maxTokens?: number
-  reasoningEffort?: EdgeReasoningEffort
-  streamIdleTimeoutMs?: number
+  maxTokens?: string
+  reasoningEffort?: string
+  streamIdleTimeoutMs?: string
 }
 const MAX_FORK_STORED_BYTES = 8 * 1_024 * 1_024
 const MAX_SEARCH_SESSIONS = 32
@@ -188,17 +187,7 @@ export class EdgeSessionStore {
     await this.context.plugin(DurableObjectSettingsProvider, { storage })
     await this.context.plugin(LlmRuntime)
     try {
-      await this.context.plugin(dshLlmDeepseek, {
-        ...config.baseURL === undefined ? {} : { baseURL: config.baseURL },
-        ...config.maxTokens === undefined ? {} : { maxTokens: config.maxTokens },
-        ...config.reasoningEffort === undefined ? {} : { reasoningEffort: config.reasoningEffort },
-        ...config.reasoningEffort === undefined
-          ? {}
-          : { thinking: config.reasoningEffort === 'off' ? 'disabled' as const : 'enabled' as const },
-        ...config.streamIdleTimeoutMs === undefined
-          ? {}
-          : { streamIdleTimeoutMs: config.streamIdleTimeoutMs },
-      })
+      await this.context.plugin(dshLlmDeepseek, buildEdgeLlmPluginConfig(config))
     } catch (error) {
       console.error('dsh-edge: LLM provider plugin failed to initialize; model operations will be unavailable.', error)
     }
@@ -1456,6 +1445,24 @@ function summarizeApiLive(
     ...header.cwd === undefined ? {} : { cwd: header.cwd },
     ...header.agentPreset === undefined ? {} : { agentPreset: header.agentPreset },
   }
+}
+
+function buildEdgeLlmPluginConfig(config: EdgeSessionStoreConfig): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  if (config.baseURL !== undefined) out['baseURL'] = config.baseURL
+  if (config.maxTokens !== undefined) {
+    const n = Number(config.maxTokens)
+    if (Number.isFinite(n)) out['maxTokens'] = n
+  }
+  if (config.reasoningEffort !== undefined) {
+    out['reasoningEffort'] = config.reasoningEffort
+    out['thinking'] = config.reasoningEffort === 'off' ? 'disabled' : 'enabled'
+  }
+  if (config.streamIdleTimeoutMs !== undefined) {
+    const n = Number(config.streamIdleTimeoutMs)
+    if (Number.isFinite(n)) out['streamIdleTimeoutMs'] = n
+  }
+  return out
 }
 
 function defaultModelSelection(model: string): ModelSelection {

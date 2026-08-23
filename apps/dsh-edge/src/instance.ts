@@ -31,11 +31,7 @@ import { DurableObject } from 'cloudflare:workers'
 import { OWNER_SESSION_EXPIRY_HEADER } from './auth.ts'
 import { DirectShellBackend } from './direct-shell.ts'
 import {
-  resolveEdgeBaseURL,
-  resolveEdgeMaxOutputTokens,
   resolveEdgeModel,
-  resolveEdgeReasoningEffort,
-  resolveEdgeStreamIdleTimeoutMs,
 } from './deepseek.ts'
 import {
   resolveEdgeDeploymentConfig,
@@ -198,16 +194,16 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         : { attachmentBucket: this.env.DSH_EDGE_ATTACHMENTS },
       ...this.env.DEEPSEEK_BASE_URL === undefined
         ? {}
-        : { baseURL: resolveEdgeBaseURL(this.env.DEEPSEEK_BASE_URL) },
+        : { baseURL: this.env.DEEPSEEK_BASE_URL },
       ...this.env.DEEPSEEK_MAX_OUTPUT_TOKENS === undefined
         ? {}
-        : { maxTokens: resolveEdgeMaxOutputTokens(this.env.DEEPSEEK_MAX_OUTPUT_TOKENS) },
+        : { maxTokens: this.env.DEEPSEEK_MAX_OUTPUT_TOKENS },
       ...this.env.DEEPSEEK_REASONING_EFFORT === undefined
         ? {}
-        : { reasoningEffort: resolveEdgeReasoningEffort(this.env.DEEPSEEK_REASONING_EFFORT) },
+        : { reasoningEffort: this.env.DEEPSEEK_REASONING_EFFORT },
       ...this.env.DEEPSEEK_STREAM_IDLE_TIMEOUT_MS === undefined
         ? {}
-        : { streamIdleTimeoutMs: resolveEdgeStreamIdleTimeoutMs(this.env.DEEPSEEK_STREAM_IDLE_TIMEOUT_MS) },
+        : { streamIdleTimeoutMs: this.env.DEEPSEEK_STREAM_IDLE_TIMEOUT_MS },
     },
   )
   private readonly workspaces = new EdgeWorkspaceStore(this.ctx.storage)
