@@ -14,13 +14,18 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap { 'settings.edge': EdgeSettingsKey }
 }
 
-export const inject = ['slots', 'locale', 'connection']
+export const inject = ['slots', 'locale', 'settingsScope']
 
 export function apply(ctx: ClientContext): void {
-  // Edge's API proxy fully supports settings RPCs over the remote transport,
-  // so the settings mirror should treat the connection as loopback-equivalent.
-  const connection = ctx.get('connection') as { isLoopback: boolean }
-  if (connection && !connection.isLoopback) connection.isLoopback = true
+  // Edge's API proxy fully supports settings RPCs over the remote transport.
+  // The upstream settings mirror defaults to "memory" (no-load) for non-loopback
+  // connections. Promote it to "host" so the Models page can read settings.
+  const mirror = (ctx as never as { settingsScope: { describe(): { persistence: string; load(): void } } })
+    .settingsScope.describe()
+  if (mirror.persistence === 'memory') {
+    mirror.persistence = 'host'
+    mirror.load()
+  }
   ctx.effect(() => ctx.locale.register('settings.edge', { en, zh }), 'ui-edge: settings dictionaries')
   const controller = new EdgeSettingsController({
     fetch: (input, init) => globalThis.fetch(input, init),

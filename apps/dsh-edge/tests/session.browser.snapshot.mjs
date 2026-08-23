@@ -86,7 +86,7 @@ describe('dsh-edge assembled browser snapshot', () => {
       await settings.getByRole('navigation')
         .getByRole('button', { name: 'DSH Edge', exact: true })
         .click()
-      await expect.poll(() => settings.getByText('0.4.0-alpha.2', { exact: true }).count()).toBe(1)
+      await expect.poll(() => settings.getByText('0.4.0-alpha.3', { exact: true }).count()).toBe(1)
       await settings.getByRole('button', { name: 'Copy upgrade command', exact: true }).click()
       await expect.poll(() => settings.getByRole('button', {
         name: 'Upgrade command copied', exact: true,
