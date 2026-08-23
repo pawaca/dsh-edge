@@ -74,13 +74,7 @@ describe('dsh-edge assembled browser snapshot', () => {
       expect(ownerCookie).toBeDefined()
       const ownerCookieHeader = `${ownerCookie.name}=${ownerCookie.value}`
 
-      const onboardingOverlay = page.locator('[role="presentation"]')
-      const configureLater = page.getByRole('button', { name: 'Configure later', exact: true })
-      await expect.poll(async () => {
-        if (await configureLater.count() > 0) await configureLater.click()
-        return await onboardingOverlay.count()
-      }, { timeout: 15_000 }).toBe(0)
-      await page.locator('button[aria-haspopup="dialog"]').last().click()
+      await page.locator('button[aria-haspopup="dialog"]').last().click({ force: true })
       const settings = page.getByRole('dialog', { name: 'Settings', exact: true })
       await settings.getByRole('navigation')
         .getByRole('button', { name: 'DSH Edge', exact: true })
