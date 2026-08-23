@@ -19,7 +19,7 @@
   - region "Release":
     - heading "Release" [level=3]
     - term: Installed version
-    - definition: 0.3.0
+    - definition: 0.4.0-alpha.1
     - term: Update channel
     - definition:
       - code: latest
@@ -39,7 +39,7 @@
     - definition: Durable Object SQLite VFS
     - term: Deployment ID
     - definition:
-      - code: dsh-edge@0.3.0/direct
+      - code: dsh-edge@0.4.0-alpha.1/direct
   - region "Owner session":
     - heading "Owner session" [level=3]
     - paragraph: Signing out clears this browser’s owner session. Your deployment and data remain unchanged.
