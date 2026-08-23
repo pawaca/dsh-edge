@@ -663,7 +663,7 @@ try {
     .findLast(entry => entry.event.type === 'request/header')
   assert.equal(protocolRequestHeader.event.data.header.config.provider, 'deepseek-official')
   assert.equal(protocolRequestHeader.event.data.header.config.model, 'deepseek-v4-pro')
-  assert.equal(protocolRequestHeader.event.data.header.config.reasoningEffort, 'off')
+  assert.equal(protocolRequestHeader.event.data.header.config.reasoningEffort, 'high')
 
   // Once a turn has flushed its request/header, the upstream session log is the
   // durable source of truth; the Edge pre-turn bridge may be retired safely.
@@ -677,7 +677,7 @@ try {
   assert.deepEqual(canonicalSessionModels.body.result.value.current, {
     provider: 'deepseek-official',
     model: 'deepseek-v4-pro',
-    reasoningEffort: 'off',
+    reasoningEffort: 'high',
   })
 
   const forked = await rpc('session.fork', {
