@@ -606,7 +606,27 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
           })
         }
         try {
-          const catalog = await runtime.sessions.modelCatalog()
+          const [catalog, settings, credential] = await Promise.all([
+            runtime.sessions.modelCatalog(),
+            runtime.describeSettings(),
+            runtime.describeCredential('DEEPSEEK_API_KEY'),
+          ])
+          const deployment = runtime.deploymentProfile()
+          const llmSection = settings
+            .find(d => d.ns === 'llm-deepseek')
+            ?.value as Record<string, string | number | undefined> | undefined
+          const liveBaseURL = llmSection?.['baseURL']
+          const liveEffort = llmSection?.['reasoningEffort']
+          const liveMaxTokens = llmSection?.['maxTokens']
+          const liveProfile = {
+            ...deployment,
+            ...(typeof liveBaseURL === 'string' ? { baseURL: sanitizeProjectedURL(liveBaseURL) } : {}),
+            ...(typeof liveEffort === 'string'
+              ? { reasoningEffort: liveEffort as typeof deployment.reasoningEffort } : {}),
+            ...(typeof liveMaxTokens === 'number' ? { maxTokens: liveMaxTokens } : {}),
+            apiKeyConfigured: credential.configured,
+            apiKeyPersisted: credential.source === 'do-storage',
+          }
           return ok(request, {
             agentPreset: 'dsh-edge',
             trust: 'system' as const,
@@ -614,7 +634,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
             description: 'DeepSeek Harness running in a Cloudflare Durable Object.',
             content: edgeAgentPresetContent(
               runtime,
-              runtime.deploymentProfile(),
+              liveProfile,
               catalog.groups.flatMap(group => group.models),
             ),
           })
@@ -804,7 +824,7 @@ function edgeAgentPresetContent(
     '  credential:',
     '    ref: DEEPSEEK_API_KEY',
     `    configured: ${String(deployment.apiKeyConfigured)}`,
-    '    persisted: false',
+    `    persisted: ${String(deployment.apiKeyPersisted ?? false)}`,
     'attachments:',
     '  enabled: true',
     `  storage: ${yamlString(deployment.attachmentStorage)}`,
@@ -976,6 +996,22 @@ function unsupported<T>(request: RpcRequest<unknown>): Promise<RpcResponse<T>> {
     message: 'This capability is not available in the Edge runtime.',
     details: {},
   }))
+}
+
+function sanitizeProjectedURL(raw: string): string {
+  try {
+    const parsed = new URL(raw)
+    const dirty = parsed.username.length > 0 || parsed.password.length > 0
+      || parsed.search.length > 0 || parsed.hash.length > 0
+    if (!dirty) return raw
+    parsed.username = ''
+    parsed.password = ''
+    parsed.search = ''
+    parsed.hash = ''
+    return parsed.href
+  } catch {
+    return raw
+  }
 }
 
 function sessionFailure<T>(
