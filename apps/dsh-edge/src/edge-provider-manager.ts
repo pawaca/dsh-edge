@@ -126,4 +126,12 @@ function isValidProviderEntry(value: unknown): value is EdgeProviderEntry {
     && typeof entry['baseURL'] === 'string' && entry['baseURL'].length > 0
     && typeof entry['apiKeyRef'] === 'string'
     && Array.isArray(entry['models'])
+    && entry['models'].every(isValidModelEntry)
+}
+
+function isValidModelEntry(value: unknown): value is { id: string; name: string } {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  const model = value as Record<string, unknown>
+  return typeof model['id'] === 'string' && model['id'].length > 0
+    && typeof model['name'] === 'string' && model['name'].length > 0
 }
