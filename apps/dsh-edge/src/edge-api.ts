@@ -1001,7 +1001,11 @@ function unsupported<T>(request: RpcRequest<unknown>): Promise<RpcResponse<T>> {
 function sanitizeProjectedURL(raw: string): string {
   try {
     const parsed = new URL(raw)
-    if (parsed.search.length === 0 && parsed.hash.length === 0) return raw
+    const dirty = parsed.username.length > 0 || parsed.password.length > 0
+      || parsed.search.length > 0 || parsed.hash.length > 0
+    if (!dirty) return raw
+    parsed.username = ''
+    parsed.password = ''
     parsed.search = ''
     parsed.hash = ''
     return parsed.href
