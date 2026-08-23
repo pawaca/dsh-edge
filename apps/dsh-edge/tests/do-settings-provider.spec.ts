@@ -70,4 +70,23 @@ describe('DurableObjectSettingsProvider', () => {
     expect(described).toEqual([])
     await ctx.fiber.dispose()
   })
+
+  it('persists a namespace write and restores it in a fresh context', async () => {
+    const storage = createMockStorage()
+    const schema = Object.assign((v: unknown) => v ?? {}, { toJSON: () => ({ type: 'object' }) }) as never
+
+    const ctx1 = new Context()
+    await ctx1.plugin(DurableObjectSettingsProvider, { storage })
+    const scope1 = ctx1.settings.register('test-ns' as never, schema, {})
+    await ctx1.settings.mutate('test-ns' as never, [{ op: 'set', path: ['key'], value: 'hello' }])
+    expect(scope1.get()).toEqual({ key: 'hello' })
+    expect(storage.store.has(SETTINGS_DOCUMENT_KEY)).toBe(true)
+    await ctx1.fiber.dispose()
+
+    const ctx2 = new Context()
+    await ctx2.plugin(DurableObjectSettingsProvider, { storage })
+    const scope2 = ctx2.settings.register('test-ns' as never, schema, {})
+    expect(scope2.get()).toEqual({ key: 'hello' })
+    await ctx2.fiber.dispose()
+  })
 })
