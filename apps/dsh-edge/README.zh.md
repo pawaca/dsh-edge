@@ -13,7 +13,7 @@
 运行时保持清晰的上游责任边界：
 
 - `ReactLoopAgent`、`AgentRegistry`、`LlmRuntime`、`ToolRuntime`、`SystemPrompt`、`SessionStore` 和 `SessionPersistence` 通过上游 Cordis 组合运行。
-- Edge 绑定请求作用域的 DeepSeek 适配器，并把原生 DSH `bash` 工具映射到 Cloudflare Computer。
+- 上游 `dsh-llm-deepseek` cordis 插件直接安装，自动注册 Settings 命名空间和可配置 Provider 条目。Edge 把原生 DSH `bash` 工具映射到 Cloudflare Computer。
 - Durable Object SQLite 实现上游持久化后端约定；write-behind、revision、恢复准备与崩溃恢复仍由 `PersistenceCoordinator` 负责。
 - 模型历史从 canonical 事件投影，不在 Edge 中建立第二套 schema。
 
@@ -117,7 +117,7 @@ curl -b /tmp/dsh-edge-cookie -N -X POST -H 'content-type: application/json' \
 | Bash tool | Node subprocess、sandbox、terminal 和 job services | 在原生 tool seam 上适配 | 注册上游 `ToolDefinition`，但通过配置的 Computer workspace backend 和 just-bash 执行其 body。默认 direct backend 在 owner Durable Object 内运行，启用 hardened interpreter limits 且不提供网络命令；添加 `LOADER` binding 后会选择 Computer 的 isolated Worker Shell backend。原生 tool cancellation 会通过 Computer execution handle 发送 `SIGINT`。部署配置提供明确的默认 timeout 与调用方可选值上限，`timedOut` 则独立于 exit 与 cancellation status 报告 deadline。不支持原生二进制、后台进程、PTY 和任意 Linux 行为。 |
 | Workspace filesystem | 本地 filesystem services 和 host paths | 适配 | 在 owner 基于 SQLite 的 Durable Object VFS 中保存 `/workspace`。 |
 | Session persistence | `SessionPersistence` service、`PersistenceCoordinator` 及本地 JSONL/SQLite backends | 原生 backend 适配 | 复用上游 service 及 coordinator 的职责划分，在 Durable Object SQL 上实现存储原语，并使用上游 header/event 映射。一个 Edge 独有表会在透明休眠期间保留 empty session header，并在 canonical rows 物化时删除；Edge 不定义 turn 或 message schema。内部 coordinator helper 负责校验有界 replay loader，并在 disposal 前放弃失败且尚未物化的创建。 |
-| Settings and credentials | 基于文件的 settings、launch environment 和 credential services | Edge 只读投影 | 为每次操作解析 Worker secret，绝不持久化或返回 literal key。空白 secret 会被视为未配置，使用前会移除首尾空白。`credentials.describe` 只报告 `DEEPSEEK_API_KEY` 是否已配置，以及其只读来源为 `worker-secret`。内置 `dsh-edge` preset 会通过上游只读 composition viewer 投影实际 release、shell/VFS、部署默认模型、runtime 实际读取的上游 model catalog、per-session 选择范围、limits、credential state、prompt 与 tools。可写 settings 和经过身份认证的用户级 secret storage 尚未实现。 |
+| Settings and credentials | 基于文件的 settings、launch environment 和 credential services | 可写，使用 DO 存储 | 上游 `dsh-settings` 插件通过 `DurableObjectSettingsProvider` 把 user section 持久化到 Durable Object KV。上游 `dsh-llm-deepseek` cordis 插件直接安装，自动注册 `llm-deepseek` Settings 命名空间和可配置 Provider 条目；Settings → Models 页面可在运行时读取和修改 Provider 配置（base URL、model catalog、API key reference、reasoning effort），无需重新部署。`EdgeCredentialProvider` 先从 DO KV 解析凭证，然后降级到 Worker 环境变量 secret；`set`/`unset` 通过上游接缝持久化。Edge 默认值（maxTokens 8,192，reasoningEffort off）显式传递，确保未设置部署变量时保持文档化行为。 |
 | Host boot and plugins | Node 命令行、Cordis profile loading、package resolution 和 HMR | 显式 Edge composition | 不在 Workerd 中运行本地 boot profile。部署前构建 immutable 客户端包，并排除 HMR 及 Edge `ApiProxy` 未暴露的 host domain。 |
 | DSH transport | Typed HTTP RPC 加 mux/host WebSocket downlink | 复用并提供 Edge 服务端实现 | 对 unary method 使用上游 fetch carrier，并保留其 envelope、schema、projection、lazy blank-session 行为、有界内容搜索、prompt 与 queue mutation、workspace mutation、queue snapshot 和 event frame。两条 downlink 都由 Durable Object WebSocket 休眠机制持有；mux 重连会重放 live inbox 的待处理状态，REST/SSE 路由则保留为诊断兼容路径。 |
 | Workspace registry | Storage-domain global state 加 `WorkspaceRecord` rows | 原生 backend 适配 | 保持上游 global 和 record value shape，包括手动 session 顺序与 archive membership；仅把物理 key 和原子写入映射到 Durable Object storage。Edge 把 registry 限制为一个原生 `/workspace` VFS；rename、delete、recreate 与 session reorder 保持上游 RPC 和 Host-frame 语义。 |
@@ -140,7 +140,7 @@ Cloudflare static assets -> upstream Web shell + client plugin graph
   -> ReactLoopAgent.followup(queue) or ReactLoopAgent.steer(steer)
   -> pre-step admission gate waits for the sessions.flush durability barrier
   -> session/queue snapshots publish live and replay on mux reconnect
-  -> turn-scoped DeepSeekAdapter configuration selected by sessionId
+  -> upstream dsh-llm-deepseek plugin resolves configuration from settings + launch environment
   -> 上游 attachment resolver 读取并校验已授权的 backend 字节
   -> upstream LlmRuntime + ReactLoopAgent stream/event pipeline
   -> upstream ToolRuntime native bash or web_search call
@@ -168,7 +168,7 @@ Cloudflare static assets -> upstream Web shell + client plugin graph
 
 ## API key 边界
 
-`.dev.vars` 中的 `DEEPSEEK_API_KEY` 是本地 credential source。只读 Edge provider 通过上游 `ctx.credentials` 为每次 chat 或 search 提供它，但不会把具体值写入 Durable Object storage、VFS、session event 或 response。首尾空白会被移除；空白值视为未配置。
+`DEEPSEEK_API_KEY` 可以在部署时作为 Worker secret 设置，也可以之后通过 Settings → Models 页面输入。Edge credential provider 先查 Durable Object KV，再降级到 Worker 环境变量；解析值保持请求级作用域，绝不写入 session event 或 response。首尾空白会被移除；空白值视为未配置。
 
 | 变量 | 用途与校验 |
 | --- | --- |
