@@ -215,7 +215,7 @@ export class DurableObjectSessionPersistence
 
   /** Prevent disposal from retrying a failed first materialization. */
   abandonUnmaterializedSession(session: Session): Promise<void> {
-    return this.coordinator.abandonUnmaterialized(session)
+    return (this.coordinator as never as { abandonUnmaterialized(s: Session): Promise<void> }).abandonUnmaterialized(session)
   }
 
   override prepare(id: SessionId, signal?: AbortSignal): Promise<SessionPreparation> {
@@ -251,11 +251,11 @@ export class DurableObjectSessionPersistence
         `readEventPage maxStoredBytes must be a positive safe integer, got ${String(maxStoredBytes)}`,
       ))
     }
-    return this.coordinator.readValidatedPage(
+    return (this.coordinator as never as { readValidatedPage: (...args: unknown[]) => Promise<EdgeEventPage> }).readValidatedPage(
       id,
       fromSeq,
       limit,
-      (pageId, pageFromSeq, pageLimit, pageSignal) => this.loadStoredPage(
+      (pageId: SessionId, pageFromSeq: number, pageLimit: number, pageSignal: AbortSignal | undefined) => this.loadStoredPage(
         pageId,
         pageFromSeq,
         pageLimit,
@@ -293,11 +293,11 @@ export class DurableObjectSessionPersistence
       ? 0
       : historyGroupStart(oldestBoundary)
     if (boundary >= upperExclusive) return { summary, events: [], hasMore: boundary > 0 }
-    const page = await this.coordinator.readValidatedPage(
+    const page = await (this.coordinator as never as { readValidatedPage: (...args: unknown[]) => Promise<EdgeEventPage> }).readValidatedPage(
       id,
       boundary,
       EDGE_HISTORY_PAGE_LIMITS.maxEvents,
-      (pageId, pageFromSeq, pageLimit, pageSignal) => {
+      (pageId: SessionId, pageFromSeq: number, pageLimit: number, pageSignal: AbortSignal | undefined) => {
         if (pageFromSeq !== boundary) {
           return Promise.reject(new Error(
             `stored session ${id} history contains a legacy event that requires an unbounded prefix`,

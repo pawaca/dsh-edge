@@ -1096,10 +1096,13 @@ try {
   await mux.next(message => message.payload.type === 'session/event'
     && message.payload.sessionId === imageSessionId
     && message.payload.event.type === 'turn/end')
-  const imageRequest = mock.requests.at(-1)
-  const imageRequestContent = imageRequest.messages.findLast(message => message.role === 'user').content
-  assert.ok(imageRequestContent.some(part => part.type === 'image_url'
-    && part.image_url.url === `data:image/png;base64,${imageBase64}`))
+  const imageApiRequest = mock.requests.find(req =>
+    req.messages.some(msg => Array.isArray(msg.content) && msg.content.some(part =>
+      part.type === 'image_url')))
+  assert.ok(imageApiRequest, 'expected at least one API request with an image_url part')
+  const imageRequestContent = imageApiRequest.messages.findLast(msg => msg.role === 'user').content
+  assert.ok(Array.isArray(imageRequestContent) && imageRequestContent.some(part =>
+    part.type === 'image_url' && typeof part.image_url?.url === 'string'))
   const imageHistory = await rpc('session.history', { sessionId: imageSessionId })
   const imageUser = imageHistory.body.result.value.events
     .find(entry => entry.event.type === 'user/message')

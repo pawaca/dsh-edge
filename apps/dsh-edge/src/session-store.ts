@@ -50,6 +50,8 @@ import {
   type EdgeShell,
 } from './agent.ts'
 import * as dshLlmDeepseek from '@deepseek-ai/dsh-llm-deepseek'
+import { DeepSeekFileStore } from '@deepseek-ai/dsh-llm-deepseek'
+import { DurableObjectUploadIndex } from './do-upload-index.ts'
 import {
   EdgeDoAttachmentStore,
   EdgeR2AttachmentStore,
@@ -78,6 +80,7 @@ interface EdgeSessionStoreConfig {
   searchBaseURL?: string
   attachmentStorage: EdgeAttachmentStorage
   attachmentBucket?: R2Bucket
+  images?: unknown
   baseURL?: string
   maxTokens?: string
   reasoningEffort?: string
@@ -175,10 +178,12 @@ export class EdgeSessionStore {
     storage: DurableObjectStorage,
     config: EdgeSessionStoreConfig,
   ): Promise<void> {
+    const images = config.images as import('./edge-attachment-store.ts').ImagesBinding | undefined
     await (config.attachmentStorage === 'temporary-do'
-      ? this.context.plugin(EdgeDoAttachmentStore, { storage })
+      ? this.context.plugin(EdgeDoAttachmentStore, { storage, ...(images !== undefined ? { images } : {}) })
       : this.context.plugin(EdgeR2AttachmentStore, {
           bucket: requireAttachmentBucket(config.attachmentBucket),
+          ...(images !== undefined ? { images } : {}),
         }))
     await this.context.plugin(EdgeCredentialProvider, {
       storage,
@@ -192,6 +197,8 @@ export class EdgeSessionStore {
     this.context.settings.register(settingsNamespace('ui-onboarding'), onboardingSchema, {})
     await this.context.plugin(LlmRuntime)
     try {
+      const doUploadIndex = new DurableObjectUploadIndex(storage)
+      ;(this.context as never as Record<string, unknown>)['edgeFileStore'] = new DeepSeekFileStore({ index: doUploadIndex as never })
       await this.context.plugin(dshLlmDeepseek, buildEdgeLlmPluginConfig(config))
     } catch (error) {
       console.error('dsh-edge: LLM provider plugin failed to initialize; model operations will be unavailable.', error)

@@ -4,6 +4,7 @@ import {
   AttachmentError,
   AttachmentId,
   AttachmentStore,
+  ImageVariantId,
   type ImageAttachmentLimits,
   type ImageAttachmentRef,
   type ImageMediaType,
@@ -48,6 +49,7 @@ interface ImageMetadata {
 
 export interface EdgeR2AttachmentStoreConfig {
   bucket: R2Bucket
+  images?: ImagesBinding
 }
 
 interface AttachmentDigest {
@@ -55,8 +57,18 @@ interface AttachmentDigest {
   bytes: ArrayBuffer
 }
 
+export interface ImagesBinding {
+  input(data: ReadableStream | ArrayBuffer | Uint8Array): {
+    transform(options: { width?: number; height?: number; fit?: 'scale-down' | 'contain' | 'cover' | 'crop' | 'pad' }): {
+      output(options: { format: string }): Promise<Response>
+    }
+    info(): Promise<{ width: number; height: number; format: string }>
+  }
+}
+
 abstract class EdgeImageAttachmentStore extends AttachmentStore {
   abstract override readonly imageLimits: ImageAttachmentLimits
+  protected images?: ImagesBinding
 
   override async validateImage(input: SaveImageAttachment): Promise<void> {
     await inspectImage(input.data, input.mediaType, this.imageLimits, true)
@@ -126,6 +138,53 @@ abstract class EdgeImageAttachmentStore extends AttachmentStore {
     return { ref, data }
   }
 
+  override async readImageRequest(
+    ref: ImageAttachmentRef,
+    policy: { maxPixels: number; maxBytes: number },
+    signal?: AbortSignal,
+  ) {
+    const stored = await this.readImage(ref, signal)
+    const descriptor = `${ref.attachmentId}:${String(policy.maxPixels)}:${String(policy.maxBytes)}`
+    const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(descriptor))
+    const hex = Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('')
+    const variantId = ImageVariantId(`sha256:${hex}`)
+
+    const base = {
+      variantId, attachment: ref, mediaType: ref.mediaType,
+      width: ref.width, height: ref.height,
+      depth: 'uchar' as const, space: 'srgb' as const,
+      hasAlpha: ref.mediaType === 'image/png',
+    }
+
+    if (this.images !== undefined) {
+      try {
+        signal?.throwIfAborted()
+        const aspect = ref.width / ref.height
+        const targetHeight = Math.round(Math.sqrt(policy.maxPixels / aspect))
+        const targetWidth = Math.round(targetHeight * aspect)
+        const result = await this.images
+          .input(stored.data)
+          .transform({ width: targetWidth, height: targetHeight, fit: 'scale-down' })
+          .output({ format: ref.mediaType })
+        signal?.throwIfAborted()
+        const resp = 'response' in result && typeof (result as { response: unknown }).response === 'function'
+          ? await ((result as { response(): Response }).response()).arrayBuffer()
+          : result instanceof Response
+            ? await result.arrayBuffer()
+            : await (result as { arrayBuffer(): Promise<ArrayBuffer> }).arrayBuffer()
+        signal?.throwIfAborted()
+        const transformed = new Uint8Array(resp)
+        if (transformed.byteLength <= policy.maxBytes) {
+          return { ...base, data: transformed, bytes: transformed.byteLength }
+        }
+      } catch {
+        if (signal?.aborted) throw signal.reason
+      }
+    }
+
+    return { ...base, data: stored.data, bytes: stored.data.byteLength }
+  }
+
   protected abstract writeBytes(
     digest: AttachmentDigest,
     data: Uint8Array,
@@ -147,6 +206,7 @@ export class EdgeR2AttachmentStore extends EdgeImageAttachmentStore {
   constructor(ctx: Context, config: EdgeR2AttachmentStoreConfig) {
     super(ctx)
     this.bucket = config.bucket
+    if (config.images !== undefined) this.images = config.images
   }
 
   protected override async writeBytes(
@@ -175,6 +235,7 @@ export class EdgeR2AttachmentStore extends EdgeImageAttachmentStore {
 interface EdgeDoAttachmentStoreConfig {
   storage: DurableObjectStorage
   maxStoredBytes?: number
+  images?: ImagesBinding
 }
 
 interface AttachmentObjectRow extends Record<string, SqlStorageValue> {
@@ -247,6 +308,7 @@ export class EdgeDoAttachmentStore extends EdgeImageAttachmentStore {
     super(ctx)
     this.storage = config.storage
     this.maxStoredBytes = config.maxStoredBytes ?? EDGE_DO_ATTACHMENT_MAX_STORED_BYTES
+    if (config.images !== undefined) this.images = config.images
     if (!Number.isSafeInteger(this.maxStoredBytes) || this.maxStoredBytes <= 0) {
       throw new Error('Temporary attachment storage limit must be a positive integer.')
     }

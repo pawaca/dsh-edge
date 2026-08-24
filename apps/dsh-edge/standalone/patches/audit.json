@@ -1,18 +1,13 @@
 [
   {
-    "package": "@deepseek-ai/dsh-client-ui-workspace",
-    "rationale": "Hide workspace deletion when an Edge deployment cannot create a replacement and only one workspace remains.",
-    "removeWhen": "The published workspace client makes delete capability-aware and prevents deleting the final workspace in hosts without workspace creation."
-  },
-  {
-    "package": "@deepseek-ai/dsh-host-apiproxy",
-    "rationale": "Use the Web Crypto global for request identifiers so the API proxy bundles and runs without the Node crypto module in Cloudflare Workers.",
-    "removeWhen": "The published API proxy uses Worker-compatible Web Crypto and its Worker bundle no longer imports node:crypto."
-  },
-  {
     "package": "@deepseek-ai/dsh-llm",
     "rationale": "Resolve the Harness attribution version without runtime node:module path discovery, which is unavailable in the Worker bundle.",
     "removeWhen": "The published LLM package exposes its version through a Worker-bundle-safe import or injected build constant and bundles without node:module."
+  },
+  {
+    "package": "@deepseek-ai/dsh-llm-deepseek",
+    "rationale": "Forward the resolveFiles config slot to the DeepSeek adapter constructor so Edge can inject a Durable Object-backed file store for the Files API.",
+    "removeWhen": "The published plugin's apply() forwards resolveFiles from the plugin config to the adapter constructor."
   },
   {
     "package": "@deepseek-ai/dsh-session-persistence",

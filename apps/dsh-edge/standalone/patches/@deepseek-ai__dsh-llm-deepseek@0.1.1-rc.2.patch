@@ -1,0 +1,14 @@
+diff --git a/lib/index.js b/lib/index.js
+index 74fcc55c32ea152c47afb862935e0489b0436f67..56a03e52a00be617cc60679f89f2e0882d48ef81 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -1790,7 +1790,8 @@ function apply(ctx, config) {
+ 		options,
+ 		resolveApiKey,
+ 		resolveUserId,
+-		resolveAttachments: () => ctx.get("attachments")
++		resolveAttachments: () => ctx.get("attachments"),
++		...(ctx.edgeFileStore !== void 0 ? { resolveFiles: () => ctx.edgeFileStore } : {})
+ 	});
+ 	ctx.llm.registerConfigurableProviders([{
+ 		provider: PROVIDER,
