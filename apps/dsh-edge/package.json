@@ -1,6 +1,6 @@
 {
   "name": "dsh-edge",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "Your DeepSeek Harness, anywhere — deploy a persistent personal coding agent to Cloudflare Workers in one command",
   "author": "pawaca",
   "license": "MIT",

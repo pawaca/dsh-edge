@@ -204,9 +204,9 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       ...this.env.DEEPSEEK_STREAM_IDLE_TIMEOUT_MS === undefined
         ? {}
         : { streamIdleTimeoutMs: this.env.DEEPSEEK_STREAM_IDLE_TIMEOUT_MS },
-      ...(this.env as Record<string, unknown>).IMAGES === undefined
+      ...(this.env as unknown as Record<string, unknown>).IMAGES === undefined
         ? {}
-        : { images: (this.env as Record<string, unknown>).IMAGES },
+        : { images: (this.env as unknown as Record<string, unknown>).IMAGES },
     },
   )
   private readonly workspaces = new EdgeWorkspaceStore(this.ctx.storage)

@@ -140,39 +140,41 @@ abstract class EdgeImageAttachmentStore extends AttachmentStore {
 
   override async readImageRequest(
     ref: ImageAttachmentRef,
-    policy: { pixelBudget: number; maxBytes: number },
+    policy: { maxPixels: number; maxBytes: number },
     signal?: AbortSignal,
-  ): Promise<{
-    variantId: string
-    attachment: ImageAttachmentRef
-    data: Uint8Array
-    mediaType: ImageMediaType
-    bytes: number
-  }> {
+  ) {
     const stored = await this.readImage(ref, signal)
-    const descriptor = `${ref.attachmentId}:${String(policy.pixelBudget)}:${String(policy.maxBytes)}`
+    const descriptor = `${ref.attachmentId}:${String(policy.maxPixels)}:${String(policy.maxBytes)}`
     const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(descriptor))
     const hex = Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('')
     const variantId = ImageVariantId(`sha256:${hex}`)
 
+    const base = {
+      variantId, attachment: ref, mediaType: ref.mediaType,
+      width: ref.width, height: ref.height,
+      depth: 'uchar' as const, space: 'srgb' as const,
+      hasAlpha: ref.mediaType === 'image/png',
+    }
+
     if (this.images !== undefined) {
       try {
         signal?.throwIfAborted()
-        const targetDimension = Math.round(Math.sqrt(policy.pixelBudget))
+        const targetDimension = Math.round(Math.sqrt(policy.maxPixels))
         const response = await this.images
           .input(stored.data)
           .transform({ width: targetDimension, height: targetDimension, fit: 'inside' })
-          .output({ format: ref.mediaType === 'image/jpeg' ? 'jpeg' : 'png' })
-        const transformed = new Uint8Array(await response.arrayBuffer())
+          .output({ format: ref.mediaType })
+        const blob = response instanceof Response ? await response.arrayBuffer() : await (response as { arrayBuffer(): Promise<ArrayBuffer> }).arrayBuffer()
+        const transformed = new Uint8Array(blob)
         if (transformed.byteLength <= policy.maxBytes) {
-          return { variantId, attachment: ref, data: transformed, mediaType: ref.mediaType, bytes: transformed.byteLength }
+          return { ...base, data: transformed, bytes: transformed.byteLength }
         }
       } catch {
         // Images binding unavailable or transform failed — fall through to passthrough
       }
     }
 
-    return { variantId, attachment: ref, data: stored.data, mediaType: ref.mediaType, bytes: stored.data.byteLength }
+    return { ...base, data: stored.data, bytes: stored.data.byteLength }
   }
 
   protected abstract writeBytes(

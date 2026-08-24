@@ -58,11 +58,11 @@ describe('dsh-edge assembled browser snapshot', () => {
       })
       await page.route('https://registry.npmjs.org/dsh-edge/latest', route => route.fulfill({
         contentType: 'application/json',
-        body: JSON.stringify({ version: '0.5.0' }),
+        body: JSON.stringify({ version: '0.6.0' }),
       }))
       await page.route('https://registry.npmjs.org/dsh-edge/next', route => route.fulfill({
         contentType: 'application/json',
-        body: JSON.stringify({ version: '0.5.0' }),
+        body: JSON.stringify({ version: '0.6.0' }),
       }))
       await page.goto(origin, { waitUntil: 'load' })
       await page.getByLabel('Owner access key').fill(ACCESS_KEY)
@@ -86,7 +86,7 @@ describe('dsh-edge assembled browser snapshot', () => {
       await settings.getByRole('navigation')
         .getByRole('button', { name: 'DSH Edge', exact: true })
         .click()
-      await expect.poll(() => settings.getByText('0.4.1', { exact: true }).count()).toBe(1)
+      await expect.poll(() => settings.getByText('0.5.0', { exact: true }).count()).toBe(1)
       await settings.getByRole('button', { name: 'Copy upgrade command', exact: true }).click()
       await expect.poll(() => settings.getByRole('button', {
         name: 'Upgrade command copied', exact: true,

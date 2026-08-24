@@ -180,10 +180,10 @@ export class EdgeSessionStore {
   ): Promise<void> {
     const images = config.images as import('./edge-attachment-store.ts').ImagesBinding | undefined
     await (config.attachmentStorage === 'temporary-do'
-      ? this.context.plugin(EdgeDoAttachmentStore, { storage, images })
+      ? this.context.plugin(EdgeDoAttachmentStore, { storage, ...(images !== undefined ? { images } : {}) })
       : this.context.plugin(EdgeR2AttachmentStore, {
           bucket: requireAttachmentBucket(config.attachmentBucket),
-          images,
+          ...(images !== undefined ? { images } : {}),
         }))
     await this.context.plugin(EdgeCredentialProvider, {
       storage,
