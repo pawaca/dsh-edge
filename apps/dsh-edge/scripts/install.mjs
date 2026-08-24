@@ -646,7 +646,9 @@ export async function installEdge({
     const deepSeekKey = await ui.deepSeekKey(validateDeepSeekKey)
     const deepSeekError = validateDeepSeekKey(deepSeekKey)
     if (deepSeekError !== undefined) throw new Error(deepSeekError)
-    const enableImages = await ui.enableImages(temporary)
+    const enableImages = typeof ui.enableImages === 'function'
+      ? await ui.enableImages(temporary)
+      : false
 
     let bucketName
     if (attachmentStorage === 'private-r2') {
