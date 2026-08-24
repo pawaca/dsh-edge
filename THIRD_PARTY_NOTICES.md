@@ -7,7 +7,7 @@
 
 ## DeepSeek Harness
 
-`dsh-edge` assembles published DeepSeek Harness packages and applies 5 version-bound adaptations to the pinned `0.1.1-rc.1` release. DeepSeek Harness remains under its upstream MIT license:
+`dsh-edge` assembles published DeepSeek Harness packages and applies 3 version-bound adaptations to the pinned `0.1.1-rc.2` release. DeepSeek Harness remains under its upstream MIT license:
 
 ```text
 MIT License
@@ -45,25 +45,25 @@ The following 463 package versions form the conservative, platform-neutral produ
 | `@aws-crypto/supports-web-crypto@5.2.0` | `Apache-2.0` |
 | `@aws-crypto/util@5.2.0` | `Apache-2.0` |
 | `@aws-sdk/client-bedrock-runtime@3.1048.0` | `Apache-2.0` |
-| `@aws-sdk/core@3.977.8` | `Apache-2.0` |
-| `@aws-sdk/credential-provider-env@3.972.69` | `Apache-2.0` |
-| `@aws-sdk/credential-provider-http@3.972.71` | `Apache-2.0` |
-| `@aws-sdk/credential-provider-ini@3.973.14` | `Apache-2.0` |
-| `@aws-sdk/credential-provider-login@3.972.76` | `Apache-2.0` |
-| `@aws-sdk/credential-provider-node@3.972.80` | `Apache-2.0` |
-| `@aws-sdk/credential-provider-process@3.972.69` | `Apache-2.0` |
-| `@aws-sdk/credential-provider-sso@3.973.13` | `Apache-2.0` |
-| `@aws-sdk/credential-provider-web-identity@3.972.75` | `Apache-2.0` |
-| `@aws-sdk/eventstream-handler-node@3.972.33` | `Apache-2.0` |
-| `@aws-sdk/middleware-eventstream@3.972.28` | `Apache-2.0` |
-| `@aws-sdk/middleware-websocket@3.972.51` | `Apache-2.0` |
-| `@aws-sdk/nested-clients@3.997.43` | `Apache-2.0` |
-| `@aws-sdk/signature-v4-multi-region@3.996.45` | `Apache-2.0` |
+| `@aws-sdk/core@3.977.9` | `Apache-2.0` |
+| `@aws-sdk/credential-provider-env@3.972.70` | `Apache-2.0` |
+| `@aws-sdk/credential-provider-http@3.972.72` | `Apache-2.0` |
+| `@aws-sdk/credential-provider-ini@3.973.15` | `Apache-2.0` |
+| `@aws-sdk/credential-provider-login@3.972.77` | `Apache-2.0` |
+| `@aws-sdk/credential-provider-node@3.972.81` | `Apache-2.0` |
+| `@aws-sdk/credential-provider-process@3.972.70` | `Apache-2.0` |
+| `@aws-sdk/credential-provider-sso@3.973.14` | `Apache-2.0` |
+| `@aws-sdk/credential-provider-web-identity@3.972.76` | `Apache-2.0` |
+| `@aws-sdk/eventstream-handler-node@3.972.34` | `Apache-2.0` |
+| `@aws-sdk/middleware-eventstream@3.972.29` | `Apache-2.0` |
+| `@aws-sdk/middleware-websocket@3.972.52` | `Apache-2.0` |
+| `@aws-sdk/nested-clients@3.997.44` | `Apache-2.0` |
+| `@aws-sdk/signature-v4-multi-region@3.996.46` | `Apache-2.0` |
 | `@aws-sdk/token-providers@3.1048.0` | `Apache-2.0` |
-| `@aws-sdk/token-providers@3.1111.0` | `Apache-2.0` |
-| `@aws-sdk/types@3.974.4` | `Apache-2.0` |
+| `@aws-sdk/token-providers@3.1116.0` | `Apache-2.0` |
+| `@aws-sdk/types@3.974.5` | `Apache-2.0` |
 | `@aws-sdk/util-locate-window@3.965.10` | `Apache-2.0` |
-| `@aws-sdk/xml-builder@3.972.39` | `Apache-2.0` |
+| `@aws-sdk/xml-builder@3.972.40` | `Apache-2.0` |
 | `@aws/lambda-invoke-store@0.3.0` | `Apache-2.0` |
 | `@babel/code-frame@7.29.7` | `MIT` |
 | `@babel/helper-validator-identifier@7.29.7` | `MIT` |
@@ -80,180 +80,180 @@ The following 463 package versions form the conservative, platform-neutral produ
 | `@deepseek-ai/cordis-plugin-loader@1.0.2` | `MIT` |
 | `@deepseek-ai/cordis-plugin-timer@1.1.3` | `MIT` |
 | `@deepseek-ai/cosmokit@1.8.2` | `MIT` |
-| `@deepseek-ai/dsh-agent@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-agent-default-model@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-agent-instructions@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-agent-loop@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-agent-presets@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-anonymous-user-id@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-api-gateway@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-api-remotes@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-app-boot@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-atomic-write@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-attachment@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-attachment-local@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-authorization@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-base@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-bash-local@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-bash-sandbox@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-brand@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-client-connection@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-client-hmr@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-client-locale@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-client-modules@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-client-runtime@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-agent-preset@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-attachment@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-brand-official@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-commands@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-conversation@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-cordis@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-deliverables@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-directory-picker-browse@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-directory-picker-native@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-goal@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-input-trigger@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-jobs@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-layout@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-message-feedback@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-model-selection@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-permission-presets@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-plan@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-reference@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-renderer@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-settings@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-settings-general@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-settings-models@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-settings-plugin-inventory@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-settings-plugins@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-sidebar@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-skill@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-subagent@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-theme@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-tool@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-trajectory@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-user-questions@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-workflow-run@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-client-ui-workspace@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-cmdline@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-code-runtime@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-code-runtime-worker-thread@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-command-compact@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-command-feedback@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-command-goal@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-commands@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-compaction@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-compaction-basic@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-compaction-tool-result-pruner@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-cordis-client-runner@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-cordis-host-runner@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-credentials@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-credentials-local@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-file-reference@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-file-reference-local@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-fs@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-fs-local@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-fs-observation-policy@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-fs-sandbox@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-goal@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-goal-round-driver@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-home-paths@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-host-apiproxy@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-host-directory-picker@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-host-directory-picker-auto@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-host-directory-picker-browse@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-host-directory-picker-native@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-host-frontend-static@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-host-plugin-inventory@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-host-webserver@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-invariants@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-jobs@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-jobs-local@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-launch-environment@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-llm@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-llm-deepseek@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-llm-pi-ai@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-llm-retry@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-message-feedback@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-native-command@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-output-retention@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-permission-presets@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-plan-mode@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-pwsh-local@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-pwsh-sandbox@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-repeat-tool-reminder@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-sandbox@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-sandbox-local@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-sandbox-policy@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-sandbox-windows-acl@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-scope@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-session@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-session-checkpoint-policy@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-session-log-export@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-session-persistence@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-session-persistence-jsonl@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-session-projection@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-session-projection-cache@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-session-query@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-session-query-sqlite@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-session-reference@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-session-stats@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-session-telemetry@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-session-telemetry-otel@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-session-title@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-session-title-first-prompt-llm@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-session-title-llm@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-settings@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-settings-file@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-shell@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-shell-env@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-skill@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-skill-badge@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-skill-filesystem@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-spill@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-spill-local@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-spill-policy@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-storage@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-storage-domain@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-storage-json@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-subagent@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-subagent-fork-in-process@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-subagent-in-process-driver@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-subagent-spawn-in-process@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-subprocess@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-subprocess-local@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-system-prompt@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-timeout@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-token-meter@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-tool-bash@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-tool-call-timeout-policy@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-tool-fs@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-tool-fs-search@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-tool-goal@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-tool-jobs@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-tool-pwsh@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-tool-ralph@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-tool-skill@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-tool-str-replace-editor@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-tool-subagent@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-tool-subagent-control@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-tool-subagent-report@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-tool-todo@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-tool-web@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-tool-workflow@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-tools@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-typert-loader@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-typert-protocol@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-typert-registry@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-user-approval@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-user-questions@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-web@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-web-app@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-web-frontend@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-web-search-deepseek@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-workflow@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-workflow-worker-thread@0.1.1-rc.1` | `MIT` |
-| `@deepseek-ai/dsh-workspace@0.1.1-rc.1` | `MIT` |
+| `@deepseek-ai/dsh-agent@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-agent-default-model@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-agent-instructions@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-agent-loop@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-agent-presets@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-anonymous-user-id@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-api-gateway@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-api-remotes@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-app-boot@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-atomic-write@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-attachment@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-attachment-local@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-authorization@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-base@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-bash-local@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-bash-sandbox@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-brand@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-client-connection@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-client-hmr@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-client-locale@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-client-modules@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-client-runtime@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-agent-preset@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-attachment@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-brand-official@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-commands@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-conversation@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-cordis@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-deliverables@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-directory-picker-browse@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-directory-picker-native@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-goal@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-input-trigger@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-jobs@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-layout@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-message-feedback@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-model-selection@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-permission-presets@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-plan@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-reference@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-renderer@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-settings@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-settings-general@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-settings-models@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-settings-plugin-inventory@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-settings-plugins@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-sidebar@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-skill@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-subagent@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-theme@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-tool@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-trajectory@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-user-questions@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-workflow-run@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-client-ui-workspace@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-cmdline@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-code-runtime@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-code-runtime-worker-thread@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-command-compact@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-command-feedback@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-command-goal@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-commands@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-compaction@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-compaction-basic@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-compaction-tool-result-pruner@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-cordis-client-runner@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-cordis-host-runner@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-credentials@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-credentials-local@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-file-reference@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-file-reference-local@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-fs@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-fs-local@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-fs-observation-policy@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-fs-sandbox@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-goal@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-goal-round-driver@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-home-paths@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-host-apiproxy@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-host-directory-picker@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-host-directory-picker-auto@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-host-directory-picker-browse@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-host-directory-picker-native@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-host-frontend-static@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-host-plugin-inventory@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-host-webserver@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-invariants@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-jobs@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-jobs-local@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-launch-environment@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-llm@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-llm-deepseek@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-llm-pi-ai@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-llm-retry@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-message-feedback@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-native-command@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-output-retention@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-permission-presets@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-plan-mode@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-pwsh-local@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-pwsh-sandbox@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-repeat-tool-reminder@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-sandbox@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-sandbox-local@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-sandbox-policy@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-sandbox-windows-acl@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-scope@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-session@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-session-checkpoint-policy@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-session-log-export@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-session-persistence@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-session-persistence-jsonl@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-session-projection@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-session-projection-cache@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-session-query@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-session-query-sqlite@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-session-reference@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-session-stats@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-session-telemetry@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-session-telemetry-otel@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-session-title@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-session-title-first-prompt-llm@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-session-title-llm@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-settings@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-settings-file@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-shell@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-shell-env@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-skill@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-skill-badge@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-skill-filesystem@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-spill@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-spill-local@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-spill-policy@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-storage@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-storage-domain@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-storage-json@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-subagent@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-subagent-fork-in-process@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-subagent-in-process-driver@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-subagent-spawn-in-process@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-subprocess@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-subprocess-local@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-system-prompt@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-timeout@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-token-meter@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-tool-bash@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-tool-call-timeout-policy@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-tool-fs@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-tool-fs-search@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-tool-goal@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-tool-jobs@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-tool-pwsh@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-tool-ralph@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-tool-skill@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-tool-str-replace-editor@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-tool-subagent@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-tool-subagent-control@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-tool-subagent-report@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-tool-todo@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-tool-web@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-tool-workflow@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-tools@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-typert-loader@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-typert-protocol@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-typert-registry@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-user-approval@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-user-questions@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-web@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-web-app@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-web-frontend@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-web-search-deepseek@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-workflow@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-workflow-worker-thread@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-workspace@0.1.1-rc.2` | `MIT` |
 | `@deepseek-ai/node-addon-landlock-run@0.1.1` | `BSD-3-Clause` |
 | `@deepseek-ai/schemastery@3.18.1` | `MIT` |
 | `@earendil-works/pi-ai@0.82.1` | `MIT` |
@@ -301,13 +301,13 @@ The following 463 package versions form the conservative, platform-neutral produ
 | `@sec-ant/readable-stream@0.4.1` | `MIT` |
 | `@sindresorhus/is@7.2.0` | `MIT` |
 | `@sindresorhus/merge-streams@4.0.0` | `MIT` |
-| `@smithy/core@3.33.2` | `Apache-2.0` |
+| `@smithy/core@3.33.3` | `Apache-2.0` |
 | `@smithy/credential-provider-imds@4.5.2` | `Apache-2.0` |
 | `@smithy/fetch-http-handler@5.7.2` | `Apache-2.0` |
 | `@smithy/is-array-buffer@2.2.0` | `Apache-2.0` |
-| `@smithy/node-http-handler@4.11.2` | `Apache-2.0` |
+| `@smithy/node-http-handler@4.11.3` | `Apache-2.0` |
 | `@smithy/node-http-handler@4.7.3` | `Apache-2.0` |
-| `@smithy/signature-v4@5.7.2` | `Apache-2.0` |
+| `@smithy/signature-v4@5.7.3` | `Apache-2.0` |
 | `@smithy/types@4.17.2` | `Apache-2.0` |
 | `@smithy/util-buffer-from@2.2.0` | `Apache-2.0` |
 | `@smithy/util-utf8@2.3.0` | `Apache-2.0` |
@@ -403,7 +403,7 @@ The following 463 package versions form the conservative, platform-neutral produ
 | `jwa@2.0.1` | `MIT` |
 | `jws@4.0.1` | `MIT` |
 | `kleur@4.1.5` | `MIT` |
-| `koffi@3.1.5` | `MIT` |
+| `koffi@3.1.6` | `MIT` |
 | `long@5.3.2` | `Apache-2.0` |
 | `loose-envify@1.4.0` | `MIT` |
 | `mimic-response@3.1.0` | `MIT` |
@@ -447,14 +447,14 @@ The following 463 package versions form the conservative, platform-neutral produ
 | `rc@1.2.8` | `(BSD-2-Clause OR MIT OR Apache-2.0)` |
 | `re2js@1.3.3` | `MIT` |
 | `react@18.3.1` | `MIT` |
-| `react-dom@18.3.1` | `MIT` |
+| `react-dom@19.2.8` | `MIT` |
 | `readable-stream@3.6.2` | `MIT` |
 | `readdirp@4.1.2` | `MIT` |
 | `readdirp@5.1.1` | `MIT` |
 | `retry@0.13.1` | `MIT` |
 | `run-applescript@7.1.0` | `MIT` |
 | `safe-buffer@5.2.1` | `MIT` |
-| `scheduler@0.23.2` | `MIT` |
+| `scheduler@0.27.0` | `MIT` |
 | `seek-bzip@2.0.0` | `MIT` |
 | `semver@7.8.5` | `ISC` |
 | `sharp@0.35.2` | `Apache-2.0` |
@@ -954,6 +954,218 @@ Permission is hereby granted, free of charge, to any person obtaining a copy of 
 The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+```
+
+### License/notice 1ddd287eeda3
+
+Applies to:
+
+- `@aws-sdk/nested-clients@3.997.44` (`package metadata fallback`)
+
+```text
+The published @aws-sdk/nested-clients@3.997.44 package declared Apache-2.0 but did not include a license or notice file. Attribution from its package metadata: AWS SDK for JavaScript Team. Repository: https://github.com/aws/aws-sdk-js-v3.git.
+
+Apache License
+                           Version 2.0, January 2004
+                        http://www.apache.org/licenses/
+
+   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+
+   1. Definitions.
+
+      "License" shall mean the terms and conditions for use, reproduction,
+      and distribution as defined by Sections 1 through 9 of this document.
+
+      "Licensor" shall mean the copyright owner or entity authorized by
+      the copyright owner that is granting the License.
+
+      "Legal Entity" shall mean the union of the acting entity and all
+      other entities that control, are controlled by, or are under common
+      control with that entity. For the purposes of this definition,
+      "control" means (i) the power, direct or indirect, to cause the
+      direction or management of such entity, whether by contract or
+      otherwise, or (ii) ownership of fifty percent (50%) or more of the
+      outstanding shares, or (iii) beneficial ownership of such entity.
+
+      "You" (or "Your") shall mean an individual or Legal Entity
+      exercising permissions granted by this License.
+
+      "Source" form shall mean the preferred form for making modifications,
+      including but not limited to software source code, documentation
+      source, and configuration files.
+
+      "Object" form shall mean any form resulting from mechanical
+      transformation or translation of a Source form, including but
+      not limited to compiled object code, generated documentation,
+      and conversions to other media types.
+
+      "Work" shall mean the work of authorship, whether in Source or
+      Object form, made available under the License, as indicated by a
+      copyright notice that is included in or attached to the work
+      (an example is provided in the Appendix below).
+
+      "Derivative Works" shall mean any work, whether in Source or Object
+      form, that is based on (or derived from) the Work and for which the
+      editorial revisions, annotations, elaborations, or other modifications
+      represent, as a whole, an original work of authorship. For the purposes
+      of this License, Derivative Works shall not include works that remain
+      separable from, or merely link (or bind by name) to the interfaces of,
+      the Work and Derivative Works thereof.
+
+      "Contribution" shall mean any work of authorship, including
+      the original version of the Work and any modifications or additions
+      to that Work or Derivative Works thereof, that is intentionally
+      submitted to Licensor for inclusion in the Work by the copyright owner
+      or by an individual or Legal Entity authorized to submit on behalf of
+      the copyright owner. For the purposes of this definition, "submitted"
+      means any form of electronic, verbal, or written communication sent
+      to the Licensor or its representatives, including but not limited to
+      communication on electronic mailing lists, source code control systems,
+      and issue tracking systems that are managed by, or on behalf of, the
+      Licensor for the purpose of discussing and improving the Work, but
+      excluding communication that is conspicuously marked or otherwise
+      designated in writing by the copyright owner as "Not a Contribution."
+
+      "Contributor" shall mean Licensor and any individual or Legal Entity
+      on behalf of whom a Contribution has been received by Licensor and
+      subsequently incorporated within the Work.
+
+   2. Grant of Copyright License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      copyright license to reproduce, prepare Derivative Works of,
+      publicly display, publicly perform, sublicense, and distribute the
+      Work and such Derivative Works in Source or Object form.
+
+   3. Grant of Patent License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      (except as stated in this section) patent license to make, have made,
+      use, offer to sell, sell, import, and otherwise transfer the Work,
+      where such license applies only to those patent claims licensable
+      by such Contributor that are necessarily infringed by their
+      Contribution(s) alone or by combination of their Contribution(s)
+      with the Work to which such Contribution(s) was submitted. If You
+      institute patent litigation against any entity (including a
+      cross-claim or counterclaim in a lawsuit) alleging that the Work
+      or a Contribution incorporated within the Work constitutes direct
+      or contributory patent infringement, then any patent licenses
+      granted to You under this License for that Work shall terminate
+      as of the date such litigation is filed.
+
+   4. Redistribution. You may reproduce and distribute copies of the
+      Work or Derivative Works thereof in any medium, with or without
+      modifications, and in Source or Object form, provided that You
+      meet the following conditions:
+
+      (a) You must give any other recipients of the Work or
+          Derivative Works a copy of this License; and
+
+      (b) You must cause any modified files to carry prominent notices
+          stating that You changed the files; and
+
+      (c) You must retain, in the Source form of any Derivative Works
+          that You distribute, all copyright, patent, trademark, and
+          attribution notices from the Source form of the Work,
+          excluding those notices that do not pertain to any part of
+          the Derivative Works; and
+
+      (d) If the Work includes a "NOTICE" text file as part of its
+          distribution, then any Derivative Works that You distribute must
+          include a readable copy of the attribution notices contained
+          within such NOTICE file, excluding those notices that do not
+          pertain to any part of the Derivative Works, in at least one
+          of the following places: within a NOTICE text file distributed
+          as part of the Derivative Works; within the Source form or
+          documentation, if provided along with the Derivative Works; or,
+          within a display generated by the Derivative Works, if and
+          wherever such third-party notices normally appear. The contents
+          of the NOTICE file are for informational purposes only and
+          do not modify the License. You may add Your own attribution
+          notices within Derivative Works that You distribute, alongside
+          or as an addendum to the NOTICE text from the Work, provided
+          that such additional attribution notices cannot be construed
+          as modifying the License.
+
+      You may add Your own copyright statement to Your modifications and
+      may provide additional or different license terms and conditions
+      for use, reproduction, or distribution of Your modifications, or
+      for any such Derivative Works as a whole, provided Your use,
+      reproduction, and distribution of the Work otherwise complies with
+      the conditions stated in this License.
+
+   5. Submission of Contributions. Unless You explicitly state otherwise,
+      any Contribution intentionally submitted for inclusion in the Work
+      by You to the Licensor shall be under the terms and conditions of
+      this License, without any additional terms or conditions.
+      Notwithstanding the above, nothing herein shall supersede or modify
+      the terms of any separate license agreement you may have executed
+      with Licensor regarding such Contributions.
+
+   6. Trademarks. This License does not grant permission to use the trade
+      names, trademarks, service marks, or product names of the Licensor,
+      except as required for reasonable and customary use in describing the
+      origin of the Work and reproducing the content of the NOTICE file.
+
+   7. Disclaimer of Warranty. Unless required by applicable law or
+      agreed to in writing, Licensor provides the Work (and each
+      Contributor provides its Contributions) on an "AS IS" BASIS,
+      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+      implied, including, without limitation, any warranties or conditions
+      of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
+      PARTICULAR PURPOSE. You are solely responsible for determining the
+      appropriateness of using or redistributing the Work and assume any
+      risks associated with Your exercise of permissions under this License.
+
+   8. Limitation of Liability. In no event and under no legal theory,
+      whether in tort (including negligence), contract, or otherwise,
+      unless required by applicable law (such as deliberate and grossly
+      negligent acts) or agreed to in writing, shall any Contributor be
+      liable to You for damages, including any direct, indirect, special,
+      incidental, or consequential damages of any character arising as a
+      result of this License or out of the use or inability to use the
+      Work (including but not limited to damages for loss of goodwill,
+      work stoppage, computer failure or malfunction, or any and all
+      other commercial damages or losses), even if such Contributor
+      has been advised of the possibility of such damages.
+
+   9. Accepting Warranty or Additional Liability. While redistributing
+      the Work or Derivative Works thereof, You may choose to offer,
+      and charge a fee for, acceptance of support, warranty, indemnity,
+      or other liability obligations and/or rights consistent with this
+      License. However, in accepting such obligations, You may act only
+      on Your own behalf and on Your sole responsibility, not on behalf
+      of any other Contributor, and only if You agree to indemnify,
+      defend, and hold each Contributor harmless for any liability
+      incurred by, or claims asserted against, such Contributor by reason
+      of your accepting any such warranty or additional liability.
+
+   END OF TERMS AND CONDITIONS
+
+   APPENDIX: How to apply the Apache License to your work.
+
+      To apply the Apache License to your work, attach the following
+      boilerplate notice, with the fields enclosed by brackets "[]"
+      replaced with your own identifying information. (Don't include
+      the brackets!)  The text should be enclosed in the appropriate
+      comment syntax for the file format. We also recommend that a
+      file or class name and description of purpose be included on the
+      same "printed page" as the copyright notice for easier
+      identification within third-party archives.
+
+   Copyright [yyyy] [name of copyright owner]
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
 ```
 
 ### License/notice 23b57495a1f9
@@ -1602,13 +1814,13 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 Applies to:
 
-- `@aws-sdk/credential-provider-process@3.972.69` (`LICENSE`)
-- `@aws-sdk/credential-provider-sso@3.973.13` (`LICENSE`)
-- `@aws-sdk/credential-provider-web-identity@3.972.75` (`LICENSE`)
-- `@aws-sdk/eventstream-handler-node@3.972.33` (`LICENSE`)
-- `@aws-sdk/middleware-websocket@3.972.51` (`LICENSE`)
-- `@aws-sdk/signature-v4-multi-region@3.996.45` (`LICENSE`)
-- `@smithy/core@3.33.2` (`LICENSE`)
+- `@aws-sdk/credential-provider-process@3.972.70` (`LICENSE`)
+- `@aws-sdk/credential-provider-sso@3.973.14` (`LICENSE`)
+- `@aws-sdk/credential-provider-web-identity@3.972.76` (`LICENSE`)
+- `@aws-sdk/eventstream-handler-node@3.972.34` (`LICENSE`)
+- `@aws-sdk/middleware-websocket@3.972.52` (`LICENSE`)
+- `@aws-sdk/signature-v4-multi-region@3.996.46` (`LICENSE`)
+- `@smithy/core@3.33.3` (`LICENSE`)
 - `@smithy/types@4.17.2` (`LICENSE`)
 
 ```text
@@ -2348,6 +2560,218 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+```
+
+### License/notice 49e71b973753
+
+Applies to:
+
+- `@aws-sdk/credential-provider-login@3.972.77` (`package metadata fallback`)
+
+```text
+The published @aws-sdk/credential-provider-login@3.972.77 package declared Apache-2.0 but did not include a license or notice file. Attribution from its package metadata: AWS SDK for JavaScript Team. Repository: https://github.com/aws/aws-sdk-js-v3.git.
+
+Apache License
+                           Version 2.0, January 2004
+                        http://www.apache.org/licenses/
+
+   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+
+   1. Definitions.
+
+      "License" shall mean the terms and conditions for use, reproduction,
+      and distribution as defined by Sections 1 through 9 of this document.
+
+      "Licensor" shall mean the copyright owner or entity authorized by
+      the copyright owner that is granting the License.
+
+      "Legal Entity" shall mean the union of the acting entity and all
+      other entities that control, are controlled by, or are under common
+      control with that entity. For the purposes of this definition,
+      "control" means (i) the power, direct or indirect, to cause the
+      direction or management of such entity, whether by contract or
+      otherwise, or (ii) ownership of fifty percent (50%) or more of the
+      outstanding shares, or (iii) beneficial ownership of such entity.
+
+      "You" (or "Your") shall mean an individual or Legal Entity
+      exercising permissions granted by this License.
+
+      "Source" form shall mean the preferred form for making modifications,
+      including but not limited to software source code, documentation
+      source, and configuration files.
+
+      "Object" form shall mean any form resulting from mechanical
+      transformation or translation of a Source form, including but
+      not limited to compiled object code, generated documentation,
+      and conversions to other media types.
+
+      "Work" shall mean the work of authorship, whether in Source or
+      Object form, made available under the License, as indicated by a
+      copyright notice that is included in or attached to the work
+      (an example is provided in the Appendix below).
+
+      "Derivative Works" shall mean any work, whether in Source or Object
+      form, that is based on (or derived from) the Work and for which the
+      editorial revisions, annotations, elaborations, or other modifications
+      represent, as a whole, an original work of authorship. For the purposes
+      of this License, Derivative Works shall not include works that remain
+      separable from, or merely link (or bind by name) to the interfaces of,
+      the Work and Derivative Works thereof.
+
+      "Contribution" shall mean any work of authorship, including
+      the original version of the Work and any modifications or additions
+      to that Work or Derivative Works thereof, that is intentionally
+      submitted to Licensor for inclusion in the Work by the copyright owner
+      or by an individual or Legal Entity authorized to submit on behalf of
+      the copyright owner. For the purposes of this definition, "submitted"
+      means any form of electronic, verbal, or written communication sent
+      to the Licensor or its representatives, including but not limited to
+      communication on electronic mailing lists, source code control systems,
+      and issue tracking systems that are managed by, or on behalf of, the
+      Licensor for the purpose of discussing and improving the Work, but
+      excluding communication that is conspicuously marked or otherwise
+      designated in writing by the copyright owner as "Not a Contribution."
+
+      "Contributor" shall mean Licensor and any individual or Legal Entity
+      on behalf of whom a Contribution has been received by Licensor and
+      subsequently incorporated within the Work.
+
+   2. Grant of Copyright License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      copyright license to reproduce, prepare Derivative Works of,
+      publicly display, publicly perform, sublicense, and distribute the
+      Work and such Derivative Works in Source or Object form.
+
+   3. Grant of Patent License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      (except as stated in this section) patent license to make, have made,
+      use, offer to sell, sell, import, and otherwise transfer the Work,
+      where such license applies only to those patent claims licensable
+      by such Contributor that are necessarily infringed by their
+      Contribution(s) alone or by combination of their Contribution(s)
+      with the Work to which such Contribution(s) was submitted. If You
+      institute patent litigation against any entity (including a
+      cross-claim or counterclaim in a lawsuit) alleging that the Work
+      or a Contribution incorporated within the Work constitutes direct
+      or contributory patent infringement, then any patent licenses
+      granted to You under this License for that Work shall terminate
+      as of the date such litigation is filed.
+
+   4. Redistribution. You may reproduce and distribute copies of the
+      Work or Derivative Works thereof in any medium, with or without
+      modifications, and in Source or Object form, provided that You
+      meet the following conditions:
+
+      (a) You must give any other recipients of the Work or
+          Derivative Works a copy of this License; and
+
+      (b) You must cause any modified files to carry prominent notices
+          stating that You changed the files; and
+
+      (c) You must retain, in the Source form of any Derivative Works
+          that You distribute, all copyright, patent, trademark, and
+          attribution notices from the Source form of the Work,
+          excluding those notices that do not pertain to any part of
+          the Derivative Works; and
+
+      (d) If the Work includes a "NOTICE" text file as part of its
+          distribution, then any Derivative Works that You distribute must
+          include a readable copy of the attribution notices contained
+          within such NOTICE file, excluding those notices that do not
+          pertain to any part of the Derivative Works, in at least one
+          of the following places: within a NOTICE text file distributed
+          as part of the Derivative Works; within the Source form or
+          documentation, if provided along with the Derivative Works; or,
+          within a display generated by the Derivative Works, if and
+          wherever such third-party notices normally appear. The contents
+          of the NOTICE file are for informational purposes only and
+          do not modify the License. You may add Your own attribution
+          notices within Derivative Works that You distribute, alongside
+          or as an addendum to the NOTICE text from the Work, provided
+          that such additional attribution notices cannot be construed
+          as modifying the License.
+
+      You may add Your own copyright statement to Your modifications and
+      may provide additional or different license terms and conditions
+      for use, reproduction, or distribution of Your modifications, or
+      for any such Derivative Works as a whole, provided Your use,
+      reproduction, and distribution of the Work otherwise complies with
+      the conditions stated in this License.
+
+   5. Submission of Contributions. Unless You explicitly state otherwise,
+      any Contribution intentionally submitted for inclusion in the Work
+      by You to the Licensor shall be under the terms and conditions of
+      this License, without any additional terms or conditions.
+      Notwithstanding the above, nothing herein shall supersede or modify
+      the terms of any separate license agreement you may have executed
+      with Licensor regarding such Contributions.
+
+   6. Trademarks. This License does not grant permission to use the trade
+      names, trademarks, service marks, or product names of the Licensor,
+      except as required for reasonable and customary use in describing the
+      origin of the Work and reproducing the content of the NOTICE file.
+
+   7. Disclaimer of Warranty. Unless required by applicable law or
+      agreed to in writing, Licensor provides the Work (and each
+      Contributor provides its Contributions) on an "AS IS" BASIS,
+      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+      implied, including, without limitation, any warranties or conditions
+      of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
+      PARTICULAR PURPOSE. You are solely responsible for determining the
+      appropriateness of using or redistributing the Work and assume any
+      risks associated with Your exercise of permissions under this License.
+
+   8. Limitation of Liability. In no event and under no legal theory,
+      whether in tort (including negligence), contract, or otherwise,
+      unless required by applicable law (such as deliberate and grossly
+      negligent acts) or agreed to in writing, shall any Contributor be
+      liable to You for damages, including any direct, indirect, special,
+      incidental, or consequential damages of any character arising as a
+      result of this License or out of the use or inability to use the
+      Work (including but not limited to damages for loss of goodwill,
+      work stoppage, computer failure or malfunction, or any and all
+      other commercial damages or losses), even if such Contributor
+      has been advised of the possibility of such damages.
+
+   9. Accepting Warranty or Additional Liability. While redistributing
+      the Work or Derivative Works thereof, You may choose to offer,
+      and charge a fee for, acceptance of support, warranty, indemnity,
+      or other liability obligations and/or rights consistent with this
+      License. However, in accepting such obligations, You may act only
+      on Your own behalf and on Your sole responsibility, not on behalf
+      of any other Contributor, and only if You agree to indemnify,
+      defend, and hold each Contributor harmless for any liability
+      incurred by, or claims asserted against, such Contributor by reason
+      of your accepting any such warranty or additional liability.
+
+   END OF TERMS AND CONDITIONS
+
+   APPENDIX: How to apply the Apache License to your work.
+
+      To apply the Apache License to your work, attach the following
+      boilerplate notice, with the fields enclosed by brackets "[]"
+      replaced with your own identifying information. (Don't include
+      the brackets!)  The text should be enclosed in the appropriate
+      comment syntax for the file format. We also recommend that a
+      file or class name and description of purpose be included on the
+      same "printed page" as the copyright notice for easier
+      identification within third-party archives.
+
+   Copyright [yyyy] [name of copyright owner]
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
 ```
 
 ### License/notice 4b68ef983e0f
@@ -3926,6 +4350,218 @@ Apache License
    limitations under the License.
 ```
 
+### License/notice 7137b8653924
+
+Applies to:
+
+- `@aws-sdk/credential-provider-http@3.972.72` (`package metadata fallback`)
+
+```text
+The published @aws-sdk/credential-provider-http@3.972.72 package declared Apache-2.0 but did not include a license or notice file. Attribution from its package metadata: AWS SDK for JavaScript Team. Repository: https://github.com/aws/aws-sdk-js-v3.git.
+
+Apache License
+                           Version 2.0, January 2004
+                        http://www.apache.org/licenses/
+
+   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+
+   1. Definitions.
+
+      "License" shall mean the terms and conditions for use, reproduction,
+      and distribution as defined by Sections 1 through 9 of this document.
+
+      "Licensor" shall mean the copyright owner or entity authorized by
+      the copyright owner that is granting the License.
+
+      "Legal Entity" shall mean the union of the acting entity and all
+      other entities that control, are controlled by, or are under common
+      control with that entity. For the purposes of this definition,
+      "control" means (i) the power, direct or indirect, to cause the
+      direction or management of such entity, whether by contract or
+      otherwise, or (ii) ownership of fifty percent (50%) or more of the
+      outstanding shares, or (iii) beneficial ownership of such entity.
+
+      "You" (or "Your") shall mean an individual or Legal Entity
+      exercising permissions granted by this License.
+
+      "Source" form shall mean the preferred form for making modifications,
+      including but not limited to software source code, documentation
+      source, and configuration files.
+
+      "Object" form shall mean any form resulting from mechanical
+      transformation or translation of a Source form, including but
+      not limited to compiled object code, generated documentation,
+      and conversions to other media types.
+
+      "Work" shall mean the work of authorship, whether in Source or
+      Object form, made available under the License, as indicated by a
+      copyright notice that is included in or attached to the work
+      (an example is provided in the Appendix below).
+
+      "Derivative Works" shall mean any work, whether in Source or Object
+      form, that is based on (or derived from) the Work and for which the
+      editorial revisions, annotations, elaborations, or other modifications
+      represent, as a whole, an original work of authorship. For the purposes
+      of this License, Derivative Works shall not include works that remain
+      separable from, or merely link (or bind by name) to the interfaces of,
+      the Work and Derivative Works thereof.
+
+      "Contribution" shall mean any work of authorship, including
+      the original version of the Work and any modifications or additions
+      to that Work or Derivative Works thereof, that is intentionally
+      submitted to Licensor for inclusion in the Work by the copyright owner
+      or by an individual or Legal Entity authorized to submit on behalf of
+      the copyright owner. For the purposes of this definition, "submitted"
+      means any form of electronic, verbal, or written communication sent
+      to the Licensor or its representatives, including but not limited to
+      communication on electronic mailing lists, source code control systems,
+      and issue tracking systems that are managed by, or on behalf of, the
+      Licensor for the purpose of discussing and improving the Work, but
+      excluding communication that is conspicuously marked or otherwise
+      designated in writing by the copyright owner as "Not a Contribution."
+
+      "Contributor" shall mean Licensor and any individual or Legal Entity
+      on behalf of whom a Contribution has been received by Licensor and
+      subsequently incorporated within the Work.
+
+   2. Grant of Copyright License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      copyright license to reproduce, prepare Derivative Works of,
+      publicly display, publicly perform, sublicense, and distribute the
+      Work and such Derivative Works in Source or Object form.
+
+   3. Grant of Patent License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      (except as stated in this section) patent license to make, have made,
+      use, offer to sell, sell, import, and otherwise transfer the Work,
+      where such license applies only to those patent claims licensable
+      by such Contributor that are necessarily infringed by their
+      Contribution(s) alone or by combination of their Contribution(s)
+      with the Work to which such Contribution(s) was submitted. If You
+      institute patent litigation against any entity (including a
+      cross-claim or counterclaim in a lawsuit) alleging that the Work
+      or a Contribution incorporated within the Work constitutes direct
+      or contributory patent infringement, then any patent licenses
+      granted to You under this License for that Work shall terminate
+      as of the date such litigation is filed.
+
+   4. Redistribution. You may reproduce and distribute copies of the
+      Work or Derivative Works thereof in any medium, with or without
+      modifications, and in Source or Object form, provided that You
+      meet the following conditions:
+
+      (a) You must give any other recipients of the Work or
+          Derivative Works a copy of this License; and
+
+      (b) You must cause any modified files to carry prominent notices
+          stating that You changed the files; and
+
+      (c) You must retain, in the Source form of any Derivative Works
+          that You distribute, all copyright, patent, trademark, and
+          attribution notices from the Source form of the Work,
+          excluding those notices that do not pertain to any part of
+          the Derivative Works; and
+
+      (d) If the Work includes a "NOTICE" text file as part of its
+          distribution, then any Derivative Works that You distribute must
+          include a readable copy of the attribution notices contained
+          within such NOTICE file, excluding those notices that do not
+          pertain to any part of the Derivative Works, in at least one
+          of the following places: within a NOTICE text file distributed
+          as part of the Derivative Works; within the Source form or
+          documentation, if provided along with the Derivative Works; or,
+          within a display generated by the Derivative Works, if and
+          wherever such third-party notices normally appear. The contents
+          of the NOTICE file are for informational purposes only and
+          do not modify the License. You may add Your own attribution
+          notices within Derivative Works that You distribute, alongside
+          or as an addendum to the NOTICE text from the Work, provided
+          that such additional attribution notices cannot be construed
+          as modifying the License.
+
+      You may add Your own copyright statement to Your modifications and
+      may provide additional or different license terms and conditions
+      for use, reproduction, or distribution of Your modifications, or
+      for any such Derivative Works as a whole, provided Your use,
+      reproduction, and distribution of the Work otherwise complies with
+      the conditions stated in this License.
+
+   5. Submission of Contributions. Unless You explicitly state otherwise,
+      any Contribution intentionally submitted for inclusion in the Work
+      by You to the Licensor shall be under the terms and conditions of
+      this License, without any additional terms or conditions.
+      Notwithstanding the above, nothing herein shall supersede or modify
+      the terms of any separate license agreement you may have executed
+      with Licensor regarding such Contributions.
+
+   6. Trademarks. This License does not grant permission to use the trade
+      names, trademarks, service marks, or product names of the Licensor,
+      except as required for reasonable and customary use in describing the
+      origin of the Work and reproducing the content of the NOTICE file.
+
+   7. Disclaimer of Warranty. Unless required by applicable law or
+      agreed to in writing, Licensor provides the Work (and each
+      Contributor provides its Contributions) on an "AS IS" BASIS,
+      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+      implied, including, without limitation, any warranties or conditions
+      of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
+      PARTICULAR PURPOSE. You are solely responsible for determining the
+      appropriateness of using or redistributing the Work and assume any
+      risks associated with Your exercise of permissions under this License.
+
+   8. Limitation of Liability. In no event and under no legal theory,
+      whether in tort (including negligence), contract, or otherwise,
+      unless required by applicable law (such as deliberate and grossly
+      negligent acts) or agreed to in writing, shall any Contributor be
+      liable to You for damages, including any direct, indirect, special,
+      incidental, or consequential damages of any character arising as a
+      result of this License or out of the use or inability to use the
+      Work (including but not limited to damages for loss of goodwill,
+      work stoppage, computer failure or malfunction, or any and all
+      other commercial damages or losses), even if such Contributor
+      has been advised of the possibility of such damages.
+
+   9. Accepting Warranty or Additional Liability. While redistributing
+      the Work or Derivative Works thereof, You may choose to offer,
+      and charge a fee for, acceptance of support, warranty, indemnity,
+      or other liability obligations and/or rights consistent with this
+      License. However, in accepting such obligations, You may act only
+      on Your own behalf and on Your sole responsibility, not on behalf
+      of any other Contributor, and only if You agree to indemnify,
+      defend, and hold each Contributor harmless for any liability
+      incurred by, or claims asserted against, such Contributor by reason
+      of your accepting any such warranty or additional liability.
+
+   END OF TERMS AND CONDITIONS
+
+   APPENDIX: How to apply the Apache License to your work.
+
+      To apply the Apache License to your work, attach the following
+      boilerplate notice, with the fields enclosed by brackets "[]"
+      replaced with your own identifying information. (Don't include
+      the brackets!)  The text should be enclosed in the appropriate
+      comment syntax for the file format. We also recommend that a
+      file or class name and description of purpose be included on the
+      same "printed page" as the copyright notice for easier
+      identification within third-party archives.
+
+   Copyright [yyyy] [name of copyright owner]
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+```
+
 ### License/notice 79157668b360
 
 Applies to:
@@ -4542,7 +5178,7 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 Applies to:
 
-- `koffi@3.1.5` (`LICENSE.txt`)
+- `koffi@3.1.6` (`LICENSE.txt`)
 
 ```text
 MIT License
@@ -4601,218 +5237,6 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-```
-
-### License/notice 8abd644e1c9c
-
-Applies to:
-
-- `@aws-sdk/credential-provider-login@3.972.76` (`package metadata fallback`)
-
-```text
-The published @aws-sdk/credential-provider-login@3.972.76 package declared Apache-2.0 but did not include a license or notice file. Attribution from its package metadata: AWS SDK for JavaScript Team. Repository: https://github.com/aws/aws-sdk-js-v3.git.
-
-Apache License
-                           Version 2.0, January 2004
-                        http://www.apache.org/licenses/
-
-   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
-
-   1. Definitions.
-
-      "License" shall mean the terms and conditions for use, reproduction,
-      and distribution as defined by Sections 1 through 9 of this document.
-
-      "Licensor" shall mean the copyright owner or entity authorized by
-      the copyright owner that is granting the License.
-
-      "Legal Entity" shall mean the union of the acting entity and all
-      other entities that control, are controlled by, or are under common
-      control with that entity. For the purposes of this definition,
-      "control" means (i) the power, direct or indirect, to cause the
-      direction or management of such entity, whether by contract or
-      otherwise, or (ii) ownership of fifty percent (50%) or more of the
-      outstanding shares, or (iii) beneficial ownership of such entity.
-
-      "You" (or "Your") shall mean an individual or Legal Entity
-      exercising permissions granted by this License.
-
-      "Source" form shall mean the preferred form for making modifications,
-      including but not limited to software source code, documentation
-      source, and configuration files.
-
-      "Object" form shall mean any form resulting from mechanical
-      transformation or translation of a Source form, including but
-      not limited to compiled object code, generated documentation,
-      and conversions to other media types.
-
-      "Work" shall mean the work of authorship, whether in Source or
-      Object form, made available under the License, as indicated by a
-      copyright notice that is included in or attached to the work
-      (an example is provided in the Appendix below).
-
-      "Derivative Works" shall mean any work, whether in Source or Object
-      form, that is based on (or derived from) the Work and for which the
-      editorial revisions, annotations, elaborations, or other modifications
-      represent, as a whole, an original work of authorship. For the purposes
-      of this License, Derivative Works shall not include works that remain
-      separable from, or merely link (or bind by name) to the interfaces of,
-      the Work and Derivative Works thereof.
-
-      "Contribution" shall mean any work of authorship, including
-      the original version of the Work and any modifications or additions
-      to that Work or Derivative Works thereof, that is intentionally
-      submitted to Licensor for inclusion in the Work by the copyright owner
-      or by an individual or Legal Entity authorized to submit on behalf of
-      the copyright owner. For the purposes of this definition, "submitted"
-      means any form of electronic, verbal, or written communication sent
-      to the Licensor or its representatives, including but not limited to
-      communication on electronic mailing lists, source code control systems,
-      and issue tracking systems that are managed by, or on behalf of, the
-      Licensor for the purpose of discussing and improving the Work, but
-      excluding communication that is conspicuously marked or otherwise
-      designated in writing by the copyright owner as "Not a Contribution."
-
-      "Contributor" shall mean Licensor and any individual or Legal Entity
-      on behalf of whom a Contribution has been received by Licensor and
-      subsequently incorporated within the Work.
-
-   2. Grant of Copyright License. Subject to the terms and conditions of
-      this License, each Contributor hereby grants to You a perpetual,
-      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
-      copyright license to reproduce, prepare Derivative Works of,
-      publicly display, publicly perform, sublicense, and distribute the
-      Work and such Derivative Works in Source or Object form.
-
-   3. Grant of Patent License. Subject to the terms and conditions of
-      this License, each Contributor hereby grants to You a perpetual,
-      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
-      (except as stated in this section) patent license to make, have made,
-      use, offer to sell, sell, import, and otherwise transfer the Work,
-      where such license applies only to those patent claims licensable
-      by such Contributor that are necessarily infringed by their
-      Contribution(s) alone or by combination of their Contribution(s)
-      with the Work to which such Contribution(s) was submitted. If You
-      institute patent litigation against any entity (including a
-      cross-claim or counterclaim in a lawsuit) alleging that the Work
-      or a Contribution incorporated within the Work constitutes direct
-      or contributory patent infringement, then any patent licenses
-      granted to You under this License for that Work shall terminate
-      as of the date such litigation is filed.
-
-   4. Redistribution. You may reproduce and distribute copies of the
-      Work or Derivative Works thereof in any medium, with or without
-      modifications, and in Source or Object form, provided that You
-      meet the following conditions:
-
-      (a) You must give any other recipients of the Work or
-          Derivative Works a copy of this License; and
-
-      (b) You must cause any modified files to carry prominent notices
-          stating that You changed the files; and
-
-      (c) You must retain, in the Source form of any Derivative Works
-          that You distribute, all copyright, patent, trademark, and
-          attribution notices from the Source form of the Work,
-          excluding those notices that do not pertain to any part of
-          the Derivative Works; and
-
-      (d) If the Work includes a "NOTICE" text file as part of its
-          distribution, then any Derivative Works that You distribute must
-          include a readable copy of the attribution notices contained
-          within such NOTICE file, excluding those notices that do not
-          pertain to any part of the Derivative Works, in at least one
-          of the following places: within a NOTICE text file distributed
-          as part of the Derivative Works; within the Source form or
-          documentation, if provided along with the Derivative Works; or,
-          within a display generated by the Derivative Works, if and
-          wherever such third-party notices normally appear. The contents
-          of the NOTICE file are for informational purposes only and
-          do not modify the License. You may add Your own attribution
-          notices within Derivative Works that You distribute, alongside
-          or as an addendum to the NOTICE text from the Work, provided
-          that such additional attribution notices cannot be construed
-          as modifying the License.
-
-      You may add Your own copyright statement to Your modifications and
-      may provide additional or different license terms and conditions
-      for use, reproduction, or distribution of Your modifications, or
-      for any such Derivative Works as a whole, provided Your use,
-      reproduction, and distribution of the Work otherwise complies with
-      the conditions stated in this License.
-
-   5. Submission of Contributions. Unless You explicitly state otherwise,
-      any Contribution intentionally submitted for inclusion in the Work
-      by You to the Licensor shall be under the terms and conditions of
-      this License, without any additional terms or conditions.
-      Notwithstanding the above, nothing herein shall supersede or modify
-      the terms of any separate license agreement you may have executed
-      with Licensor regarding such Contributions.
-
-   6. Trademarks. This License does not grant permission to use the trade
-      names, trademarks, service marks, or product names of the Licensor,
-      except as required for reasonable and customary use in describing the
-      origin of the Work and reproducing the content of the NOTICE file.
-
-   7. Disclaimer of Warranty. Unless required by applicable law or
-      agreed to in writing, Licensor provides the Work (and each
-      Contributor provides its Contributions) on an "AS IS" BASIS,
-      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
-      implied, including, without limitation, any warranties or conditions
-      of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
-      PARTICULAR PURPOSE. You are solely responsible for determining the
-      appropriateness of using or redistributing the Work and assume any
-      risks associated with Your exercise of permissions under this License.
-
-   8. Limitation of Liability. In no event and under no legal theory,
-      whether in tort (including negligence), contract, or otherwise,
-      unless required by applicable law (such as deliberate and grossly
-      negligent acts) or agreed to in writing, shall any Contributor be
-      liable to You for damages, including any direct, indirect, special,
-      incidental, or consequential damages of any character arising as a
-      result of this License or out of the use or inability to use the
-      Work (including but not limited to damages for loss of goodwill,
-      work stoppage, computer failure or malfunction, or any and all
-      other commercial damages or losses), even if such Contributor
-      has been advised of the possibility of such damages.
-
-   9. Accepting Warranty or Additional Liability. While redistributing
-      the Work or Derivative Works thereof, You may choose to offer,
-      and charge a fee for, acceptance of support, warranty, indemnity,
-      or other liability obligations and/or rights consistent with this
-      License. However, in accepting such obligations, You may act only
-      on Your own behalf and on Your sole responsibility, not on behalf
-      of any other Contributor, and only if You agree to indemnify,
-      defend, and hold each Contributor harmless for any liability
-      incurred by, or claims asserted against, such Contributor by reason
-      of your accepting any such warranty or additional liability.
-
-   END OF TERMS AND CONDITIONS
-
-   APPENDIX: How to apply the Apache License to your work.
-
-      To apply the Apache License to your work, attach the following
-      boilerplate notice, with the fields enclosed by brackets "[]"
-      replaced with your own identifying information. (Don't include
-      the brackets!)  The text should be enclosed in the appropriate
-      comment syntax for the file format. We also recommend that a
-      file or class name and description of purpose be included on the
-      same "printed page" as the copyright notice for easier
-      identification within third-party archives.
-
-   Copyright [yyyy] [name of copyright owner]
-
-   Licensed under the Apache License, Version 2.0 (the "License");
-   you may not use this file except in compliance with the License.
-   You may obtain a copy of the License at
-
-       http://www.apache.org/licenses/LICENSE-2.0
-
-   Unless required by applicable law or agreed to in writing, software
-   distributed under the License is distributed on an "AS IS" BASIS,
-   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-   See the License for the specific language governing permissions and
-   limitations under the License.
 ```
 
 ### License/notice 8b7810752e66
@@ -5833,8 +6257,6 @@ SOFTWARE.
 Applies to:
 
 - `react@18.3.1` (`LICENSE`)
-- `react-dom@18.3.1` (`LICENSE`)
-- `scheduler@0.23.2` (`LICENSE`)
 - `use-sync-external-store@1.2.0` (`LICENSE`)
 
 ```text
@@ -6415,218 +6837,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### License/notice bb6be486542a
-
-Applies to:
-
-- `@aws-sdk/credential-provider-http@3.972.71` (`package metadata fallback`)
-
-```text
-The published @aws-sdk/credential-provider-http@3.972.71 package declared Apache-2.0 but did not include a license or notice file. Attribution from its package metadata: AWS SDK for JavaScript Team. Repository: https://github.com/aws/aws-sdk-js-v3.git.
-
-Apache License
-                           Version 2.0, January 2004
-                        http://www.apache.org/licenses/
-
-   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
-
-   1. Definitions.
-
-      "License" shall mean the terms and conditions for use, reproduction,
-      and distribution as defined by Sections 1 through 9 of this document.
-
-      "Licensor" shall mean the copyright owner or entity authorized by
-      the copyright owner that is granting the License.
-
-      "Legal Entity" shall mean the union of the acting entity and all
-      other entities that control, are controlled by, or are under common
-      control with that entity. For the purposes of this definition,
-      "control" means (i) the power, direct or indirect, to cause the
-      direction or management of such entity, whether by contract or
-      otherwise, or (ii) ownership of fifty percent (50%) or more of the
-      outstanding shares, or (iii) beneficial ownership of such entity.
-
-      "You" (or "Your") shall mean an individual or Legal Entity
-      exercising permissions granted by this License.
-
-      "Source" form shall mean the preferred form for making modifications,
-      including but not limited to software source code, documentation
-      source, and configuration files.
-
-      "Object" form shall mean any form resulting from mechanical
-      transformation or translation of a Source form, including but
-      not limited to compiled object code, generated documentation,
-      and conversions to other media types.
-
-      "Work" shall mean the work of authorship, whether in Source or
-      Object form, made available under the License, as indicated by a
-      copyright notice that is included in or attached to the work
-      (an example is provided in the Appendix below).
-
-      "Derivative Works" shall mean any work, whether in Source or Object
-      form, that is based on (or derived from) the Work and for which the
-      editorial revisions, annotations, elaborations, or other modifications
-      represent, as a whole, an original work of authorship. For the purposes
-      of this License, Derivative Works shall not include works that remain
-      separable from, or merely link (or bind by name) to the interfaces of,
-      the Work and Derivative Works thereof.
-
-      "Contribution" shall mean any work of authorship, including
-      the original version of the Work and any modifications or additions
-      to that Work or Derivative Works thereof, that is intentionally
-      submitted to Licensor for inclusion in the Work by the copyright owner
-      or by an individual or Legal Entity authorized to submit on behalf of
-      the copyright owner. For the purposes of this definition, "submitted"
-      means any form of electronic, verbal, or written communication sent
-      to the Licensor or its representatives, including but not limited to
-      communication on electronic mailing lists, source code control systems,
-      and issue tracking systems that are managed by, or on behalf of, the
-      Licensor for the purpose of discussing and improving the Work, but
-      excluding communication that is conspicuously marked or otherwise
-      designated in writing by the copyright owner as "Not a Contribution."
-
-      "Contributor" shall mean Licensor and any individual or Legal Entity
-      on behalf of whom a Contribution has been received by Licensor and
-      subsequently incorporated within the Work.
-
-   2. Grant of Copyright License. Subject to the terms and conditions of
-      this License, each Contributor hereby grants to You a perpetual,
-      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
-      copyright license to reproduce, prepare Derivative Works of,
-      publicly display, publicly perform, sublicense, and distribute the
-      Work and such Derivative Works in Source or Object form.
-
-   3. Grant of Patent License. Subject to the terms and conditions of
-      this License, each Contributor hereby grants to You a perpetual,
-      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
-      (except as stated in this section) patent license to make, have made,
-      use, offer to sell, sell, import, and otherwise transfer the Work,
-      where such license applies only to those patent claims licensable
-      by such Contributor that are necessarily infringed by their
-      Contribution(s) alone or by combination of their Contribution(s)
-      with the Work to which such Contribution(s) was submitted. If You
-      institute patent litigation against any entity (including a
-      cross-claim or counterclaim in a lawsuit) alleging that the Work
-      or a Contribution incorporated within the Work constitutes direct
-      or contributory patent infringement, then any patent licenses
-      granted to You under this License for that Work shall terminate
-      as of the date such litigation is filed.
-
-   4. Redistribution. You may reproduce and distribute copies of the
-      Work or Derivative Works thereof in any medium, with or without
-      modifications, and in Source or Object form, provided that You
-      meet the following conditions:
-
-      (a) You must give any other recipients of the Work or
-          Derivative Works a copy of this License; and
-
-      (b) You must cause any modified files to carry prominent notices
-          stating that You changed the files; and
-
-      (c) You must retain, in the Source form of any Derivative Works
-          that You distribute, all copyright, patent, trademark, and
-          attribution notices from the Source form of the Work,
-          excluding those notices that do not pertain to any part of
-          the Derivative Works; and
-
-      (d) If the Work includes a "NOTICE" text file as part of its
-          distribution, then any Derivative Works that You distribute must
-          include a readable copy of the attribution notices contained
-          within such NOTICE file, excluding those notices that do not
-          pertain to any part of the Derivative Works, in at least one
-          of the following places: within a NOTICE text file distributed
-          as part of the Derivative Works; within the Source form or
-          documentation, if provided along with the Derivative Works; or,
-          within a display generated by the Derivative Works, if and
-          wherever such third-party notices normally appear. The contents
-          of the NOTICE file are for informational purposes only and
-          do not modify the License. You may add Your own attribution
-          notices within Derivative Works that You distribute, alongside
-          or as an addendum to the NOTICE text from the Work, provided
-          that such additional attribution notices cannot be construed
-          as modifying the License.
-
-      You may add Your own copyright statement to Your modifications and
-      may provide additional or different license terms and conditions
-      for use, reproduction, or distribution of Your modifications, or
-      for any such Derivative Works as a whole, provided Your use,
-      reproduction, and distribution of the Work otherwise complies with
-      the conditions stated in this License.
-
-   5. Submission of Contributions. Unless You explicitly state otherwise,
-      any Contribution intentionally submitted for inclusion in the Work
-      by You to the Licensor shall be under the terms and conditions of
-      this License, without any additional terms or conditions.
-      Notwithstanding the above, nothing herein shall supersede or modify
-      the terms of any separate license agreement you may have executed
-      with Licensor regarding such Contributions.
-
-   6. Trademarks. This License does not grant permission to use the trade
-      names, trademarks, service marks, or product names of the Licensor,
-      except as required for reasonable and customary use in describing the
-      origin of the Work and reproducing the content of the NOTICE file.
-
-   7. Disclaimer of Warranty. Unless required by applicable law or
-      agreed to in writing, Licensor provides the Work (and each
-      Contributor provides its Contributions) on an "AS IS" BASIS,
-      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
-      implied, including, without limitation, any warranties or conditions
-      of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
-      PARTICULAR PURPOSE. You are solely responsible for determining the
-      appropriateness of using or redistributing the Work and assume any
-      risks associated with Your exercise of permissions under this License.
-
-   8. Limitation of Liability. In no event and under no legal theory,
-      whether in tort (including negligence), contract, or otherwise,
-      unless required by applicable law (such as deliberate and grossly
-      negligent acts) or agreed to in writing, shall any Contributor be
-      liable to You for damages, including any direct, indirect, special,
-      incidental, or consequential damages of any character arising as a
-      result of this License or out of the use or inability to use the
-      Work (including but not limited to damages for loss of goodwill,
-      work stoppage, computer failure or malfunction, or any and all
-      other commercial damages or losses), even if such Contributor
-      has been advised of the possibility of such damages.
-
-   9. Accepting Warranty or Additional Liability. While redistributing
-      the Work or Derivative Works thereof, You may choose to offer,
-      and charge a fee for, acceptance of support, warranty, indemnity,
-      or other liability obligations and/or rights consistent with this
-      License. However, in accepting such obligations, You may act only
-      on Your own behalf and on Your sole responsibility, not on behalf
-      of any other Contributor, and only if You agree to indemnify,
-      defend, and hold each Contributor harmless for any liability
-      incurred by, or claims asserted against, such Contributor by reason
-      of your accepting any such warranty or additional liability.
-
-   END OF TERMS AND CONDITIONS
-
-   APPENDIX: How to apply the Apache License to your work.
-
-      To apply the Apache License to your work, attach the following
-      boilerplate notice, with the fields enclosed by brackets "[]"
-      replaced with your own identifying information. (Don't include
-      the brackets!)  The text should be enclosed in the appropriate
-      comment syntax for the file format. We also recommend that a
-      file or class name and description of purpose be included on the
-      same "printed page" as the copyright notice for easier
-      identification within third-party archives.
-
-   Copyright [yyyy] [name of copyright owner]
-
-   Licensed under the Apache License, Version 2.0 (the "License");
-   you may not use this file except in compliance with the License.
-   You may obtain a copy of the License at
-
-       http://www.apache.org/licenses/LICENSE-2.0
-
-   Unless required by applicable law or agreed to in writing, software
-   distributed under the License is distributed on an "AS IS" BASIS,
-   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-   See the License for the specific language governing permissions and
-   limitations under the License.
-```
-
 ### License/notice bc77badaede6
 
 Applies to:
@@ -7023,6 +7233,37 @@ TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 ```
 
+### License/notice cf9b17822d1f
+
+Applies to:
+
+- `react-dom@19.2.8` (`LICENSE`)
+- `scheduler@0.27.0` (`LICENSE`)
+
+```text
+MIT License
+
+Copyright (c) Meta Platforms, Inc. and affiliates.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
 ### License/notice d0a8e5996a99
 
 Applies to:
@@ -7294,21 +7535,21 @@ DEALINGS IN THE SOFTWARE.
 
 Applies to:
 
-- `@aws-sdk/credential-provider-env@3.972.69` (`LICENSE`)
-- `@aws-sdk/credential-provider-ini@3.973.14` (`LICENSE`)
-- `@aws-sdk/credential-provider-node@3.972.80` (`LICENSE`)
-- `@aws-sdk/middleware-eventstream@3.972.28` (`LICENSE`)
+- `@aws-sdk/credential-provider-env@3.972.70` (`LICENSE`)
+- `@aws-sdk/credential-provider-ini@3.973.15` (`LICENSE`)
+- `@aws-sdk/credential-provider-node@3.972.81` (`LICENSE`)
+- `@aws-sdk/middleware-eventstream@3.972.29` (`LICENSE`)
 - `@aws-sdk/token-providers@3.1048.0` (`LICENSE`)
-- `@aws-sdk/token-providers@3.1111.0` (`LICENSE`)
-- `@aws-sdk/types@3.974.4` (`LICENSE`)
+- `@aws-sdk/token-providers@3.1116.0` (`LICENSE`)
+- `@aws-sdk/types@3.974.5` (`LICENSE`)
 - `@aws-sdk/util-locate-window@3.965.10` (`LICENSE`)
-- `@aws-sdk/xml-builder@3.972.39` (`LICENSE`)
+- `@aws-sdk/xml-builder@3.972.40` (`LICENSE`)
 - `@smithy/credential-provider-imds@4.5.2` (`LICENSE`)
 - `@smithy/fetch-http-handler@5.7.2` (`LICENSE`)
 - `@smithy/is-array-buffer@2.2.0` (`LICENSE`)
-- `@smithy/node-http-handler@4.11.2` (`LICENSE`)
+- `@smithy/node-http-handler@4.11.3` (`LICENSE`)
 - `@smithy/node-http-handler@4.7.3` (`LICENSE`)
-- `@smithy/signature-v4@5.7.2` (`LICENSE`)
+- `@smithy/signature-v4@5.7.3` (`LICENSE`)
 - `@smithy/util-buffer-from@2.2.0` (`LICENSE`)
 - `@smithy/util-utf8@2.3.0` (`LICENSE`)
 
@@ -8183,7 +8424,7 @@ SOFTWARE.
 
 Applies to:
 
-- `@aws-sdk/core@3.977.8` (`LICENSE`)
+- `@aws-sdk/core@3.977.9` (`LICENSE`)
 
 ```text
 Apache License
@@ -8630,218 +8871,6 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### License/notice fb6cebd4b4fd
-
-Applies to:
-
-- `@aws-sdk/nested-clients@3.997.43` (`package metadata fallback`)
-
-```text
-The published @aws-sdk/nested-clients@3.997.43 package declared Apache-2.0 but did not include a license or notice file. Attribution from its package metadata: AWS SDK for JavaScript Team. Repository: https://github.com/aws/aws-sdk-js-v3.git.
-
-Apache License
-                           Version 2.0, January 2004
-                        http://www.apache.org/licenses/
-
-   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
-
-   1. Definitions.
-
-      "License" shall mean the terms and conditions for use, reproduction,
-      and distribution as defined by Sections 1 through 9 of this document.
-
-      "Licensor" shall mean the copyright owner or entity authorized by
-      the copyright owner that is granting the License.
-
-      "Legal Entity" shall mean the union of the acting entity and all
-      other entities that control, are controlled by, or are under common
-      control with that entity. For the purposes of this definition,
-      "control" means (i) the power, direct or indirect, to cause the
-      direction or management of such entity, whether by contract or
-      otherwise, or (ii) ownership of fifty percent (50%) or more of the
-      outstanding shares, or (iii) beneficial ownership of such entity.
-
-      "You" (or "Your") shall mean an individual or Legal Entity
-      exercising permissions granted by this License.
-
-      "Source" form shall mean the preferred form for making modifications,
-      including but not limited to software source code, documentation
-      source, and configuration files.
-
-      "Object" form shall mean any form resulting from mechanical
-      transformation or translation of a Source form, including but
-      not limited to compiled object code, generated documentation,
-      and conversions to other media types.
-
-      "Work" shall mean the work of authorship, whether in Source or
-      Object form, made available under the License, as indicated by a
-      copyright notice that is included in or attached to the work
-      (an example is provided in the Appendix below).
-
-      "Derivative Works" shall mean any work, whether in Source or Object
-      form, that is based on (or derived from) the Work and for which the
-      editorial revisions, annotations, elaborations, or other modifications
-      represent, as a whole, an original work of authorship. For the purposes
-      of this License, Derivative Works shall not include works that remain
-      separable from, or merely link (or bind by name) to the interfaces of,
-      the Work and Derivative Works thereof.
-
-      "Contribution" shall mean any work of authorship, including
-      the original version of the Work and any modifications or additions
-      to that Work or Derivative Works thereof, that is intentionally
-      submitted to Licensor for inclusion in the Work by the copyright owner
-      or by an individual or Legal Entity authorized to submit on behalf of
-      the copyright owner. For the purposes of this definition, "submitted"
-      means any form of electronic, verbal, or written communication sent
-      to the Licensor or its representatives, including but not limited to
-      communication on electronic mailing lists, source code control systems,
-      and issue tracking systems that are managed by, or on behalf of, the
-      Licensor for the purpose of discussing and improving the Work, but
-      excluding communication that is conspicuously marked or otherwise
-      designated in writing by the copyright owner as "Not a Contribution."
-
-      "Contributor" shall mean Licensor and any individual or Legal Entity
-      on behalf of whom a Contribution has been received by Licensor and
-      subsequently incorporated within the Work.
-
-   2. Grant of Copyright License. Subject to the terms and conditions of
-      this License, each Contributor hereby grants to You a perpetual,
-      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
-      copyright license to reproduce, prepare Derivative Works of,
-      publicly display, publicly perform, sublicense, and distribute the
-      Work and such Derivative Works in Source or Object form.
-
-   3. Grant of Patent License. Subject to the terms and conditions of
-      this License, each Contributor hereby grants to You a perpetual,
-      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
-      (except as stated in this section) patent license to make, have made,
-      use, offer to sell, sell, import, and otherwise transfer the Work,
-      where such license applies only to those patent claims licensable
-      by such Contributor that are necessarily infringed by their
-      Contribution(s) alone or by combination of their Contribution(s)
-      with the Work to which such Contribution(s) was submitted. If You
-      institute patent litigation against any entity (including a
-      cross-claim or counterclaim in a lawsuit) alleging that the Work
-      or a Contribution incorporated within the Work constitutes direct
-      or contributory patent infringement, then any patent licenses
-      granted to You under this License for that Work shall terminate
-      as of the date such litigation is filed.
-
-   4. Redistribution. You may reproduce and distribute copies of the
-      Work or Derivative Works thereof in any medium, with or without
-      modifications, and in Source or Object form, provided that You
-      meet the following conditions:
-
-      (a) You must give any other recipients of the Work or
-          Derivative Works a copy of this License; and
-
-      (b) You must cause any modified files to carry prominent notices
-          stating that You changed the files; and
-
-      (c) You must retain, in the Source form of any Derivative Works
-          that You distribute, all copyright, patent, trademark, and
-          attribution notices from the Source form of the Work,
-          excluding those notices that do not pertain to any part of
-          the Derivative Works; and
-
-      (d) If the Work includes a "NOTICE" text file as part of its
-          distribution, then any Derivative Works that You distribute must
-          include a readable copy of the attribution notices contained
-          within such NOTICE file, excluding those notices that do not
-          pertain to any part of the Derivative Works, in at least one
-          of the following places: within a NOTICE text file distributed
-          as part of the Derivative Works; within the Source form or
-          documentation, if provided along with the Derivative Works; or,
-          within a display generated by the Derivative Works, if and
-          wherever such third-party notices normally appear. The contents
-          of the NOTICE file are for informational purposes only and
-          do not modify the License. You may add Your own attribution
-          notices within Derivative Works that You distribute, alongside
-          or as an addendum to the NOTICE text from the Work, provided
-          that such additional attribution notices cannot be construed
-          as modifying the License.
-
-      You may add Your own copyright statement to Your modifications and
-      may provide additional or different license terms and conditions
-      for use, reproduction, or distribution of Your modifications, or
-      for any such Derivative Works as a whole, provided Your use,
-      reproduction, and distribution of the Work otherwise complies with
-      the conditions stated in this License.
-
-   5. Submission of Contributions. Unless You explicitly state otherwise,
-      any Contribution intentionally submitted for inclusion in the Work
-      by You to the Licensor shall be under the terms and conditions of
-      this License, without any additional terms or conditions.
-      Notwithstanding the above, nothing herein shall supersede or modify
-      the terms of any separate license agreement you may have executed
-      with Licensor regarding such Contributions.
-
-   6. Trademarks. This License does not grant permission to use the trade
-      names, trademarks, service marks, or product names of the Licensor,
-      except as required for reasonable and customary use in describing the
-      origin of the Work and reproducing the content of the NOTICE file.
-
-   7. Disclaimer of Warranty. Unless required by applicable law or
-      agreed to in writing, Licensor provides the Work (and each
-      Contributor provides its Contributions) on an "AS IS" BASIS,
-      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
-      implied, including, without limitation, any warranties or conditions
-      of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
-      PARTICULAR PURPOSE. You are solely responsible for determining the
-      appropriateness of using or redistributing the Work and assume any
-      risks associated with Your exercise of permissions under this License.
-
-   8. Limitation of Liability. In no event and under no legal theory,
-      whether in tort (including negligence), contract, or otherwise,
-      unless required by applicable law (such as deliberate and grossly
-      negligent acts) or agreed to in writing, shall any Contributor be
-      liable to You for damages, including any direct, indirect, special,
-      incidental, or consequential damages of any character arising as a
-      result of this License or out of the use or inability to use the
-      Work (including but not limited to damages for loss of goodwill,
-      work stoppage, computer failure or malfunction, or any and all
-      other commercial damages or losses), even if such Contributor
-      has been advised of the possibility of such damages.
-
-   9. Accepting Warranty or Additional Liability. While redistributing
-      the Work or Derivative Works thereof, You may choose to offer,
-      and charge a fee for, acceptance of support, warranty, indemnity,
-      or other liability obligations and/or rights consistent with this
-      License. However, in accepting such obligations, You may act only
-      on Your own behalf and on Your sole responsibility, not on behalf
-      of any other Contributor, and only if You agree to indemnify,
-      defend, and hold each Contributor harmless for any liability
-      incurred by, or claims asserted against, such Contributor by reason
-      of your accepting any such warranty or additional liability.
-
-   END OF TERMS AND CONDITIONS
-
-   APPENDIX: How to apply the Apache License to your work.
-
-      To apply the Apache License to your work, attach the following
-      boilerplate notice, with the fields enclosed by brackets "[]"
-      replaced with your own identifying information. (Don't include
-      the brackets!)  The text should be enclosed in the appropriate
-      comment syntax for the file format. We also recommend that a
-      file or class name and description of purpose be included on the
-      same "printed page" as the copyright notice for easier
-      identification within third-party archives.
-
-   Copyright [yyyy] [name of copyright owner]
-
-   Licensed under the Apache License, Version 2.0 (the "License");
-   you may not use this file except in compliance with the License.
-   You may obtain a copy of the License at
-
-       http://www.apache.org/licenses/LICENSE-2.0
-
-   Unless required by applicable law or agreed to in writing, software
-   distributed under the License is distributed on an "AS IS" BASIS,
-   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-   See the License for the specific language governing permissions and
-   limitations under the License.
-```
-
 ### License/notice fda0e18e4dc7
 
 Applies to:
@@ -8877,180 +8906,180 @@ SOFTWARE.
 
 Applies to:
 
-- `@deepseek-ai/dsh-agent@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-agent-default-model@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-agent-instructions@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-agent-loop@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-agent-presets@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-anonymous-user-id@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-api-gateway@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-api-remotes@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-app-boot@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-atomic-write@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-attachment@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-attachment-local@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-authorization@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-base@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-bash-local@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-bash-sandbox@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-brand@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-client-connection@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-client-hmr@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-client-locale@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-client-modules@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-client-runtime@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-agent-preset@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-attachment@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-brand-official@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-commands@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-conversation@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-cordis@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-deliverables@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-directory-picker-browse@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-directory-picker-native@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-goal@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-input-trigger@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-jobs@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-layout@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-message-feedback@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-model-selection@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-permission-presets@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-plan@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-reference@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-renderer@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-settings@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-settings-general@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-settings-models@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-settings-plugin-inventory@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-settings-plugins@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-sidebar@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-skill@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-subagent@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-theme@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-tool@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-trajectory@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-user-questions@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-workflow-run@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-client-ui-workspace@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-cmdline@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-code-runtime@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-code-runtime-worker-thread@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-command-compact@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-command-feedback@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-command-goal@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-commands@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-compaction@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-compaction-basic@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-compaction-tool-result-pruner@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-cordis-client-runner@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-cordis-host-runner@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-credentials@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-credentials-local@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-file-reference@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-file-reference-local@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-fs@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-fs-local@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-fs-observation-policy@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-fs-sandbox@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-goal@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-goal-round-driver@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-home-paths@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-host-apiproxy@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-host-directory-picker@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-host-directory-picker-auto@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-host-directory-picker-browse@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-host-directory-picker-native@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-host-frontend-static@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-host-plugin-inventory@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-host-webserver@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-invariants@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-jobs@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-jobs-local@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-launch-environment@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-llm@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-llm-deepseek@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-llm-pi-ai@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-llm-retry@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-message-feedback@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-native-command@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-output-retention@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-permission-presets@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-plan-mode@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-pwsh-local@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-pwsh-sandbox@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-repeat-tool-reminder@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-sandbox@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-sandbox-local@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-sandbox-policy@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-sandbox-windows-acl@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-scope@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-session@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-session-checkpoint-policy@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-session-log-export@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-session-persistence@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-session-persistence-jsonl@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-session-projection@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-session-projection-cache@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-session-query@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-session-query-sqlite@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-session-reference@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-session-stats@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-session-telemetry@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-session-telemetry-otel@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-session-title@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-session-title-first-prompt-llm@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-session-title-llm@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-settings@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-settings-file@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-shell@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-shell-env@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-skill@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-skill-badge@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-skill-filesystem@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-spill@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-spill-local@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-spill-policy@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-storage@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-storage-domain@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-storage-json@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-subagent@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-subagent-fork-in-process@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-subagent-in-process-driver@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-subagent-spawn-in-process@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-subprocess@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-subprocess-local@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-system-prompt@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-timeout@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-token-meter@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-tool-bash@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-tool-call-timeout-policy@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-tool-fs@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-tool-fs-search@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-tool-goal@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-tool-jobs@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-tool-pwsh@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-tool-ralph@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-tool-skill@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-tool-str-replace-editor@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-tool-subagent@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-tool-subagent-control@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-tool-subagent-report@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-tool-todo@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-tool-web@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-tool-workflow@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-tools@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-typert-loader@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-typert-protocol@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-typert-registry@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-user-approval@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-user-questions@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-web@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-web-app@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-web-frontend@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-web-search-deepseek@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-workflow@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-workflow-worker-thread@0.1.1-rc.1` (`LICENSE`)
-- `@deepseek-ai/dsh-workspace@0.1.1-rc.1` (`LICENSE`)
+- `@deepseek-ai/dsh-agent@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-agent-default-model@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-agent-instructions@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-agent-loop@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-agent-presets@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-anonymous-user-id@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-api-gateway@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-api-remotes@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-app-boot@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-atomic-write@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-attachment@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-attachment-local@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-authorization@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-base@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-bash-local@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-bash-sandbox@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-brand@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-client-connection@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-client-hmr@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-client-locale@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-client-modules@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-client-runtime@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-agent-preset@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-attachment@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-brand-official@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-commands@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-conversation@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-cordis@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-deliverables@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-directory-picker-browse@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-directory-picker-native@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-goal@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-input-trigger@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-jobs@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-layout@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-message-feedback@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-model-selection@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-permission-presets@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-plan@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-reference@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-renderer@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-settings@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-settings-general@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-settings-models@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-settings-plugin-inventory@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-settings-plugins@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-sidebar@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-skill@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-subagent@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-theme@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-tool@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-trajectory@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-user-questions@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-workflow-run@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-client-ui-workspace@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-cmdline@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-code-runtime@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-code-runtime-worker-thread@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-command-compact@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-command-feedback@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-command-goal@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-commands@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-compaction@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-compaction-basic@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-compaction-tool-result-pruner@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-cordis-client-runner@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-cordis-host-runner@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-credentials@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-credentials-local@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-file-reference@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-file-reference-local@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-fs@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-fs-local@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-fs-observation-policy@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-fs-sandbox@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-goal@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-goal-round-driver@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-home-paths@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-host-apiproxy@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-host-directory-picker@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-host-directory-picker-auto@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-host-directory-picker-browse@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-host-directory-picker-native@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-host-frontend-static@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-host-plugin-inventory@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-host-webserver@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-invariants@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-jobs@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-jobs-local@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-launch-environment@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-llm@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-llm-deepseek@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-llm-pi-ai@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-llm-retry@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-message-feedback@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-native-command@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-output-retention@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-permission-presets@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-plan-mode@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-pwsh-local@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-pwsh-sandbox@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-repeat-tool-reminder@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-sandbox@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-sandbox-local@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-sandbox-policy@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-sandbox-windows-acl@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-scope@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-session@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-session-checkpoint-policy@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-session-log-export@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-session-persistence@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-session-persistence-jsonl@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-session-projection@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-session-projection-cache@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-session-query@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-session-query-sqlite@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-session-reference@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-session-stats@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-session-telemetry@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-session-telemetry-otel@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-session-title@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-session-title-first-prompt-llm@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-session-title-llm@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-settings@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-settings-file@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-shell@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-shell-env@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-skill@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-skill-badge@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-skill-filesystem@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-spill@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-spill-local@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-spill-policy@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-storage@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-storage-domain@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-storage-json@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-subagent@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-subagent-fork-in-process@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-subagent-in-process-driver@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-subagent-spawn-in-process@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-subprocess@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-subprocess-local@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-system-prompt@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-timeout@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-token-meter@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-tool-bash@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-tool-call-timeout-policy@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-tool-fs@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-tool-fs-search@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-tool-goal@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-tool-jobs@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-tool-pwsh@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-tool-ralph@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-tool-skill@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-tool-str-replace-editor@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-tool-subagent@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-tool-subagent-control@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-tool-subagent-report@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-tool-todo@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-tool-web@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-tool-workflow@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-tools@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-typert-loader@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-typert-protocol@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-typert-registry@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-user-approval@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-user-questions@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-web@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-web-app@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-web-frontend@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-web-search-deepseek@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-workflow@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-workflow-worker-thread@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-workspace@0.1.1-rc.2` (`LICENSE`)
 - `@deepseek-ai/node-addon-landlock-run@0.1.1` (`LICENSE`)
 
 ```text

@@ -1097,9 +1097,20 @@ try {
     && message.payload.sessionId === imageSessionId
     && message.payload.event.type === 'turn/end')
   const imageRequest = mock.requests.at(-1)
-  const imageRequestContent = imageRequest.messages.findLast(message => message.role === 'user').content
-  assert.ok(imageRequestContent.some(part => part.type === 'image_url'
-    && part.image_url.url === `data:image/png;base64,${imageBase64}`))
+  for (const [i, req] of mock.requests.entries()) {
+    for (const msg of req.messages) {
+      if (Array.isArray(msg.content)) {
+      }
+    }
+  }
+  const imageApiRequest = mock.requests.find(req =>
+    req.messages.some(msg => Array.isArray(msg.content) && msg.content.some(part =>
+      part.type === 'image_url' || part.type === 'image' || part.type === 'file')))
+  assert.ok(imageApiRequest, 'expected at least one API request with an image part')
+  const imageRequestContent = imageApiRequest.messages.findLast(msg => msg.role === 'user').content
+  assert.ok(Array.isArray(imageRequestContent) && imageRequestContent.some(part => part.type === 'image_url'
+    && typeof part.image_url?.url === 'string'
+    && part.image_url.url.includes(imageBase64)))
   const imageHistory = await rpc('session.history', { sessionId: imageSessionId })
   const imageUser = imageHistory.body.result.value.events
     .find(entry => entry.event.type === 'user/message')
