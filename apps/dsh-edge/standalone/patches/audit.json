@@ -5,6 +5,11 @@
     "removeWhen": "The published LLM package exposes its version through a Worker-bundle-safe import or injected build constant and bundles without node:module."
   },
   {
+    "package": "@deepseek-ai/dsh-llm-deepseek",
+    "rationale": "Forward the resolveFiles config slot to the DeepSeek adapter constructor so Edge can inject a Durable Object-backed file store for the Files API.",
+    "removeWhen": "The published plugin's apply() forwards resolveFiles from the plugin config to the adapter constructor."
+  },
+  {
     "package": "@deepseek-ai/dsh-session-persistence",
     "rationale": "Expose bounded validated reads and failed-first-write abandonment required by the Durable Object persistence adapter.",
     "removeWhen": "The published persistence coordinator provides equivalent bounded-page validation and unmaterialized-session abandonment APIs, and the Edge persistence suite passes without this patch."

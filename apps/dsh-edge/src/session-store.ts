@@ -50,6 +50,8 @@ import {
   type EdgeShell,
 } from './agent.ts'
 import * as dshLlmDeepseek from '@deepseek-ai/dsh-llm-deepseek'
+import { DeepSeekFileStore } from '@deepseek-ai/dsh-llm-deepseek'
+import { DurableObjectUploadIndex } from './do-upload-index.ts'
 import {
   EdgeDoAttachmentStore,
   EdgeR2AttachmentStore,
@@ -192,6 +194,8 @@ export class EdgeSessionStore {
     this.context.settings.register(settingsNamespace('ui-onboarding'), onboardingSchema, {})
     await this.context.plugin(LlmRuntime)
     try {
+      const doUploadIndex = new DurableObjectUploadIndex(storage)
+      ;(this.context as never as Record<string, unknown>)['edgeFileStore'] = new DeepSeekFileStore({ index: doUploadIndex as never })
       await this.context.plugin(dshLlmDeepseek, buildEdgeLlmPluginConfig(config))
     } catch (error) {
       console.error('dsh-edge: LLM provider plugin failed to initialize; model operations will be unavailable.', error)

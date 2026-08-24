@@ -48,6 +48,24 @@ export async function startMockDeepSeek(port = 0) {
       })
       return
     }
+    if (request.method === 'POST' && request.url === '/files') {
+      const chunks = []
+      request.on('data', chunk => { chunks.push(chunk) })
+      request.on('end', () => {
+        const now = Math.floor(Date.now() / 1000)
+        response.writeHead(200, { 'content-type': 'application/json' })
+        response.end(JSON.stringify({
+          id: `file-mock-${now}`,
+          object: 'file',
+          bytes: Buffer.concat(chunks).length,
+          created_at: now,
+          expires_at: now + 86400,
+          filename: 'mock-upload.png',
+          purpose: 'attachments',
+        }))
+      })
+      return
+    }
     if (request.method !== 'POST' || request.url !== '/chat/completions') {
       response.writeHead(404).end()
       return
@@ -62,7 +80,12 @@ export async function startMockDeepSeek(port = 0) {
       const messages = Array.isArray(body.messages) ? body.messages : []
       const latestUserIndex = messages.findLastIndex(message => message.role === 'user')
       const latestUser = messages[latestUserIndex]
-      const prompt = typeof latestUser?.content === 'string' ? latestUser.content : ''
+      const rawContent = latestUser?.content
+      const prompt = typeof rawContent === 'string'
+        ? rawContent
+        : Array.isArray(rawContent)
+          ? rawContent.filter(p => p.type === 'text').map(p => p.text).join(' ')
+          : ''
       const toolResults = messages.slice(latestUserIndex + 1)
         .filter(message => message.role === 'tool')
       const hasToolResult = toolResults.length > 0
