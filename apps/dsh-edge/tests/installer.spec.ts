@@ -1787,6 +1787,7 @@ function createUi({
     selectOwnerSecretMode,
     ownerSecret,
     deepSeekKey,
+    enableImages: vi.fn().mockResolvedValue(false),
     confirm,
     acceptTemporaryTerms: vi.fn().mockResolvedValue(acceptTemporaryTerms),
     cleanupFailure,

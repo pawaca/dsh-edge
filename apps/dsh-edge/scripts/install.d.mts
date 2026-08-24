@@ -30,6 +30,7 @@ export interface InstallerUi {
   selectOwnerSecretMode(): Promise<'generate' | 'custom'>
   ownerSecret(validate: (value: string) => string | undefined): Promise<string>
   deepSeekKey(validate: (value: string) => string | undefined): Promise<string>
+  enableImages(isTemporary: boolean): Promise<boolean>
   confirm(summary: {
     mode: RuntimeMode
     modeLabel: string

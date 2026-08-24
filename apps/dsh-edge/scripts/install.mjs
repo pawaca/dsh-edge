@@ -646,6 +646,7 @@ export async function installEdge({
     const deepSeekKey = await ui.deepSeekKey(validateDeepSeekKey)
     const deepSeekError = validateDeepSeekKey(deepSeekKey)
     if (deepSeekError !== undefined) throw new Error(deepSeekError)
+    const enableImages = await ui.enableImages(temporary)
 
     let bucketName
     if (attachmentStorage === 'private-r2') {
@@ -683,6 +684,7 @@ export async function installEdge({
     const outputFile = join(temporaryDirectory, 'wrangler-output.ndjson')
     await writePrebuiltModeWranglerConfig(mode, configFile, {
       ...bucketName === undefined ? {} : { r2BucketName: bucketName },
+      enableImages,
     })
     await writeFile(secretsFile, JSON.stringify({
       ...deepSeekKey !== '' ? { DEEPSEEK_API_KEY: deepSeekKey } : {},
