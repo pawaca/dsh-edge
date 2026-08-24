@@ -4,6 +4,7 @@ import {
   AttachmentError,
   AttachmentId,
   AttachmentStore,
+  ImageVariantId,
   type ImageAttachmentLimits,
   type ImageAttachmentRef,
   type ImageMediaType,
@@ -124,6 +125,30 @@ abstract class EdgeImageAttachmentStore extends AttachmentStore {
     }
     signal?.throwIfAborted()
     return { ref, data }
+  }
+
+  override async readImageRequest(
+    ref: ImageAttachmentRef,
+    policy: { pixelBudget: number; maxBytes: number },
+    signal?: AbortSignal,
+  ): Promise<{
+    variantId: string
+    attachment: ImageAttachmentRef
+    data: Uint8Array
+    mediaType: ImageMediaType
+    bytes: number
+  }> {
+    const stored = await this.readImage(ref, signal)
+    const descriptor = `${ref.attachmentId}:${String(policy.pixelBudget)}:${String(policy.maxBytes)}`
+    const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(descriptor))
+    const hex = Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('')
+    return {
+      variantId: ImageVariantId(`sha256:${hex}`),
+      attachment: ref,
+      data: stored.data,
+      mediaType: ref.mediaType,
+      bytes: stored.data.byteLength,
+    }
   }
 
   protected abstract writeBytes(
