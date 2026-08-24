@@ -6,8 +6,8 @@
   },
   {
     "package": "@deepseek-ai/dsh-llm-deepseek",
-    "rationale": "Forward the resolveFiles config slot to the DeepSeek adapter constructor so Edge can inject a Durable Object-backed file store for the Files API.",
-    "removeWhen": "The published plugin's apply() forwards resolveFiles from the plugin config to the adapter constructor."
+    "rationale": "Forward the resolveFiles config slot to the DeepSeek adapter constructor so Edge can inject a Durable Object-backed file store for the Files API. Also wraps the DeepSeekUploadIndex default path in a try/catch so the constructor does not crash when resolveDshHome is unavailable in Workers.",
+    "removeWhen": "The published plugin's apply() forwards resolveFiles from the plugin config to the adapter constructor, and the default DeepSeekUploadIndex constructor does not crash when the harness home is unavailable."
   },
   {
     "package": "@deepseek-ai/dsh-session-persistence",

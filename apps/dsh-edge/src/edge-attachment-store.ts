@@ -59,7 +59,7 @@ interface AttachmentDigest {
 
 export interface ImagesBinding {
   input(data: ReadableStream | ArrayBuffer | Uint8Array): {
-    transform(options: { width?: number; height?: number; fit?: string }): {
+    transform(options: { width?: number; height?: number; fit?: 'scale-down' | 'contain' | 'cover' | 'crop' | 'pad' }): {
       output(options: { format: string }): Promise<Response>
     }
     info(): Promise<{ width: number; height: number; format: string }>
@@ -164,7 +164,7 @@ abstract class EdgeImageAttachmentStore extends AttachmentStore {
         const targetWidth = Math.round(targetHeight * aspect)
         const result = await this.images
           .input(stored.data)
-          .transform({ width: targetWidth, height: targetHeight, fit: 'inside' })
+          .transform({ width: targetWidth, height: targetHeight, fit: 'scale-down' })
           .output({ format: ref.mediaType })
         signal?.throwIfAborted()
         const resp = 'response' in result && typeof (result as { response: unknown }).response === 'function'
