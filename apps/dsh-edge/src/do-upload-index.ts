@@ -1,4 +1,5 @@
 const STORAGE_KEY = 'dsh-edge:file-upload-index'
+const MAX_INDEX_RECORDS = 256
 
 interface UploadRecord {
   scope: string
@@ -60,6 +61,10 @@ export class DurableObjectUploadIndex {
       .filter(r => reusable(r, now, refreshMarginMs)
         && !(r.scope === candidate.scope && r.variantId === candidate.variantId))
     records.push(candidate)
+    if (records.length > MAX_INDEX_RECORDS) {
+      records.sort((a, b) => a.expiresAt - b.expiresAt)
+      records.splice(0, records.length - MAX_INDEX_RECORDS)
+    }
     await this.save({ formatVersion: 3, records })
     return { record: candidate, accepted: true }
   }

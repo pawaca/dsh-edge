@@ -159,18 +159,25 @@ abstract class EdgeImageAttachmentStore extends AttachmentStore {
     if (this.images !== undefined) {
       try {
         signal?.throwIfAborted()
-        const targetDimension = Math.round(Math.sqrt(policy.maxPixels))
-        const response = await this.images
+        const aspect = ref.width / ref.height
+        const targetHeight = Math.round(Math.sqrt(policy.maxPixels / aspect))
+        const targetWidth = Math.round(targetHeight * aspect)
+        const result = await this.images
           .input(stored.data)
-          .transform({ width: targetDimension, height: targetDimension, fit: 'inside' })
+          .transform({ width: targetWidth, height: targetHeight, fit: 'inside' })
           .output({ format: ref.mediaType })
-        const blob = response instanceof Response ? await response.arrayBuffer() : await (response as { arrayBuffer(): Promise<ArrayBuffer> }).arrayBuffer()
-        const transformed = new Uint8Array(blob)
+        signal?.throwIfAborted()
+        const resp = 'response' in result && typeof (result as { response: unknown }).response === 'function'
+          ? await ((result as { response(): Response }).response()).arrayBuffer()
+          : result instanceof Response
+            ? await result.arrayBuffer()
+            : await (result as { arrayBuffer(): Promise<ArrayBuffer> }).arrayBuffer()
+        const transformed = new Uint8Array(resp)
         if (transformed.byteLength <= policy.maxBytes) {
           return { ...base, data: transformed, bytes: transformed.byteLength }
         }
       } catch {
-        // Images binding unavailable or transform failed — fall through to passthrough
+        if (signal?.aborted) throw signal.reason
       }
     }
 
