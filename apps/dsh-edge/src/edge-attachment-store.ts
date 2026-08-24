@@ -172,6 +172,7 @@ abstract class EdgeImageAttachmentStore extends AttachmentStore {
           : result instanceof Response
             ? await result.arrayBuffer()
             : await (result as { arrayBuffer(): Promise<ArrayBuffer> }).arrayBuffer()
+        signal?.throwIfAborted()
         const transformed = new Uint8Array(resp)
         if (transformed.byteLength <= policy.maxBytes) {
           return { ...base, data: transformed, bytes: transformed.byteLength }
