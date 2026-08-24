@@ -49,6 +49,7 @@ interface ImageMetadata {
 
 export interface EdgeR2AttachmentStoreConfig {
   bucket: R2Bucket
+  images?: ImagesBinding
 }
 
 interface AttachmentDigest {
@@ -56,8 +57,18 @@ interface AttachmentDigest {
   bytes: ArrayBuffer
 }
 
+export interface ImagesBinding {
+  input(data: ReadableStream | ArrayBuffer | Uint8Array): {
+    transform(options: { width?: number; height?: number; fit?: string }): {
+      output(options: { format: string }): Promise<Response>
+    }
+    info(): Promise<{ width: number; height: number; format: string }>
+  }
+}
+
 abstract class EdgeImageAttachmentStore extends AttachmentStore {
   abstract override readonly imageLimits: ImageAttachmentLimits
+  protected images?: ImagesBinding
 
   override async validateImage(input: SaveImageAttachment): Promise<void> {
     await inspectImage(input.data, input.mediaType, this.imageLimits, true)
@@ -142,13 +153,26 @@ abstract class EdgeImageAttachmentStore extends AttachmentStore {
     const descriptor = `${ref.attachmentId}:${String(policy.pixelBudget)}:${String(policy.maxBytes)}`
     const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(descriptor))
     const hex = Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('')
-    return {
-      variantId: ImageVariantId(`sha256:${hex}`),
-      attachment: ref,
-      data: stored.data,
-      mediaType: ref.mediaType,
-      bytes: stored.data.byteLength,
+    const variantId = ImageVariantId(`sha256:${hex}`)
+
+    if (this.images !== undefined) {
+      try {
+        signal?.throwIfAborted()
+        const targetDimension = Math.round(Math.sqrt(policy.pixelBudget))
+        const response = await this.images
+          .input(stored.data)
+          .transform({ width: targetDimension, height: targetDimension, fit: 'inside' })
+          .output({ format: ref.mediaType === 'image/jpeg' ? 'jpeg' : 'png' })
+        const transformed = new Uint8Array(await response.arrayBuffer())
+        if (transformed.byteLength <= policy.maxBytes) {
+          return { variantId, attachment: ref, data: transformed, mediaType: ref.mediaType, bytes: transformed.byteLength }
+        }
+      } catch {
+        // Images binding unavailable or transform failed — fall through to passthrough
+      }
     }
+
+    return { variantId, attachment: ref, data: stored.data, mediaType: ref.mediaType, bytes: stored.data.byteLength }
   }
 
   protected abstract writeBytes(
@@ -172,6 +196,7 @@ export class EdgeR2AttachmentStore extends EdgeImageAttachmentStore {
   constructor(ctx: Context, config: EdgeR2AttachmentStoreConfig) {
     super(ctx)
     this.bucket = config.bucket
+    if (config.images !== undefined) this.images = config.images
   }
 
   protected override async writeBytes(
@@ -200,6 +225,7 @@ export class EdgeR2AttachmentStore extends EdgeImageAttachmentStore {
 interface EdgeDoAttachmentStoreConfig {
   storage: DurableObjectStorage
   maxStoredBytes?: number
+  images?: ImagesBinding
 }
 
 interface AttachmentObjectRow extends Record<string, SqlStorageValue> {
@@ -272,6 +298,7 @@ export class EdgeDoAttachmentStore extends EdgeImageAttachmentStore {
     super(ctx)
     this.storage = config.storage
     this.maxStoredBytes = config.maxStoredBytes ?? EDGE_DO_ATTACHMENT_MAX_STORED_BYTES
+    if (config.images !== undefined) this.images = config.images
     if (!Number.isSafeInteger(this.maxStoredBytes) || this.maxStoredBytes <= 0) {
       throw new Error('Temporary attachment storage limit must be a positive integer.')
     }

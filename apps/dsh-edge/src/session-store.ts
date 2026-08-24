@@ -80,6 +80,7 @@ interface EdgeSessionStoreConfig {
   searchBaseURL?: string
   attachmentStorage: EdgeAttachmentStorage
   attachmentBucket?: R2Bucket
+  images?: unknown
   baseURL?: string
   maxTokens?: string
   reasoningEffort?: string
@@ -177,10 +178,12 @@ export class EdgeSessionStore {
     storage: DurableObjectStorage,
     config: EdgeSessionStoreConfig,
   ): Promise<void> {
+    const images = config.images as import('./edge-attachment-store.ts').ImagesBinding | undefined
     await (config.attachmentStorage === 'temporary-do'
-      ? this.context.plugin(EdgeDoAttachmentStore, { storage })
+      ? this.context.plugin(EdgeDoAttachmentStore, { storage, images })
       : this.context.plugin(EdgeR2AttachmentStore, {
           bucket: requireAttachmentBucket(config.attachmentBucket),
+          images,
         }))
     await this.context.plugin(EdgeCredentialProvider, {
       storage,
