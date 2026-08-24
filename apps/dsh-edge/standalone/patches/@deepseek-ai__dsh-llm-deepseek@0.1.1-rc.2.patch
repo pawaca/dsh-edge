@@ -1,16 +1,7 @@
 diff --git a/lib/index.js b/lib/index.js
-index 74fcc55c32ea152c47afb862935e0489b0436f67..9054e46422589c6f3306ea990d15b5e9cd36984b 100644
+index 74fcc55c32ea152c47afb862935e0489b0436f67..56a03e52a00be617cc60679f89f2e0882d48ef81 100644
 --- a/lib/index.js
 +++ b/lib/index.js
-@@ -542,7 +542,7 @@ var DeepSeekUploadIndex = class {
- 	/**
- 	* @param path - explicit test path; omission uses `DSH_HOME/llm-deepseek/files-v3.json`.
- 	*/
--	constructor(path = join(resolveDshHome(), "llm-deepseek", "files-v3.json")) {
-+	constructor(path = (() => { try { return join(resolveDshHome(), "llm-deepseek", "files-v3.json"); } catch { return "/tmp/llm-deepseek/files-v3.json"; } })()) {
- 		this.path = path;
- 	}
- 	async load() {
 @@ -1790,7 +1790,8 @@ function apply(ctx, config) {
  		options,
  		resolveApiKey,
