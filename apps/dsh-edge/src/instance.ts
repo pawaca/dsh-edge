@@ -207,6 +207,10 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       ...(this.env as unknown as Record<string, unknown>).IMAGES === undefined
         ? {}
         : { images: (this.env as unknown as Record<string, unknown>).IMAGES },
+      onLateSessionEvent: (sessionId, event) => {
+        this.publishSessionEvent(sessionId, event)
+      },
+      waitUntil: promise => this.ctx.waitUntil(promise),
     },
   )
   private readonly workspaces = new EdgeWorkspaceStore(this.ctx.storage)
