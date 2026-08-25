@@ -113,7 +113,7 @@ describe('repository workflows', () => {
     expect(dependencySetup).toBeLessThan(source.indexOf('pnpm run check'))
     expect(ancestryGate).toBeLessThan(source.indexOf('node apps/dsh-edge/scripts/publish.mjs --tarball $tarball'))
     expect(source).toContain('is not in reviewed default-branch history')
-    expect(source).toContain('if [[ "$tag_commit" != "$default_commit" ]]')
+    expect(source).toContain('if [[ "$EVENT_NAME" != "push" && "$tag_commit" != "$provenance_commit" ]]')
     expect(source).toContain('npm view "dsh-edge@$version" dist.integrity --json')
   })
 
@@ -125,6 +125,8 @@ describe('repository workflows', () => {
     expect(request).not.toContain('id-token: write')
     expect(request).not.toContain('npm publish')
     expect(release).toContain('repository_dispatch:')
+    expect(release).toContain("push:\n    tags: ['dsh-edge-v[0-9]*']")
     expect(release).toContain('REQUESTED_TAG: ${{ github.event.client_payload.tag }}')
+    expect(release).toContain('origin/main')
   })
 })

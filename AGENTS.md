@@ -56,13 +56,10 @@ Every version published to npm must also have a matching GitHub Release and git 
 
 1. **Merge the release PR** to main (squash merge).
 2. **Pull main** and verify `apps/dsh-edge/package.json` version matches the intended release.
-3. **Build and verify**: `pnpm --filter dsh-edge run bundle:workers` then `pnpm --filter dsh-edge run legal:write` to ensure legal notices and worker artifacts are current.
-4. **Publish to npm**: `cd apps/dsh-edge && npm publish` (runs the prepack hook which re-verifies legal files and rebuilds). Use `--tag next` for prereleases.
-5. **Create a git tag**: `git tag dsh-edge-v<version>` on the merge commit.
-6. **Push the tag**: `git push origin dsh-edge-v<version>`.
-7. **Create a GitHub Release**: `gh release create dsh-edge-v<version> --title "dsh-edge <version>" --notes-file docs/releases/<version>.md`. Use `--prerelease` for alpha/rc versions.
-8. **Verify**: `npm view dsh-edge@<version>` and `gh release view dsh-edge-v<version>` both resolve.
+3. **Create and push a git tag**: `git tag dsh-edge-v<version> && git push origin dsh-edge-v<version>`.
+4. The tag push triggers `release-edge.yml` which automatically builds, verifies, publishes to npm (trusted publishing), and creates the GitHub Release.
+5. **Verify**: `npm view dsh-edge@<version>` and `gh release view dsh-edge-v<version>` both resolve.
 
-Never publish to npm without completing steps 5–7 in the same session. If npm publish succeeds but GitHub Release fails, fix the GitHub Release immediately before moving on.
+The workflow can also be triggered manually via `request-release.yml` (workflow_dispatch) or `repository_dispatch` as a fallback. Prerelease versions (containing `-`) are published to the `next` npm dist-tag and marked as GitHub prerelease.
 
 Stage, commit, push, PR creation, review replies, thread resolution, releases, tags, npm publication, and Cloudflare deployment require the corresponding user authorization.

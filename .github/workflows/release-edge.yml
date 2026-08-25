@@ -1,6 +1,8 @@
 name: Release dsh-edge
 
 on:
+  push:
+    tags: ['dsh-edge-v[0-9]*']
   repository_dispatch:
     types: [release-dsh-edge]
 
@@ -36,15 +38,21 @@ jobs:
         shell: bash
         env:
           REQUESTED_TAG: ${{ github.event.client_payload.tag }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
-          tag="$REQUESTED_TAG"
+          if [[ "$EVENT_NAME" == "push" ]]; then
+            tag="$GITHUB_REF_NAME"
+          else
+            tag="$REQUESTED_TAG"
+          fi
           if [[ ! "$tag" =~ ^dsh-edge-v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]; then
             echo "Invalid release tag: $tag" >&2
             exit 1
           fi
           git fetch --force origin "refs/tags/$tag:refs/tags/$tag"
           tag_commit="$(git rev-list -n 1 "$tag")"
-          default_commit="$(git rev-parse HEAD)"
+          default_commit="$(git rev-parse origin/main)"
           # The default branch may advance after npm succeeds but GitHub Release recovery
           # is still pending. The tag must remain in canonical reviewed history.
           if ! git merge-base --is-ancestor "$tag_commit" "$default_commit"; then
@@ -66,7 +74,10 @@ jobs:
           # A first publication must describe the exact default-branch commit
           # named by the OIDC provenance. An older reviewed tag is accepted
           # only to recover its already-published npm artifact and GitHub Release.
-          if [[ "$tag_commit" != "$default_commit" ]]; then
+          # On tag-push events the tag IS the provenance; ancestry is sufficient.
+          # On dispatch events, compare against the event-pinned HEAD (not origin/main).
+          provenance_commit="$(git rev-parse HEAD)"
+          if [[ "$EVENT_NAME" != "push" && "$tag_commit" != "$provenance_commit" ]]; then
             integrity_json="$RUNNER_TEMP/dsh-edge-release-integrity.json"
             if ! npm view "dsh-edge@$version" dist.integrity --json > "$integrity_json" \
               || ! node -e "const fs=require('fs'); const value=JSON.parse(fs.readFileSync(process.argv[1], 'utf8')); if (typeof value !== 'string' || value === '') process.exit(1)" "$integrity_json"; then
