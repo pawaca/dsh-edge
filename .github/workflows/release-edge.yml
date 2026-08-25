@@ -1,6 +1,8 @@
 name: Release dsh-edge
 
 on:
+  push:
+    tags: ['dsh-edge-v[0-9]*']
   repository_dispatch:
     types: [release-dsh-edge]
 
@@ -36,8 +38,14 @@ jobs:
         shell: bash
         env:
           REQUESTED_TAG: ${{ github.event.client_payload.tag }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
-          tag="$REQUESTED_TAG"
+          if [[ "$EVENT_NAME" == "push" ]]; then
+            tag="$GITHUB_REF_NAME"
+          else
+            tag="$REQUESTED_TAG"
+          fi
           if [[ ! "$tag" =~ ^dsh-edge-v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]; then
             echo "Invalid release tag: $tag" >&2
             exit 1
