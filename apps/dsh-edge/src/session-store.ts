@@ -243,7 +243,7 @@ export class EdgeSessionStore {
       const callback = config.onLateSessionEvent
       this.context.on('session/event', (session, event) => {
         const agent = this.context.agents.get(session.id)
-        if (agent !== undefined && this.turnPublishedAgents.has(agent)) return
+        if (agent?.session === session && this.turnPublishedAgents.has(agent)) return
         if (event.type === 'session/title' && event.data.source.kind === 'user') return
         this.context.sessions.flush(session).then(() => {
           callback(session.id, event)
