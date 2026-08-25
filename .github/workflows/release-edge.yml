@@ -75,7 +75,9 @@ jobs:
           # named by the OIDC provenance. An older reviewed tag is accepted
           # only to recover its already-published npm artifact and GitHub Release.
           # On tag-push events the tag IS the provenance; ancestry is sufficient.
-          if [[ "$EVENT_NAME" != "push" && "$tag_commit" != "$default_commit" ]]; then
+          # On dispatch events, compare against the event-pinned HEAD (not origin/main).
+          provenance_commit="$(git rev-parse HEAD)"
+          if [[ "$EVENT_NAME" != "push" && "$tag_commit" != "$provenance_commit" ]]; then
             integrity_json="$RUNNER_TEMP/dsh-edge-release-integrity.json"
             if ! npm view "dsh-edge@$version" dist.integrity --json > "$integrity_json" \
               || ! node -e "const fs=require('fs'); const value=JSON.parse(fs.readFileSync(process.argv[1], 'utf8')); if (typeof value !== 'string' || value === '') process.exit(1)" "$integrity_json"; then
