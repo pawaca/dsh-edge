@@ -646,7 +646,7 @@ export async function installEdge({
     const deepSeekKey = await ui.deepSeekKey(validateDeepSeekKey)
     const deepSeekError = validateDeepSeekKey(deepSeekKey)
     if (deepSeekError !== undefined) throw new Error(deepSeekError)
-    const enableImages = typeof ui.enableImages === 'function'
+    const enableImages = !temporary && typeof ui.enableImages === 'function'
       ? await ui.enableImages(temporary)
       : false
 

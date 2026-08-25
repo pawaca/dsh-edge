@@ -5,6 +5,7 @@ export interface WranglerConfigOptions {
   appDirectory?: string
   assetsDirectory?: string
   r2BucketName?: string
+  enableImages?: boolean
   sourceConfigPath?: string
 }
 
