@@ -74,7 +74,8 @@ jobs:
           # A first publication must describe the exact default-branch commit
           # named by the OIDC provenance. An older reviewed tag is accepted
           # only to recover its already-published npm artifact and GitHub Release.
-          if [[ "$tag_commit" != "$default_commit" ]]; then
+          # On tag-push events the tag IS the provenance; ancestry is sufficient.
+          if [[ "$EVENT_NAME" != "push" && "$tag_commit" != "$default_commit" ]]; then
             integrity_json="$RUNNER_TEMP/dsh-edge-release-integrity.json"
             if ! npm view "dsh-edge@$version" dist.integrity --json > "$integrity_json" \
               || ! node -e "const fs=require('fs'); const value=JSON.parse(fs.readFileSync(process.argv[1], 'utf8')); if (typeof value !== 'string' || value === '') process.exit(1)" "$integrity_json"; then
