@@ -244,10 +244,12 @@ export class EdgeSessionStore {
       this.context.on('session/event', (session, event) => {
         const agent = this.context.agents.get(session.id)
         if (agent !== undefined && this.turnPublishedAgents.has(agent)) return
-        this.context.sessions.flush(session).catch((error: unknown) => {
+        if (event.type === 'session/title' && event.data.source.kind === 'user') return
+        this.context.sessions.flush(session).then(() => {
+          callback(session.id, event)
+        }).catch((error: unknown) => {
           console.error('dsh-edge: failed to flush late session event.', error)
         })
-        callback(session.id, event)
       })
     }
   }
