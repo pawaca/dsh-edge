@@ -37,10 +37,16 @@ import SessionStore, {
 } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import { buildSessionEventSearchDocuments } from '@deepseek-ai/dsh-session-query'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import {
   foldSessionTitle,
   normalizeSessionTitle,
 } from '@deepseek-ai/dsh-session-title'
+import SessionTitleService from '@deepseek-ai/dsh-session-title'
+import * as FirstPromptTitle from '@deepseek-ai/dsh-session-title-first-prompt-llm'
+import BasicCompactionEngine from '@deepseek-ai/dsh-compaction-basic'
+import ToolResultPruner from '@deepseek-ai/dsh-compaction-tool-result-pruner'
+import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import {
@@ -204,6 +210,24 @@ export class EdgeSessionStore {
       console.error('dsh-edge: LLM provider plugin failed to initialize; model operations will be unavailable.', error)
     }
     await this.context.plugin(SessionStore)
+    await this.context.plugin(SessionProjectionRegistry)
+    await this.context.plugin(TokenMeter)
+    await this.context.plugin(BasicCompactionEngine)
+    await this.context.plugin(ToolResultPruner)
+    await this.context.plugin(SessionTitleService, {
+      fallbackMaxWords: 8,
+      fallbackMaxBytes: MAX_TITLE_BYTES,
+      maxTitleBytes: MAX_TITLE_BYTES,
+    })
+    await this.context.plugin(FirstPromptTitle, {
+      targetWords: 6,
+      targetCjkCharacters: 12,
+      maxInputBytes: 4096,
+      maxOutputTokens: 32,
+      timeoutMs: 10_000,
+      provider: EDGE_PROVIDER,
+      model: DEFAULT_EDGE_MODEL,
+    })
     await this.context.plugin(SystemPrompt, { persona: EDGE_SYSTEM_PROMPT })
     await this.context.plugin(ToolRuntime)
     await this.context.plugin(AgentRegistry)
