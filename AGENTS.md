@@ -54,11 +54,12 @@ Review rounds are convergence checkpoints, not a fixed retry budget. On repeated
 
 Every version published to npm must also have a matching GitHub Release and git tag. Skipping any step breaks the invariant on line 36.
 
-1. **Merge the release PR** to main (squash merge).
-2. **Pull main** and verify `apps/dsh-edge/package.json` version matches the intended release.
-3. **Create and push a git tag**: `git tag dsh-edge-v<version> && git push origin dsh-edge-v<version>`.
-4. The tag push triggers `release-edge.yml` which automatically builds, verifies, publishes to npm (trusted publishing), and creates the GitHub Release.
-5. **Verify**: `npm view dsh-edge@<version>` and `gh release view dsh-edge-v<version>` both resolve.
+1. **Write bilingual release notes**: create `docs/releases/<version>.md`, `docs/releases/<version>.zh.md`, and their `.i18n.yaml` pairing record, then run `pnpm run doc-pairs -- --write`.
+2. **Merge the release PR** to main (squash merge).
+3. **Pull main** and verify `apps/dsh-edge/package.json` version matches the intended release.
+4. **Create and push a git tag**: `git tag dsh-edge-v<version> && git push origin dsh-edge-v<version>`.
+5. The tag push triggers `release-edge.yml` which automatically builds, verifies, publishes to npm (trusted publishing), and creates the GitHub Release.
+6. **Verify**: `npm view dsh-edge@<version>` and `gh release view dsh-edge-v<version>` both resolve.
 
 The workflow can also be triggered manually via `request-release.yml` (workflow_dispatch) or `repository_dispatch` as a fallback. Prerelease versions (containing `-`) are published to the `next` npm dist-tag and marked as GitHub prerelease.
 
