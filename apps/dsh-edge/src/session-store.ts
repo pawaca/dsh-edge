@@ -92,6 +92,7 @@ interface EdgeSessionStoreConfig {
   reasoningEffort?: string
   streamIdleTimeoutMs?: string
   onLateSessionEvent?: (sessionId: SessionId, event: SessionEvent) => void
+  waitUntil?: (promise: Promise<unknown>) => void
 }
 const MAX_FORK_STORED_BYTES = 8 * 1_024 * 1_024
 const MAX_SEARCH_SESSIONS = 32
@@ -241,15 +242,17 @@ export class EdgeSessionStore {
     )
     if (config.onLateSessionEvent !== undefined) {
       const callback = config.onLateSessionEvent
+      const keepAlive = config.waitUntil
       this.context.on('session/event', (session, event) => {
         const agent = this.context.agents.get(session.id)
         if (agent?.session === session && this.turnPublishedAgents.has(agent)) return
         if (event.type === 'session/title' && event.data.source.kind === 'user') return
-        this.context.sessions.flush(session).then(() => {
+        const delivery = this.context.sessions.flush(session).then(() => {
           callback(session.id, event)
         }).catch((error: unknown) => {
           console.error('dsh-edge: failed to flush late session event.', error)
         })
+        keepAlive?.(delivery)
       })
     }
   }

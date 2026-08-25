@@ -210,6 +210,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       onLateSessionEvent: (sessionId, event) => {
         this.publishSessionEvent(sessionId, event)
       },
+      waitUntil: promise => this.ctx.waitUntil(promise),
     },
   )
   private readonly workspaces = new EdgeWorkspaceStore(this.ctx.storage)
