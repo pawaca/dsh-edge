@@ -15,6 +15,7 @@ import { targetTag } from '../scripts/publish.mjs'
 import { startMockDeepSeek } from './fixtures/mock-deepseek.mjs'
 
 const edgePackage = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
+const mockChannelVersion = `${Number(edgePackage.version.split('.')[0]) + 1}.0.0`
 const ACCESS_KEY = 'browser-snapshot-owner-key-32-bytes'
 
 describe('dsh-edge assembled browser snapshot', () => {
@@ -60,11 +61,11 @@ describe('dsh-edge assembled browser snapshot', () => {
       })
       await page.route('https://registry.npmjs.org/dsh-edge/latest', route => route.fulfill({
         contentType: 'application/json',
-        body: JSON.stringify({ version: '0.6.0' }),
+        body: JSON.stringify({ version: mockChannelVersion }),
       }))
       await page.route('https://registry.npmjs.org/dsh-edge/next', route => route.fulfill({
         contentType: 'application/json',
-        body: JSON.stringify({ version: '0.6.0' }),
+        body: JSON.stringify({ version: mockChannelVersion }),
       }))
       await page.goto(origin, { waitUntil: 'load' })
       await page.getByLabel('Owner access key').fill(ACCESS_KEY)
@@ -418,6 +419,7 @@ function normalize(source) {
     .replace(/http:\/\/127\.0\.0\.1:\d+/gu, '{{mock-deepseek}}')
     .replace(/\b\d{1,2}:\d{2}(?::\d{2})?\s*(?:AM|PM)?\b/giu, '{{clock}}')
     .replace(/\b\d+(?:\.\d+)?\s*(?:ms|s|tok\/s)\b/giu, '{{metric}}')
+    .replaceAll(mockChannelVersion, '{{channel-version}}')
     .replaceAll(edgePackage.version, '{{version}}')
     .replaceAll(channel, '{{channel}}')
     .trimEnd()}\n`

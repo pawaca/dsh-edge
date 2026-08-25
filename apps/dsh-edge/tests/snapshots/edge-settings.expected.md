@@ -27,7 +27,7 @@
     - definition:
       - code: {{channel}}
     - term: Channel version
-    - definition: 0.6.0
+    - definition: {{channel-version}}
     - term: DeepSeek Harness base
     - definition: 0.1.1-rc.2
     - paragraph: Update available
