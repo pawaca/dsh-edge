@@ -25,7 +25,7 @@
     - definition: 0.5.1-alpha.1
     - term: Update channel
     - definition:
-      - code: latest
+      - code: next
     - term: Channel version
     - definition: 0.6.0
     - term: DeepSeek Harness base
