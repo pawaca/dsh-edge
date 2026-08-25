@@ -1,7 +1,7 @@
 /** Keyless browser snapshot through the assembled upstream Web application. */
 
 import { createHmac } from 'node:crypto'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { chromium } from 'playwright'
@@ -11,8 +11,10 @@ import {
   workerArtifactPath,
   writePrebuiltModeWranglerConfig,
 } from '../scripts/wrangler-config.mjs'
+import { targetTag } from '../scripts/publish.mjs'
 import { startMockDeepSeek } from './fixtures/mock-deepseek.mjs'
 
+const edgePackage = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
 const ACCESS_KEY = 'browser-snapshot-owner-key-32-bytes'
 
 describe('dsh-edge assembled browser snapshot', () => {
@@ -86,14 +88,15 @@ describe('dsh-edge assembled browser snapshot', () => {
       await settings.getByRole('navigation')
         .getByRole('button', { name: 'DSH Edge', exact: true })
         .click()
-      await expect.poll(() => settings.getByText('0.5.1-alpha.1', { exact: true }).count()).toBe(1)
+      await expect.poll(() => settings.getByText(edgePackage.version, { exact: true }).count()).toBe(1)
       await settings.getByRole('button', { name: 'Copy upgrade command', exact: true }).click()
       await expect.poll(() => settings.getByRole('button', {
         name: 'Upgrade command copied', exact: true,
       }).count())
         .toBe(1)
+      const expectedChannel = targetTag(edgePackage.version)
       expect(await page.evaluate(() => globalThis.__dshEdgeCopiedText))
-        .toBe('npx dsh-edge@next upgrade')
+        .toBe(`npx dsh-edge@${expectedChannel} upgrade`)
       const edgeSettingsSnapshot = await stableAria(page, '[role="dialog"]')
       await expect(normalize(edgeSettingsSnapshot))
         .toMatchFileSnapshot('./snapshots/edge-settings.expected.md')
@@ -410,10 +413,13 @@ async function edgeRpc(worker, ownerCookie, method, payload) {
 }
 
 function normalize(source) {
+  const channel = targetTag(edgePackage.version)
   return `${source
     .replace(/http:\/\/127\.0\.0\.1:\d+/gu, '{{mock-deepseek}}')
     .replace(/\b\d{1,2}:\d{2}(?::\d{2})?\s*(?:AM|PM)?\b/giu, '{{clock}}')
     .replace(/\b\d+(?:\.\d+)?\s*(?:ms|s|tok\/s)\b/giu, '{{metric}}')
+    .replaceAll(edgePackage.version, '{{version}}')
+    .replaceAll(channel, '{{channel}}')
     .trimEnd()}\n`
 }
 
