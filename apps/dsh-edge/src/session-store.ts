@@ -91,6 +91,7 @@ interface EdgeSessionStoreConfig {
   maxTokens?: string
   reasoningEffort?: string
   streamIdleTimeoutMs?: string
+  onLateSessionEvent?: (sessionId: SessionId, event: SessionEvent) => void
 }
 const MAX_FORK_STORED_BYTES = 8 * 1_024 * 1_024
 const MAX_SEARCH_SESSIONS = 32
@@ -238,6 +239,17 @@ export class EdgeSessionStore {
       () => this.context.tools.register(createEdgeBashTool(this.shells)),
       'dsh-edge: bash tool',
     )
+    if (config.onLateSessionEvent !== undefined) {
+      const callback = config.onLateSessionEvent
+      this.context.on('session/event', (session, event) => {
+        const agent = this.context.agents.get(session.id)
+        if (agent !== undefined && this.turnPublishedAgents.has(agent)) return
+        this.context.sessions.flush(session).catch((error: unknown) => {
+          console.error('dsh-edge: failed to flush late session event.', error)
+        })
+        callback(session.id, event)
+      })
+    }
   }
 
   /** Resolve the optional upstream attachment service composed for this deployment. */
