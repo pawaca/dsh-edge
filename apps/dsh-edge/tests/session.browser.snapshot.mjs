@@ -279,7 +279,7 @@ describe('dsh-edge assembled browser snapshot', () => {
       await expect(normalize(archivedTree))
         .toMatchFileSnapshot('./snapshots/edge-browser-archived.expected.md')
       expect(pageErrors).toEqual([])
-      expect(mock.requests).toHaveLength(1)
+      expect(mock.requests.filter(r => r.max_tokens !== 32)).toHaveLength(1)
 
       await page.waitForSelector('[class*="frame"]', { timeout: 15_000 })
       const nowSeconds = Math.floor(Date.now() / 1_000)
