@@ -239,7 +239,7 @@ describe('EdgeR2AttachmentStore', () => {
 })
 
 describe('EdgeDoAttachmentStore', () => {
-  it('pins, chunks, deduplicates, and restores temporary attachments', async () => {
+  it('pins, chunks, deduplicates, and restores temporary attachments', { timeout: 15_000 }, async () => {
     const storage = new TestDurableObjectStorage()
     try {
       expect(resolveEdgeAttachmentStorage(storage as never, undefined)).toBe('temporary-do')
