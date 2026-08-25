@@ -50,4 +50,19 @@ Use `.agents/skills/dsh-pre-push-checks/SKILL.md` before a push and `.agents/ski
 
 Review rounds are convergence checkpoints, not a fixed retry budget. On repeated problem families, audit all affected callers and replace local patches with one invariant-preserving repair. Stop only for genuine scope decisions or non-convergence. Never merge automatically.
 
+## Release procedure
+
+Every version published to npm must also have a matching GitHub Release and git tag. Skipping any step breaks the invariant on line 36.
+
+1. **Merge the release PR** to main (squash merge).
+2. **Pull main** and verify `apps/dsh-edge/package.json` version matches the intended release.
+3. **Build and verify**: `pnpm --filter dsh-edge run bundle:workers` then `pnpm --filter dsh-edge run legal:write` to ensure legal notices and worker artifacts are current.
+4. **Publish to npm**: `cd apps/dsh-edge && npm publish` (runs the prepack hook which re-verifies legal files and rebuilds). Use `--tag next` for prereleases.
+5. **Create a git tag**: `git tag dsh-edge-v<version>` on the merge commit.
+6. **Push the tag**: `git push origin dsh-edge-v<version>`.
+7. **Create a GitHub Release**: `gh release create dsh-edge-v<version> --title "dsh-edge <version>" --notes-file docs/releases/<version>.md`. Use `--prerelease` for alpha/rc versions.
+8. **Verify**: `npm view dsh-edge@<version>` and `gh release view dsh-edge-v<version>` both resolve.
+
+Never publish to npm without completing steps 5–7 in the same session. If npm publish succeeds but GitHub Release fails, fix the GitHub Release immediately before moving on.
+
 Stage, commit, push, PR creation, review replies, thread resolution, releases, tags, npm publication, and Cloudflare deployment require the corresponding user authorization.

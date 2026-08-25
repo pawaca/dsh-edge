@@ -222,6 +222,19 @@ export function createInstallerUi(
         validate,
       })))
     },
+    async enableImages(isTemporary) {
+      if (isTemporary) return false
+      const mode = await requireAnswer(await clack.select(withOutput({
+        message: 'Image optimization',
+        initialValue: 'enable',
+        signal,
+        options: [
+          { value: 'enable', label: 'Enable', hint: 'free 5,000 transforms/month' },
+          { value: 'skip', label: 'Skip' },
+        ],
+      })))
+      return mode === 'enable'
+    },
     async confirm(summary) {
       note([
         `Runtime: ${summary.modeLabel}`,

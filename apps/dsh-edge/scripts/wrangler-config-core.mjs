@@ -67,6 +67,10 @@ export function renderParsedPrebuiltModeWranglerConfig(mode, parsed, options = {
   config.no_bundle = true
   config.find_additional_modules = false
   applyAttachmentStorage(config, mode, options.r2BucketName)
+  if (options.enableImages) {
+    const target = mode === 'direct' ? config : config.env?.isolated
+    if (isRecord(target)) target.images = { binding: 'IMAGES' }
+  }
   return `${JSON.stringify(config, undefined, 2)}\n`
 }
 
