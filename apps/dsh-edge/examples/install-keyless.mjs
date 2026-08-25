@@ -7,7 +7,10 @@ import { stripVTControlCharacters } from 'node:util'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { execa } from 'execa'
 
+import { readFileSync } from 'node:fs'
+
 const appDirectory = fileURLToPath(new URL('..', import.meta.url))
+const edgeVersion = JSON.parse(readFileSync(join(appDirectory, 'package.json'), 'utf8')).version
 const cli = join(appDirectory, 'scripts/cli.mjs')
 const preload = fileURLToPath(new URL('./install-keyless-preload.cjs', import.meta.url))
 const fixtureWrangler = fileURLToPath(new URL('./install-keyless-wrangler.mjs', import.meta.url))
@@ -129,6 +132,7 @@ function normalizeTerminal(source) {
     .replaceAll('sk-keyless-no-call', '{{deepseek-key}}')
     .replace(/Owner access key: [A-Za-z0-9_-]+/u, 'Owner access key: {{generated-access-key}}')
     .replace(/^│  •_.*◇  DeepSeek API key$/gmu, '◇  DeepSeek API key')
+    .replaceAll(edgeVersion, '{{version}}')
     .split('\n')
     .map(line => line.trimEnd())
     .filter(line => line !== '')

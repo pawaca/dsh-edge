@@ -34,7 +34,7 @@ The root and standalone lockfiles serve different purposes. The root lock instal
 - Direct mode must stay below the repository gzip budget. Release tests must start the promoted prebuilt artifacts, not source entrypoints.
 - Every retained upstream patch needs a version-bound filename, a failing-without-the-patch check, a rationale, and a removal condition.
 - The npm package, tag, GitHub Release, deployment identity, and documentation must report the same dsh-edge version.
-- `apps/dsh-edge/package.json` is the only release-version source. Private workspace manifests omit `version` so they cannot imply a second product or upstream release identity.
+- `apps/dsh-edge/package.json` is the only release-version source. Test assertions and snapshot expectations derive the version and npm dist-tag channel at runtime; a version bump requires no other file changes. Private workspace manifests omit `version` so they cannot imply a second product or upstream release identity.
 
 ## Change discipline
 
