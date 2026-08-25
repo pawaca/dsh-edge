@@ -101,7 +101,7 @@ describe('standalone npm publication', { timeout: NPM_CLI_TEST_TIMEOUT_MS }, () 
       version: '0.1.3',
     }))
     expect(() => assertReleaseIdentity(identity))
-      .toThrow('checkout expects dsh-edge@0.5.0')
+      .toThrow('checkout expects dsh-edge@0.5.1-alpha.1')
   })
 
   it('rejects a tarball for a different package', () => {
