@@ -56,8 +56,8 @@ Every version published to npm must also have a matching GitHub Release and git 
 
 1. **Merge the release PR** to main (squash merge).
 2. **Pull main** and verify `apps/dsh-edge/package.json` version matches the intended release.
-3. **Build**: `pnpm --filter dsh-edge run bundle:workers`.
-4. **Publish to npm**: `cd apps/dsh-edge && npm publish --ignore-scripts` (prepack already ran in step 3). Use `--tag next` for prereleases.
+3. **Build and verify**: `pnpm --filter dsh-edge run bundle:workers` then `pnpm --filter dsh-edge run legal:write` to ensure legal notices and worker artifacts are current.
+4. **Publish to npm**: `cd apps/dsh-edge && npm publish` (runs the prepack hook which re-verifies legal files and rebuilds). Use `--tag next` for prereleases.
 5. **Create a git tag**: `git tag dsh-edge-v<version>` on the merge commit.
 6. **Push the tag**: `git push origin dsh-edge-v<version>`.
 7. **Create a GitHub Release**: `gh release create dsh-edge-v<version> --title "dsh-edge <version>" --notes-file docs/releases/<version>.md`. Use `--prerelease` for alpha/rc versions.

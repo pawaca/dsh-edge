@@ -340,6 +340,21 @@ describe('dsh-edge installer primitives', () => {
       no_bundle: true,
     })
 
+    const imagesDirectConfig = parseJsonRecord(renderPrebuiltModeWranglerConfig(
+      'direct', source, { appDirectory: root, enableImages: true },
+    ))
+    expect(imagesDirectConfig).toHaveProperty('images', { binding: 'IMAGES' })
+
+    const imagesIsolatedConfig = parseJsonRecord(renderPrebuiltModeWranglerConfig(
+      'isolated', source, { appDirectory: root, enableImages: true },
+    ))
+    expect((imagesIsolatedConfig.env as Record<string, unknown>)?.isolated).toHaveProperty('images', { binding: 'IMAGES' })
+
+    const noImagesConfig = parseJsonRecord(renderPrebuiltModeWranglerConfig(
+      'direct', source, { appDirectory: root },
+    ))
+    expect(noImagesConfig).not.toHaveProperty('images')
+
     const standalone = parseJsonRecord(renderSourceModeWranglerConfig('direct', source, {
       appDirectory: root,
       assetsDirectory: '/standalone/dist',
