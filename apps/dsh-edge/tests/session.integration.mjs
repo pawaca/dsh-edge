@@ -348,7 +348,8 @@ try {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ message: 'slow response' }),
   })
-  await waitFor(() => mock.requests.length === 10)
+  const turnRequests = () => mock.requests.filter(r => r.max_tokens !== 32)
+  await waitFor(() => turnRequests().length === 10)
   const busy = await jsonRequest(`/api/sessions/${sessionId}/turn`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -433,10 +434,11 @@ try {
   assert.equal(replayedResume[0].type, 'session/end-seed')
   assert.equal(replayedResume[1].seq, resumedEvents[0].seq)
 
-  assert.equal(mock.requests.length, 11)
-  assert.ok(mock.requests.every(request => request.max_tokens === 16_384))
-  assert.ok(mock.requests.every(request => request.model === 'deepseek-v4-pro'))
-  assert.ok(mock.requests.every(request => request.reasoning_effort === 'high'))
+  const turnRequestsSnapshot = turnRequests()
+  assert.equal(turnRequestsSnapshot.length, 11)
+  assert.ok(turnRequestsSnapshot.every(request => request.max_tokens === 16_384))
+  assert.ok(turnRequestsSnapshot.every(request => request.model === 'deepseek-v4-pro'))
+  assert.ok(turnRequestsSnapshot.every(request => request.reasoning_effort === 'high'))
   assert.ok(mock.requests.some(request => request.messages.some(message =>
     message.role === 'assistant' && message.content === 'remembered-alpha')))
 
@@ -1197,7 +1199,7 @@ try {
   assert.equal(retriedInvalidProtocolPrompt.body.result.error.code, 'internal')
   // Promoting the queued prompt to steering folds it into the active turn
   // instead of starting the extra follow-up request exercised previously.
-  assert.equal(mock.requests.length, 15)
+  assert.equal(turnRequests().length, 15)
   process.stdout.write(`dsh-edge ${runtimeMode} session integration passed\n`)
 } finally {
   mock.releaseSlowResponses()
