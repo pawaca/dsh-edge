@@ -52,7 +52,7 @@ jobs:
           fi
           git fetch --force origin "refs/tags/$tag:refs/tags/$tag"
           tag_commit="$(git rev-list -n 1 "$tag")"
-          default_commit="$(git rev-parse HEAD)"
+          default_commit="$(git rev-parse origin/main)"
           # The default branch may advance after npm succeeds but GitHub Release recovery
           # is still pending. The tag must remain in canonical reviewed history.
           if ! git merge-base --is-ancestor "$tag_commit" "$default_commit"; then
