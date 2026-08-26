@@ -160,4 +160,24 @@ export class DurableObjectStorageBackend implements StorageBackend {
   async close(): Promise<void> {
     this.openUnits.clear()
   }
+
+  static async migrateWorkspaceKeys(storage: DurableObjectStorage): Promise<void> {
+    const stateKey = 'dsh-edge:workspace-domain-state:v2'
+    const oldState = await storage.get<Record<string, unknown>>(stateKey)
+    if (oldState === undefined) return
+
+    await storage.put(globalKey('workspaces'), oldState)
+    await storage.put(versionKey('workspaces'), 2)
+
+    const oldPrefix = 'dsh-edge:workspace-domain-workspaces:'
+    const oldRecords = await storage.list({ prefix: oldPrefix })
+    const deleteKeys: string[] = [stateKey]
+    for (const [oldKey, value] of oldRecords) {
+      const segment = oldKey.slice(oldPrefix.length)
+      const id = segment.endsWith(':v2') ? segment.slice(0, -3) : segment
+      await storage.put(recordKey('workspaces', 'workspaces', id), value)
+      deleteKeys.push(oldKey)
+    }
+    await storage.delete(deleteKeys)
+  }
 }

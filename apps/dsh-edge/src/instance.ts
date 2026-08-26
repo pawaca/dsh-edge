@@ -459,7 +459,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     const registry = await this.sessions.workspaceRegistry()
     const deleted = await registry.delete(workspaceId)
     if (!deleted) {
-      throw new EdgeHttpError(404, `Workspace ${workspaceId} not found.`)
+      throw new WorkspaceOrderInvalidError(workspaceId)
     }
     this.broadcast('host', { type: 'host/workspace-removed', workspaceId })
   }
@@ -615,6 +615,9 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     }
     const session = await this.sessions.createSession({ title })
     const presented = this.presentSession(session)
+    const summary = (await this.sessions.listApiSessions())
+      .find(item => item.id === session.id)
+    if (summary !== undefined) this.publishSessionCreated(summary)
     const registry = await this.sessions.workspaceRegistry()
     const edgeWorkspace = await registry.resolveByPath(EDGE_WORKSPACE_PATH)
     const edgeWorkspaceId = edgeWorkspace?.id
@@ -625,13 +628,9 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         edgeWorkspaceId,
         'created',
         async () => {
-          const summary = (await this.sessions.listApiSessions())
-            .find(item => item.id === session.id)
-          if (summary === undefined) {
-            throw new Error(`Session "${session.id}" is missing from its post-creation summary.`)
+          if (summary !== undefined) {
+            await this.publishSessionAttached(summary, edgeWorkspaceId)
           }
-          this.publishSessionCreated(summary)
-          await this.publishSessionAttached(summary, edgeWorkspaceId)
         },
       )
     if (attachmentError !== undefined) {

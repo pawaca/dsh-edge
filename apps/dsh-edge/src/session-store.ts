@@ -204,6 +204,7 @@ export class EdgeSessionStore {
       readDeepSeekApiKey: () => config.readDeepSeekApiKey(),
     })
     await this.context.plugin(DurableObjectSettingsProvider, { storage })
+    await DurableObjectStorageBackend.migrateWorkspaceKeys(storage)
     const storageBackend = new DurableObjectStorageBackend(storage)
     await this.context.plugin(Storage)
     this.context.storage.backend.register('durable-object', storageBackend)
