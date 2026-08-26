@@ -268,7 +268,11 @@ export class EdgeSessionStore {
       })
     })
     if (this.context.workspaceRegistry.list().length === 0) {
-      await this.context.workspaceRegistry.create('/workspace')
+      const hasExistingSessions = storage.sql
+        .exec('SELECT 1 FROM dsh_sessions LIMIT 1').toArray().length > 0
+      if (!hasExistingSessions) {
+        await this.context.workspaceRegistry.create('/workspace')
+      }
     }
     await this.context.plugin(AgentLoop, { agents: [] })
     this.context.effect(
