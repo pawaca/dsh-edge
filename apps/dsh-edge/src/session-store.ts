@@ -248,7 +248,12 @@ export class EdgeSessionStore {
     await this.context.plugin(AgentRegistry)
     await installEdgeWebSearch(this.context, config.searchBaseURL)
     await this.context.plugin(DurableObjectSessionPersistence, { storage })
-    await this.context.plugin(WorkspaceRegistry)
+    try {
+      await this.context.plugin(WorkspaceRegistry)
+    } catch (error) {
+      console.error('dsh-edge: WorkspaceRegistry failed to initialize.', error)
+      throw error
+    }
     await this.context.plugin(AgentLoop, { agents: [] })
     this.context.effect(
       () => this.context.tools.register(createEdgeBashTool(this.shells)),
