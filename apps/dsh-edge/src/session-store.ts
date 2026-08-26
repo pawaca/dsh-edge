@@ -1,6 +1,10 @@
 /** Canonical DSH sessions backed by the upstream persistence service. */
 
 import { Context } from '@deepseek-ai/cordis'
+import Storage from '@deepseek-ai/dsh-storage'
+import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
+import WorkspaceRegistry from '@deepseek-ai/dsh-workspace'
+import { DurableObjectStorageBackend } from './do-storage-backend.ts'
 import AgentRegistry, {
   installModelSelection,
   type Agent,
@@ -200,6 +204,10 @@ export class EdgeSessionStore {
       readDeepSeekApiKey: () => config.readDeepSeekApiKey(),
     })
     await this.context.plugin(DurableObjectSettingsProvider, { storage })
+    const storageBackend = new DurableObjectStorageBackend(storage)
+    await this.context.plugin(Storage)
+    this.context.storage.backend.register('durable-object', storageBackend)
+    await this.context.plugin(StorageDomain, { backend: 'durable-object' })
     const onboardingSchema = Object.assign(
       (value: unknown) => value ?? {},
       { toJSON: () => ({ type: 'object' }) },
@@ -239,6 +247,7 @@ export class EdgeSessionStore {
     await this.context.plugin(AgentRegistry)
     await installEdgeWebSearch(this.context, config.searchBaseURL)
     await this.context.plugin(DurableObjectSessionPersistence, { storage })
+    await this.context.plugin(WorkspaceRegistry)
     await this.context.plugin(AgentLoop, { agents: [] })
     this.context.effect(
       () => this.context.tools.register(createEdgeBashTool(this.shells)),
@@ -259,6 +268,12 @@ export class EdgeSessionStore {
         keepAlive?.(delivery)
       })
     }
+  }
+
+  /** Resolve the upstream workspace registry after initialization. */
+  async workspaceRegistry(): Promise<WorkspaceRegistry> {
+    await this.ready
+    return this.context.workspaceRegistry
   }
 
   spillStore(): EdgeVfsSpillStore | undefined {

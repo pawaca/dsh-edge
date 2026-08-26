@@ -79,7 +79,7 @@ import {
 } from './edge-api.ts'
 import { handleEdgeRemote } from './edge-remotes.ts'
 import type { EdgeApiSessionSummary } from './session-store.ts'
-import { EDGE_WORKSPACE_ID, EdgeWorkspaceStore } from './edge-workspace-store.ts'
+import { WorkspaceOrderInvalidError } from '@deepseek-ai/dsh-workspace'
 import { DSH_EDGE_VERSION } from './release.ts'
 import {
   EDGE_DO_IMAGE_LIMITS,
@@ -87,6 +87,7 @@ import {
   resolveEdgeAttachmentStorage,
 } from './edge-attachment-store.ts'
 
+const EDGE_WORKSPACE_PATH = '/workspace'
 const MAX_SESSION_TITLE_LENGTH = 160
 const MAX_SESSION_TITLE_BYTES = 640
 const MAX_SESSION_ID_LENGTH = 128
@@ -98,6 +99,25 @@ const MAX_REPLAY_RESPONSE_BYTES = 1_048_576
 const INITIAL_SESSION_LIST_METADATA: SessionListMetadata = { blank: true, lastPromptAt: null }
 const OWNER_SESSION_EXPIRED_CLOSE_CODE = 1008
 const OWNER_SESSION_EXPIRED_CLOSE_REASON = 'owner session expired'
+
+/** Project one upstream workspace entity to the wire view. */
+function workspaceEntityToView(entity: {
+  readonly id: WorkspaceId
+  readonly path: string
+  readonly title: string
+  readonly sessionIds: readonly SessionId[]
+  readonly createdAt: string
+  readonly updatedAt: string
+}): WorkspaceView {
+  return {
+    workspaceId: entity.id,
+    path: entity.path,
+    title: entity.title,
+    sessionIds: [...entity.sessionIds],
+    createdAt: entity.createdAt,
+    updatedAt: entity.updatedAt,
+  }
+}
 
 interface DownlinkAttachment {
   channel: 'mux' | 'host'
@@ -213,7 +233,6 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       waitUntil: promise => this.ctx.waitUntil(promise),
     },
   )
-  private readonly workspaces = new EdgeWorkspaceStore(this.ctx.storage)
   private readonly model = resolveEdgeModel(this.env.DEEPSEEK_MODEL)
   private readonly activeTurns = new Map<SessionId, ActiveTurn>()
   private readonly sessionListMetadata = new Map<SessionId, SessionListMetadata>()
@@ -240,12 +259,12 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     prompt: input => this.startApiPrompt(input),
     updateQueue: (sessionId, itemId, action) => this.updateQueue(sessionId, itemId, action),
     cancel: sessionId => this.requestTurnCancellation(sessionId),
-    workspaceList: sessions => this.workspaces.list(sessions),
+    workspaceList: () => this.listWorkspaces(),
     workspaceCreate: path => this.createWorkspace(path),
     workspaceRename: (workspaceId, title) => this.renameWorkspace(workspaceId, title),
     workspaceDelete: workspaceId => this.deleteWorkspace(workspaceId),
     workspaceInsertBefore: (workspaceId, beforeWorkspaceId) =>
-      this.workspaces.insertBefore(workspaceId, beforeWorkspaceId),
+      this.reorderWorkspace(workspaceId, beforeWorkspaceId),
     workspaceInsertSessionBefore: (workspaceId, sessionId, beforeSessionId) =>
       this.insertSessionBefore(workspaceId, sessionId, beforeSessionId),
     archiveSession: sessionId => this.archiveSession(sessionId),
@@ -384,44 +403,72 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     session: EdgeApiSessionSummary,
     workspaceId: WorkspaceId,
   ): Promise<void> {
-    const workspace = await this.workspaces.attachSession(
-      workspaceId,
-      session.id,
-      await this.sessions.listApiSessions(),
-    )
+    const registry = await this.sessions.workspaceRegistry()
+    const entity = registry.get(workspaceId)
+    if (entity === undefined) throw new Error(`Workspace "${workspaceId}" not found.`)
+    await entity.attachSession(session.id)
+    const workspace = workspaceEntityToView(entity)
     this.broadcast('host', { type: 'host/workspace-changed', workspace })
   }
 
   private async workspaceForSession(sessionId: SessionId): Promise<WorkspaceId | undefined> {
-    return await this.workspaces.workspaceForSession(
-      sessionId,
-      await this.sessions.listApiSessions(),
-    )
+    const registry = await this.sessions.workspaceRegistry()
+    for (const entity of registry.list()) {
+      if (entity.sessionIds.includes(sessionId)) return entity.id
+    }
+    return undefined
+  }
+
+  private async listWorkspaces(): Promise<{
+    items: WorkspaceView[]
+    archivedSessionIds: SessionId[]
+  }> {
+    const registry = await this.sessions.workspaceRegistry()
+    return {
+      items: registry.list().map(workspaceEntityToView),
+      archivedSessionIds: [...registry.archivedSessionIds],
+    }
   }
 
   private async createWorkspace(path: string): Promise<{ workspace: WorkspaceView; created: boolean }> {
-    const result = await this.workspaces.create(path, await this.sessions.listApiSessions())
-    if (result.created) {
-      this.broadcast('host', { type: 'host/workspace-changed', workspace: result.workspace })
+    const registry = await this.sessions.workspaceRegistry()
+    const existing = await registry.resolveByPath(path)
+    if (existing !== undefined) {
+      return { workspace: workspaceEntityToView(existing), created: false }
     }
-    return result
+    const entity = await registry.create(path)
+    const workspace = workspaceEntityToView(entity)
+    this.broadcast('host', { type: 'host/workspace-changed', workspace })
+    return { workspace, created: true }
   }
 
   private async renameWorkspace(workspaceId: WorkspaceId, title: string): Promise<WorkspaceView> {
-    const result = await this.workspaces.rename(
-      workspaceId,
-      title,
-      await this.sessions.listApiSessions(),
-    )
-    if (result.changed) {
-      this.broadcast('host', { type: 'host/workspace-changed', workspace: result.workspace })
+    const registry = await this.sessions.workspaceRegistry()
+    const entity = registry.get(workspaceId)
+    if (entity === undefined) throw new WorkspaceOrderInvalidError(workspaceId)
+    const previousTitle = entity.title
+    await entity.setTitle(title)
+    const workspace = workspaceEntityToView(entity)
+    if (previousTitle !== title) {
+      this.broadcast('host', { type: 'host/workspace-changed', workspace })
     }
-    return result.workspace
+    return workspace
   }
 
   private async deleteWorkspace(workspaceId: WorkspaceId): Promise<void> {
-    await this.workspaces.delete(workspaceId)
-    this.broadcast('host', { type: 'host/workspace-removed', workspaceId })
+    const registry = await this.sessions.workspaceRegistry()
+    const deleted = await registry.delete(workspaceId)
+    if (deleted) {
+      this.broadcast('host', { type: 'host/workspace-removed', workspaceId })
+    }
+  }
+
+  private async reorderWorkspace(
+    workspaceId: WorkspaceId,
+    beforeWorkspaceId?: WorkspaceId,
+  ): Promise<WorkspaceId[]> {
+    const registry = await this.sessions.workspaceRegistry()
+    return [...await registry.insertBefore(workspaceId, beforeWorkspaceId)]
   }
 
   private async insertSessionBefore(
@@ -429,31 +476,28 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     sessionId: SessionId,
     beforeSessionId?: SessionId,
   ): Promise<WorkspaceView> {
-    const result = await this.workspaces.insertSessionBefore(
-      workspaceId,
-      sessionId,
-      beforeSessionId,
-      await this.sessions.listApiSessions(),
-    )
-    if (result.changed) {
-      this.broadcast('host', { type: 'host/workspace-changed', workspace: result.workspace })
-    }
-    return result.workspace
+    const registry = await this.sessions.workspaceRegistry()
+    const entity = registry.get(workspaceId)
+    if (entity === undefined) throw new WorkspaceOrderInvalidError(workspaceId)
+    await entity.insertSessionBefore(sessionId, beforeSessionId)
+    const workspace = workspaceEntityToView(entity)
+    this.broadcast('host', { type: 'host/workspace-changed', workspace })
+    return workspace
   }
 
   /** Archive with the same registry-global snapshot and frame contract as upstream. */
   private async archiveSession(sessionId: SessionId): Promise<SessionId[]> {
-    const result = await this.workspaces.archiveSession(
-      sessionId,
-      () => this.sessions.requireSession(sessionId),
-    )
-    if (result.changed) {
+    const registry = await this.sessions.workspaceRegistry()
+    const previousCount = registry.archivedSessionIds.length
+    await registry.archiveSession(sessionId)
+    const archivedSessionIds = [...registry.archivedSessionIds]
+    if (archivedSessionIds.length !== previousCount) {
       this.broadcast('host', {
         type: 'host/archived-sessions-changed',
-        archivedSessionIds: result.archivedSessionIds,
+        archivedSessionIds,
       })
     }
-    return result.archivedSessionIds
+    return archivedSessionIds
   }
 
   private publishSessionEvent(sessionId: SessionId, event: SessionEvent): void {
@@ -570,23 +614,25 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     }
     const session = await this.sessions.createSession({ title })
     const presented = this.presentSession(session)
-    const attachmentError = await attachPublishedSession(
-      session.id,
-      EDGE_WORKSPACE_ID,
-      'created',
-      async () => {
-        const summary = (await this.sessions.listApiSessions())
-          .find(item => item.id === session.id)
-        if (summary === undefined) {
-          throw new Error(`Session "${session.id}" is missing from its post-creation summary.`)
-        }
-        this.publishSessionCreated(summary)
-        const available = await this.workspaces.list(await this.sessions.listApiSessions())
-        if (available.items.some(item => item.workspaceId === EDGE_WORKSPACE_ID)) {
-          await this.publishSessionAttached(summary, EDGE_WORKSPACE_ID)
-        }
-      },
-    )
+    const registry = await this.sessions.workspaceRegistry()
+    const edgeWorkspace = await registry.resolveByPath(EDGE_WORKSPACE_PATH)
+    const edgeWorkspaceId = edgeWorkspace?.id
+    const attachmentError = edgeWorkspaceId === undefined
+      ? undefined
+      : await attachPublishedSession(
+        session.id,
+        edgeWorkspaceId,
+        'created',
+        async () => {
+          const summary = (await this.sessions.listApiSessions())
+            .find(item => item.id === session.id)
+          if (summary === undefined) {
+            throw new Error(`Session "${session.id}" is missing from its post-creation summary.`)
+          }
+          this.publishSessionCreated(summary)
+          await this.publishSessionAttached(summary, edgeWorkspaceId)
+        },
+      )
     if (attachmentError !== undefined) {
       return jsonResponse({
         ok: false,

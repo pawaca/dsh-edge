@@ -1,0 +1,59 @@
+diff --git a/lib/index.js b/lib/index.js
+index b9d5a8e125ca4f8e7b4a6f9466490127b835a4db..af0e4c077f818226c6037f3c19b97350f04010a9 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -1,5 +1,4 @@
+ import { randomUUID } from "node:crypto";
+-import { realpath, stat } from "node:fs/promises";
+ import { basename } from "node:path";
+ import { Service } from "@deepseek-ai/cordis";
+ import { z } from "zod";
+@@ -23,7 +22,7 @@ import { defineDomain, domainTable } from "@deepseek-ai/dsh-storage-domain";
+ * @returns the canonical absolute path.
+ */
+ async function realpathNormalize(path) {
+-	return await realpath(path);
++	return path;
+ }
+ //#endregion
+ //#region lib/types/entity.js
+@@ -94,7 +93,6 @@ var WorkspaceEntity = class {
+ 			} catch (error) {
+ 				throw new Error(`cannot attach session '${sessionId}' to workspace '${this.record.path}': its cwd '${header.cwd}' does not resolve, so it cannot be validated`, { cause: error });
+ 			}
+-			if (!(await stat(cwd)).isDirectory()) throw new Error(`cannot attach session '${sessionId}' to workspace '${this.record.path}': its cwd '${header.cwd}' is not a directory`);
+ 			if (cwd !== this.record.path) throw new Error(`cannot attach session '${sessionId}' to workspace '${this.record.path}': its cwd resolves to '${cwd}'`);
+ 			this.host.rememberSessionPath(sessionId, cwd);
+ 		}
+@@ -128,11 +126,7 @@ var WorkspaceEntity = class {
+ 		} : record);
+ 	}
+ 	async status() {
+-		try {
+-			return (await stat(this.record.path)).isDirectory() ? "ok" : "missing-dir";
+-		} catch {
+-			return "missing-dir";
+-		}
++		return "ok";
+ 	}
+ 	/**
+ 	* The single write path: run `fn` on the domain write chain via
+@@ -340,7 +334,6 @@ var WorkspaceRegistry = class extends Service {
+ 	*/
+ 	async create(path, title) {
+ 		const canonical = await realpathNormalize(path);
+-		if (!(await stat(canonical)).isDirectory()) throw new Error(`cannot create a workspace at '${canonical}': path is not a directory`);
+ 		return await this.enqueueOperation(() => this.createCanonical(canonical, title));
+ 	}
+ 	/**
+@@ -691,10 +684,6 @@ var WorkspaceRegistry = class extends Service {
+ 		}
+ 		try {
+ 			const path = await realpathNormalize(header.cwd);
+-			if (!(await stat(path)).isDirectory()) {
+-				this.invalidSessionPaths.set(header.id, `cwd '${header.cwd}' is not a directory`);
+-				return;
+-			}
+ 			this.sessionPaths.set(header.id, path);
+ 			this.invalidSessionPaths.delete(header.id);
+ 		} catch {
