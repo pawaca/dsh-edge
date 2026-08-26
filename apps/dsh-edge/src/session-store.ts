@@ -283,7 +283,19 @@ export class EdgeSessionStore {
   /** Resolve the upstream workspace registry after initialization. */
   async workspaceRegistry(): Promise<WorkspaceRegistry> {
     await this.ready
-    return this.context.workspaceRegistry
+    let registry = this.context.workspaceRegistry
+    if (registry === undefined) {
+      await new Promise<void>(resolve => {
+        const dispose = this.context.on('internal/service', (name: string) => {
+          if (name === 'workspaceRegistry' && this.context.workspaceRegistry !== undefined) {
+            dispose()
+            resolve()
+          }
+        })
+      })
+      registry = this.context.workspaceRegistry
+    }
+    return registry
   }
 
   spillStore(): EdgeVfsSpillStore | undefined {
