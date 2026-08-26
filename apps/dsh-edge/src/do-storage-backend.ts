@@ -166,18 +166,20 @@ export class DurableObjectStorageBackend implements StorageBackend {
     const oldPrefix = 'dsh-edge:workspace-domain-workspaces:'
     const oldState = await storage.get<Record<string, unknown>>(stateKey)
     const oldRecords = await storage.list({ prefix: oldPrefix })
-    if (oldState === undefined && oldRecords.size === 0) return
+    if (oldState === undefined && oldRecords.size === 0) {
+      return
+    }
 
     const deleteKeys: string[] = []
     if (oldState !== undefined) {
-      await storage.put(globalKey('workspaces'), oldState)
+      await storage.put(globalKey('workspace'), oldState)
       deleteKeys.push(stateKey)
     }
-    await storage.put(versionKey('workspaces'), 2)
+    await storage.put(versionKey('workspace'), 2)
     for (const [oldKey, value] of oldRecords) {
       const segment = oldKey.slice(oldPrefix.length)
       const id = segment.endsWith(':v2') ? segment.slice(0, -3) : segment
-      await storage.put(recordKey('workspaces', 'workspaces', id), value)
+      await storage.put(recordKey('workspace', 'workspaces', id), value)
       deleteKeys.push(oldKey)
     }
     if (deleteKeys.length > 0) await storage.delete(deleteKeys)

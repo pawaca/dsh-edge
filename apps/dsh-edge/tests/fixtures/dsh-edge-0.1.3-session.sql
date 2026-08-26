@@ -44,6 +44,18 @@ CREATE TABLE dsh_edge_blank_sessions (
   agent_preset TEXT
 ) STRICT;
 
+CREATE TABLE dsh_session_summaries (
+  session_id TEXT PRIMARY KEY REFERENCES dsh_sessions(id) ON DELETE CASCADE,
+  revision INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  last_prompt_at INTEGER,
+  last_seq INTEGER NOT NULL,
+  blank INTEGER NOT NULL,
+  title_seq INTEGER,
+  title_time INTEGER,
+  title_data TEXT
+) STRICT;
+
 INSERT INTO dsh_session_persistence_state (singleton, schema_version, store_id)
 VALUES (1, 2, 'fixture-store-v0-1-3');
 

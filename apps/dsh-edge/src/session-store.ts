@@ -207,7 +207,11 @@ export class EdgeSessionStore {
     await DurableObjectStorageBackend.migrateWorkspaceKeys(storage)
     const storageBackend = new DurableObjectStorageBackend(storage)
     await this.context.plugin(Storage)
-    this.context.storage.backend.register('durable-object', storageBackend)
+    this.context.effect(() => {
+      const dispose = this.context.storage.backend.register('durable-object', storageBackend)
+      this.context.provide('storage.backend.durable-object', true)
+      return () => { dispose(); this.context.provide('storage.backend.durable-object', undefined as never) }
+    }, 'dsh-edge: storage backend')
     await this.context.plugin(StorageDomain, { backend: 'durable-object' })
     const onboardingSchema = Object.assign(
       (value: unknown) => value ?? {},
