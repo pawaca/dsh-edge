@@ -258,6 +258,18 @@ export class EdgeSessionStore {
       console.error('dsh-edge: WorkspaceRegistry failed to initialize.', error)
       throw error
     }
+    await new Promise<void>(resolve => {
+      if (this.context.workspaceRegistry !== undefined) { resolve(); return }
+      const dispose = this.context.on('internal/service', (name: string) => {
+        if (name === 'workspaceRegistry' && this.context.workspaceRegistry !== undefined) {
+          dispose()
+          resolve()
+        }
+      })
+    })
+    if (this.context.workspaceRegistry.list().length === 0) {
+      await this.context.workspaceRegistry.create('/workspace')
+    }
     await this.context.plugin(AgentLoop, { agents: [] })
     this.context.effect(
       () => this.context.tools.register(createEdgeBashTool(this.shells)),
