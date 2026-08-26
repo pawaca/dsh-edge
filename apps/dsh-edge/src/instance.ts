@@ -855,6 +855,9 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     onClosing?: () => void
   }): Promise<void> {
     using workspace = await getWorkspace(this)
+    const spill = this.sessions.spillStore()
+    spill?.bind(workspace.fs)
+    try {
     await this.sessions.runAgentTurn({
       agent: input.agent,
       mode: input.mode,
@@ -881,6 +884,9 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       publish: input.publish,
       publishQueue: input.publishQueue,
     })
+    } finally {
+      spill?.unbind()
+    }
   }
 
   private cancelTurn(sessionId: SessionId): Response {
