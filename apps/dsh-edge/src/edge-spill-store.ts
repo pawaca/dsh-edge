@@ -29,7 +29,7 @@ export class EdgeVfsSpillStore extends SpillStore {
     return {
       locator: SpillLocator(path),
       bytes: new TextEncoder().encode(input.content).byteLength,
-      retrievalHint: `cat ${path}`,
+      retrievalHint: `Use head/tail with byte limits to read in chunks: head -c 30000 ${path}, tail -c 30000 ${path}, or grep to search within it.`,
     }
   }
 }
