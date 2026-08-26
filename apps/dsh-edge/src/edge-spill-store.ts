@@ -21,8 +21,7 @@ export class EdgeVfsSpillStore extends SpillStore {
   async saveText(input: SaveTextSpill): Promise<SpillRef> {
     if (this.fs === undefined) throw new Error('spill: no workspace filesystem bound')
     const safe = input.suggestedName.replace(/[^a-zA-Z0-9._-]/gu, '_')
-    const suffix = input.source.callId.slice(0, 8)
-    const name = `${safe}_${suffix}.txt`
+    const name = `${safe}_${input.source.callId}.txt`
     const path = `${SPILL_DIRECTORY}/${name}`
     await this.fs.mkdir(SPILL_DIRECTORY, { recursive: true })
     await this.fs.writeFile(path, input.content)
