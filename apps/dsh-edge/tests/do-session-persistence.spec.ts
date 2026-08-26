@@ -501,7 +501,7 @@ describe('durable-object bounded event pages', () => {
       expect(queries).toHaveLength(3)
       expect(queries[0]).toMatch(/FROM dsh_sessions WHERE id = \?/u)
       expect(queries[1]).toMatch(/FROM dsh_sessions WHERE id = \?/u)
-      expect(queries[2]).toMatch(/FROM dsh_sessions s WHERE s\.id = \?/u)
+      expect(queries[2]).toMatch(/FROM dsh_sessions s\b/u)
     } finally {
       await fiber.dispose()
       storage.close()
@@ -574,9 +574,15 @@ describe('durable-object bounded event pages', () => {
         { title: 'Title', messageSeqs: [], source: { kind: 'unknown' } },
       ]
       for (const payload of malformedPayloads) {
+        const raw = JSON.stringify(payload)
         storage.sql.exec(
           'UPDATE dsh_session_events SET data = ? WHERE session_id = ?',
-          JSON.stringify(payload),
+          raw,
+          id,
+        )
+        storage.sql.exec(
+          'UPDATE dsh_session_summaries SET title_data = ? WHERE session_id = ?',
+          raw,
           id,
         )
         expect(() => persistence.readSessionSummary(id))

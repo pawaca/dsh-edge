@@ -121,6 +121,7 @@ interface SessionSummaryRow extends HeaderRow {
   title_data: string | null
 }
 
+/** Expensive correlated-subquery summary; retained only for per-session recomputation. */
 const SESSION_SUMMARY_SELECT = `SELECT s.id, s.version, s.created_at, s.cwd, s.parent_session,
         s.seed_length, s.origin, s.delegation_depth, s.agent_preset, s.incarnation, s.revision,
         (SELECT e.time FROM dsh_session_events e
@@ -145,6 +146,13 @@ const SESSION_SUMMARY_SELECT = `SELECT s.id, s.version, s.created_at, s.cwd, s.p
          WHERE e.session_id = s.id AND e.type = 'session/title'
          ORDER BY e.seq DESC LIMIT 1) AS title_data
  FROM dsh_sessions s`
+
+const SESSION_SUMMARY_MATERIALIZED = `SELECT s.id, s.version, s.created_at, s.cwd, s.parent_session,
+        s.seed_length, s.origin, s.delegation_depth, s.agent_preset, s.incarnation, s.revision,
+        sm.updated_at, sm.last_prompt_at, sm.last_seq, sm.blank,
+        sm.title_seq, sm.title_time, sm.title_data
+ FROM dsh_sessions s
+ JOIN dsh_session_summaries sm ON s.id = sm.session_id`
 
 /** One cheap session-list item derived from canonical header/event rows. */
 export interface EdgeStoredSessionSummary {
@@ -450,6 +458,7 @@ export class DurableObjectSessionPersistence
         )
         if (updated.rowsWritten !== 1) throw new Error(`session ${meta.id} is not materialized`)
         this.storage.sql.exec('DELETE FROM dsh_edge_blank_sessions WHERE id = ?', meta.id)
+        this.updateSummaryFromBatch(meta.id, events)
       })
     })
   }
@@ -474,6 +483,7 @@ export class DurableObjectSessionPersistence
             'UPDATE dsh_sessions SET revision = revision + 1 WHERE id = ?',
             meta.id,
           )
+          this.recomputeSummary(meta.id)
         }
       })
     })
@@ -606,6 +616,7 @@ export class DurableObjectSessionPersistence
       if (blank === undefined) return false
       if (this.rowFor(id) === undefined) this.writeRow(blank)
       this.storage.sql.exec('DELETE FROM dsh_edge_blank_sessions WHERE id = ?', id)
+      this.insertEmptyLogSummary(id, blank.createdAt)
       return true
     }))
   }
@@ -613,7 +624,7 @@ export class DurableObjectSessionPersistence
   /** Read one canonical header/title summary without materializing its event log. */
   readSessionSummary(id: SessionId): EdgeStoredSessionSummary | undefined {
     const row = this.storage.sql.exec<SessionSummaryRow>(
-      `${SESSION_SUMMARY_SELECT} WHERE s.id = ?`,
+      `${SESSION_SUMMARY_MATERIALIZED} WHERE s.id = ?`,
       id,
     ).toArray()[0]
     return row === undefined ? undefined : rowToStoredSessionSummary(row)
@@ -634,7 +645,7 @@ export class DurableObjectSessionPersistence
       if (cursor !== undefined) bindings.push(cursor.created_at, cursor.created_at, cursor.id)
       bindings.push(limit + 1)
       const rows = this.storage.sql.exec<SessionSummaryRow>(
-        `${SESSION_SUMMARY_SELECT} ${where}
+        `${SESSION_SUMMARY_MATERIALIZED} ${where}
          ORDER BY s.created_at DESC, s.id ASC LIMIT ?`,
         ...bindings,
       ).toArray()
@@ -648,16 +659,16 @@ export class DurableObjectSessionPersistence
   /** Read the upstream session-list baseline ordered by human activity. */
   readAllSessionSummaries(): EdgeStoredSessionSummary[] {
     return this.storage.sql.exec<SessionSummaryRow>(
-      `${SESSION_SUMMARY_SELECT}
-       ORDER BY coalesce(last_prompt_at, s.created_at) DESC, s.id ASC`,
+      `${SESSION_SUMMARY_MATERIALIZED}
+       ORDER BY coalesce(sm.last_prompt_at, s.created_at) DESC, s.id ASC`,
     ).toArray().map(rowToStoredSessionSummary)
   }
 
   /** Read only the newest canonical summaries needed by bounded consumers. */
   readRecentSessionSummaries(limit: number): EdgeStoredSessionSummary[] {
     return this.storage.sql.exec<SessionSummaryRow>(
-      `${SESSION_SUMMARY_SELECT}
-       ORDER BY coalesce(last_prompt_at, s.created_at) DESC, s.id ASC LIMIT ?`,
+      `${SESSION_SUMMARY_MATERIALIZED}
+       ORDER BY coalesce(sm.last_prompt_at, s.created_at) DESC, s.id ASC LIMIT ?`,
       limit,
     ).toArray().map(rowToStoredSessionSummary)
   }
@@ -724,8 +735,140 @@ export class DurableObjectSessionPersistence
         delegation_depth INTEGER,
         agent_preset TEXT
       ) STRICT`)
+      this.storage.sql.exec(`CREATE TABLE IF NOT EXISTS dsh_session_summaries (
+        session_id TEXT PRIMARY KEY REFERENCES dsh_sessions(id) ON DELETE CASCADE,
+        revision INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        last_prompt_at INTEGER,
+        last_seq INTEGER NOT NULL,
+        blank INTEGER NOT NULL,
+        title_seq INTEGER,
+        title_time INTEGER,
+        title_data TEXT
+      ) STRICT`)
+      this.syncSummaries()
       return `durable-object:store:${storeId}`
     })
+  }
+
+  private syncSummaries(): void {
+    const stale = this.storage.sql.exec<{ id: string }>(
+      `SELECT s.id FROM dsh_sessions s
+       LEFT JOIN dsh_session_summaries sm ON s.id = sm.session_id
+       WHERE sm.session_id IS NULL OR sm.revision != s.revision`,
+    ).toArray()
+    for (const row of stale) {
+      this.recomputeSummary(row.id as SessionId)
+    }
+  }
+
+  private recomputeSummary(id: SessionId): void {
+    const row = this.storage.sql.exec<SessionSummaryRow>(
+      `${SESSION_SUMMARY_SELECT} WHERE s.id = ?`,
+      id,
+    ).toArray()[0]
+    if (row === undefined) return
+    this.storage.sql.exec(
+      `INSERT INTO dsh_session_summaries
+        (session_id, revision, updated_at, last_prompt_at, last_seq, blank,
+         title_seq, title_time, title_data)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(session_id) DO UPDATE SET
+         revision = excluded.revision,
+         updated_at = excluded.updated_at,
+         last_prompt_at = excluded.last_prompt_at,
+         last_seq = excluded.last_seq,
+         blank = excluded.blank,
+         title_seq = excluded.title_seq,
+         title_time = excluded.title_time,
+         title_data = excluded.title_data`,
+      id,
+      row.revision,
+      row.updated_at ?? row.created_at,
+      row.last_prompt_at,
+      row.last_seq ?? -1,
+      row.blank ? 1 : 0,
+      row.title_seq,
+      row.title_time,
+      row.title_data,
+    )
+  }
+
+  private updateSummaryFromBatch(id: SessionId, events: readonly SessionEvent[]): void {
+    const lastEvent = events.at(-1)
+    if (lastEvent === undefined) return
+    const existing = this.storage.sql.exec<{
+      blank: number
+      last_prompt_at: number | null
+      title_seq: number | null
+      title_time: number | null
+      title_data: string | null
+    }>(
+      `SELECT blank, last_prompt_at, title_seq, title_time, title_data
+       FROM dsh_session_summaries WHERE session_id = ?`,
+      id,
+    ).toArray()[0]
+
+    let blank = existing?.blank ?? 1
+    let lastPromptAt: number | null = existing?.last_prompt_at ?? null
+    let titleSeq: number | null = existing?.title_seq ?? null
+    let titleTime: number | null = existing?.title_time ?? null
+    let titleData: string | null = existing?.title_data ?? null
+
+    for (const event of events) {
+      if (event.type === 'turn/start') blank = 0
+      if (event.type === 'user/message') {
+        const data = event.data as unknown as Record<string, unknown>
+        const source = data.source as Record<string, unknown> | undefined
+        if (source?.kind === 'user') lastPromptAt = event.time
+      }
+      if (event.type === 'session/title') {
+        titleSeq = event.seq
+        titleTime = event.time
+        titleData = JSON.stringify(event.data)
+      }
+    }
+
+    const rev = this.storage.sql.exec<{ revision: number }>(
+      'SELECT revision FROM dsh_sessions WHERE id = ?',
+      id,
+    ).toArray()[0]?.revision ?? 0
+
+    this.storage.sql.exec(
+      `INSERT INTO dsh_session_summaries
+        (session_id, revision, updated_at, last_prompt_at, last_seq, blank,
+         title_seq, title_time, title_data)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(session_id) DO UPDATE SET
+         revision = excluded.revision,
+         updated_at = excluded.updated_at,
+         last_prompt_at = excluded.last_prompt_at,
+         last_seq = excluded.last_seq,
+         blank = excluded.blank,
+         title_seq = excluded.title_seq,
+         title_time = excluded.title_time,
+         title_data = excluded.title_data`,
+      id,
+      rev,
+      lastEvent.time,
+      lastPromptAt,
+      lastEvent.seq,
+      blank,
+      titleSeq,
+      titleTime,
+      titleData,
+    )
+  }
+
+  private insertEmptyLogSummary(id: SessionId, createdAt: number): void {
+    this.storage.sql.exec(
+      `INSERT OR IGNORE INTO dsh_session_summaries
+        (session_id, revision, updated_at, last_prompt_at, last_seq, blank,
+         title_seq, title_time, title_data)
+       VALUES (?, 0, ?, NULL, -1, 1, NULL, NULL, NULL)`,
+      id,
+      createdAt,
+    )
   }
 
   private removePreCanonicalPrototype(): void {
