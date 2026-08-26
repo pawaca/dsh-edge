@@ -616,6 +616,7 @@ export class DurableObjectSessionPersistence
       if (blank === undefined) return false
       if (this.rowFor(id) === undefined) this.writeRow(blank)
       this.storage.sql.exec('DELETE FROM dsh_edge_blank_sessions WHERE id = ?', id)
+      this.insertEmptyLogSummary(id, blank.createdAt)
       return true
     }))
   }
@@ -856,6 +857,17 @@ export class DurableObjectSessionPersistence
       titleSeq,
       titleTime,
       titleData,
+    )
+  }
+
+  private insertEmptyLogSummary(id: SessionId, createdAt: number): void {
+    this.storage.sql.exec(
+      `INSERT OR IGNORE INTO dsh_session_summaries
+        (session_id, revision, updated_at, last_prompt_at, last_seq, blank,
+         title_seq, title_time, title_data)
+       VALUES (?, 0, ?, NULL, -1, 1, NULL, NULL, NULL)`,
+      id,
+      createdAt,
     )
   }
 
