@@ -174,6 +174,16 @@ export class DurableObjectStorageBackend implements StorageBackend {
     if (oldState !== undefined) {
       await storage.put(globalKey('workspace'), oldState)
       deleteKeys.push(stateKey)
+    } else if (oldRecords.size > 0) {
+      const recordIds = [...oldRecords.keys()].map(k => {
+        const seg = k.slice(oldPrefix.length)
+        return seg.endsWith(':v2') ? seg.slice(0, -3) : seg
+      })
+      await storage.put(globalKey('workspace'), {
+        initialized: true,
+        workspaceIds: recordIds,
+        archivedSessionIds: [],
+      })
     }
     await storage.put(versionKey('workspace'), 2)
     for (const [oldKey, value] of oldRecords) {
