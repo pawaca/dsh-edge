@@ -252,6 +252,9 @@ export class EdgeSessionStore {
     await this.context.plugin(AgentRegistry)
     await installEdgeWebSearch(this.context, config.searchBaseURL)
     await this.context.plugin(DurableObjectSessionPersistence, { storage })
+    const workspaceWasInitialized = (await storage.get<{ initialized?: boolean }>(
+      'dsh-kv:workspace:__global__',
+    ))?.initialized === true
     try {
       await this.context.plugin(WorkspaceRegistry)
     } catch (error) {
@@ -267,12 +270,8 @@ export class EdgeSessionStore {
         }
       })
     })
-    if (this.context.workspaceRegistry.list().length === 0) {
-      const hasExistingSessions = storage.sql
-        .exec('SELECT 1 FROM dsh_sessions LIMIT 1').toArray().length > 0
-      if (!hasExistingSessions) {
-        await this.context.workspaceRegistry.create('/workspace')
-      }
+    if (this.context.workspaceRegistry.list().length === 0 && !workspaceWasInitialized) {
+      await this.context.workspaceRegistry.create('/workspace')
     }
     await this.context.plugin(AgentLoop, { agents: [] })
     this.context.effect(
