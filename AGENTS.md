@@ -30,6 +30,7 @@ The root and standalone lockfiles serve different purposes. The root lock instal
 - Keep every `@deepseek-ai/dsh-*` standalone dependency on one exact upstream version. Upgrade it only in an explicit upstream-baseline PR.
 - Keep Direct and Dynamic Loader modes behaviorally aligned except for their command-execution backend and Cloudflare plan requirement.
 - Preserve Durable Object class names, bindings, session/event formats, workspace/VFS state, owner authentication, and public HTTP/WebSocket behavior unless an Agent Note explicitly changes them.
+- Durable Object SQL queries on request-serving paths must not use correlated subqueries or per-row scans against unbounded tables. Pre-compute read-heavy aggregations in a materialized table maintained atomically at write time; never derive per-request summaries by scanning event or log history.
 - Never log `DSH_EDGE_ACCESS_KEY`, bearer tokens, or owner cookies. Provider credentials persist only through the upstream `CredentialProvider` seam in Durable Object storage; resolved values remain request-scoped in the LLM adapter and are never logged, cached across requests, or written to session events.
 - Direct mode must stay below the repository gzip budget. Release tests must start the promoted prebuilt artifacts, not source entrypoints.
 - Every retained upstream patch needs a version-bound filename, a failing-without-the-patch check, a rationale, and a removal condition.
