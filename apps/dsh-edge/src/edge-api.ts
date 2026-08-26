@@ -1049,6 +1049,13 @@ function sessionFailure<T>(
       })
     }
   }
+  if (error instanceof WorkspaceUnknownSessionError && sessionId !== undefined) {
+    return fail(request, {
+      code: 'session-not-found',
+      message: error.message,
+      details: { sessionId },
+    })
+  }
   return fail(request, {
     code: 'internal',
     message: error instanceof Error ? error.message : String(error),

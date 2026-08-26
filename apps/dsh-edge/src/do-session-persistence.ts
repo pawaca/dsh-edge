@@ -498,7 +498,16 @@ export class DurableObjectSessionPersistence
          FROM dsh_sessions`,
       ).toArray()
       signal?.throwIfAborted()
-      return rows.map(rowToHeader)
+      const headers = rows.map(rowToHeader)
+      const blankRows = this.storage.sql.exec<BlankSessionRow>(
+        `SELECT id, version, created_at, cwd, parent_session, seed_length, origin,
+                delegation_depth, agent_preset
+         FROM dsh_edge_blank_sessions`,
+      ).toArray()
+      for (const row of blankRows) {
+        headers.push(rowToHeader(row as unknown as HeaderRow))
+      }
+      return headers
     })
   }
 
