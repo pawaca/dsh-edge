@@ -458,9 +458,10 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
   private async deleteWorkspace(workspaceId: WorkspaceId): Promise<void> {
     const registry = await this.sessions.workspaceRegistry()
     const deleted = await registry.delete(workspaceId)
-    if (deleted) {
-      this.broadcast('host', { type: 'host/workspace-removed', workspaceId })
+    if (!deleted) {
+      throw new EdgeHttpError(404, `Workspace ${workspaceId} not found.`)
     }
+    this.broadcast('host', { type: 'host/workspace-removed', workspaceId })
   }
 
   private async reorderWorkspace(
