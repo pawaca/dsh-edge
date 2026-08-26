@@ -11,11 +11,12 @@ export interface VfsWriter {
 
 export class EdgeVfsSpillStore extends SpillStore {
   private fs: VfsWriter | undefined
+  private bindings = 0
 
   constructor(ctx: Context) { super(ctx) }
 
-  bind(fs: VfsWriter): void { this.fs = fs }
-  unbind(): void { this.fs = undefined }
+  bind(fs: VfsWriter): void { this.fs = fs; this.bindings++ }
+  unbind(): void { if (--this.bindings <= 0) { this.fs = undefined; this.bindings = 0 } }
 
   async saveText(input: SaveTextSpill): Promise<SpillRef> {
     if (this.fs === undefined) throw new Error('spill: no workspace filesystem bound')
