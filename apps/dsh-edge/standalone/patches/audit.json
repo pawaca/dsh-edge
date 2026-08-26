@@ -18,5 +18,10 @@
     "package": "@deepseek-ai/dsh-web-search-deepseek",
     "rationale": "Keep redirects unfollowed using the redirect mode supported by Cloudflare Workers instead of a mode that fails before the provider can normalize the response.",
     "removeWhen": "The published DeepSeek search provider preserves no-follow redirect behavior with a fetch mode that passes the Edge Worker integration suite."
+  },
+  {
+    "package": "@deepseek-ai/dsh-workspace",
+    "rationale": "Remove node:fs/promises realpath and stat calls that are incompatible with Cloudflare Workers. Edge VFS has no symlinks and Computer guarantees path validity.",
+    "removeWhen": "The published workspace registry accepts an injectable path normalizer or the realpath/stat calls are gated behind a platform check."
   }
 ]

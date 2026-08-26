@@ -1,6 +1,10 @@
 /** Canonical DSH sessions backed by the upstream persistence service. */
 
 import { Context } from '@deepseek-ai/cordis'
+import Storage from '@deepseek-ai/dsh-storage'
+import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
+import WorkspaceRegistry from '@deepseek-ai/dsh-workspace'
+import { DurableObjectStorageBackend } from './do-storage-backend.ts'
 import AgentRegistry, {
   installModelSelection,
   type Agent,
@@ -200,6 +204,15 @@ export class EdgeSessionStore {
       readDeepSeekApiKey: () => config.readDeepSeekApiKey(),
     })
     await this.context.plugin(DurableObjectSettingsProvider, { storage })
+    await DurableObjectStorageBackend.migrateWorkspaceKeys(storage)
+    const storageBackend = new DurableObjectStorageBackend(storage)
+    await this.context.plugin(Storage)
+    this.context.effect(() => {
+      const dispose = this.context.storage.backend.register('durable-object', storageBackend)
+      this.context.provide('storage.backend.durable-object', true)
+      return () => { dispose(); this.context.provide('storage.backend.durable-object', undefined as never) }
+    }, 'dsh-edge: storage backend')
+    await this.context.plugin(StorageDomain, { backend: 'durable-object' })
     const onboardingSchema = Object.assign(
       (value: unknown) => value ?? {},
       { toJSON: () => ({ type: 'object' }) },
@@ -239,6 +252,27 @@ export class EdgeSessionStore {
     await this.context.plugin(AgentRegistry)
     await installEdgeWebSearch(this.context, config.searchBaseURL)
     await this.context.plugin(DurableObjectSessionPersistence, { storage })
+    const workspaceWasInitialized = (await storage.get<{ initialized?: boolean }>(
+      'dsh-kv:workspace:__global__',
+    ))?.initialized === true
+    try {
+      await this.context.plugin(WorkspaceRegistry)
+    } catch (error) {
+      console.error('dsh-edge: WorkspaceRegistry failed to initialize.', error)
+      throw error
+    }
+    await new Promise<void>(resolve => {
+      if (this.context.workspaceRegistry !== undefined) { resolve(); return }
+      const dispose = this.context.on('internal/service', (name: string) => {
+        if (name === 'workspaceRegistry' && this.context.workspaceRegistry !== undefined) {
+          dispose()
+          resolve()
+        }
+      })
+    })
+    if (this.context.workspaceRegistry.list().length === 0 && !workspaceWasInitialized) {
+      await this.context.workspaceRegistry.create('/workspace')
+    }
     await this.context.plugin(AgentLoop, { agents: [] })
     this.context.effect(
       () => this.context.tools.register(createEdgeBashTool(this.shells)),
@@ -259,6 +293,24 @@ export class EdgeSessionStore {
         keepAlive?.(delivery)
       })
     }
+  }
+
+  /** Resolve the upstream workspace registry after initialization. */
+  async workspaceRegistry(): Promise<WorkspaceRegistry> {
+    await this.ready
+    let registry = this.context.workspaceRegistry
+    if (registry === undefined) {
+      await new Promise<void>(resolve => {
+        const dispose = this.context.on('internal/service', (name: string) => {
+          if (name === 'workspaceRegistry' && this.context.workspaceRegistry !== undefined) {
+            dispose()
+            resolve()
+          }
+        })
+      })
+      registry = this.context.workspaceRegistry
+    }
+    return registry
   }
 
   spillStore(): EdgeVfsSpillStore | undefined {

@@ -121,8 +121,8 @@ describe('dsh-edge assembled browser snapshot', () => {
 
       const workspaceRenameResponse = page.waitForResponse(response =>
         rpcResponseIs(response, 'workspace.rename'))
-      await page.getByRole('treeitem', { name: 'Workspace', exact: true }).hover()
-      await page.getByRole('button', { name: 'Workspace actions for Workspace' }).click()
+      await page.getByRole('treeitem', { name: 'workspace', exact: true }).hover()
+      await page.getByRole('button', { name: 'Workspace actions for workspace' }).click()
       await page.getByRole('menuitem', { name: 'Rename', exact: true }).click()
       const workspaceName = page.getByRole('textbox', { name: 'Workspace name' })
       await workspaceName.fill('Edge browser')

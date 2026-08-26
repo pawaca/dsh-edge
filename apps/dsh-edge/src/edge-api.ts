@@ -35,10 +35,12 @@ import { EDGE_DO_ATTACHMENT_MAX_STORED_BYTES } from './edge-attachment-store.ts'
 import type { EdgeApiSessionSummary, EdgeSessionStore } from './session-store.ts'
 import { EdgeSessionStoreError } from './session-store.ts'
 import {
-  EDGE_WORKSPACE_ID,
-  EDGE_WORKSPACE_PATH,
-  EdgeWorkspaceStoreError,
-} from './edge-workspace-store.ts'
+  WorkspaceMoveInvalidError,
+  WorkspaceOrderInvalidError,
+  WorkspaceUnknownSessionError,
+} from '@deepseek-ai/dsh-workspace'
+
+const EDGE_WORKSPACE_PATH = '/workspace'
 
 const EDGE_PROVIDER = 'deepseek-official'
 const DEFAULT_HISTORY_MESSAGES = 50
@@ -97,7 +99,7 @@ export interface EdgeApiRuntime {
     action: QueueAction,
   ): 'accepted' | 'queue-item-not-found' | 'steer-unavailable' | 'queue-edit-attachment-invalid'
   cancel(sessionId: SessionId): boolean
-  workspaceList(sessions: readonly EdgeApiSessionSummary[]): Promise<{
+  workspaceList(): Promise<{
     items: WorkspaceView[]
     archivedSessionIds: SessionId[]
   }>
@@ -156,15 +158,8 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
 
       async create(request) {
         const { workspaceId, cwd, sessionId, agentPreset } = request.payload
-        if (workspaceId !== undefined && workspaceId !== EDGE_WORKSPACE_ID) {
-          return fail(request, {
-            code: 'workspace-not-found',
-            message: `Workspace "${workspaceId}" is not available in this Edge instance.`,
-            details: { workspaceId },
-          })
-        }
-        const available = await runtime.workspaceList(await runtime.sessions.listApiSessions())
         if (workspaceId !== undefined) {
+          const available = await runtime.workspaceList()
           if (!available.items.some(item => item.workspaceId === workspaceId)) {
             return fail(request, {
               code: 'workspace-not-found',
@@ -506,8 +501,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
 
     workspace: {
       async list(request) {
-        const sessions = await runtime.sessions.listApiSessions()
-        return ok(request, await runtime.workspaceList(sessions))
+        return ok(request, await runtime.workspaceList())
       },
       async create(request) {
         try {
@@ -922,32 +916,38 @@ function workspaceFailure<T>(
   beforeSessionId?: SessionId,
   path?: string,
 ): RpcResponse<T> {
-  if (error instanceof EdgeWorkspaceStoreError) {
-    if (error.code === 'NOT_FOUND' && workspaceId !== undefined) {
-      return fail(request, {
-        code: 'workspace-not-found',
-        message: error.message,
-        details: { workspaceId },
-      })
-    }
-    if (error.code === 'INVALID_PATH') {
-      return fail(request, {
-        code: 'workspace-invalid-path',
-        message: error.message,
-        details: { path: path ?? EDGE_WORKSPACE_PATH },
-      })
-    }
-    if (error.code === 'MOVE_INVALID' && workspaceId !== undefined && sessionId !== undefined) {
-      return fail(request, {
-        code: 'workspace-move-invalid',
-        message: error.message,
-        details: {
-          workspaceId,
-          sessionId,
-          ...beforeSessionId === undefined ? {} : { beforeSessionId },
-        },
-      })
-    }
+  if (error instanceof WorkspaceOrderInvalidError && workspaceId !== undefined) {
+    return fail(request, {
+      code: 'workspace-not-found',
+      message: error.message,
+      details: { workspaceId },
+    })
+  }
+  if (error instanceof WorkspaceMoveInvalidError
+    && workspaceId !== undefined && sessionId !== undefined) {
+    return fail(request, {
+      code: 'workspace-move-invalid',
+      message: error.message,
+      details: {
+        workspaceId,
+        sessionId,
+        ...beforeSessionId === undefined ? {} : { beforeSessionId },
+      },
+    })
+  }
+  if (error instanceof WorkspaceUnknownSessionError) {
+    return fail(request, {
+      code: 'session-not-found',
+      message: error.message,
+      details: { sessionId: error.sessionId },
+    })
+  }
+  if (error instanceof Error && error.message.includes('path is not a directory')) {
+    return fail(request, {
+      code: 'workspace-invalid-path',
+      message: error.message,
+      details: { path: path ?? EDGE_WORKSPACE_PATH },
+    })
   }
   return fail(request, {
     code: 'internal',
@@ -1048,6 +1048,13 @@ function sessionFailure<T>(
         details: { sessionId },
       })
     }
+  }
+  if (error instanceof WorkspaceUnknownSessionError && sessionId !== undefined) {
+    return fail(request, {
+      code: 'session-not-found',
+      message: error.message,
+      details: { sessionId },
+    })
   }
   return fail(request, {
     code: 'internal',

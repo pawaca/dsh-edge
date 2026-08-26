@@ -825,16 +825,17 @@ try {
     beforeRetryWorkspace.body.result.value.items[0].sessionIds.includes(retrySessionId),
     false,
   )
+  const recreatedWorkspaceId = recreatedWorkspace.body.result.value.workspace.workspaceId
   const attachedRetry = await rpc('session.create', {
     sessionId: retrySessionId,
-    workspaceId: 'edge-workspace',
+    workspaceId: recreatedWorkspaceId,
   })
   assert.equal(attachedRetry.body.result.ok, true)
   assert.equal(attachedRetry.body.result.value.sessionId, retrySessionId)
   const attachedRetryFrame = await host.next(message =>
     message.payload.type === 'host/workspace-changed'
       && message.payload.workspace.sessionIds.includes(retrySessionId))
-  assert.equal(attachedRetryFrame.payload.workspace.workspaceId, 'edge-workspace')
+  assert.equal(attachedRetryFrame.payload.workspace.workspaceId, recreatedWorkspaceId)
   const afterRetrySessions = await rpc('session.list', {})
   assert.equal(
     afterRetrySessions.body.result.value.items
