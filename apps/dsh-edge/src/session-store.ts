@@ -47,6 +47,7 @@ import * as FirstPromptTitle from '@deepseek-ai/dsh-session-title-first-prompt-l
 import BasicCompactionEngine from '@deepseek-ai/dsh-compaction-basic'
 import ToolResultPruner from '@deepseek-ai/dsh-compaction-tool-result-pruner'
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
+import * as SpillPolicy from '@deepseek-ai/dsh-spill-policy'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import {
@@ -63,6 +64,7 @@ import {
   EdgeR2AttachmentStore,
   type EdgeAttachmentStorage,
 } from './edge-attachment-store.ts'
+import { EdgeVfsSpillStore } from './edge-spill-store.ts'
 import {
   settingsNamespace,
   type SettingsDescriptor,
@@ -231,7 +233,9 @@ export class EdgeSessionStore {
       model: DEFAULT_EDGE_MODEL,
     })
     await this.context.plugin(SystemPrompt, { persona: EDGE_SYSTEM_PROMPT })
+    await this.context.plugin(EdgeVfsSpillStore)
     await this.context.plugin(ToolRuntime)
+    await this.context.plugin(SpillPolicy, { maxInlineBytes: 32_768 })
     await this.context.plugin(AgentRegistry)
     await installEdgeWebSearch(this.context, config.searchBaseURL)
     await this.context.plugin(DurableObjectSessionPersistence, { storage })
@@ -255,6 +259,10 @@ export class EdgeSessionStore {
         keepAlive?.(delivery)
       })
     }
+  }
+
+  spillStore(): EdgeVfsSpillStore | undefined {
+    return this.context.get('spillStore') as EdgeVfsSpillStore | undefined
   }
 
   /** Resolve the optional upstream attachment service composed for this deployment. */
