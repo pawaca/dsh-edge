@@ -168,6 +168,15 @@ export class EdgeSessionStoreError extends Error {
   }
 }
 
+export class EdgeSessionCwdConflictError extends Error {
+  constructor(
+    readonly requestedCwd: string,
+    readonly existingCwd: string | undefined,
+  ) {
+    super('Session cwd conflicts with existing session.')
+  }
+}
+
 /**
  * Edge-facing facade over the same SessionStore + SessionPersistence services
  * used by upstream. Durable Object SQL is visible only to the backend plugin.
@@ -636,6 +645,7 @@ export class EdgeSessionStore {
     const sessionCwd = input.cwd ?? '/workspace'
     const attached = sessions.get(id)
     if (attached !== undefined) {
+      rejectCwdConflict(input.cwd, attached.header.cwd)
       return {
         sessionId: id,
         agentPreset: attached.header.agentPreset ?? 'dsh-edge',
@@ -647,6 +657,7 @@ export class EdgeSessionStore {
     }
     const stored = persistence.readSessionSummary(id)
     if (stored !== undefined) {
+      rejectCwdConflict(input.cwd, stored.meta.cwd)
       return {
         sessionId: id,
         agentPreset: stored.meta.agentPreset ?? 'dsh-edge',
@@ -655,6 +666,7 @@ export class EdgeSessionStore {
     }
     const retainedBlank = persistence.readBlankSession(id)
     if (retainedBlank !== undefined) {
+      rejectCwdConflict(input.cwd, retainedBlank.cwd)
       return {
         sessionId: id,
         agentPreset: retainedBlank.agentPreset ?? 'dsh-edge',
@@ -1676,5 +1688,11 @@ export function paginateHistory(
   return {
     events: page,
     hasMore: start > 0,
+  }
+}
+
+function rejectCwdConflict(requested: string | undefined, existing: string | undefined): void {
+  if (requested !== undefined && existing !== requested) {
+    throw new EdgeSessionCwdConflictError(requested, existing)
   }
 }

@@ -33,7 +33,7 @@ import { EDGE_SYSTEM_PROMPT } from './agent.ts'
 import type { EdgeDeploymentProfile } from './deployment.ts'
 import { EDGE_DO_ATTACHMENT_MAX_STORED_BYTES } from './edge-attachment-store.ts'
 import type { EdgeApiSessionSummary, EdgeSessionStore } from './session-store.ts'
-import { EdgeSessionStoreError } from './session-store.ts'
+import { EdgeSessionCwdConflictError, EdgeSessionStoreError } from './session-store.ts'
 import {
   WorkspaceMoveInvalidError,
   WorkspaceOrderInvalidError,
@@ -1052,6 +1052,17 @@ function sessionFailure<T>(
         details: { sessionId },
       })
     }
+  }
+  if (error instanceof EdgeSessionCwdConflictError && sessionId !== undefined) {
+    return fail(request, {
+      code: 'session-conflict',
+      message: error.message,
+      details: {
+        sessionId,
+        requestedCwd: error.requestedCwd,
+        ...error.existingCwd === undefined ? {} : { existingCwd: error.existingCwd },
+      },
+    })
   }
   if (error instanceof WorkspaceUnknownSessionError && sessionId !== undefined) {
     return fail(request, {
