@@ -158,22 +158,18 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
 
       async create(request) {
         const { workspaceId, cwd, sessionId, agentPreset } = request.payload
+        let resolvedCwd = cwd
         if (workspaceId !== undefined) {
           const available = await runtime.workspaceList()
-          if (!available.items.some(item => item.workspaceId === workspaceId)) {
+          const workspace = available.items.find(item => item.workspaceId === workspaceId)
+          if (workspace === undefined) {
             return fail(request, {
               code: 'workspace-not-found',
               message: `Workspace "${workspaceId}" is not available in this Edge instance.`,
               details: { workspaceId },
             })
           }
-        }
-        if (cwd !== undefined && cwd !== EDGE_WORKSPACE_PATH) {
-          return fail(request, {
-            code: 'workspace-invalid-path',
-            message: `Edge sessions must use ${EDGE_WORKSPACE_PATH}.`,
-            details: { path: cwd },
-          })
+          resolvedCwd = workspace.path
         }
         if (agentPreset !== undefined && agentPreset !== 'dsh-edge') {
           return fail(request, {
@@ -186,6 +182,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
           const created = await runtime.sessions.createBlankSession({
             model: runtime.model,
             ...sessionId === undefined ? {} : { sessionId },
+            ...resolvedCwd === undefined ? {} : { cwd: resolvedCwd },
           })
           const summary = (await runtime.sessions.listApiSessions())
             .find(item => item.id === created.sessionId)
