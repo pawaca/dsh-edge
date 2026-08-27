@@ -261,15 +261,9 @@ export class EdgeSessionStore {
       console.error('dsh-edge: WorkspaceRegistry failed to initialize.', error)
       throw error
     }
-    await new Promise<void>(resolve => {
-      if (this.context.workspaceRegistry !== undefined) { resolve(); return }
-      const dispose = this.context.on('internal/service', (name: string) => {
-        if (name === 'workspaceRegistry' && this.context.workspaceRegistry !== undefined) {
-          dispose()
-          resolve()
-        }
-      })
-    })
+    for (let i = 0; i < 100 && this.context.workspaceRegistry === undefined; i++) {
+      await new Promise(r => setTimeout(r, 50))
+    }
     if (this.context.workspaceRegistry.list().length === 0 && !workspaceWasInitialized) {
       await this.context.workspaceRegistry.create('/workspace')
     }
@@ -298,19 +292,10 @@ export class EdgeSessionStore {
   /** Resolve the upstream workspace registry after initialization. */
   async workspaceRegistry(): Promise<WorkspaceRegistry> {
     await this.ready
-    let registry = this.context.workspaceRegistry
-    if (registry === undefined) {
-      await new Promise<void>(resolve => {
-        const dispose = this.context.on('internal/service', (name: string) => {
-          if (name === 'workspaceRegistry' && this.context.workspaceRegistry !== undefined) {
-            dispose()
-            resolve()
-          }
-        })
-      })
-      registry = this.context.workspaceRegistry
+    for (let i = 0; i < 100 && this.context.workspaceRegistry === undefined; i++) {
+      await new Promise(r => setTimeout(r, 50))
     }
-    return registry
+    return this.context.workspaceRegistry
   }
 
   spillStore(): EdgeVfsSpillStore | undefined {
