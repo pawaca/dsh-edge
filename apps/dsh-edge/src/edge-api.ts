@@ -171,6 +171,13 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
           }
           resolvedCwd = workspace.path
         }
+        if (resolvedCwd !== undefined && !isValidWorkspacePath(resolvedCwd)) {
+          return fail(request, {
+            code: 'workspace-invalid-path',
+            message: 'A path below /workspace/ is required.',
+            details: { path: resolvedCwd },
+          })
+        }
         if (agentPreset !== undefined && agentPreset !== 'dsh-edge') {
           return fail(request, {
             code: 'agent-preset-not-found',
@@ -1104,3 +1111,9 @@ function settingsWriteFailure<T>(
 }
 
 async function* emptyFrames<T>(): AsyncGenerator<T> {}
+
+function isValidWorkspacePath(value: string): boolean {
+  return (value === '/workspace' || value.startsWith('/workspace/'))
+    && !value.includes('\0')
+    && !value.split('/').includes('..')
+}

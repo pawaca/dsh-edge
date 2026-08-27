@@ -1088,7 +1088,11 @@ export class EdgeSessionStore {
       throw new EdgeSessionStoreError('INVALID_DATA', 'Agent is not the live persistence owner.')
     }
 
-    const releaseShell = this.shells.bind(agent.id, input.shell)
+    const releaseShell = this.shells.bind(
+      agent.id,
+      input.shell,
+      agent.session.header.cwd ?? '/workspace',
+    )
     let delivery = Promise.resolve()
     let deliveryError: unknown
     const stopObserving = this.context.on('session/event', (subject, event) => {
