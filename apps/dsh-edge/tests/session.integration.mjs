@@ -814,6 +814,43 @@ try {
       && message.payload.workspace.title === 'workspace')
   assert.deepEqual(recreatedWorkspaceFrame.payload.workspace.sessionIds, [])
 
+  // Multi-workspace: create a second workspace with a distinct path
+  const secondWorkspace = await rpc('workspace.create', { path: '/workspace/project-b' })
+  assert.equal(secondWorkspace.body.result.ok, true)
+  assert.equal(secondWorkspace.body.result.value.created, true)
+  assert.equal(secondWorkspace.body.result.value.workspace.path, '/workspace/project-b')
+  const secondWorkspaceId = secondWorkspace.body.result.value.workspace.workspaceId
+  await host.next(message =>
+    message.payload.type === 'host/workspace-changed'
+      && message.payload.workspace.workspaceId === secondWorkspaceId)
+
+  // Session created under the second workspace gets its cwd
+  const secondWorkspaceSession = await rpc('session.create', { workspaceId: secondWorkspaceId })
+  assert.equal(secondWorkspaceSession.body.result.ok, true)
+  const secondWorkspaceSessionId = secondWorkspaceSession.body.result.value.sessionId
+  await host.next(message => message.payload.type === 'host/session-added'
+    && message.payload.sessionId === secondWorkspaceSessionId)
+  const secondWorkspaceList = await rpc('workspace.list', {})
+  const secondItem = secondWorkspaceList.body.result.value.items
+    .find(item => item.workspaceId === secondWorkspaceId)
+  assert.ok(secondItem, 'second workspace should appear in the list')
+  assert.ok(secondItem.sessionIds.includes(secondWorkspaceSessionId),
+    'session should be attached to the second workspace')
+
+  // Session under the second workspace has the correct cwd
+  const sessionListForCwd = await rpc('session.list', {})
+  const secondSessionSummary = sessionListForCwd.body.result.value.items
+    .find(item => item.sessionId === secondWorkspaceSessionId)
+  assert.equal(secondSessionSummary.cwd, '/workspace/project-b')
+
+  // Reject session creation with invalid cwd (path traversal, outside /workspace)
+  const traversalSession = await rpc('session.create', { cwd: '/workspace/../etc' })
+  assert.equal(traversalSession.body.result.ok, false)
+  assert.equal(traversalSession.body.result.error.code, 'workspace-invalid-path')
+  const outsideSession = await rpc('session.create', { cwd: '/tmp' })
+  assert.equal(outsideSession.body.result.ok, false)
+  assert.equal(outsideSession.body.result.error.code, 'workspace-invalid-path')
+
   const retrySessionId = 'session-idempotent-workspace-attach'
   const ungroupedSession = await rpc('session.create', { sessionId: retrySessionId })
   assert.equal(ungroupedSession.body.result.ok, true)

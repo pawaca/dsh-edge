@@ -83,7 +83,7 @@ async function harness(replies: readonly (readonly StreamChunk[])[], shell: Edge
   ctx.on('session/event', (subject, event) => {
     if (subject === agent.session) events.push(event)
   })
-  const releaseShell = shells.bind(sessionId, shell)
+  const releaseShell = shells.bind(sessionId, shell, '/workspace')
   return { ctx, agent, adapter, events, releaseShell }
 }
 

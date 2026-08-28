@@ -149,7 +149,7 @@ export async function executeWorkspaceCommand(
     )
   }
   signal?.throwIfAborted()
-  await workspace.fs.mkdir('/workspace', { recursive: true })
+  await workspace.fs.mkdir(cwd, { recursive: true })
   signal?.throwIfAborted()
   const deadline = commandDeadline(effectiveTimeoutMs)
   using execution = await workspace.runtime.exec(command, {

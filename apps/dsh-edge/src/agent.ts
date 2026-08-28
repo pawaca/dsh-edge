@@ -6,8 +6,9 @@ import { EDGE_SHELL_OUTPUT_LIMIT_BYTES } from './direct-shell-protocol.ts'
 import type { EdgeExecutionId } from './protocol.ts'
 
 export const EDGE_SYSTEM_PROMPT = 'You are dsh-edge, a coding agent running in a Cloudflare Worker. '
-  + 'Your persistent working directory is /workspace. Use the bash tool when '
-  + 'you need to inspect or modify workspace files, then answer with the result. '
+  + 'Use the bash tool when you need to inspect or modify workspace files, '
+  + 'then answer with the result. Each session has a persistent working directory '
+  + 'that the bash tool defaults to. '
   + 'The shell is just-bash, not Linux: native binaries and background processes are unavailable.'
 
 export interface EdgeShellResult {
@@ -30,24 +31,24 @@ export interface EdgeShell {
 
 /** Request-scoped Computer workspaces keyed by the upstream agent/session identity. */
 export class EdgeShellBindings {
-  private readonly shells = new Map<SessionId, EdgeShell>()
+  private readonly shells = new Map<SessionId, { shell: EdgeShell; cwd: string }>()
 
-  bind(sessionId: SessionId, shell: EdgeShell): () => void {
+  bind(sessionId: SessionId, shell: EdgeShell, cwd: string): () => void {
     if (this.shells.has(sessionId)) {
       throw new Error(`dsh-edge: shell is already bound for session "${sessionId}"`)
     }
-    this.shells.set(sessionId, shell)
+    this.shells.set(sessionId, { shell, cwd })
     return () => {
-      if (this.shells.get(sessionId) === shell) this.shells.delete(sessionId)
+      if (this.shells.get(sessionId)?.shell === shell) this.shells.delete(sessionId)
     }
   }
 
-  require(sessionId: SessionId): EdgeShell {
-    const shell = this.shells.get(sessionId)
-    if (shell === undefined) {
+  require(sessionId: SessionId): { shell: EdgeShell; cwd: string } {
+    const entry = this.shells.get(sessionId)
+    if (entry === undefined) {
       throw new Error(`dsh-edge: no active Computer workspace for session "${sessionId}"`)
     }
-    return shell
+    return entry
   }
 }
 
@@ -55,7 +56,7 @@ export class EdgeShellBindings {
 export function createEdgeBashTool(bindings: EdgeShellBindings): ToolDefinition {
   return defineTool({
     name: 'bash',
-    description: 'Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in /workspace unless workdir is supplied.',
+    description: 'Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in the session working directory unless workdir is supplied.',
     parameters: {
       command: {
         type: 'string',
@@ -99,8 +100,9 @@ export function createEdgeBashTool(bindings: EdgeShellBindings): ToolDefinition 
     async execute(args, exec) {
       const agent = exec.agent
       if (agent === undefined) throw new Error('dsh-edge: bash requires an initiating agent')
-      return bindings.require(agent.id).exec(args.command, {
-        cwd: args.workdir ?? '/workspace',
+      const { shell, cwd } = bindings.require(agent.id)
+      return shell.exec(args.command, {
+        cwd: args.workdir ?? cwd,
         ...args.timeoutMs === undefined ? {} : { timeoutMs: args.timeoutMs },
         signal: exec.signal,
       })

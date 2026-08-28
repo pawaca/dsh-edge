@@ -86,12 +86,12 @@
           },
           "system": "You are an AI agent powered by DeepSeek Harness.
 
-You are dsh-edge, a coding agent running in a Cloudflare Worker. Your persistent working directory is /workspace. Use the bash tool when you need to inspect or modify workspace files, then answer with the result. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
+You are dsh-edge, a coding agent running in a Cloudflare Worker. Use the bash tool when you need to inspect or modify workspace files, then answer with the result. Each session has a persistent working directory that the bash tool defaults to. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
 
 Use the web_search tool to discover current information on the web. The required queries array accepts 1–4 non-empty search queries; use a one-item array for a single search. It returns an optional answer plus a list of source URLs. Use the returned source snippets when available, and cite the relevant URLs as markdown links.",
           "tools": [
             {
-              "description": "Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in /workspace unless workdir is supplied.",
+              "description": "Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in the session working directory unless workdir is supplied.",
               "name": "bash",
               "parameters": {
                 "properties": {
@@ -352,12 +352,12 @@ Use the web_search tool to discover current information on the web. The required
           },
           "system": "You are an AI agent powered by DeepSeek Harness.
 
-You are dsh-edge, a coding agent running in a Cloudflare Worker. Your persistent working directory is /workspace. Use the bash tool when you need to inspect or modify workspace files, then answer with the result. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
+You are dsh-edge, a coding agent running in a Cloudflare Worker. Use the bash tool when you need to inspect or modify workspace files, then answer with the result. Each session has a persistent working directory that the bash tool defaults to. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
 
 Use the web_search tool to discover current information on the web. The required queries array accepts 1–4 non-empty search queries; use a one-item array for a single search. It returns an optional answer plus a list of source URLs. Use the returned source snippets when available, and cite the relevant URLs as markdown links.",
           "tools": [
             {
-              "description": "Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in /workspace unless workdir is supplied.",
+              "description": "Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in the session working directory unless workdir is supplied.",
               "name": "bash",
               "parameters": {
                 "properties": {
@@ -650,12 +650,12 @@ Use the web_search tool to discover current information on the web. The required
           },
           "system": "You are an AI agent powered by DeepSeek Harness.
 
-You are dsh-edge, a coding agent running in a Cloudflare Worker. Your persistent working directory is /workspace. Use the bash tool when you need to inspect or modify workspace files, then answer with the result. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
+You are dsh-edge, a coding agent running in a Cloudflare Worker. Use the bash tool when you need to inspect or modify workspace files, then answer with the result. Each session has a persistent working directory that the bash tool defaults to. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
 
 Use the web_search tool to discover current information on the web. The required queries array accepts 1–4 non-empty search queries; use a one-item array for a single search. It returns an optional answer plus a list of source URLs. Use the returned source snippets when available, and cite the relevant URLs as markdown links.",
           "tools": [
             {
-              "description": "Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in /workspace unless workdir is supplied.",
+              "description": "Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in the session working directory unless workdir is supplied.",
               "name": "bash",
               "parameters": {
                 "properties": {
@@ -916,12 +916,12 @@ Use the web_search tool to discover current information on the web. The required
           },
           "system": "You are an AI agent powered by DeepSeek Harness.
 
-You are dsh-edge, a coding agent running in a Cloudflare Worker. Your persistent working directory is /workspace. Use the bash tool when you need to inspect or modify workspace files, then answer with the result. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
+You are dsh-edge, a coding agent running in a Cloudflare Worker. Use the bash tool when you need to inspect or modify workspace files, then answer with the result. Each session has a persistent working directory that the bash tool defaults to. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
 
 Use the web_search tool to discover current information on the web. The required queries array accepts 1–4 non-empty search queries; use a one-item array for a single search. It returns an optional answer plus a list of source URLs. Use the returned source snippets when available, and cite the relevant URLs as markdown links.",
           "tools": [
             {
-              "description": "Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in /workspace unless workdir is supplied.",
+              "description": "Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in the session working directory unless workdir is supplied.",
               "name": "bash",
               "parameters": {
                 "properties": {
@@ -1116,7 +1116,7 @@ Use the web_search tool to discover current information on the web. The required
         {
           "content": "You are an AI agent powered by DeepSeek Harness.
 
-You are dsh-edge, a coding agent running in a Cloudflare Worker. Your persistent working directory is /workspace. Use the bash tool when you need to inspect or modify workspace files, then answer with the result. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
+You are dsh-edge, a coding agent running in a Cloudflare Worker. Use the bash tool when you need to inspect or modify workspace files, then answer with the result. Each session has a persistent working directory that the bash tool defaults to. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
 
 Use the web_search tool to discover current information on the web. The required queries array accepts 1–4 non-empty search queries; use a one-item array for a single search. It returns an optional answer plus a list of source URLs. Use the returned source snippets when available, and cite the relevant URLs as markdown links.",
           "role": "system",
@@ -1138,7 +1138,7 @@ Use the web_search tool to discover current information on the web. The required
       "tools": [
         {
           "function": {
-            "description": "Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in /workspace unless workdir is supplied.",
+            "description": "Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in the session working directory unless workdir is supplied.",
             "name": "bash",
             "parameters": {
               "properties": {
@@ -1198,7 +1198,7 @@ Use the web_search tool to discover current information on the web. The required
         {
           "content": "You are an AI agent powered by DeepSeek Harness.
 
-You are dsh-edge, a coding agent running in a Cloudflare Worker. Your persistent working directory is /workspace. Use the bash tool when you need to inspect or modify workspace files, then answer with the result. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
+You are dsh-edge, a coding agent running in a Cloudflare Worker. Use the bash tool when you need to inspect or modify workspace files, then answer with the result. Each session has a persistent working directory that the bash tool defaults to. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
 
 Use the web_search tool to discover current information on the web. The required queries array accepts 1–4 non-empty search queries; use a one-item array for a single search. It returns an optional answer plus a list of source URLs. Use the returned source snippets when available, and cite the relevant URLs as markdown links.",
           "role": "system",
@@ -1239,7 +1239,7 @@ Use the web_search tool to discover current information on the web. The required
       "tools": [
         {
           "function": {
-            "description": "Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in /workspace unless workdir is supplied.",
+            "description": "Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in the session working directory unless workdir is supplied.",
             "name": "bash",
             "parameters": {
               "properties": {

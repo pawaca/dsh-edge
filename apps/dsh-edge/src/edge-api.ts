@@ -33,7 +33,7 @@ import { EDGE_SYSTEM_PROMPT } from './agent.ts'
 import type { EdgeDeploymentProfile } from './deployment.ts'
 import { EDGE_DO_ATTACHMENT_MAX_STORED_BYTES } from './edge-attachment-store.ts'
 import type { EdgeApiSessionSummary, EdgeSessionStore } from './session-store.ts'
-import { EdgeSessionStoreError } from './session-store.ts'
+import { EdgeSessionCwdConflictError, EdgeSessionStoreError } from './session-store.ts'
 import {
   WorkspaceMoveInvalidError,
   WorkspaceOrderInvalidError,
@@ -158,21 +158,24 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
 
       async create(request) {
         const { workspaceId, cwd, sessionId, agentPreset } = request.payload
+        let resolvedCwd = cwd
         if (workspaceId !== undefined) {
           const available = await runtime.workspaceList()
-          if (!available.items.some(item => item.workspaceId === workspaceId)) {
+          const workspace = available.items.find(item => item.workspaceId === workspaceId)
+          if (workspace === undefined) {
             return fail(request, {
               code: 'workspace-not-found',
               message: `Workspace "${workspaceId}" is not available in this Edge instance.`,
               details: { workspaceId },
             })
           }
+          resolvedCwd = workspace.path
         }
-        if (cwd !== undefined && cwd !== EDGE_WORKSPACE_PATH) {
+        if (resolvedCwd !== undefined && !isValidWorkspacePath(resolvedCwd)) {
           return fail(request, {
             code: 'workspace-invalid-path',
-            message: `Edge sessions must use ${EDGE_WORKSPACE_PATH}.`,
-            details: { path: cwd },
+            message: 'A path below /workspace/ is required.',
+            details: { path: resolvedCwd },
           })
         }
         if (agentPreset !== undefined && agentPreset !== 'dsh-edge') {
@@ -186,6 +189,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
           const created = await runtime.sessions.createBlankSession({
             model: runtime.model,
             ...sessionId === undefined ? {} : { sessionId },
+            ...resolvedCwd === undefined ? {} : { cwd: resolvedCwd },
           })
           const summary = (await runtime.sessions.listApiSessions())
             .find(item => item.id === created.sessionId)
@@ -1049,6 +1053,17 @@ function sessionFailure<T>(
       })
     }
   }
+  if (error instanceof EdgeSessionCwdConflictError && sessionId !== undefined) {
+    return fail(request, {
+      code: 'session-conflict',
+      message: error.message,
+      details: {
+        sessionId,
+        requestedCwd: error.requestedCwd,
+        ...error.existingCwd === undefined ? {} : { existingCwd: error.existingCwd },
+      },
+    })
+  }
   if (error instanceof WorkspaceUnknownSessionError && sessionId !== undefined) {
     return fail(request, {
       code: 'session-not-found',
@@ -1107,3 +1122,9 @@ function settingsWriteFailure<T>(
 }
 
 async function* emptyFrames<T>(): AsyncGenerator<T> {}
+
+function isValidWorkspacePath(value: string): boolean {
+  return (value === '/workspace' || value.startsWith('/workspace/'))
+    && !value.includes('\0')
+    && !value.split('/').includes('..')
+}

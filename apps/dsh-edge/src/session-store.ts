@@ -168,6 +168,15 @@ export class EdgeSessionStoreError extends Error {
   }
 }
 
+export class EdgeSessionCwdConflictError extends Error {
+  constructor(
+    readonly requestedCwd: string,
+    readonly existingCwd: string | undefined,
+  ) {
+    super('Session cwd conflicts with existing session.')
+  }
+}
+
 /**
  * Edge-facing facade over the same SessionStore + SessionPersistence services
  * used by upstream. Durable Object SQL is visible only to the backend plugin.
@@ -584,7 +593,7 @@ export class EdgeSessionStore {
     return surfaceImage === true || effectiveInboxContainsImage(inbox)
   }
 
-  async createSession(input: CreateEdgeSessionInput): Promise<EdgeSession> {
+  async createSession(input: CreateEdgeSessionInput & { cwd?: string }): Promise<EdgeSession> {
     const { agents, sessions, persistence } = await this.services()
     const title = normalizeSessionTitle(input.title, MAX_TITLE_BYTES)
     if (title.length === 0) {
@@ -594,7 +603,7 @@ export class EdgeSessionStore {
     const handle = await agents.create({
       sessionId: id,
       meta: {
-        cwd: '/workspace',
+        cwd: input.cwd ?? '/workspace',
         agentPreset: 'dsh-edge',
       },
       agentOptions: { provider: EDGE_PROVIDER, model: DEFAULT_EDGE_MODEL },
@@ -629,17 +638,14 @@ export class EdgeSessionStore {
   async createBlankSession(input: {
     sessionId?: SessionId
     model: string
+    cwd?: string
   }): Promise<{ sessionId: SessionId; agentPreset: string; created: boolean }> {
     const { agents, sessions, persistence } = await this.services()
     const id = input.sessionId ?? SessionId(`session-${crypto.randomUUID()}`)
+    const sessionCwd = input.cwd ?? '/workspace'
     const attached = sessions.get(id)
     if (attached !== undefined) {
-      if (attached.header.cwd !== '/workspace') {
-        throw new EdgeSessionStoreError(
-          'INVALID_DATA',
-          `Session ${id} already belongs to ${attached.header.cwd ?? 'an unknown workspace'}.`,
-        )
-      }
+      rejectCwdConflict(input.cwd, attached.header.cwd)
       return {
         sessionId: id,
         agentPreset: attached.header.agentPreset ?? 'dsh-edge',
@@ -651,12 +657,7 @@ export class EdgeSessionStore {
     }
     const stored = persistence.readSessionSummary(id)
     if (stored !== undefined) {
-      if (stored.meta.cwd !== '/workspace') {
-        throw new EdgeSessionStoreError(
-          'INVALID_DATA',
-          `Session ${id} already belongs to ${stored.meta.cwd ?? 'an unknown workspace'}.`,
-        )
-      }
+      rejectCwdConflict(input.cwd, stored.meta.cwd)
       return {
         sessionId: id,
         agentPreset: stored.meta.agentPreset ?? 'dsh-edge',
@@ -665,12 +666,7 @@ export class EdgeSessionStore {
     }
     const retainedBlank = persistence.readBlankSession(id)
     if (retainedBlank !== undefined) {
-      if (retainedBlank.cwd !== '/workspace') {
-        throw new EdgeSessionStoreError(
-          'INVALID_DATA',
-          `Session ${id} already belongs to ${retainedBlank.cwd ?? 'an unknown workspace'}.`,
-        )
-      }
+      rejectCwdConflict(input.cwd, retainedBlank.cwd)
       return {
         sessionId: id,
         agentPreset: retainedBlank.agentPreset ?? 'dsh-edge',
@@ -679,7 +675,7 @@ export class EdgeSessionStore {
     }
     const handle = await agents.create({
       sessionId: id,
-      meta: { cwd: '/workspace', agentPreset: 'dsh-edge' },
+      meta: { cwd: sessionCwd, agentPreset: 'dsh-edge' },
       agentOptions: { provider: EDGE_PROVIDER, model: input.model },
       setup: agentCtx => this.installAgentModelSelection(agentCtx, input.model),
     })
@@ -1104,7 +1100,11 @@ export class EdgeSessionStore {
       throw new EdgeSessionStoreError('INVALID_DATA', 'Agent is not the live persistence owner.')
     }
 
-    const releaseShell = this.shells.bind(agent.id, input.shell)
+    const releaseShell = this.shells.bind(
+      agent.id,
+      input.shell,
+      agent.session.header.cwd ?? '/workspace',
+    )
     let delivery = Promise.resolve()
     let deliveryError: unknown
     const stopObserving = this.context.on('session/event', (subject, event) => {
@@ -1688,5 +1688,11 @@ export function paginateHistory(
   return {
     events: page,
     hasMore: start > 0,
+  }
+}
+
+function rejectCwdConflict(requested: string | undefined, existing: string | undefined): void {
+  if (requested !== undefined && existing !== requested) {
+    throw new EdgeSessionCwdConflictError(requested, existing)
   }
 }
