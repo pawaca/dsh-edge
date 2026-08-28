@@ -13,6 +13,7 @@ export interface EdgeDirectoryFlowProps {
 
 const WORKSPACE_PREFIX = '/workspace/'
 const POPOVER_WIDTH = 260
+const POPOVER_HEIGHT_ESTIMATE = 160
 const VIEWPORT_MARGIN = 8
 
 function validate(name: string, t: (key: EdgeSettingsKey) => string): string | null {
@@ -37,7 +38,11 @@ function computeAnchor(btn: HTMLElement | null): { top: number; left: number } {
   if (btn === null) return { top: 60, left: 12 }
   const rect = btn.getBoundingClientRect()
   const left = Math.min(rect.left, window.innerWidth - POPOVER_WIDTH - VIEWPORT_MARGIN)
-  return { top: rect.bottom + 6, left: Math.max(VIEWPORT_MARGIN, left) }
+  const belowTop = rect.bottom + 6
+  const aboveTop = rect.top - POPOVER_HEIGHT_ESTIMATE - 6
+  const fitsBelow = belowTop + POPOVER_HEIGHT_ESTIMATE + VIEWPORT_MARGIN <= window.innerHeight
+  const top = fitsBelow ? belowTop : Math.max(VIEWPORT_MARGIN, aboveTop)
+  return { top, left: Math.max(VIEWPORT_MARGIN, left) }
 }
 
 export function EdgeDirectoryFlow(props: EdgeDirectoryFlowProps): ReactNode {
