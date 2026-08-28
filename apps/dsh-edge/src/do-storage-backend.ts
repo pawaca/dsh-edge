@@ -199,6 +199,8 @@ export class DurableObjectStorageBackend implements StorageBackend {
   }
 
   static async repairEpoch0Timestamps(storage: DurableObjectStorage): Promise<void> {
+    const markerKey = 'dsh-edge:workspace-epoch0-repaired'
+    if (await storage.get(markerKey) === true) return
     const epoch0 = new Date(0).toISOString()
     const prefix = recordKey('workspace', 'workspaces', '')
     const records = await storage.list({ prefix })
@@ -208,6 +210,7 @@ export class DurableObjectStorageBackend implements StorageBackend {
       repairEpoch0(record, epoch0)
       await storage.put(key, record)
     }
+    await storage.put(markerKey, true)
   }
 }
 
