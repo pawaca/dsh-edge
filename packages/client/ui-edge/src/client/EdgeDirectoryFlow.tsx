@@ -12,6 +12,8 @@ export interface EdgeDirectoryFlowProps {
 }
 
 const WORKSPACE_PREFIX = '/workspace/'
+const POPOVER_WIDTH = 260
+const VIEWPORT_MARGIN = 8
 
 function validate(name: string, t: (key: EdgeSettingsKey) => string): string | null {
   if (name.length === 0) return null
@@ -21,14 +23,21 @@ function validate(name: string, t: (key: EdgeSettingsKey) => string): string | n
   return ''
 }
 
-function findAnchorRect(slotEl: HTMLElement | null): DOMRect | null {
+function findAnchorButton(slotEl: HTMLElement | null): HTMLElement | null {
   let node = slotEl?.parentElement ?? null
   while (node !== null) {
     const btn = node.querySelector<HTMLElement>('button[aria-label]')
-    if (btn !== null) return btn.getBoundingClientRect()
+    if (btn !== null) return btn
     node = node.parentElement
   }
   return null
+}
+
+function computeAnchor(btn: HTMLElement | null): { top: number; left: number } {
+  if (btn === null) return { top: 60, left: 12 }
+  const rect = btn.getBoundingClientRect()
+  const left = Math.min(rect.left, window.innerWidth - POPOVER_WIDTH - VIEWPORT_MARGIN)
+  return { top: rect.bottom + 6, left: Math.max(VIEWPORT_MARGIN, left) }
 }
 
 export function EdgeDirectoryFlow(props: EdgeDirectoryFlowProps): ReactNode {
@@ -38,18 +47,26 @@ export function EdgeDirectoryFlow(props: EdgeDirectoryFlowProps): ReactNode {
   const inputRef = useRef<HTMLInputElement>(null)
   const popoverRef = useRef<HTMLDivElement>(null)
   const slotRef = useRef<HTMLSpanElement>(null)
+  const btnRef = useRef<HTMLElement | null>(null)
 
   useEffect(() => {
     if (!open) {
       setAnchor(null)
+      btnRef.current = null
       return
     }
     setName('')
-    const rect = findAnchorRect(slotRef.current)
-    setAnchor(rect !== null
-      ? { top: rect.bottom + 6, left: rect.left }
-      : { top: 60, left: 12 })
+    btnRef.current = findAnchorButton(slotRef.current)
+    setAnchor(computeAnchor(btnRef.current))
     requestAnimationFrame(() => inputRef.current?.focus())
+
+    const recompute = () => setAnchor(computeAnchor(btnRef.current))
+    window.addEventListener('resize', recompute)
+    window.addEventListener('scroll', recompute, true)
+    return () => {
+      window.removeEventListener('resize', recompute)
+      window.removeEventListener('scroll', recompute, true)
+    }
   }, [open])
 
   useEffect(() => {
@@ -92,7 +109,7 @@ export function EdgeDirectoryFlow(props: EdgeDirectoryFlowProps): ReactNode {
       <div
         ref={popoverRef}
         className={css.popover}
-        style={{ top: anchor.top, left: anchor.left }}
+        style={{ top: anchor.top, left: anchor.left, width: POPOVER_WIDTH }}
       >
         <span className={css.title}>{t('workspaceNewTitle')}</span>
         <div className={`${css.inputGroup}${isError ? ` ${css.error}` : ''}`}>
