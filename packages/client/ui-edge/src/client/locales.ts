@@ -31,6 +31,14 @@ export const en = {
   signOut: 'Sign out',
   signingOut: 'Signing out…',
   signOutFailed: 'Could not sign out. Try again.',
+  workspaceNewTitle: 'New Workspace',
+  workspaceNewPlaceholder: 'project-name',
+  workspaceNewHint: 'Enter a project directory name',
+  workspaceNewCreate: 'Create',
+  workspaceNewCreating: 'Creating…',
+  workspaceNewErrorSlash: 'Name cannot contain /',
+  workspaceNewErrorTraversal: 'Invalid directory name',
+  workspaceNewErrorChars: 'Invalid characters',
 } as const
 
 /** Locale keys shared by the English source and translated Edge settings copy. */
@@ -69,4 +77,12 @@ export const zh: Record<EdgeSettingsKey, string> = {
   signOut: '退出登录',
   signingOut: '正在退出…',
   signOutFailed: '退出失败，请重试。',
+  workspaceNewTitle: '新建工作空间',
+  workspaceNewPlaceholder: '项目名称',
+  workspaceNewHint: '输入项目目录名称',
+  workspaceNewCreate: '创建',
+  workspaceNewCreating: '创建中…',
+  workspaceNewErrorSlash: '名称不能包含 /',
+  workspaceNewErrorTraversal: '无效的目录名称',
+  workspaceNewErrorChars: '包含无效字符',
 }

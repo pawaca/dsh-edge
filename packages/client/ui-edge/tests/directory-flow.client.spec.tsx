@@ -2,8 +2,12 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { EdgeDirectoryFlow } from '../src/client/EdgeDirectoryFlow.tsx'
+import { en } from '../src/client/locales.ts'
 
 afterEach(cleanup)
+
+const dictionary: Record<string, string> = en
+const t = (key: string) => dictionary[key] ?? key
 
 function renderFlow(overrides: Partial<Parameters<typeof EdgeDirectoryFlow>[0]> = {}) {
   const props = {
@@ -12,6 +16,7 @@ function renderFlow(overrides: Partial<Parameters<typeof EdgeDirectoryFlow>[0]> 
     onPicked: vi.fn(),
     onCancel: vi.fn(),
     onError: vi.fn(),
+    t: t as never,
     ...overrides,
   }
   const result = render(<EdgeDirectoryFlow {...props} />)
@@ -61,10 +66,9 @@ describe('EdgeDirectoryFlow', () => {
     expect(props.onPicked).toHaveBeenCalledWith('/workspace/test-app')
   })
 
-  it('calls onCancel on Escape key', () => {
+  it('calls onCancel on Escape key from any element', () => {
     const { props } = renderFlow()
-    const input = screen.getByPlaceholderText('project-name')
-    fireEvent.keyDown(input, { key: 'Escape' })
+    fireEvent.keyDown(document, { key: 'Escape' })
     expect(props.onCancel).toHaveBeenCalledOnce()
   })
 

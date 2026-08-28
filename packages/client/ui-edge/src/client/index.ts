@@ -76,11 +76,11 @@ export function apply(ctx: ClientContext): void {
   ctx.slots.inject('conversation.hero.workspace.directoryFlow', () =>
     ctx.slots.inject('sidebar.workspaces.directoryFlow', function* () {
       yield ctx.slots.register(
-        { name: 'conversation.hero.workspace.directoryFlow' },
+        { name: 'conversation.hero.workspace.directoryFlow', locale: 'settings.edge' },
         EdgeDirectoryFlow,
       )
       yield ctx.slots.register(
-        { name: 'sidebar.workspaces.directoryFlow' },
+        { name: 'sidebar.workspaces.directoryFlow', locale: 'settings.edge' },
         EdgeDirectoryFlow,
       )
     }),

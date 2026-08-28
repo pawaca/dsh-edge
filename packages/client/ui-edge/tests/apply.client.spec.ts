@@ -52,5 +52,8 @@ describe('ui-edge apply', () => {
     const flowNames = new Set(flowEntries.map(e => e.options.name))
     expect(flowNames).toContain('conversation.hero.workspace.directoryFlow')
     expect(flowNames).toContain('sidebar.workspaces.directoryFlow')
+    for (const flow of flowEntries) {
+      expect(flow.options.locale).toBe('settings.edge')
+    }
   })
 })
