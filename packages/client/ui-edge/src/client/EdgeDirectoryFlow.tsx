@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import type { EdgeSettingsKey } from './locales.ts'
 import css from './EdgeDirectoryFlow.module.css'
 
@@ -13,7 +13,6 @@ export interface EdgeDirectoryFlowProps {
 
 const WORKSPACE_PREFIX = '/workspace/'
 const POPOVER_WIDTH = 260
-const POPOVER_HEIGHT_ESTIMATE = 160
 const VIEWPORT_MARGIN = 8
 
 function validate(name: string, t: (key: EdgeSettingsKey) => string): string | null {
@@ -34,13 +33,17 @@ function findAnchorButton(slotEl: HTMLElement | null): HTMLElement | null {
   return null
 }
 
-function computeAnchor(btn: HTMLElement | null): { top: number; left: number } {
+function computeAnchor(
+  btn: HTMLElement | null,
+  popover: HTMLElement | null,
+): { top: number; left: number } {
   if (btn === null) return { top: 60, left: 12 }
   const rect = btn.getBoundingClientRect()
   const left = Math.min(rect.left, window.innerWidth - POPOVER_WIDTH - VIEWPORT_MARGIN)
+  const panelHeight = popover?.offsetHeight ?? 160
   const belowTop = rect.bottom + 6
-  const aboveTop = rect.top - POPOVER_HEIGHT_ESTIMATE - 6
-  const fitsBelow = belowTop + POPOVER_HEIGHT_ESTIMATE + VIEWPORT_MARGIN <= window.innerHeight
+  const aboveTop = rect.top - panelHeight - 6
+  const fitsBelow = belowTop + panelHeight + VIEWPORT_MARGIN <= window.innerHeight
   const top = fitsBelow ? belowTop : Math.max(VIEWPORT_MARGIN, aboveTop)
   return { top, left: Math.max(VIEWPORT_MARGIN, left) }
 }
@@ -62,10 +65,10 @@ export function EdgeDirectoryFlow(props: EdgeDirectoryFlowProps): ReactNode {
     }
     setName('')
     btnRef.current = findAnchorButton(slotRef.current)
-    setAnchor(computeAnchor(btnRef.current))
+    setAnchor(computeAnchor(btnRef.current, popoverRef.current))
     requestAnimationFrame(() => inputRef.current?.focus())
 
-    const recompute = () => setAnchor(computeAnchor(btnRef.current))
+    const recompute = () => setAnchor(computeAnchor(btnRef.current, popoverRef.current))
     window.addEventListener('resize', recompute)
     window.addEventListener('scroll', recompute, true)
     return () => {
@@ -73,6 +76,13 @@ export function EdgeDirectoryFlow(props: EdgeDirectoryFlowProps): ReactNode {
       window.removeEventListener('scroll', recompute, true)
     }
   }, [open])
+
+  useLayoutEffect(() => {
+    if (!open || popoverRef.current === null) return
+    const next = computeAnchor(btnRef.current, popoverRef.current)
+    setAnchor(prev =>
+      prev !== null && prev.top === next.top && prev.left === next.left ? prev : next)
+  })
 
   useEffect(() => {
     if (!open) return
