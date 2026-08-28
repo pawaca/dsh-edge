@@ -214,6 +214,7 @@ export class EdgeSessionStore {
     })
     await this.context.plugin(DurableObjectSettingsProvider, { storage })
     await DurableObjectStorageBackend.migrateWorkspaceKeys(storage)
+    await DurableObjectStorageBackend.repairEpoch0Timestamps(storage)
     const storageBackend = new DurableObjectStorageBackend(storage)
     await this.context.plugin(Storage)
     this.context.effect(() => {

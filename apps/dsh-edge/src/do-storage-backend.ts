@@ -186,12 +186,43 @@ export class DurableObjectStorageBackend implements StorageBackend {
       })
     }
     await storage.put(versionKey('workspace'), 2)
+    const epoch0 = new Date(0).toISOString()
     for (const [oldKey, value] of oldRecords) {
       const segment = oldKey.slice(oldPrefix.length)
       const id = segment.endsWith(':v2') ? segment.slice(0, -3) : segment
-      await storage.put(recordKey('workspace', 'workspaces', id), value)
+      const record = value as Record<string, unknown>
+      repairEpoch0(record, epoch0)
+      await storage.put(recordKey('workspace', 'workspaces', id), record)
       deleteKeys.push(oldKey)
     }
     if (deleteKeys.length > 0) await storage.delete(deleteKeys)
+  }
+
+  static async repairEpoch0Timestamps(storage: DurableObjectStorage): Promise<void> {
+    const markerKey = 'dsh-edge:workspace-epoch0-repaired'
+    if (await storage.get(markerKey) === true) return
+    const epoch0 = new Date(0).toISOString()
+    const prefix = recordKey('workspace', 'workspaces', '')
+    const records = await storage.list({ prefix })
+    for (const [key, value] of records) {
+      const record = value as Record<string, unknown>
+      if (record.createdAt !== epoch0 && record.updatedAt !== epoch0) continue
+      repairEpoch0(record, epoch0)
+      await storage.put(key, record)
+    }
+    await storage.put(markerKey, true)
+  }
+}
+
+function repairEpoch0(record: Record<string, unknown>, epoch0: string): void {
+  if (record.createdAt !== epoch0 && record.updatedAt !== epoch0) return
+  if (record.updatedAt !== epoch0) {
+    record.createdAt = record.updatedAt
+  } else if (record.createdAt !== epoch0) {
+    record.updatedAt = record.createdAt
+  } else {
+    const now = new Date().toISOString()
+    record.createdAt = now
+    record.updatedAt = now
   }
 }

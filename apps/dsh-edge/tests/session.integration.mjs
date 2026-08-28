@@ -105,6 +105,12 @@ try {
   assert.deepEqual(releasedWorkspace.body.result.value.archivedSessionIds, [
     RELEASED_ARCHIVED_SESSION_ID,
   ])
+  // Epoch-0 createdAt from fixture must be repaired during migration
+  const migratedWorkspace = releasedWorkspace.body.result.value.items[0]
+  assert.notEqual(migratedWorkspace.createdAt, '1970-01-01T00:00:00.000Z',
+    'epoch-0 createdAt should be repaired')
+  assert.ok(migratedWorkspace.createdAt <= migratedWorkspace.updatedAt,
+    'repaired createdAt must not be later than updatedAt')
   const upgradedReleasedWorkspace = await rpc('workspace.rename', {
     workspaceId: 'edge-workspace',
     title: 'Upgraded 0.1.3 workspace',
