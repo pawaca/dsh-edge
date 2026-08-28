@@ -21,17 +21,35 @@ function validate(name: string, t: (key: EdgeSettingsKey) => string): string | n
   return ''
 }
 
+function findAnchorRect(slotEl: HTMLElement | null): DOMRect | null {
+  let node = slotEl?.parentElement ?? null
+  while (node !== null) {
+    const btn = node.querySelector<HTMLElement>('button[aria-label]')
+    if (btn !== null) return btn.getBoundingClientRect()
+    node = node.parentElement
+  }
+  return null
+}
+
 export function EdgeDirectoryFlow(props: EdgeDirectoryFlowProps): ReactNode {
   const { open, busy, onPicked, onCancel, t } = props
   const [name, setName] = useState('')
+  const [anchor, setAnchor] = useState<{ top: number; left: number } | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const popoverRef = useRef<HTMLDivElement>(null)
+  const slotRef = useRef<HTMLSpanElement>(null)
 
   useEffect(() => {
-    if (open) {
-      setName('')
-      requestAnimationFrame(() => inputRef.current?.focus())
+    if (!open) {
+      setAnchor(null)
+      return
     }
+    setName('')
+    const rect = findAnchorRect(slotRef.current)
+    setAnchor(rect !== null
+      ? { top: rect.bottom + 6, left: rect.left }
+      : { top: 60, left: 12 })
+    requestAnimationFrame(() => inputRef.current?.focus())
   }, [open])
 
   useEffect(() => {
@@ -62,38 +80,45 @@ export function EdgeDirectoryFlow(props: EdgeDirectoryFlowProps): ReactNode {
     }
   }, [name, onPicked, t])
 
-  if (!open) return null
+  if (!open || anchor === null) return <span ref={slotRef} />
 
   const validation = validate(name, t)
   const isValid = validation === ''
   const isError = validation !== null && validation !== ''
 
   return (
-    <div ref={popoverRef} className={css.popover}>
-      <span className={css.title}>{t('workspaceNewTitle')}</span>
-      <div className={`${css.inputGroup}${isError ? ` ${css.error}` : ''}`}>
-        <span className={css.prefix}>{WORKSPACE_PREFIX}</span>
-        <input
-          ref={inputRef}
-          className={css.input}
-          type="text"
-          placeholder={t('workspaceNewPlaceholder')}
-          value={name}
-          onChange={e => setName(e.target.value)}
-          onKeyDown={handleKeyDown}
-          disabled={busy}
-        />
-      </div>
-      {isError && <span className={css.errorText}>{validation}</span>}
-      {!isError && !isValid && <span className={css.hint}>{t('workspaceNewHint')}</span>}
-      {isValid && <span className={css.hint}>{WORKSPACE_PREFIX}{name}</span>}
-      <button
-        className={css.submitBtn}
-        disabled={!isValid || busy}
-        onClick={() => onPicked(WORKSPACE_PREFIX + name)}
+    <>
+      <span ref={slotRef} />
+      <div
+        ref={popoverRef}
+        className={css.popover}
+        style={{ top: anchor.top, left: anchor.left }}
       >
-        {busy ? t('workspaceNewCreating') : t('workspaceNewCreate')}
-      </button>
-    </div>
+        <span className={css.title}>{t('workspaceNewTitle')}</span>
+        <div className={`${css.inputGroup}${isError ? ` ${css.error}` : ''}`}>
+          <span className={css.prefix}>{WORKSPACE_PREFIX}</span>
+          <input
+            ref={inputRef}
+            className={css.input}
+            type="text"
+            placeholder={t('workspaceNewPlaceholder')}
+            value={name}
+            onChange={e => setName(e.target.value)}
+            onKeyDown={handleKeyDown}
+            disabled={busy}
+          />
+        </div>
+        {isError && <span className={css.errorText}>{validation}</span>}
+        {!isError && !isValid && <span className={css.hint}>{t('workspaceNewHint')}</span>}
+        {isValid && <span className={css.hint}>{WORKSPACE_PREFIX}{name}</span>}
+        <button
+          className={css.submitBtn}
+          disabled={!isValid || busy}
+          onClick={() => onPicked(WORKSPACE_PREFIX + name)}
+        >
+          {busy ? t('workspaceNewCreating') : t('workspaceNewCreate')}
+        </button>
+      </div>
+    </>
   )
 }
