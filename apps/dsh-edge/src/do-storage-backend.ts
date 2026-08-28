@@ -191,8 +191,7 @@ export class DurableObjectStorageBackend implements StorageBackend {
       const segment = oldKey.slice(oldPrefix.length)
       const id = segment.endsWith(':v2') ? segment.slice(0, -3) : segment
       const record = value as Record<string, unknown>
-      if (record.createdAt === epoch0) record.createdAt = new Date().toISOString()
-      if (record.updatedAt === epoch0) record.updatedAt = new Date().toISOString()
+      repairEpoch0(record, epoch0)
       await storage.put(recordKey('workspace', 'workspaces', id), record)
       deleteKeys.push(oldKey)
     }
@@ -206,10 +205,21 @@ export class DurableObjectStorageBackend implements StorageBackend {
     for (const [key, value] of records) {
       const record = value as Record<string, unknown>
       if (record.createdAt !== epoch0 && record.updatedAt !== epoch0) continue
-      const now = new Date().toISOString()
-      if (record.createdAt === epoch0) record.createdAt = now
-      if (record.updatedAt === epoch0) record.updatedAt = now
+      repairEpoch0(record, epoch0)
       await storage.put(key, record)
     }
+  }
+}
+
+function repairEpoch0(record: Record<string, unknown>, epoch0: string): void {
+  if (record.createdAt !== epoch0 && record.updatedAt !== epoch0) return
+  if (record.updatedAt !== epoch0) {
+    record.createdAt = record.updatedAt
+  } else if (record.createdAt !== epoch0) {
+    record.updatedAt = record.createdAt
+  } else {
+    const now = new Date().toISOString()
+    record.createdAt = now
+    record.updatedAt = now
   }
 }
