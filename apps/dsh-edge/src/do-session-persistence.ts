@@ -689,7 +689,7 @@ export class DurableObjectSessionPersistence
 
   private initialize(): string {
     this.storage.sql.exec('PRAGMA foreign_keys = ON')
-    const identity = this.storage.transactionSync(() => {
+    return this.storage.transactionSync(() => {
       this.storage.sql.exec(`CREATE TABLE IF NOT EXISTS dsh_session_persistence_state (
         singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
         schema_version INTEGER NOT NULL,
@@ -762,43 +762,6 @@ export class DurableObjectSessionPersistence
       ) STRICT`)
       this.syncSummaries()
       return `durable-object:store:${storeId}`
-    })
-    this.repackExistingChunks()
-    return identity
-  }
-
-  private repackExistingChunks(): void {
-    const candidates = this.storage.sql.exec<{ id: string }>(
-      `SELECT DISTINCT session_id AS id FROM dsh_session_events
-       WHERE type = 'assistant/chunk' LIMIT 5`,
-    ).toArray()
-    for (const candidate of candidates) {
-      try {
-        this.repackOneSession(candidate.id as SessionId)
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : String(error)
-        console.error(`dsh-edge: repack failed for session ${candidate.id}: ${msg}`)
-      }
-    }
-  }
-
-  private repackOneSession(id: SessionId): void {
-    const rows = this.storage.sql.exec<EventRow>(
-      `SELECT seq, type, time, data, source_event_seqs, surface_op, ignorable
-       FROM dsh_session_events WHERE session_id = ? ORDER BY seq`,
-      id,
-    ).toArray()
-    const events = rows.flatMap(row => rowToEvents(row))
-    const packed = packChunkRuns(events)
-    if (packed.length >= rows.length) return
-    this.storage.transactionSync(() => {
-      this.storage.sql.exec(
-        'DELETE FROM dsh_session_events WHERE session_id = ?',
-        id,
-      )
-      for (const record of packed) {
-        this.insertStorageRecord(id, record)
-      }
     })
   }
 
@@ -1115,11 +1078,15 @@ function blankRowToHeader(row: BlankSessionRow): SessionHeader {
   return header
 }
 
+const PACKED_ROW_TYPES = new Set(['text-chunks', 'reasoning-chunks', 'tool-call-chunks'])
+
 function rowToEvents(row: EventRow): SessionEvent[] {
+  const isPacked = PACKED_ROW_TYPES.has(row.type)
   const record = {
     type: row.type,
-    seq: row.seq,
-    time: row.time,
+    ...(isPacked
+      ? { seq0: row.seq, time0: row.time }
+      : { seq: row.seq, time: row.time }),
     data: JSON.parse(row.data) as SessionEvent['data'],
     ...row.source_event_seqs === null
       ? {}
