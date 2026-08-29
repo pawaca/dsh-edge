@@ -5,7 +5,7 @@ import { EdgeDirectoryFlow } from '../src/client/EdgeDirectoryFlow.tsx'
 
 describe('ui-edge apply', () => {
   it('registers the settings section and directory flow slots', () => {
-    expect(inject).toEqual(['slots', 'locale', 'settingsScope'])
+    expect(inject).toEqual(['slots', 'locale', 'settingsScope', 'workspaces'])
     const entries: Array<{
       options: Record<string, unknown> & { inject?: () => unknown }
       component: unknown
@@ -13,6 +13,7 @@ describe('ui-edge apply', () => {
     const registerLocale = vi.fn()
     const mirror = { persistence: 'memory', load: vi.fn() }
     const ctx = {
+      workspaces: { openPath: vi.fn() },
       settingsScope: { describe: () => mirror },
       effect: (callback: () => unknown) => callback(),
       locale: {
