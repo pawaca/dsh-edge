@@ -32,6 +32,7 @@ import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { GoalService } from '@deepseek-ai/dsh-goal'
 import type { GoalRef } from '@deepseek-ai/dsh-host-apiproxy/api'
+import { isUserInvocable, type SkillRegistry } from '@deepseek-ai/dsh-skill'
 import { EDGE_SYSTEM_PROMPT } from './agent.ts'
 import type { EdgeDeploymentProfile } from './deployment.ts'
 import { EDGE_DO_ATTACHMENT_MAX_STORED_BYTES } from './edge-attachment-store.ts'
@@ -573,7 +574,21 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
     },
 
     skills: {
-      list: request => Promise.resolve(ok(request, { skills: [] })),
+      async list(request) {
+        const agent = runtime.sessions.liveAgent(request.payload.sessionId)
+        const registry = agent?.ctx.get('skills') as SkillRegistry | undefined
+          ?? runtime.sessions.skillRegistry()
+        if (registry === undefined) return ok(request, { skills: [] })
+        const skills = (await registry.list({ cwd: '/workspace' })).filter(isUserInvocable)
+        return ok(request, {
+          skills: skills.map(skill => ({
+            name: skill.name,
+            description: skill.description,
+            ...skill.whenToUse === undefined ? {} : { whenToUse: skill.whenToUse },
+            modelInvocable: skill.invocation.modelInvocable,
+          })),
+        })
+      },
     },
 
     agentPresets: {

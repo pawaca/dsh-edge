@@ -332,6 +332,10 @@ export class EdgeSessionStore {
     try { return this.context.fs as EdgeFileSystem } catch { return undefined }
   }
 
+  skillRegistry(): SkillRegistry | undefined {
+    try { return this.context.skills } catch { return undefined }
+  }
+
   liveAgent(sessionId: SessionId): Agent | undefined {
     const { agents } = this.context
     return agents.get(sessionId)
