@@ -56,6 +56,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as ToolGoal from '@deepseek-ai/dsh-tool-goal'
+import * as GoalRoundDriver from '@deepseek-ai/dsh-goal-round-driver'
 import GoalService from '@deepseek-ai/dsh-goal'
 import { EdgeFileSystem } from './edge-filesystem.ts'
 import {
@@ -266,6 +267,7 @@ export class EdgeSessionStore {
     await this.context.plugin(ToolFs)
     await this.context.plugin(GoalService)
     await this.context.plugin(ToolGoal)
+    await this.context.plugin(GoalRoundDriver)
     await this.context.plugin(SpillPolicy, { maxInlineBytes: 32_768 })
     await this.context.plugin(AgentRegistry)
     await installEdgeWebSearch(this.context, config.searchBaseURL)

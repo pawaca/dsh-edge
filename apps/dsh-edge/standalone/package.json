@@ -30,6 +30,7 @@
     "@deepseek-ai/dsh-credentials": "0.1.1-rc.2",
     "@deepseek-ai/dsh-fs": "0.1.1-rc.2",
     "@deepseek-ai/dsh-goal": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-goal-round-driver": "0.1.1-rc.2",
     "@deepseek-ai/dsh-sandbox": "0.1.1-rc.2",
     "@deepseek-ai/dsh-tool-fs": "0.1.1-rc.2",
     "@deepseek-ai/dsh-tool-goal": "0.1.1-rc.2",
