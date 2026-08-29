@@ -39,7 +39,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   }
 }
 
-export const inject = ['slots', 'locale', 'settingsScope']
+export const inject = ['slots', 'locale', 'settingsScope', 'workspaces']
 
 export function apply(ctx: ClientContext): void {
   // Edge's API proxy fully supports settings RPCs over the remote transport.
@@ -85,4 +85,22 @@ export function apply(ctx: ClientContext): void {
       )
     }),
   )
+  const workspaces = (ctx as never as { workspaces: { openPath(path: string): Promise<void> } }).workspaces
+  const originalOpenPath = workspaces.openPath.bind(workspaces)
+  workspaces.openPath = async (path: string) => {
+    try {
+      await originalOpenPath(path)
+    } catch {
+      const url = `/api/workspace/file?path=${encodeURIComponent(path)}`
+      const res = await globalThis.fetch(url)
+      if (!res.ok) throw new Error(`path open failed: ${res.status === 413 ? 'file too large' : await res.text()}`)
+      const blob = await res.blob()
+      const blobUrl = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = blobUrl
+      a.download = path.split('/').pop() ?? 'file'
+      a.click()
+      URL.revokeObjectURL(blobUrl)
+    }
+  }
 }
