@@ -767,28 +767,25 @@ export class DurableObjectSessionPersistence
   }
 
   private repackExistingChunks(): void {
-    if (this.storage.sql.exec<{ v: number }>(
-      `SELECT 1 AS v FROM dsh_session_events WHERE type = 'assistant/chunk' LIMIT 1`,
-    ).toArray().length === 0) return
-    const sessionIds = this.storage.sql.exec<{ id: string }>(
-      `SELECT DISTINCT session_id AS id FROM dsh_session_events WHERE type = 'assistant/chunk'`,
-    ).toArray().map(r => r.id)
-    for (const sessionId of sessionIds) {
-      const rows = this.storage.sql.exec<EventRow>(
-        `SELECT seq, type, time, data, source_event_seqs, surface_op, ignorable
-         FROM dsh_session_events WHERE session_id = ? ORDER BY seq`,
-        sessionId,
-      ).toArray()
-      const events = rows.flatMap(row => rowToEvents(row))
-      const packed = packChunkRuns(events)
-      if (packed.length >= rows.length) continue
-      this.storage.sql.exec(
-        'DELETE FROM dsh_session_events WHERE session_id = ?',
-        sessionId,
-      )
-      for (const record of packed) {
-        this.insertEvent(sessionId as SessionId, record as SessionEvent)
-      }
+    const next = this.storage.sql.exec<{ id: string }>(
+      `SELECT DISTINCT session_id AS id FROM dsh_session_events
+       WHERE type = 'assistant/chunk' LIMIT 1`,
+    ).toArray()[0]
+    if (next === undefined) return
+    const rows = this.storage.sql.exec<EventRow>(
+      `SELECT seq, type, time, data, source_event_seqs, surface_op, ignorable
+       FROM dsh_session_events WHERE session_id = ? ORDER BY seq`,
+      next.id,
+    ).toArray()
+    const events = rows.flatMap(row => rowToEvents(row))
+    const packed = packChunkRuns(events)
+    if (packed.length >= rows.length) return
+    this.storage.sql.exec(
+      'DELETE FROM dsh_session_events WHERE session_id = ?',
+      next.id,
+    )
+    for (const record of packed) {
+      this.insertEvent(next.id as SessionId, record as SessionEvent)
     }
   }
 
@@ -932,12 +929,18 @@ export class DurableObjectSessionPersistence
   }
 
   private eventRows(id: SessionId, fromSeq: number): EventRow[] {
+    const startSeq = fromSeq === 0 ? 0 : (this.storage.sql.exec<{ seq: number }>(
+      `SELECT MAX(seq) AS seq FROM dsh_session_events
+       WHERE session_id = ? AND seq <= ?`,
+      id,
+      fromSeq,
+    ).toArray()[0]?.seq ?? fromSeq)
     return this.storage.sql.exec<EventRow>(
       `SELECT seq, type, time, data, source_event_seqs, surface_op, ignorable
        FROM dsh_session_events
        WHERE session_id = ? AND seq >= ? ORDER BY seq`,
       id,
-      fromSeq,
+      startSeq,
     ).toArray()
   }
 
