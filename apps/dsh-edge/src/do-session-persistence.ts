@@ -395,27 +395,49 @@ export class DurableObjectSessionPersistence
     return promiseFromSync(() => {
       signal?.throwIfAborted()
       const page = this.storage.transactionSync(() => {
-        const row = this.rowFor(id)
-        if (row === undefined) return undefined
-        const sqlRows = this.eventRowRange(id, fromSeq, toSeqExclusive)
+        const headerRow = this.rowFor(id)
+        if (headerRow === undefined) return undefined
+        const sqlRows = this.eventRowRangeContaining(id, fromSeq, limit, toSeqExclusive)
         const lastTurnEnd = this.lastCommittedSequence(id)
-        const rows: EventRow[] = []
+        const events: SessionEvent[] = []
         let storedBytes = 0
-        let eventCount = 0
         let hasMore = false
+        let nextSeq = fromSeq
         for (const row of sqlRows) {
-          const rowBytes = row.data.length
-          if (eventCount >= limit || rowBytes > maxStoredBytes - storedBytes) {
+          const rowBytes = new TextEncoder().encode(row.data).byteLength
+          if (events.length >= limit || rowBytes > maxStoredBytes - storedBytes) {
             hasMore = true
             break
           }
-          rows.push(row)
+          let decoded: SessionEvent[]
+          try {
+            decoded = rowToEvents(row)
+          } catch {
+            if (row.seq <= lastTurnEnd) {
+              throw new Error(`corrupt session log: unparsable committed event at seq ${row.seq}`)
+            }
+            break
+          }
           storedBytes += rowBytes
-          eventCount++
+          for (const event of decoded) {
+            if (event.seq < fromSeq) continue
+            if (toSeqExclusive !== undefined && event.seq >= toSeqExclusive) continue
+            if (event.seq !== nextSeq) {
+              if (event.seq <= lastTurnEnd) {
+                throw new Error(
+                  `corrupt session log: seq gap in committed region (expected ${nextSeq}, got ${event.seq})`,
+                )
+              }
+              hasMore = false
+              break
+            }
+            if (events.length >= limit) { hasMore = true; break }
+            events.push(event)
+            nextSeq = event.seq + 1
+          }
         }
-        const events = scanRows(rows, fromSeq, lastTurnEnd).preserved
         return {
-          meta: rowToHeader(row),
+          meta: rowToHeader(headerRow),
           events,
           hasMore,
         }
@@ -739,8 +761,35 @@ export class DurableObjectSessionPersistence
         title_data TEXT
       ) STRICT`)
       this.syncSummaries()
+      this.repackExistingChunks()
       return `durable-object:store:${storeId}`
     })
+  }
+
+  private repackExistingChunks(): void {
+    if (this.storage.sql.exec<{ v: number }>(
+      `SELECT 1 AS v FROM dsh_session_events WHERE type = 'assistant/chunk' LIMIT 1`,
+    ).toArray().length === 0) return
+    const sessionIds = this.storage.sql.exec<{ id: string }>(
+      `SELECT DISTINCT session_id AS id FROM dsh_session_events WHERE type = 'assistant/chunk'`,
+    ).toArray().map(r => r.id)
+    for (const sessionId of sessionIds) {
+      const rows = this.storage.sql.exec<EventRow>(
+        `SELECT seq, type, time, data, source_event_seqs, surface_op, ignorable
+         FROM dsh_session_events WHERE session_id = ? ORDER BY seq`,
+        sessionId,
+      ).toArray()
+      const events = rows.flatMap(row => rowToEvents(row))
+      const packed = packChunkRuns(events)
+      if (packed.length >= rows.length) continue
+      this.storage.sql.exec(
+        'DELETE FROM dsh_session_events WHERE session_id = ?',
+        sessionId,
+      )
+      for (const record of packed) {
+        this.insertEvent(sessionId as SessionId, record as SessionEvent)
+      }
+    }
   }
 
   private syncSummaries(): void {
@@ -892,25 +941,35 @@ export class DurableObjectSessionPersistence
     ).toArray()
   }
 
-  private eventRowRange(
+  private eventRowRangeContaining(
     id: SessionId,
     fromSeq: number,
+    limit: number,
     toSeqExclusive?: number,
   ): EventRow[] {
+    const startSeq = this.storage.sql.exec<{ seq: number }>(
+      `SELECT MAX(seq) AS seq FROM dsh_session_events
+       WHERE session_id = ? AND seq <= ?`,
+      id,
+      fromSeq,
+    ).toArray()[0]?.seq ?? fromSeq
+    const sqlLimit = limit + 1
     if (toSeqExclusive !== undefined) {
       return this.storage.sql.exec<EventRow>(
         `SELECT seq, type, time, data, source_event_seqs, surface_op, ignorable
-         FROM dsh_session_events WHERE session_id = ? AND seq >= ? AND seq < ? ORDER BY seq`,
+         FROM dsh_session_events WHERE session_id = ? AND seq >= ? AND seq < ? ORDER BY seq LIMIT ?`,
         id,
-        fromSeq,
+        startSeq,
         toSeqExclusive,
+        sqlLimit,
       ).toArray()
     }
     return this.storage.sql.exec<EventRow>(
       `SELECT seq, type, time, data, source_event_seqs, surface_op, ignorable
-       FROM dsh_session_events WHERE session_id = ? AND seq >= ? ORDER BY seq`,
+       FROM dsh_session_events WHERE session_id = ? AND seq >= ? ORDER BY seq LIMIT ?`,
       id,
-      fromSeq,
+      startSeq,
+      sqlLimit,
     ).toArray()
   }
 
@@ -974,46 +1033,6 @@ export class DurableObjectSessionPersistence
     )
   }
 
-  static repackChunks(storage: DurableObjectStorage): void {
-    if (storage.sql.exec<{ v: number }>(
-      `SELECT 1 AS v FROM dsh_session_events WHERE type = 'assistant/chunk' LIMIT 1`,
-    ).toArray().length === 0) return
-    const sessionIds = storage.sql.exec<{ id: string }>(
-      `SELECT DISTINCT session_id AS id FROM dsh_session_events WHERE type = 'assistant/chunk'`,
-    ).toArray().map(r => r.id)
-    for (const sessionId of sessionIds) {
-      storage.transactionSync(() => {
-        const rows = storage.sql.exec<EventRow>(
-          `SELECT seq, type, time, data, source_event_seqs, surface_op, ignorable
-           FROM dsh_session_events WHERE session_id = ? ORDER BY seq`,
-          sessionId,
-        ).toArray()
-        const events = rows.flatMap(row => rowToEvents(row))
-        const packed = packChunkRuns(events)
-        if (packed.length >= rows.length) return
-        storage.sql.exec(
-          'DELETE FROM dsh_session_events WHERE session_id = ?',
-          sessionId,
-        )
-        for (const record of packed) {
-          const e = record as SessionEvent & { sourceEventSeqs?: number[]; surfaceOp?: SurfaceOp }
-          storage.sql.exec(
-            `INSERT INTO dsh_session_events
-              (session_id, seq, type, time, data, source_event_seqs, surface_op, ignorable)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            sessionId,
-            e.seq,
-            e.type,
-            e.time,
-            JSON.stringify(e.data),
-            e.sourceEventSeqs === undefined ? null : JSON.stringify(e.sourceEventSeqs),
-            e.surfaceOp === undefined ? null : JSON.stringify(e.surfaceOp),
-            e.ignorable === true ? 1 : null,
-          )
-        }
-      })
-    }
-  }
 }
 
 function revisionOf(storeIdentity: string, row: HeaderRow): PersistenceRevision {
@@ -1253,6 +1272,7 @@ function scanRows(
   }
   const preserved: SessionEvent[] = []
   let nextSeq = base
+  let rowsConsumed = 0
   for (let index = 0; index < rows.length; index += 1) {
     const candidate = decoded[index]
     if (candidate?.ok !== true) {
@@ -1272,8 +1292,9 @@ function scanRows(
     }
     preserved.push(...candidate.events)
     nextSeq = firstSeq + candidate.events.length
+    rowsConsumed++
   }
-  return preserved.length < rows.length || nextSeq !== base + preserved.length
+  return rowsConsumed < rows.length
     ? { preserved, tornFrom: base + preserved.length }
     : { preserved }
 }
