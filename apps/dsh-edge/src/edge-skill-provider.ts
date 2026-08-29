@@ -32,7 +32,7 @@ export const inject = ['skills']
 
 export function apply(ctx: Context, config: EdgeSkillProviderConfig): void {
   const { storage } = config
-  ctx.skills.registerProvider((_control: SkillProviderControl): SkillProvider => ({
+  ctx.effect(() => ctx.skills.registerProvider((_control: SkillProviderControl): SkillProvider => ({
     name: PROVIDER_NAME,
 
     async list(_options: SkillLookupOptions): Promise<readonly SkillCandidate[]> {
@@ -62,7 +62,7 @@ export function apply(ctx: Context, config: EdgeSkillProviderConfig): void {
         ...(stored.metadata !== undefined ? { metadata: stored.metadata } : {}),
       }
     },
-  }))
+  })))
 }
 
 function toCandidate(stored: StoredSkill): SkillCandidate {
