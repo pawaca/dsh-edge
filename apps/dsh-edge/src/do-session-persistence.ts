@@ -1284,7 +1284,8 @@ function scanRows(
       }
       break
     }
-    const firstSeq = candidate.events[0]?.seq ?? nextSeq
+    const filtered = candidate.events.filter(e => e.seq >= base)
+    const firstSeq = filtered[0]?.seq ?? nextSeq
     if (firstSeq !== nextSeq) {
       if (firstSeq <= lastTurnEnd) {
         throw new Error(
@@ -1293,8 +1294,8 @@ function scanRows(
       }
       break
     }
-    preserved.push(...candidate.events)
-    nextSeq = firstSeq + candidate.events.length
+    preserved.push(...filtered)
+    nextSeq = (candidate.events[0]?.seq ?? nextSeq) + candidate.events.length
     rowsConsumed++
   }
   return rowsConsumed < rows.length
