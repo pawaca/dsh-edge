@@ -103,6 +103,7 @@ interface EdgeSessionStoreConfig {
   reasoningEffort?: string
   streamIdleTimeoutMs?: string
   onLateSessionEvent?: (sessionId: SessionId, event: SessionEvent) => void
+  onProjectionChanged?: (sessionId: SessionId, key: string, value: unknown, seq: number) => void
   waitUntil?: (promise: Promise<unknown>) => void
 }
 const MAX_FORK_STORED_BYTES = 8 * 1_024 * 1_024
@@ -305,6 +306,12 @@ export class EdgeSessionStore {
           console.error('dsh-edge: failed to flush late session event.', error)
         })
         keepAlive?.(delivery)
+      })
+    }
+    if (config.onProjectionChanged !== undefined) {
+      const projectionCallback = config.onProjectionChanged
+      this.context.sessionProjections.onChanged((session, key, value, seq) => {
+        projectionCallback(session.id, key, value, seq)
       })
     }
   }

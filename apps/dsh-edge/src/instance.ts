@@ -230,13 +230,22 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       onLateSessionEvent: (sessionId, event) => {
         this.publishSessionEvent(sessionId, event)
       },
+      onProjectionChanged: (sessionId, key, value, seq) => {
+        if (key === 'title' || key === 'sessionListMetadata') return
+        let queue = this.pendingProjections.get(sessionId)
+        if (queue === undefined) {
+          queue = []
+          this.pendingProjections.set(sessionId, queue)
+        }
+        queue.push({ key, value, seq })
+      },
       waitUntil: promise => this.ctx.waitUntil(promise),
     },
   )
   private readonly model = resolveEdgeModel(this.env.DEEPSEEK_MODEL)
   private readonly activeTurns = new Map<SessionId, ActiveTurn>()
   private readonly sessionListMetadata = new Map<SessionId, SessionListMetadata>()
-  private readonly lastProjectionValues = new Map<SessionId, Map<string, unknown>>()
+  private readonly pendingProjections = new Map<SessionId, { key: string; value: unknown; seq: number }[]>()
   private readonly api = createEdgeApi({
     sessions: this.sessions,
     model: this.model,
@@ -525,23 +534,18 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         seq: event.seq,
       })
     }
-    this.publishProjectionDiff(sessionId, event.seq)
-  }
-
-  private publishProjectionDiff(sessionId: SessionId, seq: number): void {
-    const snapshot = this.sessions.projectionSnapshot(sessionId)
-    if (snapshot === undefined) return
-    let cache = this.lastProjectionValues.get(sessionId)
-    if (cache === undefined) {
-      cache = new Map()
-      this.lastProjectionValues.set(sessionId, cache)
-    }
-    for (const [key, value] of Object.entries(snapshot.values)) {
-      if (key === 'title' || key === 'sessionListMetadata') continue
-      const prev = cache.get(key)
-      if (prev !== undefined && JSON.stringify(prev) === JSON.stringify(value)) continue
-      cache.set(key, value)
-      this.broadcast('mux', { type: 'session/projection', sessionId, key, value, seq })
+    const pending = this.pendingProjections.get(sessionId)
+    if (pending !== undefined && pending.length > 0) {
+      this.pendingProjections.set(sessionId, [])
+      for (const entry of pending) {
+        this.broadcast('mux', {
+          type: 'session/projection',
+          sessionId,
+          key: entry.key,
+          value: entry.value,
+          seq: entry.seq,
+        })
+      }
     }
   }
 
