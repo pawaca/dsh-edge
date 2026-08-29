@@ -77,7 +77,7 @@ mkdir -p ../dsh-edge-worktrees
 git worktree add ../dsh-edge-worktrees/<slug> -b <branch> main
 cd ../dsh-edge-worktrees/<slug>
 pnpm install
-pnpm --dir apps/dsh-edge/standalone install
+pnpm --dir apps/dsh-edge/standalone install --frozen-lockfile
 ```
 
 - After a PR is merged, clean up completely — worktree directory, local branch, and remote branch:
@@ -85,10 +85,10 @@ pnpm --dir apps/dsh-edge/standalone install
 ```sh
 cd /path/to/dsh-edge                                     # return to primary checkout
 git worktree remove ../dsh-edge-worktrees/<slug>          # 1. remove worktree
-git branch -d <branch>                                    # 2. delete local branch
+git branch -D <branch>                                    # 2. delete local branch (-D for squash-merged PRs)
 git push origin --delete <branch>                         # 3. delete remote branch (skip if GitHub auto-delete is on)
 git pull                                                  # 4. sync main
 ```
 
-- Automated tools may create worktrees under `.claude/worktrees/`. If not auto-cleaned, apply the same three-step removal. Unlock first if locked: `git worktree unlock <path>`, then `git worktree remove <path> --force`.
+- Automated tools may create worktrees under `.claude/worktrees/`. If not auto-cleaned, verify the worktree is clean or its PR was merged before removing. Unlock if locked: `git worktree unlock <path>`, then `git worktree remove <path>`.
 - Before starting a new iteration, verify a clean state: `git worktree list` shows only the primary checkout, `git branch --show-current` returns `main`, and `git branch --merged main | grep -v main` is empty.
