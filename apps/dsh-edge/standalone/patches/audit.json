@@ -20,6 +20,11 @@
     "removeWhen": "The published DeepSeek search provider preserves no-follow redirect behavior with a fetch mode that passes the Edge Worker integration suite."
   },
   {
+    "package": "@deepseek-ai/dsh-sandbox",
+    "rationale": "Remove node:fs realpathSync and node:os tmpdir imports that are incompatible with Cloudflare Workers. canonicalPath returns path directly (VFS has no symlinks), writableRoots omits tmpdir.",
+    "removeWhen": "The published sandbox package conditionally imports node:fs/node:os or exposes the utility functions (canonicalPath, escalation markers) from a separate Node-free entry point."
+  },
+  {
     "package": "@deepseek-ai/dsh-workspace",
     "rationale": "Remove node:fs/promises realpath and stat calls that are incompatible with Cloudflare Workers. Edge VFS has no symlinks and Computer guarantees path validity.",
     "removeWhen": "The published workspace registry accepts an injectable path normalizer or the realpath/stat calls are gated behind a platform check."
