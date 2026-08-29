@@ -536,8 +536,10 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     }
     const pending = this.pendingProjections.get(sessionId)
     if (pending !== undefined && pending.length > 0) {
-      this.pendingProjections.set(sessionId, [])
-      for (const entry of pending) {
+      const ready = pending.filter(e => e.seq <= event.seq)
+      const remaining = pending.filter(e => e.seq > event.seq)
+      this.pendingProjections.set(sessionId, remaining)
+      for (const entry of ready) {
         this.broadcast('mux', {
           type: 'session/projection',
           sessionId,
