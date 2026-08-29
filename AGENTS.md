@@ -66,3 +66,29 @@ Every version published to npm must also have a matching GitHub Release and git 
 The workflow can also be triggered manually via `request-release.yml` (workflow_dispatch) or `repository_dispatch` as a fallback. Prerelease versions (containing `-`) are published to the `next` npm dist-tag and marked as GitHub prerelease.
 
 Stage, commit, push, PR creation, review replies, thread resolution, releases, tags, npm publication, and Cloudflare deployment require the corresponding user authorization.
+
+## Git and worktree hygiene
+
+- The primary checkout stays on `main`. Use it only for pulling, global builds, and small documentation edits that do not need a PR.
+- All feature, fix, and release work happens in an isolated worktree:
+
+```sh
+mkdir -p ../dsh-edge-worktrees
+git worktree add ../dsh-edge-worktrees/<slug> -b <branch> main
+cd ../dsh-edge-worktrees/<slug>
+pnpm install
+pnpm --dir apps/dsh-edge/standalone install
+```
+
+- After a PR is merged, clean up completely — worktree directory, local branch, and remote branch:
+
+```sh
+cd /path/to/dsh-edge                                     # return to primary checkout
+git worktree remove ../dsh-edge-worktrees/<slug>          # 1. remove worktree
+git branch -d <branch>                                    # 2. delete local branch
+git push origin --delete <branch>                         # 3. delete remote branch (skip if GitHub auto-delete is on)
+git pull                                                  # 4. sync main
+```
+
+- Automated tools may create worktrees under `.claude/worktrees/`. If not auto-cleaned, apply the same three-step removal. Unlock first if locked: `git worktree unlock <path>`, then `git worktree remove <path> --force`.
+- Before starting a new iteration, verify a clean state: `git worktree list` shows only the primary checkout, `git branch --show-current` returns `main`, and `git branch --merged main | grep -v main` is empty.
