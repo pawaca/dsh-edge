@@ -226,6 +226,22 @@ Use goal tools for one long-running completion objective in the current session.
               },
             },
             {
+              "description": "Load the full instructions for an available skill. Call this with the exact skill name from the session skill catalog before acting on a task that names or clearly matches that skill.",
+              "name": "skill",
+              "parameters": {
+                "properties": {
+                  "name": {
+                    "description": "The exact skill name from the available skills list.",
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "name",
+                ],
+                "type": "object",
+              },
+            },
+            {
               "description": "Update the exact current goal revision. edit, pause, and resume require a direct top-level human request. During an automatic continuation of the current goal, complete and blocked are also allowed. blocked is rejected before the configured minimum round count; the model remains responsible for judging that the same condition persisted across those rounds and must explain it in blocked_reason.",
               "name": "update_goal",
               "parameters": {
@@ -659,6 +675,22 @@ Use goal tools for one long-running completion objective in the current session.
                 },
                 "required": [
                   "file_path",
+                ],
+                "type": "object",
+              },
+            },
+            {
+              "description": "Load the full instructions for an available skill. Call this with the exact skill name from the session skill catalog before acting on a task that names or clearly matches that skill.",
+              "name": "skill",
+              "parameters": {
+                "properties": {
+                  "name": {
+                    "description": "The exact skill name from the available skills list.",
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "name",
                 ],
                 "type": "object",
               },
@@ -1134,6 +1166,22 @@ Use goal tools for one long-running completion objective in the current session.
               },
             },
             {
+              "description": "Load the full instructions for an available skill. Call this with the exact skill name from the session skill catalog before acting on a task that names or clearly matches that skill.",
+              "name": "skill",
+              "parameters": {
+                "properties": {
+                  "name": {
+                    "description": "The exact skill name from the available skills list.",
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "name",
+                ],
+                "type": "object",
+              },
+            },
+            {
               "description": "Update the exact current goal revision. edit, pause, and resume require a direct top-level human request. During an automatic continuation of the current goal, complete and blocked are also allowed. blocked is rejected before the configured minimum round count; the model remains responsible for judging that the same condition persisted across those rounds and must explain it in blocked_reason.",
               "name": "update_goal",
               "parameters": {
@@ -1572,6 +1620,22 @@ Use goal tools for one long-running completion objective in the current session.
               },
             },
             {
+              "description": "Load the full instructions for an available skill. Call this with the exact skill name from the session skill catalog before acting on a task that names or clearly matches that skill.",
+              "name": "skill",
+              "parameters": {
+                "properties": {
+                  "name": {
+                    "description": "The exact skill name from the available skills list.",
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "name",
+                ],
+                "type": "object",
+              },
+            },
+            {
               "description": "Update the exact current goal revision. edit, pause, and resume require a direct top-level human request. During an automatic continuation of the current goal, complete and blocked are also allowed. blocked is rejected before the configured minimum round count; the model remains responsible for judging that the same condition persisted across those rounds and must explain it in blocked_reason.",
               "name": "update_goal",
               "parameters": {
@@ -1979,6 +2043,25 @@ Use goal tools for one long-running completion objective in the current session.
         },
         {
           "function": {
+            "description": "Load the full instructions for an available skill. Call this with the exact skill name from the session skill catalog before acting on a task that names or clearly matches that skill.",
+            "name": "skill",
+            "parameters": {
+              "properties": {
+                "name": {
+                  "description": "The exact skill name from the available skills list.",
+                  "type": "string",
+                },
+              },
+              "required": [
+                "name",
+              ],
+              "type": "object",
+            },
+          },
+          "type": "function",
+        },
+        {
+          "function": {
             "description": "Update the exact current goal revision. edit, pause, and resume require a direct top-level human request. During an automatic continuation of the current goal, complete and blocked are also allowed. blocked is rejected before the configured minimum round count; the model remains responsible for judging that the same condition persisted across those rounds and must explain it in blocked_reason.",
             "name": "update_goal",
             "parameters": {
@@ -2265,6 +2348,25 @@ Use goal tools for one long-running completion objective in the current session.
               },
               "required": [
                 "file_path",
+              ],
+              "type": "object",
+            },
+          },
+          "type": "function",
+        },
+        {
+          "function": {
+            "description": "Load the full instructions for an available skill. Call this with the exact skill name from the session skill catalog before acting on a task that names or clearly matches that skill.",
+            "name": "skill",
+            "parameters": {
+              "properties": {
+                "name": {
+                  "description": "The exact skill name from the available skills list.",
+                  "type": "string",
+                },
+              },
+              "required": [
+                "name",
               ],
               "type": "object",
             },

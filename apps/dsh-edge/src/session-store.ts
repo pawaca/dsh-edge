@@ -56,9 +56,12 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as ToolGoal from '@deepseek-ai/dsh-tool-goal'
+import * as ToolSkill from '@deepseek-ai/dsh-tool-skill'
 import * as GoalRoundDriver from '@deepseek-ai/dsh-goal-round-driver'
 import GoalService from '@deepseek-ai/dsh-goal'
+import SkillRegistry from '@deepseek-ai/dsh-skill'
 import { EdgeFileSystem } from './edge-filesystem.ts'
+import * as EdgeSkillProvider from './edge-skill-provider.ts'
 import {
   EDGE_SYSTEM_PROMPT,
   EdgeShellBindings,
@@ -264,7 +267,10 @@ export class EdgeSessionStore {
     await this.context.plugin(EdgeVfsSpillStore)
     await this.context.plugin(EdgeFileSystem)
     await this.context.plugin(ToolRuntime)
+    await this.context.plugin(SkillRegistry)
+    await this.context.plugin(EdgeSkillProvider, { storage })
     await this.context.plugin(ToolFs)
+    await this.context.plugin(ToolSkill)
     await this.context.plugin(GoalService)
     await this.context.plugin(ToolGoal)
     await this.context.plugin(GoalRoundDriver)
