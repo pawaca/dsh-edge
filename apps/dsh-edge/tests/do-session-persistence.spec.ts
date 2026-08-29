@@ -725,3 +725,168 @@ describe('durable-object bounded event pages', () => {
 function isEventPayloadQuery(query: string): boolean {
   return /SELECT seq, type, time, data, source_event_seqs, surface_op, ignorable/u.test(query)
 }
+
+describe('chunk repack on initialization', () => {
+  function chunkEvent(seq: number, turn: number, step: number, chunkType: string, extra: Record<string, unknown> = {}): SessionEvent {
+    return {
+      type: 'assistant/chunk',
+      seq,
+      time: 1000 + seq,
+      data: { turn, step, chunk: { type: chunkType, index: 0, ...extra } },
+    } as SessionEvent
+  }
+
+  it('packs consecutive text-delta chunks on boot', async () => {
+    const storage = new TestDurableObjectStorage()
+    // First boot: create schema + session
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const id = SessionId('repack-text-deltas')
+    const header: SessionHeader = { id, version: SESSION_FORMAT_VERSION, createdAt: 1 }
+    const fiber = await ctx.plugin(DurableObjectSessionPersistence, { storage: storage as never })
+    const persistence = ctx.sessionPersistence as DurableObjectSessionPersistence
+    try {
+      await persistence.create(header)
+      // Simulate legacy data by inserting unpacked chunks directly into SQL
+      await persistence.append(id, [
+        { type: 'turn/start', seq: 0, time: 1000, data: { turn: 1 } } as SessionEvent,
+        { type: 'step/start', seq: 1, time: 1000, data: { turn: 1, step: 1 } } as SessionEvent,
+      ])
+      // Insert raw assistant/chunk rows to simulate pre-packing data
+      for (const chunk of [
+        chunkEvent(2, 1, 1, 'text-delta', { text: 'hello' }),
+        chunkEvent(3, 1, 1, 'text-delta', { text: ' world' }),
+        chunkEvent(4, 1, 1, 'text-delta', { text: '!' }),
+        chunkEvent(5, 1, 1, 'text-delta', { text: ' How' }),
+      ]) {
+        storage.sql.exec(
+          `INSERT INTO dsh_session_events (session_id, seq, type, time, data) VALUES (?, ?, ?, ?, ?)`,
+          id, chunk.seq, chunk.type, chunk.time, JSON.stringify(chunk.data),
+        )
+      }
+      storage.sql.exec(
+        `INSERT INTO dsh_session_events (session_id, seq, type, time, data) VALUES (?, ?, ?, ?, ?)`,
+        id, 6, 'turn/end', 1006, JSON.stringify({ turn: 1, reason: { kind: 'done' } }),
+      )
+      storage.sql.exec('UPDATE dsh_sessions SET revision = revision + 1 WHERE id = ?', id)
+      await fiber.dispose()
+
+      const beforeChunks = storage.sql.exec<{ cnt: number }>(
+        `SELECT COUNT(*) as cnt FROM dsh_session_events WHERE session_id = ? AND type = 'assistant/chunk'`, id,
+      ).toArray()[0]!.cnt
+      expect(beforeChunks).toBe(4)
+
+      // Second boot: repack should compress the legacy chunks
+      const ctx2 = new Context()
+      await ctx2.plugin(SessionStore)
+      const fiber2 = await ctx2.plugin(DurableObjectSessionPersistence, { storage: storage as never })
+      try {
+        const afterChunks = storage.sql.exec<{ cnt: number }>(
+          `SELECT COUNT(*) as cnt FROM dsh_session_events WHERE session_id = ? AND type = 'assistant/chunk'`, id,
+        ).toArray()[0]!.cnt
+        expect(afterChunks).toBe(0)
+        const packedRows = storage.sql.exec<{ cnt: number }>(
+          `SELECT COUNT(*) as cnt FROM dsh_session_events WHERE session_id = ? AND type = 'text-chunks'`, id,
+        ).toArray()[0]!.cnt
+        expect(packedRows).toBe(1)
+      } finally {
+        await fiber2.dispose()
+      }
+    } finally {
+      storage.close()
+    }
+  })
+
+  it('skips sessions with only isolated non-classifiable chunks', async () => {
+    const storage = new TestDurableObjectStorage()
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const id = SessionId('repack-block-starts')
+    const header: SessionHeader = { id, version: SESSION_FORMAT_VERSION, createdAt: 1 }
+    const fiber = await ctx.plugin(DurableObjectSessionPersistence, { storage: storage as never })
+    const persistence = ctx.sessionPersistence as DurableObjectSessionPersistence
+    try {
+      await persistence.create(header)
+      await persistence.append(id, [
+        { type: 'turn/start', seq: 0, time: 1000, data: { turn: 1 } } as SessionEvent,
+        { type: 'step/start', seq: 1, time: 1000, data: { turn: 1, step: 1 } } as SessionEvent,
+        chunkEvent(2, 1, 1, 'block-start', { blockType: 'reasoning' }),
+        { type: 'step/end', seq: 3, time: 1003, data: { turn: 1, step: 1 } } as SessionEvent,
+        { type: 'turn/end', seq: 4, time: 1004, data: { turn: 1, reason: { kind: 'interrupted' } } } as SessionEvent,
+      ])
+      await fiber.dispose()
+
+      const beforeRows = storage.sql.exec<{ cnt: number }>(
+        'SELECT COUNT(*) as cnt FROM dsh_session_events WHERE session_id = ?', id,
+      ).toArray()[0]!.cnt
+
+      const ctx2 = new Context()
+      await ctx2.plugin(SessionStore)
+      const fiber2 = await ctx2.plugin(DurableObjectSessionPersistence, { storage: storage as never })
+      try {
+        const afterRows = storage.sql.exec<{ cnt: number }>(
+          'SELECT COUNT(*) as cnt FROM dsh_session_events WHERE session_id = ?', id,
+        ).toArray()[0]!.cnt
+        expect(afterRows).toBe(beforeRows)
+      } finally {
+        await fiber2.dispose()
+      }
+    } finally {
+      storage.close()
+    }
+  })
+
+  it('preserves data when repack insert fails (SAVEPOINT rollback)', async () => {
+    const storage = new TestDurableObjectStorage()
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const id = SessionId('repack-insert-failure')
+    const header: SessionHeader = { id, version: SESSION_FORMAT_VERSION, createdAt: 1 }
+    const fiber = await ctx.plugin(DurableObjectSessionPersistence, { storage: storage as never })
+    const persistence = ctx.sessionPersistence as DurableObjectSessionPersistence
+    try {
+      await persistence.create(header)
+      await persistence.append(id, [
+        { type: 'turn/start', seq: 0, time: 1000, data: { turn: 1 } } as SessionEvent,
+        { type: 'step/start', seq: 1, time: 1000, data: { turn: 1, step: 1 } } as SessionEvent,
+      ])
+      // Insert raw chunks to simulate legacy data
+      for (const chunk of [
+        chunkEvent(2, 1, 1, 'text-delta', { text: 'a' }),
+        chunkEvent(3, 1, 1, 'text-delta', { text: 'b' }),
+        chunkEvent(4, 1, 1, 'text-delta', { text: 'c' }),
+      ]) {
+        storage.sql.exec(
+          `INSERT INTO dsh_session_events (session_id, seq, type, time, data) VALUES (?, ?, ?, ?, ?)`,
+          id, chunk.seq, chunk.type, chunk.time, JSON.stringify(chunk.data),
+        )
+      }
+      storage.sql.exec(
+        `INSERT INTO dsh_session_events (session_id, seq, type, time, data) VALUES (?, ?, ?, ?, ?)`,
+        id, 5, 'turn/end', 1005, JSON.stringify({ turn: 1, reason: { kind: 'done' } }),
+      )
+      storage.sql.exec('UPDATE dsh_sessions SET revision = revision + 1 WHERE id = ?', id)
+      await fiber.dispose()
+
+      const beforeRows = storage.sql.exec<{ cnt: number }>(
+        'SELECT COUNT(*) as cnt FROM dsh_session_events WHERE session_id = ?', id,
+      ).toArray()[0]!.cnt
+      expect(beforeRows).toBe(6)
+
+      storage.failNextEventInsert()
+      const ctx2 = new Context()
+      await ctx2.plugin(SessionStore)
+      const fiber2 = await ctx2.plugin(DurableObjectSessionPersistence, { storage: storage as never })
+      try {
+        const afterRows = storage.sql.exec<{ cnt: number }>(
+          'SELECT COUNT(*) as cnt FROM dsh_session_events WHERE session_id = ?', id,
+        ).toArray()[0]!.cnt
+        expect(afterRows).toBe(beforeRows)
+      } finally {
+        await fiber2.dispose()
+      }
+    } finally {
+      storage.close()
+    }
+  })
+})

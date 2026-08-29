@@ -456,7 +456,7 @@ export class DurableObjectSessionPersistence
       this.storage.transactionSync(() => {
         if (!isMaterialized) this.writeRow(meta)
         const packed = packChunkRuns(events as SessionEvent[])
-        for (const record of packed) this.insertEvent(meta.id, record as SessionEvent)
+        for (const record of packed) this.insertStorageRecord(meta.id, record)
         const updated = this.storage.sql.exec(
           'UPDATE dsh_sessions SET revision = revision + 1 WHERE id = ?',
           meta.id,
@@ -689,7 +689,7 @@ export class DurableObjectSessionPersistence
 
   private initialize(): string {
     this.storage.sql.exec('PRAGMA foreign_keys = ON')
-    return this.storage.transactionSync(() => {
+    const identity = this.storage.transactionSync(() => {
       this.storage.sql.exec(`CREATE TABLE IF NOT EXISTS dsh_session_persistence_state (
         singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
         schema_version INTEGER NOT NULL,
@@ -761,9 +761,10 @@ export class DurableObjectSessionPersistence
         title_data TEXT
       ) STRICT`)
       this.syncSummaries()
-      this.repackExistingChunks()
       return `durable-object:store:${storeId}`
     })
+    this.repackExistingChunks()
+    return identity
   }
 
   private repackExistingChunks(): void {
@@ -775,7 +776,8 @@ export class DurableObjectSessionPersistence
       try {
         this.repackOneSession(candidate.id as SessionId)
       } catch (error) {
-        console.error(`dsh-edge: repack failed for session ${candidate.id}`, error)
+        const msg = error instanceof Error ? error.message : String(error)
+        console.error(`dsh-edge: repack failed for session ${candidate.id}: ${msg}`)
       }
     }
   }
@@ -788,23 +790,16 @@ export class DurableObjectSessionPersistence
     ).toArray()
     const events = rows.flatMap(row => rowToEvents(row))
     const packed = packChunkRuns(events)
-    if (packed.length >= rows.length) {
-      // Can't shrink — convert remaining raw chunks to prevent re-selection.
-      // Delete only the assistant/chunk rows and re-insert them as-is (they'll
-      // keep their type but won't match the LIMIT query after packing converts
-      // runs of 3+ into packed rows; isolated chunks stay as-is).
-      // Since packChunkRuns already returned the same count, there's nothing
-      // to do — mark progress by updating one chunk's type won't help.
-      // Instead, just return; the LIMIT 5 loop processes other sessions.
-      return
-    }
-    this.storage.sql.exec(
-      'DELETE FROM dsh_session_events WHERE session_id = ?',
-      id,
-    )
-    for (const record of packed) {
-      this.insertEvent(id, record as SessionEvent)
-    }
+    if (packed.length >= rows.length) return
+    this.storage.transactionSync(() => {
+      this.storage.sql.exec(
+        'DELETE FROM dsh_session_events WHERE session_id = ?',
+        id,
+      )
+      for (const record of packed) {
+        this.insertStorageRecord(id, record)
+      }
+    })
   }
 
   private syncSummaries(): void {
@@ -1051,6 +1046,25 @@ export class DurableObjectSessionPersistence
       envelope.sourceEventSeqs === undefined ? null : JSON.stringify(envelope.sourceEventSeqs),
       envelope.surfaceOp === undefined ? null : JSON.stringify(envelope.surfaceOp),
       event.ignorable === true ? 1 : null,
+    )
+  }
+
+  private insertStorageRecord(id: SessionId, record: Record<string, unknown>): void {
+    const seq = (record.seq ?? record.seq0) as number
+    const time = (record.time ?? record.time0) as number
+    const type = record.type as string
+    this.storage.sql.exec(
+      `INSERT INTO dsh_session_events
+        (session_id, seq, type, time, data, source_event_seqs, surface_op, ignorable)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      id,
+      seq,
+      type,
+      time,
+      JSON.stringify(record.data),
+      record.sourceEventSeqs === undefined ? null : JSON.stringify(record.sourceEventSeqs),
+      record.surfaceOp === undefined ? null : JSON.stringify(record.surfaceOp),
+      record.ignorable === true ? 1 : null,
     )
   }
 
