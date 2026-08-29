@@ -230,7 +230,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
             events: entries,
             hasMore: page.hasMore,
             ...beforeSeq === undefined
-              ? { projections: summaryProjections(page.summary, runtime.imageLimits) }
+              ? { projections: summaryProjections(page.summary, runtime.imageLimits, runtime.sessions.projectionSnapshot(sessionId)?.values) }
               : {},
           })
         } catch (error) {
@@ -940,17 +940,19 @@ function sessionSummary(
     ...summary.origin === undefined ? {} : { origin: summary.origin },
     ...summary.cwd === undefined ? {} : { cwd: summary.cwd },
     ...summary.agentPreset === undefined ? {} : { agentPreset: summary.agentPreset },
-    projections: summaryProjections(summary, runtime.imageLimits),
+    projections: summaryProjections(summary, runtime.imageLimits, runtime.sessions.projectionSnapshot(summary.id)?.values),
   }
 }
 
 function summaryProjections(
   summary: EdgeApiSessionSummary,
-  imageLimits?: ImageAttachmentLimits,
+  imageLimits: ImageAttachmentLimits | undefined,
+  registrySnapshot: Record<string, unknown> | undefined,
 ): SessionProjectionsBlock {
   return {
     asOfSeq: summary.lastSeq,
     values: {
+      ...registrySnapshot,
       sessionListMetadata: {
         blank: summary.blank,
         lastPromptAt: summary.lastPromptAt,

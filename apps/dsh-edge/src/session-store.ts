@@ -103,7 +103,6 @@ interface EdgeSessionStoreConfig {
   reasoningEffort?: string
   streamIdleTimeoutMs?: string
   onLateSessionEvent?: (sessionId: SessionId, event: SessionEvent) => void
-  onProjectionChanged?: (sessionId: SessionId, key: string, value: unknown, seq: number) => void
   waitUntil?: (promise: Promise<unknown>) => void
 }
 const MAX_FORK_STORED_BYTES = 8 * 1_024 * 1_024
@@ -308,12 +307,6 @@ export class EdgeSessionStore {
         keepAlive?.(delivery)
       })
     }
-    if (config.onProjectionChanged !== undefined) {
-      const projectionCallback = config.onProjectionChanged
-      this.context.sessionProjections.onChanged((session, key, value, seq) => {
-        projectionCallback(session.id, key, value, seq)
-      })
-    }
   }
 
   /** Resolve the upstream workspace registry after initialization. */
@@ -336,6 +329,12 @@ export class EdgeSessionStore {
   liveAgent(sessionId: SessionId): Agent | undefined {
     const { agents } = this.context
     return agents.get(sessionId)
+  }
+
+  projectionSnapshot(sessionId: SessionId): { asOfSeq: number; values: Record<string, unknown> } | undefined {
+    const agent = this.context.agents.get(sessionId)
+    if (agent === undefined) return undefined
+    return this.context.sessionProjections.snapshot(agent.session)
   }
 
   /** Resolve the optional upstream attachment service composed for this deployment. */
