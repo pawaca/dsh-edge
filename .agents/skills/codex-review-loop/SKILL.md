@@ -58,6 +58,8 @@ The hidden full-SHA marker binds the request and its reactions to one PR head. D
 
 ## Triage findings
 
+Automated review only sees the diff. It does not know the PR's motivation, the user's stated scope, actual data volumes, runtime constraints, or prior-round rejections. Its job is to find every possible problem, which makes it systematically biased toward risks that look plausible in isolation but do not apply at the actual scale or in the actual environment. Findings are candidate counterexamples, not established facts. P1/P2 labels reflect the reviewer's confidence in its own reasoning, not the probability that the problem exists. Do not enter a "fix what the reviewer says" loop — verify each claim's premise before choosing a disposition.
+
 Treat each finding as a technical claim. Confirm that it targets the current HEAD, its path is reachable, its stated impact is real, and it violates a requirement, security rule, data invariant, or documented decision. Judge the problem separately from the proposed repair and inspect sibling callers or lifecycle states that share the same assumption.
 
 Assign exactly one outcome:
@@ -70,9 +72,13 @@ Do not weaken assertions, hide errors, add speculative compatibility, or stack f
 
 Reply to inline findings in their threads. Reply to review-body findings in one top-level comment that links the review. State the outcome, evidence, affected family, validation, and commit when applicable; never reply only with “fixed.”
 
+When rebutting, include context the reviewer cannot see: the PR's stated motivation and scope boundary, actual data volumes or runtime measurements that invalidate the premise, user decisions made earlier in the conversation, and the history of prior-round rejections on the same family. The purpose is to give the reviewer enough information to calibrate its next round instead of re-finding the same family from a different angle.
+
 ## Enforce convergence
 
 Give each valid finding a stable problem-family label and retain family counts in the handled-state file. Record a review id in `actionableFindingRounds` only when its round contains at least one `fixed` or pending `user-decision` item; rebuttal-only rounds, waits, CI reruns, reactions, limits, and no-finding reviews do not count. Use the sensor's complete `finding_rounds` list to find unclassified rounds, not as the automatic-mutation budget by itself.
+
+The first `fixed` disposition in a family requires no special justification — the claim is valid, fix it. From the second occurrence onward, `fixed` carries the same evidence burden as `rebutted`: state the concrete premise that makes the claim correct (measurement, path trace, upper-bound calculation), and explain why the repair will not produce a new finding in the next round. If this evidence cannot be produced, the disposition is wrong — rebut, request user direction, or roll back the approach instead.
 
 - On the second occurrence of one family, stop local patching. State one invariant, audit every affected caller and lifecycle, and use one general repair with a family-level negative test.
 - On the third occurrence of one family, stop the current patching approach and perform a strategy reset. Continue autonomously only when an in-scope general replacement, rollback, split, scope reduction, or technical rebuttal is clearly safer and has family-level tests; otherwise request user direction.
