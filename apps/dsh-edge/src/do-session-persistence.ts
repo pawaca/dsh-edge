@@ -1,7 +1,11 @@
 /** Upstream SessionPersistence implemented over Cloudflare Durable Object SQL. */
 
 import { Context } from '@deepseek-ai/cordis'
-import { SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
+import {
+  SESSION_FORMAT_VERSION,
+  decodeStorageRecord,
+  packChunkRuns,
+} from '@deepseek-ai/dsh-session'
 import type {
   Session,
   SessionEvent,
@@ -87,12 +91,6 @@ export interface EdgeStoredModelSelection {
   provider: string
   model: string
   reasoningEffort?: string
-}
-
-interface EventSizeRow extends Record<string, SqlStorageValue> {
-  seq: number
-  stored_bytes: number
-  parseable: number
 }
 
 interface LastSequenceRow extends Record<string, SqlStorageValue> {
@@ -399,37 +397,21 @@ export class DurableObjectSessionPersistence
       const page = this.storage.transactionSync(() => {
         const row = this.rowFor(id)
         if (row === undefined) return undefined
-        const sizes = this.eventPageSizes(id, fromSeq, limit + 1, toSeqExclusive)
+        const sqlRows = this.eventRowRange(id, fromSeq, toSeqExclusive)
         const lastTurnEnd = this.lastCommittedSequence(id)
         const rows: EventRow[] = []
         let storedBytes = 0
+        let eventCount = 0
         let hasMore = false
-        for (const [index, size] of sizes.entries()) {
-          const expectedSeq = fromSeq + index
-          if (size.seq !== expectedSeq) {
-            if (size.seq <= lastTurnEnd) {
-              throw new Error(
-                `corrupt session log: seq gap in committed region (expected ${expectedSeq}, got ${size.seq})`,
-              )
-            }
-            break
-          }
-          if (size.parseable !== 1) {
-            if (size.seq <= lastTurnEnd) {
-              throw new Error(`corrupt session log: unparsable committed event at seq ${size.seq}`)
-            }
-            break
-          }
-          if (index >= limit || size.stored_bytes > maxStoredBytes - storedBytes) {
+        for (const row of sqlRows) {
+          const rowBytes = row.data.length
+          if (eventCount >= limit || rowBytes > maxStoredBytes - storedBytes) {
             hasMore = true
             break
           }
-          const eventRow = this.eventRow(id, size.seq)
-          if (eventRow === undefined) {
-            throw new Error(`stored session ${id} event ${size.seq} disappeared during replay`)
-          }
-          rows.push(eventRow)
-          storedBytes += size.stored_bytes
+          rows.push(row)
+          storedBytes += rowBytes
+          eventCount++
         }
         const events = scanRows(rows, fromSeq, lastTurnEnd).preserved
         return {
@@ -451,7 +433,8 @@ export class DurableObjectSessionPersistence
     return promiseFromSync(() => {
       this.storage.transactionSync(() => {
         if (!isMaterialized) this.writeRow(meta)
-        for (const event of events) this.insertEvent(meta.id, event)
+        const packed = packChunkRuns(events as SessionEvent[])
+        for (const record of packed) this.insertEvent(meta.id, record as SessionEvent)
         const updated = this.storage.sql.exec(
           'UPDATE dsh_sessions SET revision = revision + 1 WHERE id = ?',
           meta.id,
@@ -909,38 +892,26 @@ export class DurableObjectSessionPersistence
     ).toArray()
   }
 
-  private eventPageSizes(
+  private eventRowRange(
     id: SessionId,
     fromSeq: number,
-    limit: number,
     toSeqExclusive?: number,
-  ): EventSizeRow[] {
-    const upperClause = toSeqExclusive === undefined ? '' : ' AND seq < ?'
-    const bindings: SqlStorageValue[] = [id, fromSeq]
-    if (toSeqExclusive !== undefined) bindings.push(toSeqExclusive)
-    bindings.push(limit)
-    return this.storage.sql.exec<EventSizeRow>(
-      `SELECT seq,
-              length(CAST(type AS BLOB)) + length(CAST(data AS BLOB))
-                + coalesce(length(CAST(source_event_seqs AS BLOB)), 0)
-                + coalesce(length(CAST(surface_op AS BLOB)), 0) + 32 AS stored_bytes,
-              CASE WHEN json_valid(data)
-                AND (source_event_seqs IS NULL OR json_valid(source_event_seqs))
-                AND (surface_op IS NULL OR json_valid(surface_op))
-                THEN 1 ELSE 0 END AS parseable
-       FROM dsh_session_events
-       WHERE session_id = ? AND seq >= ?${upperClause} ORDER BY seq LIMIT ?`,
-      ...bindings,
-    ).toArray()
-  }
-
-  private eventRow(id: SessionId, seq: number): EventRow | undefined {
+  ): EventRow[] {
+    if (toSeqExclusive !== undefined) {
+      return this.storage.sql.exec<EventRow>(
+        `SELECT seq, type, time, data, source_event_seqs, surface_op, ignorable
+         FROM dsh_session_events WHERE session_id = ? AND seq >= ? AND seq < ? ORDER BY seq`,
+        id,
+        fromSeq,
+        toSeqExclusive,
+      ).toArray()
+    }
     return this.storage.sql.exec<EventRow>(
       `SELECT seq, type, time, data, source_event_seqs, surface_op, ignorable
-       FROM dsh_session_events WHERE session_id = ? AND seq = ?`,
+       FROM dsh_session_events WHERE session_id = ? AND seq >= ? ORDER BY seq`,
       id,
-      seq,
-    ).toArray()[0]
+      fromSeq,
+    ).toArray()
   }
 
   /** Find the newest parseable commit marker without materializing marker rows. */
@@ -1002,6 +973,47 @@ export class DurableObjectSessionPersistence
       event.ignorable === true ? 1 : null,
     )
   }
+
+  static repackChunks(storage: DurableObjectStorage): void {
+    if (storage.sql.exec<{ v: number }>(
+      `SELECT 1 AS v FROM dsh_session_events WHERE type = 'assistant/chunk' LIMIT 1`,
+    ).toArray().length === 0) return
+    const sessionIds = storage.sql.exec<{ id: string }>(
+      `SELECT DISTINCT session_id AS id FROM dsh_session_events WHERE type = 'assistant/chunk'`,
+    ).toArray().map(r => r.id)
+    for (const sessionId of sessionIds) {
+      storage.transactionSync(() => {
+        const rows = storage.sql.exec<EventRow>(
+          `SELECT seq, type, time, data, source_event_seqs, surface_op, ignorable
+           FROM dsh_session_events WHERE session_id = ? ORDER BY seq`,
+          sessionId,
+        ).toArray()
+        const events = rows.flatMap(row => rowToEvents(row))
+        const packed = packChunkRuns(events)
+        if (packed.length >= rows.length) return
+        storage.sql.exec(
+          'DELETE FROM dsh_session_events WHERE session_id = ?',
+          sessionId,
+        )
+        for (const record of packed) {
+          const e = record as SessionEvent & { sourceEventSeqs?: number[]; surfaceOp?: SurfaceOp }
+          storage.sql.exec(
+            `INSERT INTO dsh_session_events
+              (session_id, seq, type, time, data, source_event_seqs, surface_op, ignorable)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            sessionId,
+            e.seq,
+            e.type,
+            e.time,
+            JSON.stringify(e.data),
+            e.sourceEventSeqs === undefined ? null : JSON.stringify(e.sourceEventSeqs),
+            e.surfaceOp === undefined ? null : JSON.stringify(e.surfaceOp),
+            e.ignorable === true ? 1 : null,
+          )
+        }
+      })
+    }
+  }
 }
 
 function revisionOf(storeIdentity: string, row: HeaderRow): PersistenceRevision {
@@ -1049,9 +1061,9 @@ function blankRowToHeader(row: BlankSessionRow): SessionHeader {
   return header
 }
 
-function rowToEvent(row: EventRow): SessionEvent {
-  return {
-    type: row.type as SessionEvent['type'],
+function rowToEvents(row: EventRow): SessionEvent[] {
+  const record = {
+    type: row.type,
     seq: row.seq,
     time: row.time,
     data: JSON.parse(row.data) as SessionEvent['data'],
@@ -1062,7 +1074,8 @@ function rowToEvent(row: EventRow): SessionEvent {
       ? {}
       : { surfaceOp: JSON.parse(row.surface_op) as SurfaceOp },
     ...row.ignorable === 1 ? { ignorable: true as const } : {},
-  } as SessionEvent
+  }
+  return decodeStorageRecord(record) as SessionEvent[]
 }
 
 function historyGroupStart(row: HistoryBoundaryRow): number {
@@ -1221,9 +1234,9 @@ function scanRows(
   base = 0,
   committedThrough?: number,
 ): { preserved: SessionEvent[]; tornFrom?: number } {
-  const parsed = rows.map((row) => {
+  const decoded: Array<{ ok: true; events: SessionEvent[] } | { ok: false }> = rows.map((row) => {
     try {
-      return { ok: true as const, event: rowToEvent(row) }
+      return { ok: true as const, events: rowToEvents(row) }
     } catch {
       return { ok: false as const }
     }
@@ -1231,33 +1244,36 @@ function scanRows(
   let lastTurnEnd = committedThrough
   if (lastTurnEnd === undefined) {
     lastTurnEnd = -1
-    for (let index = parsed.length - 1; index >= 0; index -= 1) {
-      if (parsed[index]?.ok === true && rows[index]?.type === 'turn/end') {
+    for (let index = decoded.length - 1; index >= 0; index -= 1) {
+      if (decoded[index]?.ok === true && rows[index]?.type === 'turn/end') {
         lastTurnEnd = rows[index]?.seq ?? -1
         break
       }
     }
   }
   const preserved: SessionEvent[] = []
+  let nextSeq = base
   for (let index = 0; index < rows.length; index += 1) {
-    const candidate = parsed[index]
+    const candidate = decoded[index]
     if (candidate?.ok !== true) {
-      if ((rows[index]?.seq ?? base + index) <= lastTurnEnd) {
+      if ((rows[index]?.seq ?? nextSeq) <= lastTurnEnd) {
         throw new Error(`corrupt session log: unparsable committed event at seq ${rows[index]?.seq}`)
       }
       break
     }
-    if (candidate.event.seq !== base + index) {
-      if (candidate.event.seq <= lastTurnEnd) {
+    const firstSeq = candidate.events[0]?.seq ?? nextSeq
+    if (firstSeq !== nextSeq) {
+      if (firstSeq <= lastTurnEnd) {
         throw new Error(
-          `corrupt session log: seq gap in committed region (expected ${base + index}, got ${candidate.event.seq})`,
+          `corrupt session log: seq gap in committed region (expected ${nextSeq}, got ${firstSeq})`,
         )
       }
       break
     }
-    preserved.push(candidate.event)
+    preserved.push(...candidate.events)
+    nextSeq = firstSeq + candidate.events.length
   }
-  return preserved.length < rows.length
+  return preserved.length < rows.length || nextSeq !== base + preserved.length
     ? { preserved, tornFrom: base + preserved.length }
     : { preserved }
 }

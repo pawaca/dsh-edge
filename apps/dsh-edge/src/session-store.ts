@@ -261,6 +261,7 @@ export class EdgeSessionStore {
     await this.context.plugin(SpillPolicy, { maxInlineBytes: 32_768 })
     await this.context.plugin(AgentRegistry)
     await installEdgeWebSearch(this.context, config.searchBaseURL)
+    DurableObjectSessionPersistence.repackChunks(storage)
     await this.context.plugin(DurableObjectSessionPersistence, { storage })
     const workspaceWasInitialized = (await storage.get<{ initialized?: boolean }>(
       'dsh-kv:workspace:__global__',
