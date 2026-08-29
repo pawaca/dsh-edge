@@ -903,9 +903,8 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     using workspace = await getWorkspace(this)
     const spill = this.sessions.spillStore()
     spill?.bind(workspace.fs)
-    const fs = this.sessions.filesystem()
-    const releaseFs = fs?.bind(workspace.fs as never, input.agent.session.header.cwd ?? '/workspace')
-    try {
+    const edgeFs = this.sessions.filesystem()
+    const runTurn = async () => {
     await this.sessions.runAgentTurn({
       agent: input.agent,
       mode: input.mode,
@@ -932,9 +931,19 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       publish: input.publish,
       publishQueue: input.publishQueue,
     })
+    }
+    try {
+      if (edgeFs !== undefined) {
+        await edgeFs.runInScope(
+          workspace.fs as never,
+          input.agent.session.header.cwd ?? '/workspace',
+          runTurn,
+        )
+      } else {
+        await runTurn()
+      }
     } finally {
       spill?.unbind()
-      releaseFs?.()
     }
   }
 

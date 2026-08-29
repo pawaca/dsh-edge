@@ -1,5 +1,6 @@
 /** Computer VFS implementation of the upstream FileSystem service (`ctx.fs`). */
 
+import { AsyncLocalStorage } from 'node:async_hooks'
 import type { Context } from '@deepseek-ai/cordis'
 import {
   FileSystem,
@@ -83,31 +84,22 @@ function pathType(entry: { isFile: boolean; isDirectory: boolean; isSymbolicLink
 }
 
 export class EdgeFileSystem extends FileSystem {
-  private bindings = new Map<symbol, { vfs: EdgeVfs; cwd: string }>()
-  private activeBinding: symbol | undefined
+  private static storage = new AsyncLocalStorage<{ vfs: EdgeVfs; cwd: string }>()
 
   constructor(ctx: Context) {
     super(ctx)
   }
 
-  bind(vfs: EdgeVfs, cwd: string): () => void {
-    const key = Symbol('fs-binding')
-    this.bindings.set(key, { vfs, cwd })
-    this.activeBinding = key
-    return () => {
-      this.bindings.delete(key)
-      if (this.activeBinding === key) {
-        this.activeBinding = this.bindings.size > 0
-          ? [...this.bindings.keys()].at(-1)
-          : undefined
-      }
-    }
+  bind(_vfs: EdgeVfs, _cwd: string): () => void {
+    return () => { /* cleanup is handled by AsyncLocalStorage scope */ }
+  }
+
+  runInScope<T>(vfs: EdgeVfs, cwd: string, fn: () => Promise<T>): Promise<T> {
+    return EdgeFileSystem.storage.run({ vfs, cwd }, fn)
   }
 
   private requireBinding(): { vfs: EdgeVfs; cwd: string } {
-    const binding = this.activeBinding !== undefined
-      ? this.bindings.get(this.activeBinding)
-      : undefined
+    const binding = EdgeFileSystem.storage.getStore()
     if (binding === undefined) {
       throw new FsError(
         'File operations are only available during an active turn.',
