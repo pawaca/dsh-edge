@@ -83,28 +83,38 @@ function pathType(entry: { isFile: boolean; isDirectory: boolean; isSymbolicLink
 }
 
 export class EdgeFileSystem extends FileSystem {
-  private vfs: EdgeVfs | undefined
-  private cwd = '/workspace'
+  private bindings = new Map<symbol, { vfs: EdgeVfs; cwd: string }>()
+  private activeBinding: symbol | undefined
 
   constructor(ctx: Context) {
     super(ctx)
   }
 
   bind(vfs: EdgeVfs, cwd: string): () => void {
-    if (this.vfs !== undefined) throw new Error('dsh-edge: filesystem is already bound')
-    this.vfs = vfs
-    this.cwd = cwd
-    return () => { this.vfs = undefined }
+    const key = Symbol('fs-binding')
+    this.bindings.set(key, { vfs, cwd })
+    this.activeBinding = key
+    return () => {
+      this.bindings.delete(key)
+      if (this.activeBinding === key) {
+        this.activeBinding = this.bindings.size > 0
+          ? [...this.bindings.keys()].at(-1)
+          : undefined
+      }
+    }
   }
 
-  private require(): EdgeVfs {
-    if (this.vfs === undefined) {
+  private requireBinding(): { vfs: EdgeVfs; cwd: string } {
+    const binding = this.activeBinding !== undefined
+      ? this.bindings.get(this.activeBinding)
+      : undefined
+    if (binding === undefined) {
       throw new FsError(
         'File operations are only available during an active turn.',
         'FS_IO_ERROR',
       )
     }
-    return this.vfs
+    return binding
   }
 
   override get sandboxMode() { return undefined }
@@ -112,7 +122,8 @@ export class EdgeFileSystem extends FileSystem {
   async resolve(path: string, opts?: { cwd?: string; signal?: AbortSignal }): Promise<FsTarget> {
     if (opts?.signal?.aborted) throw new FsError('resolve aborted', 'FS_ABORTED')
     if (path.trim().length === 0) throw new FsError('file_path must be a non-empty string', 'FS_NOT_FOUND')
-    const resolved = resolvePath(opts?.cwd ?? this.cwd, path)
+    const binding = this.requireBinding()
+    const resolved = resolvePath(opts?.cwd ?? binding.cwd, path)
     return { targetKey: FsTargetKey(resolved), displayPath: resolved }
   }
 
@@ -132,7 +143,7 @@ export class EdgeFileSystem extends FileSystem {
 
   async stat(target: FsTarget, signal?: AbortSignal): Promise<FsInfo | undefined> {
     if (signal?.aborted) throw new FsError('stat aborted', 'FS_ABORTED')
-    const vfs = this.require()
+    const vfs = this.requireBinding().vfs
     try {
       const info = await vfs.stat(this.processPath(target))
       return {
@@ -148,8 +159,9 @@ export class EdgeFileSystem extends FileSystem {
   async lstat(path: string, opts?: { cwd?: string }, signal?: AbortSignal): Promise<FsPathInfo | undefined> {
     if (signal?.aborted) throw new FsError('lstat aborted', 'FS_ABORTED')
     if (path.trim().length === 0) throw new FsError('file_path must be a non-empty string', 'FS_NOT_FOUND')
-    const vfs = this.require()
-    const resolved = resolvePath(opts?.cwd ?? this.cwd, path)
+    const binding = this.requireBinding()
+    const resolved = resolvePath(opts?.cwd ?? binding.cwd, path)
+    const vfs = binding.vfs
     try {
       const info = await vfs.lstat(resolved)
       return {
@@ -164,11 +176,13 @@ export class EdgeFileSystem extends FileSystem {
 
   async readText(target: FsTarget, signal?: AbortSignal): Promise<string> {
     if (signal?.aborted) throw new FsError('readText aborted', 'FS_ABORTED')
-    const vfs = this.require()
+    const vfs = this.requireBinding().vfs
     const path = this.processPath(target)
     try {
       const content = await vfs.readFile(path, 'utf8')
-      this.ctx.emit('fs/observed', target, { kind: 'present', version: versionOf(Date.now(), content.length) }, undefined)
+      const info = await vfs.stat(path)
+      const version = versionOf(info.mtime, info.size)
+      this.ctx.emit('fs/observed', target, { kind: 'present', version }, undefined)
       return normalizeLineEndings(content)
     } catch (error) {
       throw new FsError(`cannot read "${target.displayPath}": ${error instanceof Error ? error.message : String(error)}`, 'FS_IO_ERROR', { cause: error })
@@ -182,7 +196,7 @@ export class EdgeFileSystem extends FileSystem {
 
   async readBytes(target: FsTarget, signal: AbortSignal | undefined, maxBytes: number): Promise<Uint8Array> {
     if (signal?.aborted) throw new FsError('readBytes aborted', 'FS_ABORTED')
-    const vfs = this.require()
+    const vfs = this.requireBinding().vfs
     const path = this.processPath(target)
     try {
       const stream = await (vfs as { readFile(p: string): Promise<ReadableStream<Uint8Array>> }).readFile(path)
@@ -211,7 +225,7 @@ export class EdgeFileSystem extends FileSystem {
 
   async listDir(target: FsTarget, signal?: AbortSignal): Promise<FsDirEntry[]> {
     if (signal?.aborted) throw new FsError('listDir aborted', 'FS_ABORTED')
-    const vfs = this.require()
+    const vfs = this.requireBinding().vfs
     const parentPath = this.processPath(target)
     try {
       const entries = await vfs.readdir(parentPath)
@@ -237,7 +251,7 @@ export class EdgeFileSystem extends FileSystem {
     signal?: AbortSignal,
   ): Promise<FsWriteOutcome> {
     if (signal?.aborted) throw new FsError('writeText aborted', 'FS_ABORTED')
-    const vfs = this.require()
+    const vfs = this.requireBinding().vfs
     const path = this.processPath(target)
     const existing = await this.stat(target)
     if (existing !== undefined && existing.type !== 'file') {
@@ -274,7 +288,7 @@ export class EdgeFileSystem extends FileSystem {
     signal?: AbortSignal,
   ): Promise<FsEditOutcome> {
     if (signal?.aborted) throw new FsError('editText aborted', 'FS_ABORTED')
-    const vfs = this.require()
+    const vfs = this.requireBinding().vfs
     const path = this.processPath(target)
     const existing = await this.stat(target)
     if (existing === undefined) throw new FsError(`cannot edit "${target.displayPath}": file not found`, 'FS_STALE_VERSION')
