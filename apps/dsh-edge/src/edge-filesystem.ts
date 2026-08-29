@@ -143,8 +143,9 @@ export class EdgeFileSystem extends FileSystem {
         type: entryType(info),
         size: info.size,
       }
-    } catch {
-      return undefined
+    } catch (error) {
+      if (error instanceof Error && 'code' in error && (error as { code: string }).code === 'ENOENT') return undefined
+      throw new FsError(`cannot stat "${target.displayPath}": ${error instanceof Error ? error.message : String(error)}`, 'FS_IO_ERROR', { cause: error })
     }
   }
 
@@ -161,8 +162,9 @@ export class EdgeFileSystem extends FileSystem {
         type: pathType(info),
         size: info.size,
       }
-    } catch {
-      return undefined
+    } catch (error) {
+      if (error instanceof Error && 'code' in error && (error as { code: string }).code === 'ENOENT') return undefined
+      throw new FsError(`cannot lstat "${path}": ${error instanceof Error ? error.message : String(error)}`, 'FS_IO_ERROR', { cause: error })
     }
   }
 

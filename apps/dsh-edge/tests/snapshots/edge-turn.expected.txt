@@ -88,6 +88,12 @@
 
 You are dsh-edge, a coding agent running in a Cloudflare Worker. Use the bash tool when you need to inspect or modify workspace files, then answer with the result. Each session has a persistent working directory that the bash tool defaults to. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
 
+Use the read tool — not shell commands like cat — to inspect text files. Results include line numbers. Use offset and limit to continue reading large files.
+
+Use the write tool to create files or completely replace file contents. Existing files are overwritten, so read an existing file first (the default fs-observation-policy requires it) and prefer edit for targeted changes.
+
+Use the edit tool for targeted changes to existing UTF-8 text files. It replaces literal old_string with new_string; by default old_string must appear exactly once. If old_string appears multiple times, provide a more specific old_string or set replace_all to true. Read the file first (the default fs-observation-policy requires it), unless you just created or edited it in this session.
+
 Use the web_search tool to discover current information on the web. The required queries array accepts 1–4 non-empty search queries; use a one-item array for a single search. It returns an optional answer plus a list of source URLs. Use the returned source snippets when available, and cite the relevant URLs as markdown links.",
           "tools": [
             {
@@ -120,6 +126,76 @@ Use the web_search tool to discover current information on the web. The required
               },
             },
             {
+              "description": "Edit an existing UTF-8 text file by replacing literal text.",
+              "name": "edit",
+              "parameters": {
+                "properties": {
+                  "file_path": {
+                    "description": "Path to edit, resolved by the filesystem backend.",
+                    "type": "string",
+                  },
+                  "new_string": {
+                    "description": "Literal replacement text. Use an empty string to delete the match.",
+                    "type": "string",
+                  },
+                  "old_string": {
+                    "description": "Literal text to replace. Must match exactly.",
+                    "type": "string",
+                  },
+                  "replace_all": {
+                    "description": "Replace all matches. Defaults to false; when false, old_string must appear exactly once.",
+                    "type": "boolean",
+                  },
+                },
+                "required": [
+                  "file_path",
+                  "old_string",
+                  "new_string",
+                ],
+                "type": "object",
+              },
+            },
+            {
+              "description": "Read a UTF-8 text file and return line-numbered content.",
+              "name": "read",
+              "parameters": {
+                "properties": {
+                  "file_path": {
+                    "description": "Path to read, resolved by the filesystem backend.",
+                    "type": "string",
+                  },
+                  "limit": {
+                    "description": "Maximum number of lines to return. Defaults to 2000.",
+                    "type": "number",
+                  },
+                  "offset": {
+                    "description": "1-based first line to return. Defaults to 1.",
+                    "type": "number",
+                  },
+                },
+                "required": [
+                  "file_path",
+                ],
+                "type": "object",
+              },
+            },
+            {
+              "description": "Read a PNG/JPEG/WebP/GIF file and return the image itself. Harness validates and downscales large supported images before the next model request, so use this tool directly instead of installing image libraries or creating thumbnails merely to inspect an image. Independent files may be read concurrently in small batches. Requires the current model to accept image input.",
+              "name": "read_image",
+              "parameters": {
+                "properties": {
+                  "file_path": {
+                    "description": "Path to the image file, resolved by the filesystem backend.",
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "file_path",
+                ],
+                "type": "object",
+              },
+            },
+            {
               "description": "Search the web for current information. Provide 1–4 queries in the required queries array. Returns an optional summary answer and a list of source URLs.",
               "name": "web_search",
               "parameters": {
@@ -134,6 +210,27 @@ Use the web_search tool to discover current information on the web. The required
                 },
                 "required": [
                   "queries",
+                ],
+                "type": "object",
+              },
+            },
+            {
+              "description": "Create or fully replace a UTF-8 text file.",
+              "name": "write",
+              "parameters": {
+                "properties": {
+                  "content": {
+                    "description": "Full UTF-8 text content to write.",
+                    "type": "string",
+                  },
+                  "file_path": {
+                    "description": "Path to write, resolved by the filesystem backend.",
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "file_path",
+                  "content",
                 ],
                 "type": "object",
               },
@@ -354,6 +451,12 @@ Use the web_search tool to discover current information on the web. The required
 
 You are dsh-edge, a coding agent running in a Cloudflare Worker. Use the bash tool when you need to inspect or modify workspace files, then answer with the result. Each session has a persistent working directory that the bash tool defaults to. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
 
+Use the read tool — not shell commands like cat — to inspect text files. Results include line numbers. Use offset and limit to continue reading large files.
+
+Use the write tool to create files or completely replace file contents. Existing files are overwritten, so read an existing file first (the default fs-observation-policy requires it) and prefer edit for targeted changes.
+
+Use the edit tool for targeted changes to existing UTF-8 text files. It replaces literal old_string with new_string; by default old_string must appear exactly once. If old_string appears multiple times, provide a more specific old_string or set replace_all to true. Read the file first (the default fs-observation-policy requires it), unless you just created or edited it in this session.
+
 Use the web_search tool to discover current information on the web. The required queries array accepts 1–4 non-empty search queries; use a one-item array for a single search. It returns an optional answer plus a list of source URLs. Use the returned source snippets when available, and cite the relevant URLs as markdown links.",
           "tools": [
             {
@@ -386,6 +489,76 @@ Use the web_search tool to discover current information on the web. The required
               },
             },
             {
+              "description": "Edit an existing UTF-8 text file by replacing literal text.",
+              "name": "edit",
+              "parameters": {
+                "properties": {
+                  "file_path": {
+                    "description": "Path to edit, resolved by the filesystem backend.",
+                    "type": "string",
+                  },
+                  "new_string": {
+                    "description": "Literal replacement text. Use an empty string to delete the match.",
+                    "type": "string",
+                  },
+                  "old_string": {
+                    "description": "Literal text to replace. Must match exactly.",
+                    "type": "string",
+                  },
+                  "replace_all": {
+                    "description": "Replace all matches. Defaults to false; when false, old_string must appear exactly once.",
+                    "type": "boolean",
+                  },
+                },
+                "required": [
+                  "file_path",
+                  "old_string",
+                  "new_string",
+                ],
+                "type": "object",
+              },
+            },
+            {
+              "description": "Read a UTF-8 text file and return line-numbered content.",
+              "name": "read",
+              "parameters": {
+                "properties": {
+                  "file_path": {
+                    "description": "Path to read, resolved by the filesystem backend.",
+                    "type": "string",
+                  },
+                  "limit": {
+                    "description": "Maximum number of lines to return. Defaults to 2000.",
+                    "type": "number",
+                  },
+                  "offset": {
+                    "description": "1-based first line to return. Defaults to 1.",
+                    "type": "number",
+                  },
+                },
+                "required": [
+                  "file_path",
+                ],
+                "type": "object",
+              },
+            },
+            {
+              "description": "Read a PNG/JPEG/WebP/GIF file and return the image itself. Harness validates and downscales large supported images before the next model request, so use this tool directly instead of installing image libraries or creating thumbnails merely to inspect an image. Independent files may be read concurrently in small batches. Requires the current model to accept image input.",
+              "name": "read_image",
+              "parameters": {
+                "properties": {
+                  "file_path": {
+                    "description": "Path to the image file, resolved by the filesystem backend.",
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "file_path",
+                ],
+                "type": "object",
+              },
+            },
+            {
               "description": "Search the web for current information. Provide 1–4 queries in the required queries array. Returns an optional summary answer and a list of source URLs.",
               "name": "web_search",
               "parameters": {
@@ -400,6 +573,27 @@ Use the web_search tool to discover current information on the web. The required
                 },
                 "required": [
                   "queries",
+                ],
+                "type": "object",
+              },
+            },
+            {
+              "description": "Create or fully replace a UTF-8 text file.",
+              "name": "write",
+              "parameters": {
+                "properties": {
+                  "content": {
+                    "description": "Full UTF-8 text content to write.",
+                    "type": "string",
+                  },
+                  "file_path": {
+                    "description": "Path to write, resolved by the filesystem backend.",
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "file_path",
+                  "content",
                 ],
                 "type": "object",
               },
@@ -652,6 +846,12 @@ Use the web_search tool to discover current information on the web. The required
 
 You are dsh-edge, a coding agent running in a Cloudflare Worker. Use the bash tool when you need to inspect or modify workspace files, then answer with the result. Each session has a persistent working directory that the bash tool defaults to. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
 
+Use the read tool — not shell commands like cat — to inspect text files. Results include line numbers. Use offset and limit to continue reading large files.
+
+Use the write tool to create files or completely replace file contents. Existing files are overwritten, so read an existing file first (the default fs-observation-policy requires it) and prefer edit for targeted changes.
+
+Use the edit tool for targeted changes to existing UTF-8 text files. It replaces literal old_string with new_string; by default old_string must appear exactly once. If old_string appears multiple times, provide a more specific old_string or set replace_all to true. Read the file first (the default fs-observation-policy requires it), unless you just created or edited it in this session.
+
 Use the web_search tool to discover current information on the web. The required queries array accepts 1–4 non-empty search queries; use a one-item array for a single search. It returns an optional answer plus a list of source URLs. Use the returned source snippets when available, and cite the relevant URLs as markdown links.",
           "tools": [
             {
@@ -684,6 +884,76 @@ Use the web_search tool to discover current information on the web. The required
               },
             },
             {
+              "description": "Edit an existing UTF-8 text file by replacing literal text.",
+              "name": "edit",
+              "parameters": {
+                "properties": {
+                  "file_path": {
+                    "description": "Path to edit, resolved by the filesystem backend.",
+                    "type": "string",
+                  },
+                  "new_string": {
+                    "description": "Literal replacement text. Use an empty string to delete the match.",
+                    "type": "string",
+                  },
+                  "old_string": {
+                    "description": "Literal text to replace. Must match exactly.",
+                    "type": "string",
+                  },
+                  "replace_all": {
+                    "description": "Replace all matches. Defaults to false; when false, old_string must appear exactly once.",
+                    "type": "boolean",
+                  },
+                },
+                "required": [
+                  "file_path",
+                  "old_string",
+                  "new_string",
+                ],
+                "type": "object",
+              },
+            },
+            {
+              "description": "Read a UTF-8 text file and return line-numbered content.",
+              "name": "read",
+              "parameters": {
+                "properties": {
+                  "file_path": {
+                    "description": "Path to read, resolved by the filesystem backend.",
+                    "type": "string",
+                  },
+                  "limit": {
+                    "description": "Maximum number of lines to return. Defaults to 2000.",
+                    "type": "number",
+                  },
+                  "offset": {
+                    "description": "1-based first line to return. Defaults to 1.",
+                    "type": "number",
+                  },
+                },
+                "required": [
+                  "file_path",
+                ],
+                "type": "object",
+              },
+            },
+            {
+              "description": "Read a PNG/JPEG/WebP/GIF file and return the image itself. Harness validates and downscales large supported images before the next model request, so use this tool directly instead of installing image libraries or creating thumbnails merely to inspect an image. Independent files may be read concurrently in small batches. Requires the current model to accept image input.",
+              "name": "read_image",
+              "parameters": {
+                "properties": {
+                  "file_path": {
+                    "description": "Path to the image file, resolved by the filesystem backend.",
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "file_path",
+                ],
+                "type": "object",
+              },
+            },
+            {
               "description": "Search the web for current information. Provide 1–4 queries in the required queries array. Returns an optional summary answer and a list of source URLs.",
               "name": "web_search",
               "parameters": {
@@ -698,6 +968,27 @@ Use the web_search tool to discover current information on the web. The required
                 },
                 "required": [
                   "queries",
+                ],
+                "type": "object",
+              },
+            },
+            {
+              "description": "Create or fully replace a UTF-8 text file.",
+              "name": "write",
+              "parameters": {
+                "properties": {
+                  "content": {
+                    "description": "Full UTF-8 text content to write.",
+                    "type": "string",
+                  },
+                  "file_path": {
+                    "description": "Path to write, resolved by the filesystem backend.",
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "file_path",
+                  "content",
                 ],
                 "type": "object",
               },
@@ -918,6 +1209,12 @@ Use the web_search tool to discover current information on the web. The required
 
 You are dsh-edge, a coding agent running in a Cloudflare Worker. Use the bash tool when you need to inspect or modify workspace files, then answer with the result. Each session has a persistent working directory that the bash tool defaults to. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
 
+Use the read tool — not shell commands like cat — to inspect text files. Results include line numbers. Use offset and limit to continue reading large files.
+
+Use the write tool to create files or completely replace file contents. Existing files are overwritten, so read an existing file first (the default fs-observation-policy requires it) and prefer edit for targeted changes.
+
+Use the edit tool for targeted changes to existing UTF-8 text files. It replaces literal old_string with new_string; by default old_string must appear exactly once. If old_string appears multiple times, provide a more specific old_string or set replace_all to true. Read the file first (the default fs-observation-policy requires it), unless you just created or edited it in this session.
+
 Use the web_search tool to discover current information on the web. The required queries array accepts 1–4 non-empty search queries; use a one-item array for a single search. It returns an optional answer plus a list of source URLs. Use the returned source snippets when available, and cite the relevant URLs as markdown links.",
           "tools": [
             {
@@ -950,6 +1247,76 @@ Use the web_search tool to discover current information on the web. The required
               },
             },
             {
+              "description": "Edit an existing UTF-8 text file by replacing literal text.",
+              "name": "edit",
+              "parameters": {
+                "properties": {
+                  "file_path": {
+                    "description": "Path to edit, resolved by the filesystem backend.",
+                    "type": "string",
+                  },
+                  "new_string": {
+                    "description": "Literal replacement text. Use an empty string to delete the match.",
+                    "type": "string",
+                  },
+                  "old_string": {
+                    "description": "Literal text to replace. Must match exactly.",
+                    "type": "string",
+                  },
+                  "replace_all": {
+                    "description": "Replace all matches. Defaults to false; when false, old_string must appear exactly once.",
+                    "type": "boolean",
+                  },
+                },
+                "required": [
+                  "file_path",
+                  "old_string",
+                  "new_string",
+                ],
+                "type": "object",
+              },
+            },
+            {
+              "description": "Read a UTF-8 text file and return line-numbered content.",
+              "name": "read",
+              "parameters": {
+                "properties": {
+                  "file_path": {
+                    "description": "Path to read, resolved by the filesystem backend.",
+                    "type": "string",
+                  },
+                  "limit": {
+                    "description": "Maximum number of lines to return. Defaults to 2000.",
+                    "type": "number",
+                  },
+                  "offset": {
+                    "description": "1-based first line to return. Defaults to 1.",
+                    "type": "number",
+                  },
+                },
+                "required": [
+                  "file_path",
+                ],
+                "type": "object",
+              },
+            },
+            {
+              "description": "Read a PNG/JPEG/WebP/GIF file and return the image itself. Harness validates and downscales large supported images before the next model request, so use this tool directly instead of installing image libraries or creating thumbnails merely to inspect an image. Independent files may be read concurrently in small batches. Requires the current model to accept image input.",
+              "name": "read_image",
+              "parameters": {
+                "properties": {
+                  "file_path": {
+                    "description": "Path to the image file, resolved by the filesystem backend.",
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "file_path",
+                ],
+                "type": "object",
+              },
+            },
+            {
               "description": "Search the web for current information. Provide 1–4 queries in the required queries array. Returns an optional summary answer and a list of source URLs.",
               "name": "web_search",
               "parameters": {
@@ -964,6 +1331,27 @@ Use the web_search tool to discover current information on the web. The required
                 },
                 "required": [
                   "queries",
+                ],
+                "type": "object",
+              },
+            },
+            {
+              "description": "Create or fully replace a UTF-8 text file.",
+              "name": "write",
+              "parameters": {
+                "properties": {
+                  "content": {
+                    "description": "Full UTF-8 text content to write.",
+                    "type": "string",
+                  },
+                  "file_path": {
+                    "description": "Path to write, resolved by the filesystem backend.",
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "file_path",
+                  "content",
                 ],
                 "type": "object",
               },
@@ -1118,6 +1506,12 @@ Use the web_search tool to discover current information on the web. The required
 
 You are dsh-edge, a coding agent running in a Cloudflare Worker. Use the bash tool when you need to inspect or modify workspace files, then answer with the result. Each session has a persistent working directory that the bash tool defaults to. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
 
+Use the read tool — not shell commands like cat — to inspect text files. Results include line numbers. Use offset and limit to continue reading large files.
+
+Use the write tool to create files or completely replace file contents. Existing files are overwritten, so read an existing file first (the default fs-observation-policy requires it) and prefer edit for targeted changes.
+
+Use the edit tool for targeted changes to existing UTF-8 text files. It replaces literal old_string with new_string; by default old_string must appear exactly once. If old_string appears multiple times, provide a more specific old_string or set replace_all to true. Read the file first (the default fs-observation-policy requires it), unless you just created or edited it in this session.
+
 Use the web_search tool to discover current information on the web. The required queries array accepts 1–4 non-empty search queries; use a one-item array for a single search. It returns an optional answer plus a list of source URLs. Use the returned source snippets when available, and cite the relevant URLs as markdown links.",
           "role": "system",
         },
@@ -1170,6 +1564,85 @@ Use the web_search tool to discover current information on the web. The required
         },
         {
           "function": {
+            "description": "Edit an existing UTF-8 text file by replacing literal text.",
+            "name": "edit",
+            "parameters": {
+              "properties": {
+                "file_path": {
+                  "description": "Path to edit, resolved by the filesystem backend.",
+                  "type": "string",
+                },
+                "new_string": {
+                  "description": "Literal replacement text. Use an empty string to delete the match.",
+                  "type": "string",
+                },
+                "old_string": {
+                  "description": "Literal text to replace. Must match exactly.",
+                  "type": "string",
+                },
+                "replace_all": {
+                  "description": "Replace all matches. Defaults to false; when false, old_string must appear exactly once.",
+                  "type": "boolean",
+                },
+              },
+              "required": [
+                "file_path",
+                "old_string",
+                "new_string",
+              ],
+              "type": "object",
+            },
+          },
+          "type": "function",
+        },
+        {
+          "function": {
+            "description": "Read a UTF-8 text file and return line-numbered content.",
+            "name": "read",
+            "parameters": {
+              "properties": {
+                "file_path": {
+                  "description": "Path to read, resolved by the filesystem backend.",
+                  "type": "string",
+                },
+                "limit": {
+                  "description": "Maximum number of lines to return. Defaults to 2000.",
+                  "type": "number",
+                },
+                "offset": {
+                  "description": "1-based first line to return. Defaults to 1.",
+                  "type": "number",
+                },
+              },
+              "required": [
+                "file_path",
+              ],
+              "type": "object",
+            },
+          },
+          "type": "function",
+        },
+        {
+          "function": {
+            "description": "Read a PNG/JPEG/WebP/GIF file and return the image itself. Harness validates and downscales large supported images before the next model request, so use this tool directly instead of installing image libraries or creating thumbnails merely to inspect an image. Independent files may be read concurrently in small batches. Requires the current model to accept image input.",
+            "name": "read_image",
+            "parameters": {
+              "properties": {
+                "file_path": {
+                  "description": "Path to the image file, resolved by the filesystem backend.",
+                  "type": "string",
+                },
+              },
+              "required": [
+                "file_path",
+              ],
+              "type": "object",
+            },
+          },
+          "type": "function",
+        },
+        {
+          "function": {
             "description": "Search the web for current information. Provide 1–4 queries in the required queries array. Returns an optional summary answer and a list of source URLs.",
             "name": "web_search",
             "parameters": {
@@ -1190,6 +1663,30 @@ Use the web_search tool to discover current information on the web. The required
           },
           "type": "function",
         },
+        {
+          "function": {
+            "description": "Create or fully replace a UTF-8 text file.",
+            "name": "write",
+            "parameters": {
+              "properties": {
+                "content": {
+                  "description": "Full UTF-8 text content to write.",
+                  "type": "string",
+                },
+                "file_path": {
+                  "description": "Path to write, resolved by the filesystem backend.",
+                  "type": "string",
+                },
+              },
+              "required": [
+                "file_path",
+                "content",
+              ],
+              "type": "object",
+            },
+          },
+          "type": "function",
+        },
       ],
     },
     {
@@ -1199,6 +1696,12 @@ Use the web_search tool to discover current information on the web. The required
           "content": "You are an AI agent powered by DeepSeek Harness.
 
 You are dsh-edge, a coding agent running in a Cloudflare Worker. Use the bash tool when you need to inspect or modify workspace files, then answer with the result. Each session has a persistent working directory that the bash tool defaults to. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
+
+Use the read tool — not shell commands like cat — to inspect text files. Results include line numbers. Use offset and limit to continue reading large files.
+
+Use the write tool to create files or completely replace file contents. Existing files are overwritten, so read an existing file first (the default fs-observation-policy requires it) and prefer edit for targeted changes.
+
+Use the edit tool for targeted changes to existing UTF-8 text files. It replaces literal old_string with new_string; by default old_string must appear exactly once. If old_string appears multiple times, provide a more specific old_string or set replace_all to true. Read the file first (the default fs-observation-policy requires it), unless you just created or edited it in this session.
 
 Use the web_search tool to discover current information on the web. The required queries array accepts 1–4 non-empty search queries; use a one-item array for a single search. It returns an optional answer plus a list of source URLs. Use the returned source snippets when available, and cite the relevant URLs as markdown links.",
           "role": "system",
@@ -1271,6 +1774,85 @@ Use the web_search tool to discover current information on the web. The required
         },
         {
           "function": {
+            "description": "Edit an existing UTF-8 text file by replacing literal text.",
+            "name": "edit",
+            "parameters": {
+              "properties": {
+                "file_path": {
+                  "description": "Path to edit, resolved by the filesystem backend.",
+                  "type": "string",
+                },
+                "new_string": {
+                  "description": "Literal replacement text. Use an empty string to delete the match.",
+                  "type": "string",
+                },
+                "old_string": {
+                  "description": "Literal text to replace. Must match exactly.",
+                  "type": "string",
+                },
+                "replace_all": {
+                  "description": "Replace all matches. Defaults to false; when false, old_string must appear exactly once.",
+                  "type": "boolean",
+                },
+              },
+              "required": [
+                "file_path",
+                "old_string",
+                "new_string",
+              ],
+              "type": "object",
+            },
+          },
+          "type": "function",
+        },
+        {
+          "function": {
+            "description": "Read a UTF-8 text file and return line-numbered content.",
+            "name": "read",
+            "parameters": {
+              "properties": {
+                "file_path": {
+                  "description": "Path to read, resolved by the filesystem backend.",
+                  "type": "string",
+                },
+                "limit": {
+                  "description": "Maximum number of lines to return. Defaults to 2000.",
+                  "type": "number",
+                },
+                "offset": {
+                  "description": "1-based first line to return. Defaults to 1.",
+                  "type": "number",
+                },
+              },
+              "required": [
+                "file_path",
+              ],
+              "type": "object",
+            },
+          },
+          "type": "function",
+        },
+        {
+          "function": {
+            "description": "Read a PNG/JPEG/WebP/GIF file and return the image itself. Harness validates and downscales large supported images before the next model request, so use this tool directly instead of installing image libraries or creating thumbnails merely to inspect an image. Independent files may be read concurrently in small batches. Requires the current model to accept image input.",
+            "name": "read_image",
+            "parameters": {
+              "properties": {
+                "file_path": {
+                  "description": "Path to the image file, resolved by the filesystem backend.",
+                  "type": "string",
+                },
+              },
+              "required": [
+                "file_path",
+              ],
+              "type": "object",
+            },
+          },
+          "type": "function",
+        },
+        {
+          "function": {
             "description": "Search the web for current information. Provide 1–4 queries in the required queries array. Returns an optional summary answer and a list of source URLs.",
             "name": "web_search",
             "parameters": {
@@ -1285,6 +1867,30 @@ Use the web_search tool to discover current information on the web. The required
               },
               "required": [
                 "queries",
+              ],
+              "type": "object",
+            },
+          },
+          "type": "function",
+        },
+        {
+          "function": {
+            "description": "Create or fully replace a UTF-8 text file.",
+            "name": "write",
+            "parameters": {
+              "properties": {
+                "content": {
+                  "description": "Full UTF-8 text content to write.",
+                  "type": "string",
+                },
+                "file_path": {
+                  "description": "Path to write, resolved by the filesystem backend.",
+                  "type": "string",
+                },
+              },
+              "required": [
+                "file_path",
+                "content",
               ],
               "type": "object",
             },
