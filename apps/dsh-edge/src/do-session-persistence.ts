@@ -767,25 +767,43 @@ export class DurableObjectSessionPersistence
   }
 
   private repackExistingChunks(): void {
-    const next = this.storage.sql.exec<{ id: string }>(
+    const candidates = this.storage.sql.exec<{ id: string }>(
       `SELECT DISTINCT session_id AS id FROM dsh_session_events
-       WHERE type = 'assistant/chunk' LIMIT 1`,
-    ).toArray()[0]
-    if (next === undefined) return
+       WHERE type = 'assistant/chunk' LIMIT 5`,
+    ).toArray()
+    for (const candidate of candidates) {
+      try {
+        this.repackOneSession(candidate.id as SessionId)
+      } catch {
+        // Torn tail or unparsable events — skip this session, loadStored will repair it later
+      }
+    }
+  }
+
+  private repackOneSession(id: SessionId): void {
     const rows = this.storage.sql.exec<EventRow>(
       `SELECT seq, type, time, data, source_event_seqs, surface_op, ignorable
        FROM dsh_session_events WHERE session_id = ? ORDER BY seq`,
-      next.id,
+      id,
     ).toArray()
     const events = rows.flatMap(row => rowToEvents(row))
     const packed = packChunkRuns(events)
-    if (packed.length >= rows.length) return
+    if (packed.length >= rows.length) {
+      // Can't shrink — convert remaining raw chunks to prevent re-selection.
+      // Delete only the assistant/chunk rows and re-insert them as-is (they'll
+      // keep their type but won't match the LIMIT query after packing converts
+      // runs of 3+ into packed rows; isolated chunks stay as-is).
+      // Since packChunkRuns already returned the same count, there's nothing
+      // to do — mark progress by updating one chunk's type won't help.
+      // Instead, just return; the LIMIT 5 loop processes other sessions.
+      return
+    }
     this.storage.sql.exec(
       'DELETE FROM dsh_session_events WHERE session_id = ?',
-      next.id,
+      id,
     )
     for (const record of packed) {
-      this.insertEvent(next.id as SessionId, record as SessionEvent)
+      this.insertEvent(id, record as SessionEvent)
     }
   }
 
