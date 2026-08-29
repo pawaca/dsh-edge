@@ -104,7 +104,7 @@ interface HistoryBoundaryRow extends Record<string, SqlStorageValue> {
 
 /** Shared response budget applied before live/cold history paths diverge. */
 export const EDGE_HISTORY_PAGE_LIMITS = {
-  maxEvents: 8_192,
+  maxEvents: 65_536,
   maxStoredBytes: 8 * 1_024 * 1_024,
   maxMessages: 50,
 } as const

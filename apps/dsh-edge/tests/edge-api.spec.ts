@@ -389,7 +389,7 @@ describe('Edge upstream API invariants', () => {
       })),
       { ...historyMessage(EDGE_HISTORY_PAGE_LIMITS.maxEvents), sourceEventSeqs: [0] },
     ]
-    expect(() => paginateHistory(eventHeavy, undefined, 1)).toThrow(/8192 events/)
+    expect(() => paginateHistory(eventHeavy, undefined, 1)).toThrow(/65536 events/)
     expect(() => paginateHistory([
       historyMessage(0, 'x'.repeat(EDGE_HISTORY_PAGE_LIMITS.maxStoredBytes)),
     ], undefined, 1)).toThrow(/encoded bytes/)
