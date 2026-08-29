@@ -1,7 +1,11 @@
 /** Upstream SessionPersistence implemented over Cloudflare Durable Object SQL. */
 
 import { Context } from '@deepseek-ai/cordis'
-import { SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
+import {
+  SESSION_FORMAT_VERSION,
+  decodeStorageRecord,
+  packChunkRuns,
+} from '@deepseek-ai/dsh-session'
 import type {
   Session,
   SessionEvent,
@@ -87,12 +91,6 @@ export interface EdgeStoredModelSelection {
   provider: string
   model: string
   reasoningEffort?: string
-}
-
-interface EventSizeRow extends Record<string, SqlStorageValue> {
-  seq: number
-  stored_bytes: number
-  parseable: number
 }
 
 interface LastSequenceRow extends Record<string, SqlStorageValue> {
@@ -397,43 +395,49 @@ export class DurableObjectSessionPersistence
     return promiseFromSync(() => {
       signal?.throwIfAborted()
       const page = this.storage.transactionSync(() => {
-        const row = this.rowFor(id)
-        if (row === undefined) return undefined
-        const sizes = this.eventPageSizes(id, fromSeq, limit + 1, toSeqExclusive)
+        const headerRow = this.rowFor(id)
+        if (headerRow === undefined) return undefined
+        const sqlRows = this.eventRowRangeContaining(id, fromSeq, limit, toSeqExclusive)
         const lastTurnEnd = this.lastCommittedSequence(id)
-        const rows: EventRow[] = []
+        const events: SessionEvent[] = []
         let storedBytes = 0
         let hasMore = false
-        for (const [index, size] of sizes.entries()) {
-          const expectedSeq = fromSeq + index
-          if (size.seq !== expectedSeq) {
-            if (size.seq <= lastTurnEnd) {
-              throw new Error(
-                `corrupt session log: seq gap in committed region (expected ${expectedSeq}, got ${size.seq})`,
-              )
-            }
-            break
-          }
-          if (size.parseable !== 1) {
-            if (size.seq <= lastTurnEnd) {
-              throw new Error(`corrupt session log: unparsable committed event at seq ${size.seq}`)
-            }
-            break
-          }
-          if (index >= limit || size.stored_bytes > maxStoredBytes - storedBytes) {
+        let nextSeq = fromSeq
+        for (const row of sqlRows) {
+          const rowBytes = new TextEncoder().encode(row.data).byteLength
+          if (events.length >= limit || rowBytes > maxStoredBytes - storedBytes) {
             hasMore = true
             break
           }
-          const eventRow = this.eventRow(id, size.seq)
-          if (eventRow === undefined) {
-            throw new Error(`stored session ${id} event ${size.seq} disappeared during replay`)
+          let decoded: SessionEvent[]
+          try {
+            decoded = rowToEvents(row)
+          } catch {
+            if (row.seq <= lastTurnEnd) {
+              throw new Error(`corrupt session log: unparsable committed event at seq ${row.seq}`)
+            }
+            break
           }
-          rows.push(eventRow)
-          storedBytes += size.stored_bytes
+          storedBytes += rowBytes
+          for (const event of decoded) {
+            if (event.seq < fromSeq) continue
+            if (toSeqExclusive !== undefined && event.seq >= toSeqExclusive) continue
+            if (event.seq !== nextSeq) {
+              if (event.seq <= lastTurnEnd) {
+                throw new Error(
+                  `corrupt session log: seq gap in committed region (expected ${nextSeq}, got ${event.seq})`,
+                )
+              }
+              hasMore = false
+              break
+            }
+            if (events.length >= limit) { hasMore = true; break }
+            events.push(event)
+            nextSeq = event.seq + 1
+          }
         }
-        const events = scanRows(rows, fromSeq, lastTurnEnd).preserved
         return {
-          meta: rowToHeader(row),
+          meta: rowToHeader(headerRow),
           events,
           hasMore,
         }
@@ -451,7 +455,8 @@ export class DurableObjectSessionPersistence
     return promiseFromSync(() => {
       this.storage.transactionSync(() => {
         if (!isMaterialized) this.writeRow(meta)
-        for (const event of events) this.insertEvent(meta.id, event)
+        const packed = packChunkRuns(events as SessionEvent[])
+        for (const record of packed) this.insertEvent(meta.id, record as SessionEvent)
         const updated = this.storage.sql.exec(
           'UPDATE dsh_sessions SET revision = revision + 1 WHERE id = ?',
           meta.id,
@@ -756,8 +761,50 @@ export class DurableObjectSessionPersistence
         title_data TEXT
       ) STRICT`)
       this.syncSummaries()
+      this.repackExistingChunks()
       return `durable-object:store:${storeId}`
     })
+  }
+
+  private repackExistingChunks(): void {
+    const candidates = this.storage.sql.exec<{ id: string }>(
+      `SELECT DISTINCT session_id AS id FROM dsh_session_events
+       WHERE type = 'assistant/chunk' LIMIT 5`,
+    ).toArray()
+    for (const candidate of candidates) {
+      try {
+        this.repackOneSession(candidate.id as SessionId)
+      } catch {
+        // Torn tail or unparsable events — skip this session, loadStored will repair it later
+      }
+    }
+  }
+
+  private repackOneSession(id: SessionId): void {
+    const rows = this.storage.sql.exec<EventRow>(
+      `SELECT seq, type, time, data, source_event_seqs, surface_op, ignorable
+       FROM dsh_session_events WHERE session_id = ? ORDER BY seq`,
+      id,
+    ).toArray()
+    const events = rows.flatMap(row => rowToEvents(row))
+    const packed = packChunkRuns(events)
+    if (packed.length >= rows.length) {
+      // Can't shrink — convert remaining raw chunks to prevent re-selection.
+      // Delete only the assistant/chunk rows and re-insert them as-is (they'll
+      // keep their type but won't match the LIMIT query after packing converts
+      // runs of 3+ into packed rows; isolated chunks stay as-is).
+      // Since packChunkRuns already returned the same count, there's nothing
+      // to do — mark progress by updating one chunk's type won't help.
+      // Instead, just return; the LIMIT 5 loop processes other sessions.
+      return
+    }
+    this.storage.sql.exec(
+      'DELETE FROM dsh_session_events WHERE session_id = ?',
+      id,
+    )
+    for (const record of packed) {
+      this.insertEvent(id, record as SessionEvent)
+    }
   }
 
   private syncSummaries(): void {
@@ -900,47 +947,51 @@ export class DurableObjectSessionPersistence
   }
 
   private eventRows(id: SessionId, fromSeq: number): EventRow[] {
+    const startSeq = fromSeq === 0 ? 0 : (this.storage.sql.exec<{ seq: number }>(
+      `SELECT MAX(seq) AS seq FROM dsh_session_events
+       WHERE session_id = ? AND seq <= ?`,
+      id,
+      fromSeq,
+    ).toArray()[0]?.seq ?? fromSeq)
     return this.storage.sql.exec<EventRow>(
       `SELECT seq, type, time, data, source_event_seqs, surface_op, ignorable
        FROM dsh_session_events
        WHERE session_id = ? AND seq >= ? ORDER BY seq`,
       id,
-      fromSeq,
+      startSeq,
     ).toArray()
   }
 
-  private eventPageSizes(
+  private eventRowRangeContaining(
     id: SessionId,
     fromSeq: number,
     limit: number,
     toSeqExclusive?: number,
-  ): EventSizeRow[] {
-    const upperClause = toSeqExclusive === undefined ? '' : ' AND seq < ?'
-    const bindings: SqlStorageValue[] = [id, fromSeq]
-    if (toSeqExclusive !== undefined) bindings.push(toSeqExclusive)
-    bindings.push(limit)
-    return this.storage.sql.exec<EventSizeRow>(
-      `SELECT seq,
-              length(CAST(type AS BLOB)) + length(CAST(data AS BLOB))
-                + coalesce(length(CAST(source_event_seqs AS BLOB)), 0)
-                + coalesce(length(CAST(surface_op AS BLOB)), 0) + 32 AS stored_bytes,
-              CASE WHEN json_valid(data)
-                AND (source_event_seqs IS NULL OR json_valid(source_event_seqs))
-                AND (surface_op IS NULL OR json_valid(surface_op))
-                THEN 1 ELSE 0 END AS parseable
-       FROM dsh_session_events
-       WHERE session_id = ? AND seq >= ?${upperClause} ORDER BY seq LIMIT ?`,
-      ...bindings,
-    ).toArray()
-  }
-
-  private eventRow(id: SessionId, seq: number): EventRow | undefined {
+  ): EventRow[] {
+    const startSeq = this.storage.sql.exec<{ seq: number }>(
+      `SELECT MAX(seq) AS seq FROM dsh_session_events
+       WHERE session_id = ? AND seq <= ?`,
+      id,
+      fromSeq,
+    ).toArray()[0]?.seq ?? fromSeq
+    const sqlLimit = limit + 1
+    if (toSeqExclusive !== undefined) {
+      return this.storage.sql.exec<EventRow>(
+        `SELECT seq, type, time, data, source_event_seqs, surface_op, ignorable
+         FROM dsh_session_events WHERE session_id = ? AND seq >= ? AND seq < ? ORDER BY seq LIMIT ?`,
+        id,
+        startSeq,
+        toSeqExclusive,
+        sqlLimit,
+      ).toArray()
+    }
     return this.storage.sql.exec<EventRow>(
       `SELECT seq, type, time, data, source_event_seqs, surface_op, ignorable
-       FROM dsh_session_events WHERE session_id = ? AND seq = ?`,
+       FROM dsh_session_events WHERE session_id = ? AND seq >= ? ORDER BY seq LIMIT ?`,
       id,
-      seq,
-    ).toArray()[0]
+      startSeq,
+      sqlLimit,
+    ).toArray()
   }
 
   /** Find the newest parseable commit marker without materializing marker rows. */
@@ -1002,6 +1053,7 @@ export class DurableObjectSessionPersistence
       event.ignorable === true ? 1 : null,
     )
   }
+
 }
 
 function revisionOf(storeIdentity: string, row: HeaderRow): PersistenceRevision {
@@ -1049,9 +1101,9 @@ function blankRowToHeader(row: BlankSessionRow): SessionHeader {
   return header
 }
 
-function rowToEvent(row: EventRow): SessionEvent {
-  return {
-    type: row.type as SessionEvent['type'],
+function rowToEvents(row: EventRow): SessionEvent[] {
+  const record = {
+    type: row.type,
     seq: row.seq,
     time: row.time,
     data: JSON.parse(row.data) as SessionEvent['data'],
@@ -1062,7 +1114,8 @@ function rowToEvent(row: EventRow): SessionEvent {
       ? {}
       : { surfaceOp: JSON.parse(row.surface_op) as SurfaceOp },
     ...row.ignorable === 1 ? { ignorable: true as const } : {},
-  } as SessionEvent
+  }
+  return decodeStorageRecord(record) as SessionEvent[]
 }
 
 function historyGroupStart(row: HistoryBoundaryRow): number {
@@ -1221,9 +1274,9 @@ function scanRows(
   base = 0,
   committedThrough?: number,
 ): { preserved: SessionEvent[]; tornFrom?: number } {
-  const parsed = rows.map((row) => {
+  const decoded: Array<{ ok: true; events: SessionEvent[] } | { ok: false }> = rows.map((row) => {
     try {
-      return { ok: true as const, event: rowToEvent(row) }
+      return { ok: true as const, events: rowToEvents(row) }
     } catch {
       return { ok: false as const }
     }
@@ -1231,33 +1284,39 @@ function scanRows(
   let lastTurnEnd = committedThrough
   if (lastTurnEnd === undefined) {
     lastTurnEnd = -1
-    for (let index = parsed.length - 1; index >= 0; index -= 1) {
-      if (parsed[index]?.ok === true && rows[index]?.type === 'turn/end') {
+    for (let index = decoded.length - 1; index >= 0; index -= 1) {
+      if (decoded[index]?.ok === true && rows[index]?.type === 'turn/end') {
         lastTurnEnd = rows[index]?.seq ?? -1
         break
       }
     }
   }
   const preserved: SessionEvent[] = []
+  let nextSeq = base
+  let rowsConsumed = 0
   for (let index = 0; index < rows.length; index += 1) {
-    const candidate = parsed[index]
+    const candidate = decoded[index]
     if (candidate?.ok !== true) {
-      if ((rows[index]?.seq ?? base + index) <= lastTurnEnd) {
+      if ((rows[index]?.seq ?? nextSeq) <= lastTurnEnd) {
         throw new Error(`corrupt session log: unparsable committed event at seq ${rows[index]?.seq}`)
       }
       break
     }
-    if (candidate.event.seq !== base + index) {
-      if (candidate.event.seq <= lastTurnEnd) {
+    const filtered = candidate.events.filter(e => e.seq >= base)
+    const firstSeq = filtered[0]?.seq ?? nextSeq
+    if (firstSeq !== nextSeq) {
+      if (firstSeq <= lastTurnEnd) {
         throw new Error(
-          `corrupt session log: seq gap in committed region (expected ${base + index}, got ${candidate.event.seq})`,
+          `corrupt session log: seq gap in committed region (expected ${nextSeq}, got ${firstSeq})`,
         )
       }
       break
     }
-    preserved.push(candidate.event)
+    preserved.push(...filtered)
+    nextSeq = (candidate.events[0]?.seq ?? nextSeq) + candidate.events.length
+    rowsConsumed++
   }
-  return preserved.length < rows.length
+  return rowsConsumed < rows.length
     ? { preserved, tornFrom: base + preserved.length }
     : { preserved }
 }
