@@ -54,6 +54,8 @@ import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import * as SpillPolicy from '@deepseek-ai/dsh-spill-policy'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
+import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
+import { EdgeFileSystem } from './edge-filesystem.ts'
 import {
   EDGE_SYSTEM_PROMPT,
   EdgeShellBindings,
@@ -257,7 +259,9 @@ export class EdgeSessionStore {
     })
     await this.context.plugin(SystemPrompt, { persona: EDGE_SYSTEM_PROMPT })
     await this.context.plugin(EdgeVfsSpillStore)
+    await this.context.plugin(EdgeFileSystem)
     await this.context.plugin(ToolRuntime)
+    await this.context.plugin(ToolFs)
     await this.context.plugin(SpillPolicy, { maxInlineBytes: 32_768 })
     await this.context.plugin(AgentRegistry)
     await installEdgeWebSearch(this.context, config.searchBaseURL)
@@ -310,6 +314,10 @@ export class EdgeSessionStore {
 
   spillStore(): EdgeVfsSpillStore | undefined {
     return this.context.get('spillStore') as EdgeVfsSpillStore | undefined
+  }
+
+  filesystem(): EdgeFileSystem | undefined {
+    try { return this.context.fs as EdgeFileSystem } catch { return undefined }
   }
 
   /** Resolve the optional upstream attachment service composed for this deployment. */
