@@ -92,10 +92,15 @@ export function apply(ctx: ClientContext): void {
       await originalOpenPath(path)
     } catch {
       const url = `/api/workspace/file?path=${encodeURIComponent(path)}`
+      const res = await globalThis.fetch(url)
+      if (!res.ok) throw new Error(`path open failed: ${res.status === 413 ? 'file too large' : await res.text()}`)
+      const blob = await res.blob()
+      const blobUrl = URL.createObjectURL(blob)
       const a = document.createElement('a')
-      a.href = url
+      a.href = blobUrl
       a.download = path.split('/').pop() ?? 'file'
       a.click()
+      URL.revokeObjectURL(blobUrl)
     }
   }
 }
