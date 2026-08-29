@@ -90,5 +90,5 @@ git push origin --delete <branch>                         # 3. delete remote bra
 git pull                                                  # 4. sync main
 ```
 
-- Automated tools may create worktrees under `.claude/worktrees/`. If not auto-cleaned, verify the worktree is clean or its PR was merged before removing. Unlock if locked: `git worktree unlock <path>`, then `git worktree remove <path>`.
+- Automated tools may create their own worktrees. If not auto-cleaned, verify the worktree is clean or its PR was merged before removing. Unlock if locked: `git worktree unlock <path>`, then `git worktree remove <path>`.
 - Before starting a new iteration, verify a clean state: `git worktree list` shows only the primary checkout, `git branch --show-current` returns `main`, and `git branch` lists only `main`.
