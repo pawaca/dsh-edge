@@ -332,7 +332,8 @@ export class EdgeSessionStore {
     try { return this.context.fs as EdgeFileSystem } catch { return undefined }
   }
 
-  skillRegistry(): SkillRegistry | undefined {
+  async skillRegistry(): Promise<SkillRegistry | undefined> {
+    await this.ready
     try { return this.context.skills } catch { return undefined }
   }
 
