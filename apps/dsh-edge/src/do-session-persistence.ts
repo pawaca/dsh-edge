@@ -774,8 +774,8 @@ export class DurableObjectSessionPersistence
     for (const candidate of candidates) {
       try {
         this.repackOneSession(candidate.id as SessionId)
-      } catch {
-        // Torn tail or unparsable events — skip this session, loadStored will repair it later
+      } catch (error) {
+        console.error(`dsh-edge: repack failed for session ${candidate.id}`, error)
       }
     }
   }
