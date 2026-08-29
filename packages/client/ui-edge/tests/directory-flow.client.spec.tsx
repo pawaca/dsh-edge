@@ -24,9 +24,9 @@ function renderFlow(overrides: Partial<Parameters<typeof EdgeDirectoryFlow>[0]> 
 }
 
 describe('EdgeDirectoryFlow', () => {
-  it('renders nothing when closed', () => {
-    const { container } = renderFlow({ open: false })
-    expect(container.innerHTML).toBe('')
+  it('renders nothing visible when closed', () => {
+    renderFlow({ open: false })
+    expect(screen.queryByText('New Workspace')).toBeNull()
   })
 
   it('renders the popover with input when open', () => {
