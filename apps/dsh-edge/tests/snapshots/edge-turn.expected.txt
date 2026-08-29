@@ -94,7 +94,9 @@ Use the write tool to create files or completely replace file contents. Existing
 
 Use the edit tool for targeted changes to existing UTF-8 text files. It replaces literal old_string with new_string; by default old_string must appear exactly once. If old_string appears multiple times, provide a more specific old_string or set replace_all to true. Read the file first (the default fs-observation-policy requires it), unless you just created or edited it in this session.
 
-Use the web_search tool to discover current information on the web. The required queries array accepts 1–4 non-empty search queries; use a one-item array for a single search. It returns an optional answer plus a list of source URLs. Use the returned source snippets when available, and cite the relevant URLs as markdown links.",
+Use the web_search tool to discover current information on the web. The required queries array accepts 1–4 non-empty search queries; use a one-item array for a single search. It returns an optional answer plus a list of source URLs. Use the returned source snippets when available, and cite the relevant URLs as markdown links.
+
+Use goal tools for one long-running completion objective in the current session. create_goal may infer goal intent from a direct human request in any language; do not create a goal for routine single-turn work. Call get_goal before update_goal and copy its exact goal_id and revision. After session resume or fork, an active goal is disarmed: when a human asks to continue or resume in any wording or language, use update_goal action resume to rearm it. Mark complete only when the objective is actually achieved. Mark blocked only after the same blocking condition persists for at least 3 consecutive goal rounds, and report that concrete condition in blocked_reason; difficulty, uncertainty, or useful remaining work is not blocked.",
           "tools": [
             {
               "description": "Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in the session working directory unless workdir is supplied.",
@@ -126,6 +128,26 @@ Use the web_search tool to discover current information on the web. The required
               },
             },
             {
+              "description": "Create one persisted same-session completion goal when the current direct human request is a long-running objective that should continue across autonomous goal rounds. You may infer that intent without requiring the user to say "create a goal". Do not use this for trivial single-turn work. Execution rejects non-human and subagent authority.",
+              "name": "create_goal",
+              "parameters": {
+                "properties": {
+                  "max_goal_rounds": {
+                    "description": "Optional positive safe-integer limit on automatic continuation rounds.",
+                    "type": "number",
+                  },
+                  "objective": {
+                    "description": "The concrete completion objective inferred from the direct human request.",
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "objective",
+                ],
+                "type": "object",
+              },
+            },
+            {
               "description": "Edit an existing UTF-8 text file by replacing literal text.",
               "name": "edit",
               "parameters": {
@@ -152,6 +174,14 @@ Use the web_search tool to discover current information on the web. The required
                   "old_string",
                   "new_string",
                 ],
+                "type": "object",
+              },
+            },
+            {
+              "description": "Read the current same-session goal, including its exact id/revision, objective, phase, completed continuation rounds, round limit, blocker reason when present, and whether another continuation is armed. Call this before updating a goal.",
+              "name": "get_goal",
+              "parameters": {
+                "properties": {},
                 "type": "object",
               },
             },
@@ -191,6 +221,51 @@ Use the web_search tool to discover current information on the web. The required
                 },
                 "required": [
                   "file_path",
+                ],
+                "type": "object",
+              },
+            },
+            {
+              "description": "Update the exact current goal revision. edit, pause, and resume require a direct top-level human request. During an automatic continuation of the current goal, complete and blocked are also allowed. blocked is rejected before the configured minimum round count; the model remains responsible for judging that the same condition persisted across those rounds and must explain it in blocked_reason.",
+              "name": "update_goal",
+              "parameters": {
+                "properties": {
+                  "action": {
+                    "description": "edit | pause | resume | complete | blocked",
+                    "enum": [
+                      "edit",
+                      "pause",
+                      "resume",
+                      "complete",
+                      "blocked",
+                    ],
+                    "type": "string",
+                  },
+                  "blocked_reason": {
+                    "description": "Concrete blocking condition; required only with action blocked.",
+                    "type": "string",
+                  },
+                  "goal_id": {
+                    "description": "Exact id returned by get_goal.",
+                    "type": "string",
+                  },
+                  "max_goal_rounds": {
+                    "description": "Replacement cap; valid only with action edit.",
+                    "type": "number",
+                  },
+                  "objective": {
+                    "description": "Replacement objective; valid only with action edit.",
+                    "type": "string",
+                  },
+                  "revision": {
+                    "description": "Exact positive revision returned by get_goal.",
+                    "type": "number",
+                  },
+                },
+                "required": [
+                  "goal_id",
+                  "revision",
+                  "action",
                 ],
                 "type": "object",
               },
@@ -457,7 +532,9 @@ Use the write tool to create files or completely replace file contents. Existing
 
 Use the edit tool for targeted changes to existing UTF-8 text files. It replaces literal old_string with new_string; by default old_string must appear exactly once. If old_string appears multiple times, provide a more specific old_string or set replace_all to true. Read the file first (the default fs-observation-policy requires it), unless you just created or edited it in this session.
 
-Use the web_search tool to discover current information on the web. The required queries array accepts 1–4 non-empty search queries; use a one-item array for a single search. It returns an optional answer plus a list of source URLs. Use the returned source snippets when available, and cite the relevant URLs as markdown links.",
+Use the web_search tool to discover current information on the web. The required queries array accepts 1–4 non-empty search queries; use a one-item array for a single search. It returns an optional answer plus a list of source URLs. Use the returned source snippets when available, and cite the relevant URLs as markdown links.
+
+Use goal tools for one long-running completion objective in the current session. create_goal may infer goal intent from a direct human request in any language; do not create a goal for routine single-turn work. Call get_goal before update_goal and copy its exact goal_id and revision. After session resume or fork, an active goal is disarmed: when a human asks to continue or resume in any wording or language, use update_goal action resume to rearm it. Mark complete only when the objective is actually achieved. Mark blocked only after the same blocking condition persists for at least 3 consecutive goal rounds, and report that concrete condition in blocked_reason; difficulty, uncertainty, or useful remaining work is not blocked.",
           "tools": [
             {
               "description": "Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in the session working directory unless workdir is supplied.",
@@ -489,6 +566,26 @@ Use the web_search tool to discover current information on the web. The required
               },
             },
             {
+              "description": "Create one persisted same-session completion goal when the current direct human request is a long-running objective that should continue across autonomous goal rounds. You may infer that intent without requiring the user to say "create a goal". Do not use this for trivial single-turn work. Execution rejects non-human and subagent authority.",
+              "name": "create_goal",
+              "parameters": {
+                "properties": {
+                  "max_goal_rounds": {
+                    "description": "Optional positive safe-integer limit on automatic continuation rounds.",
+                    "type": "number",
+                  },
+                  "objective": {
+                    "description": "The concrete completion objective inferred from the direct human request.",
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "objective",
+                ],
+                "type": "object",
+              },
+            },
+            {
               "description": "Edit an existing UTF-8 text file by replacing literal text.",
               "name": "edit",
               "parameters": {
@@ -515,6 +612,14 @@ Use the web_search tool to discover current information on the web. The required
                   "old_string",
                   "new_string",
                 ],
+                "type": "object",
+              },
+            },
+            {
+              "description": "Read the current same-session goal, including its exact id/revision, objective, phase, completed continuation rounds, round limit, blocker reason when present, and whether another continuation is armed. Call this before updating a goal.",
+              "name": "get_goal",
+              "parameters": {
+                "properties": {},
                 "type": "object",
               },
             },
@@ -554,6 +659,51 @@ Use the web_search tool to discover current information on the web. The required
                 },
                 "required": [
                   "file_path",
+                ],
+                "type": "object",
+              },
+            },
+            {
+              "description": "Update the exact current goal revision. edit, pause, and resume require a direct top-level human request. During an automatic continuation of the current goal, complete and blocked are also allowed. blocked is rejected before the configured minimum round count; the model remains responsible for judging that the same condition persisted across those rounds and must explain it in blocked_reason.",
+              "name": "update_goal",
+              "parameters": {
+                "properties": {
+                  "action": {
+                    "description": "edit | pause | resume | complete | blocked",
+                    "enum": [
+                      "edit",
+                      "pause",
+                      "resume",
+                      "complete",
+                      "blocked",
+                    ],
+                    "type": "string",
+                  },
+                  "blocked_reason": {
+                    "description": "Concrete blocking condition; required only with action blocked.",
+                    "type": "string",
+                  },
+                  "goal_id": {
+                    "description": "Exact id returned by get_goal.",
+                    "type": "string",
+                  },
+                  "max_goal_rounds": {
+                    "description": "Replacement cap; valid only with action edit.",
+                    "type": "number",
+                  },
+                  "objective": {
+                    "description": "Replacement objective; valid only with action edit.",
+                    "type": "string",
+                  },
+                  "revision": {
+                    "description": "Exact positive revision returned by get_goal.",
+                    "type": "number",
+                  },
+                },
+                "required": [
+                  "goal_id",
+                  "revision",
+                  "action",
                 ],
                 "type": "object",
               },
@@ -852,7 +1002,9 @@ Use the write tool to create files or completely replace file contents. Existing
 
 Use the edit tool for targeted changes to existing UTF-8 text files. It replaces literal old_string with new_string; by default old_string must appear exactly once. If old_string appears multiple times, provide a more specific old_string or set replace_all to true. Read the file first (the default fs-observation-policy requires it), unless you just created or edited it in this session.
 
-Use the web_search tool to discover current information on the web. The required queries array accepts 1–4 non-empty search queries; use a one-item array for a single search. It returns an optional answer plus a list of source URLs. Use the returned source snippets when available, and cite the relevant URLs as markdown links.",
+Use the web_search tool to discover current information on the web. The required queries array accepts 1–4 non-empty search queries; use a one-item array for a single search. It returns an optional answer plus a list of source URLs. Use the returned source snippets when available, and cite the relevant URLs as markdown links.
+
+Use goal tools for one long-running completion objective in the current session. create_goal may infer goal intent from a direct human request in any language; do not create a goal for routine single-turn work. Call get_goal before update_goal and copy its exact goal_id and revision. After session resume or fork, an active goal is disarmed: when a human asks to continue or resume in any wording or language, use update_goal action resume to rearm it. Mark complete only when the objective is actually achieved. Mark blocked only after the same blocking condition persists for at least 3 consecutive goal rounds, and report that concrete condition in blocked_reason; difficulty, uncertainty, or useful remaining work is not blocked.",
           "tools": [
             {
               "description": "Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in the session working directory unless workdir is supplied.",
@@ -884,6 +1036,26 @@ Use the web_search tool to discover current information on the web. The required
               },
             },
             {
+              "description": "Create one persisted same-session completion goal when the current direct human request is a long-running objective that should continue across autonomous goal rounds. You may infer that intent without requiring the user to say "create a goal". Do not use this for trivial single-turn work. Execution rejects non-human and subagent authority.",
+              "name": "create_goal",
+              "parameters": {
+                "properties": {
+                  "max_goal_rounds": {
+                    "description": "Optional positive safe-integer limit on automatic continuation rounds.",
+                    "type": "number",
+                  },
+                  "objective": {
+                    "description": "The concrete completion objective inferred from the direct human request.",
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "objective",
+                ],
+                "type": "object",
+              },
+            },
+            {
               "description": "Edit an existing UTF-8 text file by replacing literal text.",
               "name": "edit",
               "parameters": {
@@ -910,6 +1082,14 @@ Use the web_search tool to discover current information on the web. The required
                   "old_string",
                   "new_string",
                 ],
+                "type": "object",
+              },
+            },
+            {
+              "description": "Read the current same-session goal, including its exact id/revision, objective, phase, completed continuation rounds, round limit, blocker reason when present, and whether another continuation is armed. Call this before updating a goal.",
+              "name": "get_goal",
+              "parameters": {
+                "properties": {},
                 "type": "object",
               },
             },
@@ -949,6 +1129,51 @@ Use the web_search tool to discover current information on the web. The required
                 },
                 "required": [
                   "file_path",
+                ],
+                "type": "object",
+              },
+            },
+            {
+              "description": "Update the exact current goal revision. edit, pause, and resume require a direct top-level human request. During an automatic continuation of the current goal, complete and blocked are also allowed. blocked is rejected before the configured minimum round count; the model remains responsible for judging that the same condition persisted across those rounds and must explain it in blocked_reason.",
+              "name": "update_goal",
+              "parameters": {
+                "properties": {
+                  "action": {
+                    "description": "edit | pause | resume | complete | blocked",
+                    "enum": [
+                      "edit",
+                      "pause",
+                      "resume",
+                      "complete",
+                      "blocked",
+                    ],
+                    "type": "string",
+                  },
+                  "blocked_reason": {
+                    "description": "Concrete blocking condition; required only with action blocked.",
+                    "type": "string",
+                  },
+                  "goal_id": {
+                    "description": "Exact id returned by get_goal.",
+                    "type": "string",
+                  },
+                  "max_goal_rounds": {
+                    "description": "Replacement cap; valid only with action edit.",
+                    "type": "number",
+                  },
+                  "objective": {
+                    "description": "Replacement objective; valid only with action edit.",
+                    "type": "string",
+                  },
+                  "revision": {
+                    "description": "Exact positive revision returned by get_goal.",
+                    "type": "number",
+                  },
+                },
+                "required": [
+                  "goal_id",
+                  "revision",
+                  "action",
                 ],
                 "type": "object",
               },
@@ -1215,7 +1440,9 @@ Use the write tool to create files or completely replace file contents. Existing
 
 Use the edit tool for targeted changes to existing UTF-8 text files. It replaces literal old_string with new_string; by default old_string must appear exactly once. If old_string appears multiple times, provide a more specific old_string or set replace_all to true. Read the file first (the default fs-observation-policy requires it), unless you just created or edited it in this session.
 
-Use the web_search tool to discover current information on the web. The required queries array accepts 1–4 non-empty search queries; use a one-item array for a single search. It returns an optional answer plus a list of source URLs. Use the returned source snippets when available, and cite the relevant URLs as markdown links.",
+Use the web_search tool to discover current information on the web. The required queries array accepts 1–4 non-empty search queries; use a one-item array for a single search. It returns an optional answer plus a list of source URLs. Use the returned source snippets when available, and cite the relevant URLs as markdown links.
+
+Use goal tools for one long-running completion objective in the current session. create_goal may infer goal intent from a direct human request in any language; do not create a goal for routine single-turn work. Call get_goal before update_goal and copy its exact goal_id and revision. After session resume or fork, an active goal is disarmed: when a human asks to continue or resume in any wording or language, use update_goal action resume to rearm it. Mark complete only when the objective is actually achieved. Mark blocked only after the same blocking condition persists for at least 3 consecutive goal rounds, and report that concrete condition in blocked_reason; difficulty, uncertainty, or useful remaining work is not blocked.",
           "tools": [
             {
               "description": "Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in the session working directory unless workdir is supplied.",
@@ -1247,6 +1474,26 @@ Use the web_search tool to discover current information on the web. The required
               },
             },
             {
+              "description": "Create one persisted same-session completion goal when the current direct human request is a long-running objective that should continue across autonomous goal rounds. You may infer that intent without requiring the user to say "create a goal". Do not use this for trivial single-turn work. Execution rejects non-human and subagent authority.",
+              "name": "create_goal",
+              "parameters": {
+                "properties": {
+                  "max_goal_rounds": {
+                    "description": "Optional positive safe-integer limit on automatic continuation rounds.",
+                    "type": "number",
+                  },
+                  "objective": {
+                    "description": "The concrete completion objective inferred from the direct human request.",
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "objective",
+                ],
+                "type": "object",
+              },
+            },
+            {
               "description": "Edit an existing UTF-8 text file by replacing literal text.",
               "name": "edit",
               "parameters": {
@@ -1273,6 +1520,14 @@ Use the web_search tool to discover current information on the web. The required
                   "old_string",
                   "new_string",
                 ],
+                "type": "object",
+              },
+            },
+            {
+              "description": "Read the current same-session goal, including its exact id/revision, objective, phase, completed continuation rounds, round limit, blocker reason when present, and whether another continuation is armed. Call this before updating a goal.",
+              "name": "get_goal",
+              "parameters": {
+                "properties": {},
                 "type": "object",
               },
             },
@@ -1312,6 +1567,51 @@ Use the web_search tool to discover current information on the web. The required
                 },
                 "required": [
                   "file_path",
+                ],
+                "type": "object",
+              },
+            },
+            {
+              "description": "Update the exact current goal revision. edit, pause, and resume require a direct top-level human request. During an automatic continuation of the current goal, complete and blocked are also allowed. blocked is rejected before the configured minimum round count; the model remains responsible for judging that the same condition persisted across those rounds and must explain it in blocked_reason.",
+              "name": "update_goal",
+              "parameters": {
+                "properties": {
+                  "action": {
+                    "description": "edit | pause | resume | complete | blocked",
+                    "enum": [
+                      "edit",
+                      "pause",
+                      "resume",
+                      "complete",
+                      "blocked",
+                    ],
+                    "type": "string",
+                  },
+                  "blocked_reason": {
+                    "description": "Concrete blocking condition; required only with action blocked.",
+                    "type": "string",
+                  },
+                  "goal_id": {
+                    "description": "Exact id returned by get_goal.",
+                    "type": "string",
+                  },
+                  "max_goal_rounds": {
+                    "description": "Replacement cap; valid only with action edit.",
+                    "type": "number",
+                  },
+                  "objective": {
+                    "description": "Replacement objective; valid only with action edit.",
+                    "type": "string",
+                  },
+                  "revision": {
+                    "description": "Exact positive revision returned by get_goal.",
+                    "type": "number",
+                  },
+                },
+                "required": [
+                  "goal_id",
+                  "revision",
+                  "action",
                 ],
                 "type": "object",
               },
@@ -1512,7 +1812,9 @@ Use the write tool to create files or completely replace file contents. Existing
 
 Use the edit tool for targeted changes to existing UTF-8 text files. It replaces literal old_string with new_string; by default old_string must appear exactly once. If old_string appears multiple times, provide a more specific old_string or set replace_all to true. Read the file first (the default fs-observation-policy requires it), unless you just created or edited it in this session.
 
-Use the web_search tool to discover current information on the web. The required queries array accepts 1–4 non-empty search queries; use a one-item array for a single search. It returns an optional answer plus a list of source URLs. Use the returned source snippets when available, and cite the relevant URLs as markdown links.",
+Use the web_search tool to discover current information on the web. The required queries array accepts 1–4 non-empty search queries; use a one-item array for a single search. It returns an optional answer plus a list of source URLs. Use the returned source snippets when available, and cite the relevant URLs as markdown links.
+
+Use goal tools for one long-running completion objective in the current session. create_goal may infer goal intent from a direct human request in any language; do not create a goal for routine single-turn work. Call get_goal before update_goal and copy its exact goal_id and revision. After session resume or fork, an active goal is disarmed: when a human asks to continue or resume in any wording or language, use update_goal action resume to rearm it. Mark complete only when the objective is actually achieved. Mark blocked only after the same blocking condition persists for at least 3 consecutive goal rounds, and report that concrete condition in blocked_reason; difficulty, uncertainty, or useful remaining work is not blocked.",
           "role": "system",
         },
         {
@@ -1564,6 +1866,29 @@ Use the web_search tool to discover current information on the web. The required
         },
         {
           "function": {
+            "description": "Create one persisted same-session completion goal when the current direct human request is a long-running objective that should continue across autonomous goal rounds. You may infer that intent without requiring the user to say "create a goal". Do not use this for trivial single-turn work. Execution rejects non-human and subagent authority.",
+            "name": "create_goal",
+            "parameters": {
+              "properties": {
+                "max_goal_rounds": {
+                  "description": "Optional positive safe-integer limit on automatic continuation rounds.",
+                  "type": "number",
+                },
+                "objective": {
+                  "description": "The concrete completion objective inferred from the direct human request.",
+                  "type": "string",
+                },
+              },
+              "required": [
+                "objective",
+              ],
+              "type": "object",
+            },
+          },
+          "type": "function",
+        },
+        {
+          "function": {
             "description": "Edit an existing UTF-8 text file by replacing literal text.",
             "name": "edit",
             "parameters": {
@@ -1590,6 +1915,17 @@ Use the web_search tool to discover current information on the web. The required
                 "old_string",
                 "new_string",
               ],
+              "type": "object",
+            },
+          },
+          "type": "function",
+        },
+        {
+          "function": {
+            "description": "Read the current same-session goal, including its exact id/revision, objective, phase, completed continuation rounds, round limit, blocker reason when present, and whether another continuation is armed. Call this before updating a goal.",
+            "name": "get_goal",
+            "parameters": {
+              "properties": {},
               "type": "object",
             },
           },
@@ -1635,6 +1971,54 @@ Use the web_search tool to discover current information on the web. The required
               },
               "required": [
                 "file_path",
+              ],
+              "type": "object",
+            },
+          },
+          "type": "function",
+        },
+        {
+          "function": {
+            "description": "Update the exact current goal revision. edit, pause, and resume require a direct top-level human request. During an automatic continuation of the current goal, complete and blocked are also allowed. blocked is rejected before the configured minimum round count; the model remains responsible for judging that the same condition persisted across those rounds and must explain it in blocked_reason.",
+            "name": "update_goal",
+            "parameters": {
+              "properties": {
+                "action": {
+                  "description": "edit | pause | resume | complete | blocked",
+                  "enum": [
+                    "edit",
+                    "pause",
+                    "resume",
+                    "complete",
+                    "blocked",
+                  ],
+                  "type": "string",
+                },
+                "blocked_reason": {
+                  "description": "Concrete blocking condition; required only with action blocked.",
+                  "type": "string",
+                },
+                "goal_id": {
+                  "description": "Exact id returned by get_goal.",
+                  "type": "string",
+                },
+                "max_goal_rounds": {
+                  "description": "Replacement cap; valid only with action edit.",
+                  "type": "number",
+                },
+                "objective": {
+                  "description": "Replacement objective; valid only with action edit.",
+                  "type": "string",
+                },
+                "revision": {
+                  "description": "Exact positive revision returned by get_goal.",
+                  "type": "number",
+                },
+              },
+              "required": [
+                "goal_id",
+                "revision",
+                "action",
               ],
               "type": "object",
             },
@@ -1703,7 +2087,9 @@ Use the write tool to create files or completely replace file contents. Existing
 
 Use the edit tool for targeted changes to existing UTF-8 text files. It replaces literal old_string with new_string; by default old_string must appear exactly once. If old_string appears multiple times, provide a more specific old_string or set replace_all to true. Read the file first (the default fs-observation-policy requires it), unless you just created or edited it in this session.
 
-Use the web_search tool to discover current information on the web. The required queries array accepts 1–4 non-empty search queries; use a one-item array for a single search. It returns an optional answer plus a list of source URLs. Use the returned source snippets when available, and cite the relevant URLs as markdown links.",
+Use the web_search tool to discover current information on the web. The required queries array accepts 1–4 non-empty search queries; use a one-item array for a single search. It returns an optional answer plus a list of source URLs. Use the returned source snippets when available, and cite the relevant URLs as markdown links.
+
+Use goal tools for one long-running completion objective in the current session. create_goal may infer goal intent from a direct human request in any language; do not create a goal for routine single-turn work. Call get_goal before update_goal and copy its exact goal_id and revision. After session resume or fork, an active goal is disarmed: when a human asks to continue or resume in any wording or language, use update_goal action resume to rearm it. Mark complete only when the objective is actually achieved. Mark blocked only after the same blocking condition persists for at least 3 consecutive goal rounds, and report that concrete condition in blocked_reason; difficulty, uncertainty, or useful remaining work is not blocked.",
           "role": "system",
         },
         {
@@ -1774,6 +2160,29 @@ Use the web_search tool to discover current information on the web. The required
         },
         {
           "function": {
+            "description": "Create one persisted same-session completion goal when the current direct human request is a long-running objective that should continue across autonomous goal rounds. You may infer that intent without requiring the user to say "create a goal". Do not use this for trivial single-turn work. Execution rejects non-human and subagent authority.",
+            "name": "create_goal",
+            "parameters": {
+              "properties": {
+                "max_goal_rounds": {
+                  "description": "Optional positive safe-integer limit on automatic continuation rounds.",
+                  "type": "number",
+                },
+                "objective": {
+                  "description": "The concrete completion objective inferred from the direct human request.",
+                  "type": "string",
+                },
+              },
+              "required": [
+                "objective",
+              ],
+              "type": "object",
+            },
+          },
+          "type": "function",
+        },
+        {
+          "function": {
             "description": "Edit an existing UTF-8 text file by replacing literal text.",
             "name": "edit",
             "parameters": {
@@ -1800,6 +2209,17 @@ Use the web_search tool to discover current information on the web. The required
                 "old_string",
                 "new_string",
               ],
+              "type": "object",
+            },
+          },
+          "type": "function",
+        },
+        {
+          "function": {
+            "description": "Read the current same-session goal, including its exact id/revision, objective, phase, completed continuation rounds, round limit, blocker reason when present, and whether another continuation is armed. Call this before updating a goal.",
+            "name": "get_goal",
+            "parameters": {
+              "properties": {},
               "type": "object",
             },
           },
@@ -1845,6 +2265,54 @@ Use the web_search tool to discover current information on the web. The required
               },
               "required": [
                 "file_path",
+              ],
+              "type": "object",
+            },
+          },
+          "type": "function",
+        },
+        {
+          "function": {
+            "description": "Update the exact current goal revision. edit, pause, and resume require a direct top-level human request. During an automatic continuation of the current goal, complete and blocked are also allowed. blocked is rejected before the configured minimum round count; the model remains responsible for judging that the same condition persisted across those rounds and must explain it in blocked_reason.",
+            "name": "update_goal",
+            "parameters": {
+              "properties": {
+                "action": {
+                  "description": "edit | pause | resume | complete | blocked",
+                  "enum": [
+                    "edit",
+                    "pause",
+                    "resume",
+                    "complete",
+                    "blocked",
+                  ],
+                  "type": "string",
+                },
+                "blocked_reason": {
+                  "description": "Concrete blocking condition; required only with action blocked.",
+                  "type": "string",
+                },
+                "goal_id": {
+                  "description": "Exact id returned by get_goal.",
+                  "type": "string",
+                },
+                "max_goal_rounds": {
+                  "description": "Replacement cap; valid only with action edit.",
+                  "type": "number",
+                },
+                "objective": {
+                  "description": "Replacement objective; valid only with action edit.",
+                  "type": "string",
+                },
+                "revision": {
+                  "description": "Exact positive revision returned by get_goal.",
+                  "type": "number",
+                },
+              },
+              "required": [
+                "goal_id",
+                "revision",
+                "action",
               ],
               "type": "object",
             },
