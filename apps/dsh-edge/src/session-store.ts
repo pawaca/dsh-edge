@@ -58,6 +58,8 @@ import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as ToolGoal from '@deepseek-ai/dsh-tool-goal'
 import * as GoalRoundDriver from '@deepseek-ai/dsh-goal-round-driver'
 import GoalService from '@deepseek-ai/dsh-goal'
+import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
+import { TypertGatewayService } from '@deepseek-ai/dsh-api-gateway'
 import { EdgeFileSystem } from './edge-filesystem.ts'
 import {
   EDGE_SYSTEM_PROMPT,
@@ -265,6 +267,8 @@ export class EdgeSessionStore {
     await this.context.plugin(EdgeVfsSpillStore)
     await this.context.plugin(EdgeFileSystem)
     await this.context.plugin(ToolRuntime)
+    await this.context.plugin(TypertRegistry)
+    await this.context.plugin(TypertGatewayService)
     await this.context.plugin(ToolFs)
     await this.context.plugin(GoalService)
     await this.context.plugin(ToolGoal)
@@ -336,6 +340,10 @@ export class EdgeSessionStore {
   liveAgent(sessionId: SessionId): Agent | undefined {
     const { agents } = this.context
     return agents.get(sessionId)
+  }
+
+  typertGateway(): TypertGatewayService | undefined {
+    try { return this.context.get('typertGateway') as TypertGatewayService } catch { return undefined }
   }
 
   projectionSnapshot(sessionId: SessionId): { asOfSeq: number; values: Record<string, unknown> } | undefined {
