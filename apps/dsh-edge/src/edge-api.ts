@@ -225,13 +225,10 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
           const entries: HistoryEntry[] = page.events.map(event => ({ event }))
           let projectionValues: Record<string, unknown> | undefined
           if (beforeSeq === undefined) {
-            const live = runtime.sessions.projectionSnapshot(sessionId)
-            if (live !== undefined) {
-              projectionValues = live.values
-            } else {
-              const cached = await runtime.sessions.readProjectionCache(sessionId)
-              projectionValues = cached?.values
-            }
+            projectionValues = (
+              runtime.sessions.projectionSnapshot(sessionId)
+              ?? runtime.sessions.projectionCachedSnapshot(page.summary)
+            )?.values
           }
           return ok(request, {
             events: entries,
@@ -888,7 +885,8 @@ function sessionSummary(
     ...summary.origin === undefined ? {} : { origin: summary.origin },
     ...summary.cwd === undefined ? {} : { cwd: summary.cwd },
     ...summary.agentPreset === undefined ? {} : { agentPreset: summary.agentPreset },
-    projections: summaryProjections(summary, runtime.imageLimits, runtime.sessions.projectionSnapshot(summary.id)?.values),
+    projections: summaryProjections(summary, runtime.imageLimits,
+      (runtime.sessions.projectionSnapshot(summary.id) ?? runtime.sessions.projectionCachedSnapshot(summary))?.values),
   }
 }
 

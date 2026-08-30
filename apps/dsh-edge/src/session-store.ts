@@ -42,6 +42,7 @@ import SessionStore, {
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import { buildSessionEventSearchDocuments } from '@deepseek-ai/dsh-session-query'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
+import SessionProjectionCache from '@deepseek-ai/dsh-session-projection-cache'
 import {
   foldSessionTitle,
   normalizeSessionTitle,
@@ -194,14 +195,12 @@ export class EdgeSessionStore {
   private readonly blankHandles = new Map<SessionId, AgentHandle>()
   private readonly modelSelections: EdgeModelSelectionBridge
   private readonly turnPublishedAgents = new WeakSet<Agent>()
-  private readonly storage: DurableObjectStorage
   private readonly ready: Promise<void>
 
   constructor(
     storage: DurableObjectStorage,
     config: EdgeSessionStoreConfig,
   ) {
-    this.storage = storage
     this.modelSelections = new EdgeModelSelectionBridge(storage)
     this.ready = this.initialize(storage, config)
   }
@@ -247,6 +246,10 @@ export class EdgeSessionStore {
     }
     await this.context.plugin(SessionStore)
     await this.context.plugin(SessionProjectionRegistry)
+    await this.context.plugin(SessionProjectionCache, {
+      writeEveryEvents: 64,
+      writeIntervalMs: 10_000,
+    })
     await this.context.plugin(TokenMeter)
     await this.context.plugin(BasicCompactionEngine)
     await this.context.plugin(ToolResultPruner)
@@ -357,17 +360,14 @@ export class EdgeSessionStore {
     return this.context.sessionProjections.snapshot(agent.session)
   }
 
-  async writeProjectionCache(sessionId: SessionId): Promise<void> {
-    const agent = this.context.agents.get(sessionId)
-    if (agent === undefined) return
-    const snapshot = this.context.sessionProjections.snapshot(agent.session)
-    if (snapshot === undefined || Object.keys(snapshot.values).length === 0) return
-    await this.storage.put(`dsh-projection:${sessionId}`, snapshot)
+  projectionCachedSnapshot(summary: { id: SessionId; createdAt: number; cwd?: string }): { asOfSeq: number; values: Record<string, unknown> } | undefined {
+    const cache = this.context.get('sessionProjectionCache') as SessionProjectionCache | undefined
+    if (cache === undefined) return undefined
+    const session = this.context.sessions.get(summary.id)
+    const header = session?.header ?? { id: summary.id, createdAt: summary.createdAt, ...summary.cwd === undefined ? {} : { cwd: summary.cwd } }
+    return cache.cachedSnapshot(header as never)
   }
 
-  async readProjectionCache(sessionId: SessionId): Promise<{ asOfSeq: number; values: Record<string, unknown> } | undefined> {
-    return await this.storage.get(`dsh-projection:${sessionId}`) as { asOfSeq: number; values: Record<string, unknown> } | undefined
-  }
 
   /** Resolve the optional upstream attachment service composed for this deployment. */
   async attachmentStore(): Promise<AttachmentStore | undefined> {
