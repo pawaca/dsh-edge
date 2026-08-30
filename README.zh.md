@@ -52,8 +52,8 @@ npx dsh-edge upgrade
 ## 重要边界
 
 - dsh-edge 面向单一 owner，不提供注册、多用户、角色或租户路由。
-- DeepSeek key 以 secret 形式保存在你的 Cloudflare Worker 中，部署的持久数据留在你的 Cloudflare 账户内。
-- 部分上游能力（MCP、子进程、PTY）需要 Cloudflare Containers，尚未适配。Vision Exp 是实验模型，是否可用取决于 DeepSeek 账户。详细状态见[兼容矩阵](apps/dsh-edge/README.zh.md#cloudflare-兼容矩阵)和 [wiki](https://github.com/pawaca/dsh-edge/wiki)。
+- DeepSeek key 在部署时以 Worker secret 保存，或通过运行时设置 UI 配置时存入 Durable Object storage。部署的持久数据留在你的 Cloudflare 账户内。
+- 部分上游能力（子进程、PTY）需要 Cloudflare Containers，尚未适配。MCP 的 Streamable HTTP 传输在免费 plan 上可行但尚未安装。Vision Exp 是实验模型，是否可用取决于 DeepSeek 账户。详细状态见[兼容矩阵](apps/dsh-edge/README.zh.md#cloudflare-兼容矩阵)和 [wiki](https://github.com/pawaca/dsh-edge/wiki)。
 
 ## 基于 DeepSeek Harness
 

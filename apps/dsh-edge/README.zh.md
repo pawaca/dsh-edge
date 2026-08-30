@@ -175,7 +175,7 @@ Cloudflare static assets -> upstream Web shell + client plugin graph
 - Workspace create/list/rename/delete/reorder/archive、实时/重连 baseline 和 Host frame；
 - 真实浏览器启动、UI 发起的 Workspace rename、图片 turn、内容搜索、branch、archive 和 session 过期后的登录恢复；
 - 对话连续性、event 重放、两步 bash 与 Web Search tool 交互，以及 Wrangler 重启后恢复；
-- goal create/edit/pause/clear 生命周期、文件 read/write/edit 工具执行、Typert URL 路由，以及 session projection 广播与冷加载缓存恢复。
+- Typert URL 路由验证和 snapshot 级别工具定义验证；goal 和文件工具的端到端集成测试尚未实现。
 
 一项聚焦故障测试证明，入队后的持久化失败会阻止模型调用，不会把已唤醒 Agent 的 prompt 报告为拒绝。仓库中的 model-visible 与 ARIA golden 会固定 tool transcript 和组装后的上游 Web client。真实 DeepSeek 调用需要开发者的 key，故不纳入仓库测试套件。
 
@@ -288,7 +288,7 @@ pnpm --filter dsh-edge example:install
 - Fork 通过 canonical session seed format 复制 completed-turn prefix，并保留 parent lineage。Edge 拒绝超过 8,192 个事件或 8 MiB 的 seed，不会物化无界 history。
 - Queue mutation 通过 live upstream Agent inbox 编辑、移除或提升条目。同步 mutation 是接纳点；后续 write-behind 与 retirement retry 由 persistence coordinator 负责。
 - Workspace mutation 通过 Durable Object backend 持久化上游 workspace-domain global 与 record shape。Archive 保留 session log 与 Workspace slot；unary response 与 Host frame 携带和上游一致的完整 snapshot。
-- Goal mutation（create、edit、pause、clear）通过 `TypertGatewayService` 经由 `/api/typert/*` Typert RPC 路由。使用 `@Remote` 装饰的 Service 会被自动发现和路由，不需要手写 handler。
+- Goal mutation（create、edit、pause、clear）通过 `TypertGatewayService` 路由到 `/api/goals/<method>`。使用 `@Remote` 装饰的 Service 会被自动发现和路由，不需要手写 handler。
 
 ### 认证与 downlink
 

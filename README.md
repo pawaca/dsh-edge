@@ -52,8 +52,8 @@ The installer finds your Worker and upgrades it in place while preserving its du
 ## Important boundaries
 
 - dsh-edge is designed for one owner; it does not provide registration, multiple users, roles, or tenant routing.
-- Your DeepSeek key is stored as a secret in your Cloudflare Worker, and the deployment's durable data stays in your Cloudflare account.
-- Some upstream capabilities (MCP, subprocess, PTY) require Cloudflare Containers and are not yet adapted. Vision Exp is experimental and account-dependent. See the [compatibility matrix](apps/dsh-edge/README.md#cloudflare-compatibility-matrix) and the [wiki](https://github.com/pawaca/dsh-edge/wiki) for the full status.
+- Your DeepSeek key is stored as a Worker secret when set at deployment, or in Durable Object storage when configured through the runtime Settings UI. The deployment's durable data stays in your Cloudflare account.
+- Some upstream capabilities (subprocess, PTY) require Cloudflare Containers and are not yet adapted. MCP over Streamable HTTP is feasible on the free plan but not yet installed. Vision Exp is experimental and account-dependent. See the [compatibility matrix](apps/dsh-edge/README.md#cloudflare-compatibility-matrix) and the [wiki](https://github.com/pawaca/dsh-edge/wiki) for the full status.
 
 ## Built on DeepSeek Harness
 

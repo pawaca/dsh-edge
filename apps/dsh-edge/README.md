@@ -175,7 +175,7 @@ The local integration suite uses an SSE stand-in with real Wrangler, Durable Obj
 - Workspace create/list/rename/delete/reorder/archive, live/reconnect baselines, and Host frames;
 - real browser boot, UI-issued Workspace rename, image turn, content search, branch, archive, and expired-session login recovery;
 - conversation continuity, event replay, two-step bash and Web Search tool exchanges, and Wrangler-restart restoration;
-- goal create/edit/pause/clear lifecycle, file read/write/edit tool execution, Typert URL routing, and session projection broadcast with cold-load cache recovery.
+- Typert URL routing validation and snapshot-level tool definition verification; goal and file tool end-to-end integration tests are not yet implemented.
 
 A focused failure test proves that post-enqueue durability failure blocks model use without reporting the already-woken prompt as rejected. Committed model-visible and ARIA goldens pin tool transcripts and the assembled upstream Web client. A live DeepSeek call requires the developer's key and is intentionally outside the repository test suite.
 
@@ -288,7 +288,7 @@ pnpm --filter dsh-edge example:install
 - Fork copies a completed-turn prefix through the canonical session seed format and retains parent lineage. Edge refuses seeds above 8,192 events or 8 MiB instead of materializing unbounded history.
 - Queue mutations edit, remove, or promote an item through the live upstream Agent inbox. The synchronous mutation is the acceptance point; the persistence coordinator owns later write-behind and retirement retry.
 - Workspace mutations persist upstream workspace-domain global and record shapes through the Durable Object backend. Archive preserves the session log and Workspace slot; unary responses and Host frames carry the same full snapshots as upstream.
-- Goal mutations (create, edit, pause, clear) route through `TypertGatewayService` via `/api/typert/*` Typert RPC. Services decorated with `@Remote` are auto-discovered and routed without hand-written handlers.
+- Goal mutations (create, edit, pause, clear) route through `TypertGatewayService` at `/api/goals/<method>`. Services decorated with `@Remote` are auto-discovered and routed without hand-written handlers.
 
 ### Authentication and downlinks
 
