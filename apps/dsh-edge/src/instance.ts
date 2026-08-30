@@ -295,6 +295,8 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       const url = new URL(request.url)
       const edgeRemote = await handleEdgeRemote(request)
       if (edgeRemote !== undefined) return edgeRemote
+      const typertResponse = await this.handleTypertRpc(request, url)
+      if (typertResponse !== undefined) return typertResponse
       if (url.pathname === '/api/events.mux' || url.pathname === '/api/events.host') {
         return await this.openDownlink(request, url.pathname === '/api/events.mux' ? 'mux' : 'host')
       }
@@ -509,6 +511,32 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       })
     }
     return archivedSessionIds
+  }
+
+  private async handleTypertRpc(request: Request, url: URL): Promise<Response | undefined> {
+    const match = /^\/api\/([a-zA-Z0-9_$.-]+)\/([a-zA-Z0-9_$.-]+)$/.exec(url.pathname)
+    if (match === null || request.method !== 'POST') return undefined
+    const gateway = this.sessions.typertGateway()
+    if (gateway === undefined) return undefined
+    let body: Record<string, unknown>
+    try { body = await request.json() as Record<string, unknown> } catch { return new Response('invalid JSON', { status: 400 }) }
+    const rpcId = body.rpcId as string | undefined ?? 'unknown'
+    const payload = body.payload as Record<string, unknown> | undefined
+    const args = payload?.args as Record<string, unknown> | undefined ?? {}
+    try {
+      const value = await gateway.invoke({
+        namespace: match[1]!,
+        method: match[2]!,
+        args,
+        signal: AbortSignal.timeout(30_000),
+      })
+      return Response.json({ type: 'server-response', rpcId, result: { ok: true, value } })
+    } catch (error) {
+      return Response.json({ type: 'server-response', rpcId, result: {
+        ok: false,
+        error: { code: 'internal', message: error instanceof Error ? error.message : String(error), details: {} },
+      } })
+    }
   }
 
   private publishSessionEvent(sessionId: SessionId, event: SessionEvent): void {

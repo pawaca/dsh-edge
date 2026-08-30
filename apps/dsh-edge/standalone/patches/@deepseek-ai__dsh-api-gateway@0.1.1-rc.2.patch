@@ -1,0 +1,23 @@
+diff --git a/lib/types/index.js b/lib/types/index.js
+index 37202a8e48e93a371211604095f199a93af2b7fe..45f2a29247161d7eab85f09b54c58776165adb33 100644
+--- a/lib/types/index.js
++++ b/lib/types/index.js
+@@ -5,7 +5,8 @@
+  */
+ import { Service, symbols } from '@deepseek-ai/cordis';
+ import { remoteMethods, TypertLookupFailure, } from '@deepseek-ai/dsh-typert-protocol';
+-const NEVER_ABORTED_SIGNAL = new AbortController().signal;
++let _neverAborted;
++function neverAbortedSignal() { return _neverAborted ?? (_neverAborted = new AbortController().signal); }
+ /** Dispatch failure produced outside the invoked business method. */
+ export class TypertGatewayError extends Error {
+     /** Machine-readable failure category. */
+@@ -107,7 +108,7 @@ export class TypertGatewayService extends Service {
+         validateBinding(receiver, descriptor.service, descriptor.namespace, endpoint);
+         const args = await Promise.all(descriptor.parameters.map(parameter => this.resolveParameter(parameter, request.args, endpoint)));
+         if (descriptor.cancellation !== undefined)
+-            args.push(request.signal ?? NEVER_ABORTED_SIGNAL);
++            args.push(request.signal ?? neverAbortedSignal());
+         const implementation = descriptor.implementation ?? descriptor.method;
+         const method = Reflect.get(receiver, implementation);
+         if (typeof method !== 'function') {
