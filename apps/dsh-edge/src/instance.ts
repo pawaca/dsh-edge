@@ -293,10 +293,10 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
   override async fetch(request: Request): Promise<Response> {
     try {
       const url = new URL(request.url)
-      const typertResponse = await this.handleTypertRpc(request, url)
-      if (typertResponse !== undefined) return typertResponse
       const edgeRemote = await handleEdgeRemote(request)
       if (edgeRemote !== undefined) return edgeRemote
+      const typertResponse = await this.handleTypertRpc(request, url)
+      if (typertResponse !== undefined) return typertResponse
       if (url.pathname === '/api/events.mux' || url.pathname === '/api/events.host') {
         return await this.openDownlink(request, url.pathname === '/api/events.mux' ? 'mux' : 'host')
       }
