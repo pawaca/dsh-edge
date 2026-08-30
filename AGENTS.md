@@ -7,7 +7,7 @@
 - `apps/dsh-edge/` owns the Worker runtime, Durable Object adapters, installer, release CLI, tests, and package documentation.
 - `packages/client/ui-edge/` owns the Edge-specific browser plugin.
 - `apps/dsh-edge/standalone/` owns the exact upstream dependency closure, audited patches, Web assembly, and Direct/Dynamic Worker builds.
-- `.agents/` owns this repository's active decisions and review workflow.
+- `.agents/` owns this repository's review workflow and skills.
 - Do not restore upstream monorepo source, vendored packages, examples, SDKs, native code, or development workflows. Use published packages and public extension points; use a version-bound patch only when composition cannot express the change.
 
 ## Commands
@@ -29,7 +29,7 @@ The root and standalone lockfiles serve different purposes. The root lock instal
 
 - Keep every `@deepseek-ai/dsh-*` standalone dependency on one exact upstream version. Upgrade it only in an explicit upstream-baseline PR.
 - Keep Direct and Dynamic Loader modes behaviorally aligned except for their command-execution backend and Cloudflare plan requirement.
-- Preserve Durable Object class names, bindings, session/event formats, workspace/VFS state, owner authentication, and public HTTP/WebSocket behavior unless an Agent Note explicitly changes them.
+- Preserve Durable Object class names, bindings, session/event formats, workspace/VFS state, owner authentication, and public HTTP/WebSocket behavior.
 - Durable Object SQL queries on request-serving paths must not use correlated subqueries or per-row scans against unbounded tables. Pre-compute read-heavy aggregations in a materialized table maintained atomically at write time; never derive per-request summaries by scanning event or log history.
 - Never log `DSH_EDGE_ACCESS_KEY`, bearer tokens, or owner cookies. Provider credentials persist only through the upstream `CredentialProvider` seam in Durable Object storage; resolved values remain request-scoped in the LLM adapter and are never logged, cached across requests, or written to session events.
 - When registering a cordis sub-registry entry (e.g. `ctx.storage.backend.register(name, backend)`), call `ctx.provide(key, value)` if another plugin uses `ctx.inject([key])` to wait for it. Sub-registry `register()` methods only update internal Maps; they do not trigger cordis inject resolution. Use `ctx.effect()` to pair registration with `provide` and clean up on disposal.

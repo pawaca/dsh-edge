@@ -1,6 +1,0 @@
-# Bilingual-pair consistency record: the git blob hash of each side at the
-# last confirmed-consistent state. Both languages carry equal authority.
-# After editing either side, update both and re-record every pair with:
-#   pnpm run doc-pairs -- --write
-2026-08-18-edge-deepseek-web-search.md: 8dac698537a2704f71a14b9542a71651adacc828
-2026-08-18-edge-deepseek-web-search.zh.md: b922d7022d6f883b2b44457ec27e5a0db6ce84c3
