@@ -227,7 +227,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
           if (beforeSeq === undefined) {
             projectionValues = (
               runtime.sessions.projectionSnapshot(sessionId)
-              ?? runtime.sessions.projectionCachedSnapshot(sessionId)
+              ?? runtime.sessions.projectionCachedSnapshot(page.summary)
             )?.values
           }
           return ok(request, {
@@ -886,7 +886,7 @@ function sessionSummary(
     ...summary.cwd === undefined ? {} : { cwd: summary.cwd },
     ...summary.agentPreset === undefined ? {} : { agentPreset: summary.agentPreset },
     projections: summaryProjections(summary, runtime.imageLimits,
-      (runtime.sessions.projectionSnapshot(summary.id) ?? runtime.sessions.projectionCachedSnapshot(summary.id))?.values),
+      (runtime.sessions.projectionSnapshot(summary.id) ?? runtime.sessions.projectionCachedSnapshot(summary))?.values),
   }
 }
 

@@ -360,12 +360,12 @@ export class EdgeSessionStore {
     return this.context.sessionProjections.snapshot(agent.session)
   }
 
-  projectionCachedSnapshot(sessionId: SessionId): { asOfSeq: number; values: Record<string, unknown> } | undefined {
+  projectionCachedSnapshot(summary: { id: SessionId; createdAt: number; cwd?: string }): { asOfSeq: number; values: Record<string, unknown> } | undefined {
     const cache = this.context.get('sessionProjectionCache') as SessionProjectionCache | undefined
     if (cache === undefined) return undefined
-    const session = this.context.sessions.get(sessionId)
-    if (session === undefined) return undefined
-    return cache.cachedSnapshot(session.header)
+    const session = this.context.sessions.get(summary.id)
+    const header = session?.header ?? { id: summary.id, createdAt: summary.createdAt, ...summary.cwd === undefined ? {} : { cwd: summary.cwd } }
+    return cache.cachedSnapshot(header as never)
   }
 
 

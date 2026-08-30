@@ -419,6 +419,8 @@ function normalize(source) {
     .replace(/http:\/\/127\.0\.0\.1:\d+/gu, '{{mock-deepseek}}')
     .replace(/\b\d{1,2}:\d{2}(?::\d{2})?\s*(?:AM|PM)?\b/giu, '{{clock}}')
     .replace(/\b\d+(?:\.\d+)?\s*(?:ms|s|tok\/s)\b/giu, '{{metric}}')
+    .replace(/^- button "\d+% of context used"\n/gmu, '')
+    .replace(/ Cache hit \d+% Input \d+ tok · Output \d+ tok/gu, '')
     .replaceAll(mockChannelVersion, '{{channel-version}}')
     .replaceAll(edgePackage.version, '{{version}}')
     .replaceAll(channel, '{{channel}}')
