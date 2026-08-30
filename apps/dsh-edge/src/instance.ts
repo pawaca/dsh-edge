@@ -231,9 +231,8 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         this.publishSessionEvent(sessionId, event)
       },
       onProjectionChanged: (sessionId, key, value, seq) => {
-        // title and sessionListMetadata use dedicated pushes in publishSessionEvent
-        // (cold rename disposes agent before publication, so the buffer path can't cover them)
-        if (key === 'title' || key === 'sessionListMetadata') return
+        // sessionListMetadata uses a dedicated push with its own fold logic in publishSessionEvent
+        if (key === 'sessionListMetadata') return
         let queue = this.pendingProjections.get(sessionId)
         if (queue === undefined) {
           queue = []
@@ -544,15 +543,6 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
 
   private publishSessionEvent(sessionId: SessionId, event: SessionEvent): void {
     this.broadcast('mux', { type: 'session/event', sessionId, event })
-    if (event.type === 'session/title') {
-      this.broadcast('mux', {
-        type: 'session/projection',
-        sessionId,
-        key: 'title',
-        value: event.data.title,
-        seq: event.seq,
-      })
-    }
     const previous = this.sessionListMetadata.get(sessionId) ?? INITIAL_SESSION_LIST_METADATA
     const next = applySessionListMetadata(previous, event)
     if (next !== previous) {
