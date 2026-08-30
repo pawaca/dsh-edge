@@ -288,7 +288,7 @@ pnpm --filter dsh-edge example:install
 - Fork copies a completed-turn prefix through the canonical session seed format and retains parent lineage. Edge refuses seeds above 8,192 events or 8 MiB instead of materializing unbounded history.
 - Queue mutations edit, remove, or promote an item through the live upstream Agent inbox. The synchronous mutation is the acceptance point; the persistence coordinator owns later write-behind and retirement retry.
 - Workspace mutations persist upstream workspace-domain global and record shapes through the Durable Object backend. Archive preserves the session log and Workspace slot; unary responses and Host frames carry the same full snapshots as upstream.
-- Goal mutations (create, edit, pause, resume, complete, clear) route through `TypertGatewayService` at `/api/goals/<method>`. Services decorated with `@Remote` are auto-discovered and routed without hand-written handlers.
+- Goal mutations (create, edit, pause, resume, complete, clear) route through `TypertGatewayService` at `/api/goals/<method>`. Each `@Remote` service requires its Typert descriptor to be registered via `ctx.typert.register()`; no per-method HTTP handler is needed.
 
 ### Authentication and downlinks
 

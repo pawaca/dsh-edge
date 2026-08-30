@@ -288,7 +288,7 @@ pnpm --filter dsh-edge example:install
 - Fork 通过 canonical session seed format 复制 completed-turn prefix，并保留 parent lineage。Edge 拒绝超过 8,192 个事件或 8 MiB 的 seed，不会物化无界 history。
 - Queue mutation 通过 live upstream Agent inbox 编辑、移除或提升条目。同步 mutation 是接纳点；后续 write-behind 与 retirement retry 由 persistence coordinator 负责。
 - Workspace mutation 通过 Durable Object backend 持久化上游 workspace-domain global 与 record shape。Archive 保留 session log 与 Workspace slot；unary response 与 Host frame 携带和上游一致的完整 snapshot。
-- Goal mutation（create、edit、pause、resume、complete、clear）通过 `TypertGatewayService` 路由到 `/api/goals/<method>`。使用 `@Remote` 装饰的 Service 会被自动发现和路由，不需要手写 handler。
+- Goal mutation（create、edit、pause、resume、complete、clear）通过 `TypertGatewayService` 路由到 `/api/goals/<method>`。每个 `@Remote` Service 需要通过 `ctx.typert.register()` 注册其 Typert 描述符；不需要编写 per-method HTTP handler。
 
 ### 认证与 downlink
 
