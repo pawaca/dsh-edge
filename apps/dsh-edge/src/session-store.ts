@@ -271,6 +271,9 @@ export class EdgeSessionStore {
     await this.context.plugin(TypertGatewayService)
     await this.context.plugin(ToolFs)
     await this.context.plugin(GoalService)
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    const { TYPERT: GOAL_TYPERT } = await import('@deepseek-ai/dsh-goal/typert' as string)
+    this.context.typert.register(GOAL_TYPERT as never)
     await this.context.plugin(ToolGoal)
     await this.context.plugin(GoalRoundDriver)
     await this.context.plugin(SpillPolicy, { maxInlineBytes: 32_768 })
