@@ -25,6 +25,11 @@
     "removeWhen": "The published sandbox package conditionally imports node:fs/node:os or exposes the utility functions (canonicalPath, escalation markers) from a separate Node-free entry point."
   },
   {
+    "package": "@deepseek-ai/dsh-api-gateway",
+    "rationale": "Defer module-level AbortController construction to first use. Cloudflare Workers disallows new AbortController() in global scope.",
+    "removeWhen": "The published api-gateway package initializes NEVER_ABORTED_SIGNAL lazily or moves it inside the method that uses it."
+  },
+  {
     "package": "@deepseek-ai/dsh-workspace",
     "rationale": "Remove node:fs/promises realpath and stat calls that are incompatible with Cloudflare Workers. Edge VFS has no symlinks and Computer guarantees path validity.",
     "removeWhen": "The published workspace registry accepts an injectable path normalizer or the realpath/stat calls are gated behind a platform check."
