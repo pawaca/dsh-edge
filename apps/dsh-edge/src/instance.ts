@@ -577,6 +577,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         })
       }
     }
+    this.sessions.writeProjectionCache(sessionId).catch(() => {})
   }
 
   private rememberSessionListMetadata(session: EdgeApiSessionSummary): void {

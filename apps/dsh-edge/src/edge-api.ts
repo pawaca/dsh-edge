@@ -230,7 +230,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
             events: entries,
             hasMore: page.hasMore,
             ...beforeSeq === undefined
-              ? { projections: summaryProjections(page.summary, runtime.imageLimits, runtime.sessions.projectionSnapshot(sessionId)?.values) }
+              ? { projections: summaryProjections(page.summary, runtime.imageLimits, runtime.sessions.projectionSnapshot(sessionId, page.events)?.values) }
               : {},
           })
         } catch (error) {
