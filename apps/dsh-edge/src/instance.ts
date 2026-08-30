@@ -541,6 +541,15 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
 
   private publishSessionEvent(sessionId: SessionId, event: SessionEvent): void {
     this.broadcast('mux', { type: 'session/event', sessionId, event })
+    if (event.type === 'session/title') {
+      this.broadcast('mux', {
+        type: 'session/projection',
+        sessionId,
+        key: 'title',
+        value: event.data.title,
+        seq: event.seq,
+      })
+    }
     const previous = this.sessionListMetadata.get(sessionId) ?? INITIAL_SESSION_LIST_METADATA
     const next = applySessionListMetadata(previous, event)
     if (next !== previous) {

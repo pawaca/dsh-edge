@@ -239,7 +239,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
           return ok(request, {
             events: entries,
             hasMore: page.hasMore,
-            ...projectionValues !== undefined
+            ...beforeSeq === undefined
               ? { projections: summaryProjections(page.summary, runtime.imageLimits, projectionValues) }
               : {},
           })
