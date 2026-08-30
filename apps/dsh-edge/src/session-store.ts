@@ -351,18 +351,10 @@ export class EdgeSessionStore {
     try { return this.context.get('typertGateway') as never } catch { return undefined }
   }
 
-  projectionSnapshot(
-    sessionId: SessionId,
-    coldEvents?: readonly SessionEvent[],
-  ): { asOfSeq: number; values: Record<string, unknown> } | undefined {
+  projectionSnapshot(sessionId: SessionId): { asOfSeq: number; values: Record<string, unknown> } | undefined {
     const agent = this.context.agents.get(sessionId)
-    if (agent !== undefined) return this.context.sessionProjections.snapshot(agent.session)
-    if (coldEvents !== undefined && coldEvents.length > 0) {
-      try {
-        return this.context.sessionProjections.restore({}, coldEvents, 0).snapshot
-      } catch { return undefined }
-    }
-    return undefined
+    if (agent === undefined) return undefined
+    return this.context.sessionProjections.snapshot(agent.session)
   }
 
   async writeProjectionCache(sessionId: SessionId): Promise<void> {
