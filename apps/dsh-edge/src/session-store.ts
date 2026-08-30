@@ -194,12 +194,14 @@ export class EdgeSessionStore {
   private readonly blankHandles = new Map<SessionId, AgentHandle>()
   private readonly modelSelections: EdgeModelSelectionBridge
   private readonly turnPublishedAgents = new WeakSet<Agent>()
+  private readonly storage: DurableObjectStorage
   private readonly ready: Promise<void>
 
   constructor(
     storage: DurableObjectStorage,
     config: EdgeSessionStoreConfig,
   ) {
+    this.storage = storage
     this.modelSelections = new EdgeModelSelectionBridge(storage)
     this.ready = this.initialize(storage, config)
   }
@@ -353,6 +355,18 @@ export class EdgeSessionStore {
     const agent = this.context.agents.get(sessionId)
     if (agent === undefined) return undefined
     return this.context.sessionProjections.snapshot(agent.session)
+  }
+
+  async writeProjectionCache(sessionId: SessionId): Promise<void> {
+    const agent = this.context.agents.get(sessionId)
+    if (agent === undefined) return
+    const snapshot = this.context.sessionProjections.snapshot(agent.session)
+    if (snapshot === undefined || Object.keys(snapshot.values).length === 0) return
+    await this.storage.put(`dsh-projection:${sessionId}`, snapshot)
+  }
+
+  async readProjectionCache(sessionId: SessionId): Promise<{ asOfSeq: number; values: Record<string, unknown> } | undefined> {
+    return await this.storage.get(`dsh-projection:${sessionId}`) as { asOfSeq: number; values: Record<string, unknown> } | undefined
   }
 
   /** Resolve the optional upstream attachment service composed for this deployment. */

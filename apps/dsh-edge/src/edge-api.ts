@@ -226,11 +226,21 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
             maxMessages ?? DEFAULT_HISTORY_MESSAGES,
           )
           const entries: HistoryEntry[] = page.events.map(event => ({ event }))
+          let projectionValues: Record<string, unknown> | undefined
+          if (beforeSeq === undefined) {
+            const live = runtime.sessions.projectionSnapshot(sessionId)
+            if (live !== undefined) {
+              projectionValues = live.values
+            } else {
+              const cached = await runtime.sessions.readProjectionCache(sessionId)
+              projectionValues = cached?.values
+            }
+          }
           return ok(request, {
             events: entries,
             hasMore: page.hasMore,
             ...beforeSeq === undefined
-              ? { projections: summaryProjections(page.summary, runtime.imageLimits, runtime.sessions.projectionSnapshot(sessionId)?.values) }
+              ? { projections: summaryProjections(page.summary, runtime.imageLimits, projectionValues) }
               : {},
           })
         } catch (error) {
