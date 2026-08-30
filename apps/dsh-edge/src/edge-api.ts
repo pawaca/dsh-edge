@@ -225,13 +225,10 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
           const entries: HistoryEntry[] = page.events.map(event => ({ event }))
           let projectionValues: Record<string, unknown> | undefined
           if (beforeSeq === undefined) {
-            const live = runtime.sessions.projectionSnapshot(sessionId)
-            if (live !== undefined) {
-              projectionValues = live.values
-            } else {
-              const cold = await runtime.sessions.projectionColdSnapshot(sessionId)
-              projectionValues = cold?.values
-            }
+            projectionValues = (
+              runtime.sessions.projectionSnapshot(sessionId)
+              ?? runtime.sessions.projectionCachedSnapshot(sessionId)
+            )?.values
           }
           return ok(request, {
             events: entries,

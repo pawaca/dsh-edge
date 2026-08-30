@@ -368,13 +368,6 @@ export class EdgeSessionStore {
     return cache.cachedSnapshot(session.header)
   }
 
-  async projectionColdSnapshot(sessionId: SessionId): Promise<{ asOfSeq: number; values: Record<string, unknown> } | undefined> {
-    const cache = this.context.get('sessionProjectionCache') as SessionProjectionCache | undefined
-    if (cache === undefined) return undefined
-    try {
-      return await cache.coldSnapshot(sessionId)
-    } catch { return undefined }
-  }
 
   /** Resolve the optional upstream attachment service composed for this deployment. */
   async attachmentStore(): Promise<AttachmentStore | undefined> {

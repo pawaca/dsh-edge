@@ -23,5 +23,6 @@
 - button "Select model, current DeepSeek-V4-Flash-Vision-Exp, reasoning effort High":
   - text: DeepSeek-V4-Flash-Vision-Exp High
   - img
+- button "0% of context used"
 - button "Send message" [disabled]
-- text: 1 turns · 1 steps LLM {{metric}} TTFT avg {{metric}} · {{metric}}
+- text: 1 turns · 1 steps LLM {{metric}} TTFT avg {{metric}} · {{metric}} Cache hit 0% Input 12 tok · Output 2 tok
