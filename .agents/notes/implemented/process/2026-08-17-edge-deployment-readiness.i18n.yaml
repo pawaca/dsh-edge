@@ -1,6 +1,0 @@
-# Bilingual-pair consistency record: the git blob hash of each side at the
-# last confirmed-consistent state. Both languages carry equal authority.
-# After editing either side, update both and re-record every pair with:
-#   pnpm run doc-pairs -- --write
-2026-08-17-edge-deployment-readiness.md: eb8b7e57be7960082a4e9e6a1082a54ce1bccf2d
-2026-08-17-edge-deployment-readiness.zh.md: cce617caefc8139ee9f22469569a7710ebff0ee7

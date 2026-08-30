@@ -1,6 +1,0 @@
-# Bilingual-pair consistency record: the git blob hash of each side at the
-# last confirmed-consistent state. Both languages carry equal authority.
-# After editing either side, update both and re-record every pair with:
-#   pnpm run doc-pairs -- --write
-2026-08-18-dsh-edge-independent-package-attribution.md: 8124c11b7e819b23524e84de6ab9c4069eacaeda
-2026-08-18-dsh-edge-independent-package-attribution.zh.md: d96a67b51d661a2ee88f81dcb578085bcdb41e4c
