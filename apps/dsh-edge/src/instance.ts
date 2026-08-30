@@ -230,12 +230,22 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       onLateSessionEvent: (sessionId, event) => {
         this.publishSessionEvent(sessionId, event)
       },
+      onProjectionChanged: (sessionId, key, value, seq) => {
+        if (key === 'title' || key === 'sessionListMetadata') return
+        let queue = this.pendingProjections.get(sessionId)
+        if (queue === undefined) {
+          queue = []
+          this.pendingProjections.set(sessionId, queue)
+        }
+        queue.push({ key, value, seq })
+      },
       waitUntil: promise => this.ctx.waitUntil(promise),
     },
   )
   private readonly model = resolveEdgeModel(this.env.DEEPSEEK_MODEL)
   private readonly activeTurns = new Map<SessionId, ActiveTurn>()
   private readonly sessionListMetadata = new Map<SessionId, SessionListMetadata>()
+  private readonly pendingProjections = new Map<SessionId, { key: string; value: unknown; seq: number }[]>()
   private readonly api = createEdgeApi({
     sessions: this.sessions,
     model: this.model,
@@ -514,15 +524,31 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     }
     const previous = this.sessionListMetadata.get(sessionId) ?? INITIAL_SESSION_LIST_METADATA
     const next = applySessionListMetadata(previous, event)
-    if (next === previous) return
-    this.sessionListMetadata.set(sessionId, next)
-    this.broadcast('mux', {
-      type: 'session/projection',
-      sessionId,
-      key: 'sessionListMetadata',
-      value: next,
-      seq: event.seq,
-    })
+    if (next !== previous) {
+      this.sessionListMetadata.set(sessionId, next)
+      this.broadcast('mux', {
+        type: 'session/projection',
+        sessionId,
+        key: 'sessionListMetadata',
+        value: next,
+        seq: event.seq,
+      })
+    }
+    const pending = this.pendingProjections.get(sessionId)
+    if (pending !== undefined && pending.length > 0) {
+      const ready = pending.filter(e => e.seq <= event.seq)
+      const remaining = pending.filter(e => e.seq > event.seq)
+      this.pendingProjections.set(sessionId, remaining)
+      for (const entry of ready) {
+        this.broadcast('mux', {
+          type: 'session/projection',
+          sessionId,
+          key: entry.key,
+          value: entry.value,
+          seq: entry.seq,
+        })
+      }
+    }
   }
 
   private rememberSessionListMetadata(session: EdgeApiSessionSummary): void {
