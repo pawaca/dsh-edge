@@ -8,7 +8,7 @@ English | [中文](README.zh.md)
 
 `dsh-edge` runs the published DeepSeek Harness Web experience on Cloudflare Workers, so your personal coding agent is available wherever you have a browser. No server to maintain, GitHub repository to connect, or build pipeline to configure.
 
-It keeps the upstream UI, agent loop, model selection, image experience, and Web Search. dsh-edge supplies only the Cloudflare runtime, durable workspace, owner login, and guided installer.
+It keeps the upstream UI, agent loop, model selection, and Web Search, while adding goal tracking, file operations, context compaction, runtime-configurable settings, and persistent multi-workspace management — all on Cloudflare Workers.
 
 > **Independent community project:** `dsh-edge` is maintained by [pawaca](https://github.com/pawaca). It is not affiliated with or endorsed by DeepSeek. [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) is the upstream project.
 
@@ -26,12 +26,11 @@ The installer guides you through every choice and deploys the Worker. You can tr
 
 ## What you get
 
-- Persistent conversations and workspaces from any browser.
-- DeepSeek V4 Flash, V4 Pro, and the experimental V4 Flash Vision Exp model through the upstream selector.
-- PNG/JPEG image input and DeepSeek's native Web Search tool.
-- A persistent `/workspace` with the native DSH `bash` tool.
-- Your own Cloudflare deployment, credentials, and data.
-- In-place upgrades without a repository or Cloudflare Builds integration.
+- **Agent capabilities** — goal tracking with GoalBar UI, file tools (read, write, edit, read_image), context compaction for long conversations, and automatic session titles.
+- **Workspaces** — multiple persistent workspaces with create, rename, archive, and reorder; a `/workspace` filesystem backed by Durable Object SQLite; and a bash tool with configurable timeouts.
+- **Models** — DeepSeek V4 Flash, V4 Pro, and Vision Exp through the upstream selector; runtime-configurable settings (model, API key, reasoning effort) without redeployment; Web Search and PNG/JPEG image input.
+- **Conversations** — session fork to branch conversations, queue/steer message editing, persistent history from any browser.
+- **Deployment** — your own Cloudflare Worker, credentials, and data; in-place upgrades without a repository or build pipeline.
 
 ## Choose your deployment
 
@@ -54,7 +53,7 @@ The installer finds your Worker and upgrades it in place while preserving its du
 
 - dsh-edge is designed for one owner; it does not provide registration, multiple users, roles, or tenant routing.
 - Your DeepSeek key is stored as a secret in your Cloudflare Worker, and the deployment's durable data stays in your Cloudflare account.
-- Vision Exp is experimental and account-dependent. Some upstream capabilities are not yet adapted to Edge; see the [compatibility matrix](apps/dsh-edge/README.md#cloudflare-compatibility-matrix) for the current status.
+- Some upstream capabilities (MCP, subprocess, PTY) require Cloudflare Containers and are not yet adapted. Vision Exp is experimental and account-dependent. See the [compatibility matrix](apps/dsh-edge/README.md#cloudflare-compatibility-matrix) and the [wiki](https://github.com/pawaca/dsh-edge/wiki) for the full status.
 
 ## Built on DeepSeek Harness
 
@@ -64,6 +63,7 @@ For the upstream architecture and plugin APIs, see the [DeepSeek Harness reposit
 
 ## Documentation
 
+- [Architecture and subsystem wiki](https://github.com/pawaca/dsh-edge/wiki)
 - [Runtime reference, compatibility, security, and limits](apps/dsh-edge/README.md)
 - [Release notes](docs/releases/)
 - [DeepSeek Harness upstream documentation](https://deepseek-harness.github.io/deepseek-harness/reference/)

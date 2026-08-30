@@ -8,7 +8,7 @@
 
 `dsh-edge` 把已发布的 DeepSeek Harness Web 体验运行在 Cloudflare Workers 上，让你的个人 coding agent 在任何有浏览器的地方都能使用。无需维护服务器、绑定 GitHub 仓库或配置构建流水线。
 
-它保留上游 UI、agent loop、模型选择、图片体验和 Web Search；dsh-edge 只提供 Cloudflare runtime、持久工作区、owner 登录与引导式安装器。
+它保留上游 UI、agent loop、模型选择和 Web Search，同时新增 goal 跟踪、文件操作、上下文压缩、运行时可配置设置和持久多工作区管理——全部运行在 Cloudflare Workers 上。
 
 > **独立社区项目：** `dsh-edge` 由 [pawaca](https://github.com/pawaca) 维护，与 DeepSeek 没有关联，也未获得其背书。[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 是上游项目。
 
@@ -26,12 +26,11 @@ npx dsh-edge install
 
 ## 你会得到什么
 
-- 在任意浏览器继续持久对话和工作区。
-- 通过上游选择器使用 DeepSeek V4 Flash、V4 Pro 和实验性的 V4 Flash Vision Exp。
-- PNG/JPEG 图片输入与 DeepSeek 原生 Web Search。
-- 持久 `/workspace` 与 DSH 原生 `bash` 工具。
-- 属于你自己的 Cloudflare 部署、凭据和数据。
-- 无需绑定仓库或 Cloudflare Builds 即可原地升级。
+- **Agent 能力** — GoalBar UI 的 goal 跟踪、文件工具（read、write、edit、read_image）、长对话自动上下文压缩、自动生成 session 标题。
+- **工作区** — 多持久工作区，支持创建、重命名、归档和排序；基于 Durable Object SQLite 的 `/workspace` 文件系统；可配置超时的 bash 工具。
+- **模型** — 通过上游选择器使用 DeepSeek V4 Flash、V4 Pro 和 Vision Exp；运行时可配置设置（模型、API key、推理强度），无需重新部署；Web Search 与 PNG/JPEG 图片输入。
+- **对话** — session fork 分支对话、queue/steer 消息编辑、任意浏览器的持久历史记录。
+- **部署** — 属于你自己的 Cloudflare Worker、凭据和数据；无需绑定仓库或构建流水线即可原地升级。
 
 ## 选择部署方式
 
@@ -54,7 +53,7 @@ npx dsh-edge upgrade
 
 - dsh-edge 面向单一 owner，不提供注册、多用户、角色或租户路由。
 - DeepSeek key 以 secret 形式保存在你的 Cloudflare Worker 中，部署的持久数据留在你的 Cloudflare 账户内。
-- Vision Exp 是实验模型，是否可用取决于 DeepSeek 账户。部分上游能力尚未适配 Edge；当前状态见[兼容矩阵](apps/dsh-edge/README.zh.md#cloudflare-兼容矩阵)。
+- 部分上游能力（MCP、子进程、PTY）需要 Cloudflare Containers，尚未适配。Vision Exp 是实验模型，是否可用取决于 DeepSeek 账户。详细状态见[兼容矩阵](apps/dsh-edge/README.zh.md#cloudflare-兼容矩阵)和 [wiki](https://github.com/pawaca/dsh-edge/wiki)。
 
 ## 基于 DeepSeek Harness
 
@@ -64,6 +63,7 @@ dsh-edge 依赖精确发布的 DeepSeek Harness package，而不是复制其 mon
 
 ## 文档
 
+- [架构与子系统 wiki](https://github.com/pawaca/dsh-edge/wiki)
 - [Runtime reference、兼容性、安全与限制](apps/dsh-edge/README.zh.md)
 - [Release notes](docs/releases/)
 - [DeepSeek Harness 上游文档](https://deepseek-harness.github.io/deepseek-harness/reference/)

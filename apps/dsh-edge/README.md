@@ -16,6 +16,10 @@ The runtime keeps upstream ownership clear:
 - The upstream `dsh-llm-deepseek` cordis plugin is installed directly, auto-registering its settings namespace and configurable provider entry. Edge maps the native DSH `bash` tool onto Cloudflare Computer.
 - Durable Object SQLite implements the upstream persistence backend contract. `PersistenceCoordinator` still owns write-behind, revisions, resume preparation, and crash recovery.
 - Model history is projected from canonical events rather than persisted in a second Edge schema.
+- `GoalService` and `GoalBar` run through upstream cordis composition with Typert RPC auto-routing via `TypertGatewayService`.
+- `SessionProjectionCache` persists goal, title, and model state across Durable Object restart via KV cache.
+- `EdgeFileSystem` provides read, write, edit, and read_image tools backed by the Durable Object VFS.
+- Context compaction, token metering, and automatic session titles run as upstream cordis plugins.
 
 The browser also remains upstream-owned:
 
@@ -28,6 +32,7 @@ The browser also remains upstream-owned:
 
 ## Find what you need
 
+- [Subsystem wiki with architecture and roadmap](https://github.com/pawaca/dsh-edge/wiki)
 - [Install or upgrade on Cloudflare](#install-on-cloudflare)
 - [Compare native, adapted, and unavailable capabilities](#cloudflare-compatibility-matrix)
 - [Configure DeepSeek credentials, models, timeouts, and owner authentication](#api-key-boundary)
@@ -122,8 +127,12 @@ This reference separates code that runs natively in Workers, code adapted at an 
 | DSH transport | Typed HTTP RPC plus mux and host WebSocket downlinks | Reused with an Edge server implementation | Use the upstream fetch carrier for unary methods and preserve its envelopes, schemas, projections, lazy blank-session behavior, bounded content search, prompt and queue mutations, workspace mutations, queue snapshots, and event frames. Durable Object WebSocket hibernation owns both downlinks; mux reconnects replay pending live inbox state, while REST/SSE routes remain a diagnostic compatibility path. |
 | Workspace registry | Storage-domain global state plus `WorkspaceRecord` rows | Native backend adaptation | Keep the upstream global and record value shapes, including manual session order and archive membership, but map their physical keys and atomic writes to Durable Object storage. Edge constrains the registry to the one native `/workspace` VFS; rename, delete, recreation, and session reordering retain the upstream RPC and Host-frame semantics. |
 | Existing Web UI | Runtime-loaded shell and `dsh.client` plugin graph | Reused with generic composition fallbacks | Assemble the upstream shell and supported upstream client bundles as Worker assets. Shared slot-occupancy rules hide actions whose provider is absent; Cloudflare serves ordinary assets directly, while `/`, `/login`, and `/api/*` enter the Worker for owner access control. The assembled asset policy prevents every direct or SPA-fallback shell alias from being framed. |
-| Other tools | Web Search, filesystem editor tools, MCP, skills, workflows, jobs, and subagents | Search + file tools ported; others not ported | Reuse upstream DeepSeek Web Search with its 30-second tool-call timeout. File tools (read/write/edit/read_image) adapted via `EdgeFileSystem` backed by Computer VFS. Add the remaining tools individually against Worker-compatible capabilities; do not advertise unavailable host behavior. |
+| Other tools | Web Search, filesystem editor tools, MCP, skills, workflows, jobs, and subagents | Search, file, and goal tools ported; MCP, skills, workflows, and subagents not yet ported | Reuse upstream DeepSeek Web Search with its 30-second tool-call timeout. File tools (read/write/edit/read_image) adapted via `EdgeFileSystem` backed by Computer VFS. Goal tools route through `TypertGatewayService`. MCP client (`dsh-mcp-client`) not yet installed; Streamable HTTP transport is feasible on the free plan. Add the remaining tools individually against Worker-compatible capabilities; do not advertise unavailable host behavior. |
 | Attachments | Local attachment storage, upstream image references, composer, gallery, lightbox, and provider conversion | Adapted at the native storage seam | Reuse upstream `AttachmentStore`, admission, protocol, authorization, UI, and DeepSeek conversion unchanged. Store immutable PNG/JPEG bytes under their SHA-256 identities in private R2 for new permanent deployments or in a 64 MiB, 512 KiB-chunked DO backend for temporary deployments and owners who select it while upgrading a pre-attachment Worker; session events retain only upstream refs. The first backend is pinned per owner instance so claiming or upgrading cannot strand existing references. |
+| Goal tracking | `GoalService` with create/edit/pause/clear mutations and GoalBar UI | Reused | Install upstream `GoalService` as a cordis plugin. Typert RPC auto-routes `goals/*` methods through `TypertGatewayService`. `SessionProjectionCache` persists goal state across DO restart. |
+| Context compaction | Token metering, automatic compaction, and session title generation | Reused | Install upstream cordis plugins directly. Context compaction, token metering, tool-result pruning, and automatic session title generation run unchanged. |
+| Session projection | Real-time derived state push to connected clients | Reused with Edge bridge | Upstream `onChanged` callback pushes title, model, and goal projection frames to connected WebSocket clients. `SessionProjectionCache` caches projections in DO KV for cold-session recovery. |
+| Queue and steer | Edit, remove, or promote queued messages; steer a running agent | Reused | Queue mutations use the synchronous live-inbox mutation as their acceptance point. Steer mode sends next-step messages to the running `ReactLoopAgent`. |
 | Authentication and tenancy | Local trusted-user boundary | Single-owner adaptation | Require one high-entropy Worker secret, exchange it for a signed 30-day HttpOnly `SameSite=Strict` cookie, and route every accepted request to one fixed owner object. This intentionally provides no registration, user database, roles, or multi-tenant routing. |
 
 The browser request path is:
@@ -140,6 +149,9 @@ Cloudflare static assets -> upstream Web shell + client plugin graph
   -> ReactLoopAgent.followup(queue) or ReactLoopAgent.steer(steer)
   -> pre-step admission gate waits for the sessions.flush durability barrier
   -> session/queue snapshots publish live and replay on mux reconnect
+  -> TypertGatewayService dispatches goals/edit, goals/clear via Typert RPC
+  -> onChanged bridge pushes title/model/goal projection frames
+  -> SessionProjectionCache reads/writes KV for cold-session state
   -> upstream dsh-llm-deepseek plugin resolves configuration from settings + launch environment
   -> upstream attachment resolver reads and verifies authorized backend bytes
   -> upstream LlmRuntime + ReactLoopAgent stream/event pipeline
@@ -162,7 +174,8 @@ The local integration suite uses an SSE stand-in with real Wrangler, Durable Obj
 - image admission through the upstream composer, protocol, provider, authorization, fork reuse, and restart persistence;
 - Workspace create/list/rename/delete/reorder/archive, live/reconnect baselines, and Host frames;
 - real browser boot, UI-issued Workspace rename, image turn, content search, branch, archive, and expired-session login recovery;
-- conversation continuity, event replay, two-step bash and Web Search tool exchanges, and Wrangler-restart restoration.
+- conversation continuity, event replay, two-step bash and Web Search tool exchanges, and Wrangler-restart restoration;
+- goal create/edit/pause/clear lifecycle, file read/write/edit tool execution, Typert URL routing, and session projection broadcast with cold-load cache recovery.
 
 A focused failure test proves that post-enqueue durability failure blocks model use without reporting the already-woken prompt as rejected. Committed model-visible and ARIA goldens pin tool transcripts and the assembled upstream Web client. A live DeepSeek call requires the developer's key and is intentionally outside the repository test suite.
 
@@ -275,6 +288,7 @@ pnpm --filter dsh-edge example:install
 - Fork copies a completed-turn prefix through the canonical session seed format and retains parent lineage. Edge refuses seeds above 8,192 events or 8 MiB instead of materializing unbounded history.
 - Queue mutations edit, remove, or promote an item through the live upstream Agent inbox. The synchronous mutation is the acceptance point; the persistence coordinator owns later write-behind and retirement retry.
 - Workspace mutations persist upstream workspace-domain global and record shapes through the Durable Object backend. Archive preserves the session log and Workspace slot; unary responses and Host frames carry the same full snapshots as upstream.
+- Goal mutations (create, edit, pause, clear) route through `TypertGatewayService` via `/api/typert/*` Typert RPC. Services decorated with `@Remote` are auto-discovered and routed without hand-written handlers.
 
 ### Authentication and downlinks
 

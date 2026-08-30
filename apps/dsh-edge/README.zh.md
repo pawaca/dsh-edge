@@ -16,6 +16,10 @@
 - 上游 `dsh-llm-deepseek` cordis 插件直接安装，自动注册 Settings 命名空间和可配置 Provider 条目。Edge 把原生 DSH `bash` 工具映射到 Cloudflare Computer。
 - Durable Object SQLite 实现上游持久化后端约定；write-behind、revision、恢复准备与崩溃恢复仍由 `PersistenceCoordinator` 负责。
 - 模型历史从 canonical 事件投影，不在 Edge 中建立第二套 schema。
+- `GoalService` 和 `GoalBar` 通过上游 cordis composition 运行，Typert RPC 经由 `TypertGatewayService` 自动路由。
+- `SessionProjectionCache` 通过 KV 缓存在 Durable Object 重启后持久化 goal、title 和 model 状态。
+- `EdgeFileSystem` 提供 read、write、edit 和 read_image 工具，底层使用 Durable Object VFS。
+- 上下文压缩、token 计量和自动 session 标题作为上游 cordis 插件运行。
 
 浏览器也保持上游所有权：
 
@@ -28,6 +32,7 @@
 
 ## 快速导航
 
+- [子系统 wiki：架构与路线图](https://github.com/pawaca/dsh-edge/wiki)
 - [在 Cloudflare 上安装或升级](#安装到-cloudflare)
 - [对比原生复用、已适配与未支持能力](#cloudflare-兼容矩阵)
 - [配置 DeepSeek 凭据、模型、超时与 owner 认证](#api-key-边界)
@@ -122,8 +127,12 @@ curl -b /tmp/dsh-edge-cookie -N -X POST -H 'content-type: application/json' \
 | DSH transport | Typed HTTP RPC 加 mux/host WebSocket downlink | 复用并提供 Edge 服务端实现 | 对 unary method 使用上游 fetch carrier，并保留其 envelope、schema、projection、lazy blank-session 行为、有界内容搜索、prompt 与 queue mutation、workspace mutation、queue snapshot 和 event frame。两条 downlink 都由 Durable Object WebSocket 休眠机制持有；mux 重连会重放 live inbox 的待处理状态，REST/SSE 路由则保留为诊断兼容路径。 |
 | Workspace registry | Storage-domain global state 加 `WorkspaceRecord` rows | 原生 backend 适配 | 保持上游 global 和 record value shape，包括手动 session 顺序与 archive membership；仅把物理 key 和原子写入映射到 Durable Object storage。Edge 把 registry 限制为一个原生 `/workspace` VFS；rename、delete、recreate 与 session reorder 保持上游 RPC 和 Host-frame 语义。 |
 | Existing Web UI | 运行时加载的 shell 和 `dsh.client` 插件 graph | 复用并采用通用 composition fallback | 把上游 shell 和受支持的上游客户端包组装成 Worker 静态资源；共享的 slot occupancy 规则会隐藏缺少 provider 的 action。Cloudflare 直接提供普通资源，`/`、`/login` 与 `/api/*` 则进入 Worker 执行 owner access control。组装后的 asset policy 会阻止所有直接或 SPA-fallback shell alias 被嵌入 frame。 |
-| Other tools | Web Search、filesystem editor tools、MCP、skills、workflows、jobs 和 subagents | Search + 文件工具已移植；其他未移植 | 复用上游 DeepSeek Web Search 及其 30 秒 tool-call timeout。文件工具（read/write/edit/read_image）通过 `EdgeFileSystem` 适配 Computer VFS。逐个针对 Worker-compatible capabilities 增加其余工具，不宣称不可用的 host 行为。 |
+| Other tools | Web Search、filesystem editor tools、MCP、skills、workflows、jobs 和 subagents | Search、文件和 goal 工具已移植；MCP、skills、workflows 和 subagents 尚未移植 | 复用上游 DeepSeek Web Search 及其 30 秒 tool-call timeout。文件工具（read/write/edit/read_image）通过 `EdgeFileSystem` 适配 Computer VFS。Goal 工具经由 `TypertGatewayService` 路由。MCP client（`dsh-mcp-client`）尚未安装；Streamable HTTP transport 在免费 plan 上可行。逐个针对 Worker-compatible capabilities 增加其余工具，不宣称不可用的 host 行为。 |
 | Attachments | 本地 attachment storage、上游 image reference、composer、gallery、lightbox 与 provider conversion | 在原生 storage seam 上适配 | 原样复用上游 `AttachmentStore`、admission、协议、授权、UI 与 DeepSeek conversion。PNG/JPEG 不可变字节按 SHA-256 identity 存入新永久部署的私有 R2，或存入临时部署以及升级旧版 Worker 时由 owner 选择的 64 MiB、按 512 KiB 分块的 DO backend；session event 只保留上游 ref。每个 owner instance 首次选择的 backend 会被固定，认领或升级不会让既有引用失联。 |
+| Goal tracking | `GoalService` 提供 create/edit/pause/clear mutation 与 GoalBar UI | 复用 | 作为 cordis 插件安装上游 `GoalService`。Typert RPC 通过 `TypertGatewayService` 自动路由 `goals/*` 方法。`SessionProjectionCache` 在 DO 重启后持久化 goal 状态。 |
+| Context compaction | Token 计量、自动压缩和 session 标题生成 | 复用 | 直接安装上游 cordis 插件。上下文压缩、token 计量、工具结果修剪和自动 session 标题生成原样运行。 |
+| Session projection | 向已连接客户端实时推送派生状态 | 复用并添加 Edge bridge | 上游 `onChanged` 回调向已连接 WebSocket 客户端推送 title、model 和 goal projection frame。`SessionProjectionCache` 在 DO KV 中缓存 projection，用于冷 session 恢复。 |
+| Queue and steer | 编辑、移除或提升排队消息；steering 运行中的 agent | 复用 | Queue mutation 以同步 live-inbox mutation 为接纳点。Steer 模式向运行中的 `ReactLoopAgent` 发送 next-step 消息。 |
 | Authentication and tenancy | 本地 trusted-user boundary | 单 owner 适配 | 要求一个高熵 Worker secret，把它交换为带签名、有效期 30 天的 HttpOnly `SameSite=Strict` cookie，并把所有已接纳请求路由到一个固定 owner object。这里刻意不提供注册、用户数据库、角色或多租户路由。 |
 
 浏览器请求路径是：
@@ -140,6 +149,9 @@ Cloudflare static assets -> upstream Web shell + client plugin graph
   -> ReactLoopAgent.followup(queue) or ReactLoopAgent.steer(steer)
   -> pre-step admission gate waits for the sessions.flush durability barrier
   -> session/queue snapshots publish live and replay on mux reconnect
+  -> TypertGatewayService dispatches goals/edit, goals/clear via Typert RPC
+  -> onChanged bridge pushes title/model/goal projection frames
+  -> SessionProjectionCache reads/writes KV for cold-session state
   -> upstream dsh-llm-deepseek plugin resolves configuration from settings + launch environment
   -> 上游 attachment resolver 读取并校验已授权的 backend 字节
   -> upstream LlmRuntime + ReactLoopAgent stream/event pipeline
@@ -162,7 +174,8 @@ Cloudflare static assets -> upstream Web shell + client plugin graph
 - 图片经上游 composer、协议、provider 完成准入，以及授权、fork 复用与重启持久性；
 - Workspace create/list/rename/delete/reorder/archive、实时/重连 baseline 和 Host frame；
 - 真实浏览器启动、UI 发起的 Workspace rename、图片 turn、内容搜索、branch、archive 和 session 过期后的登录恢复；
-- 对话连续性、event 重放、两步 bash 与 Web Search tool 交互，以及 Wrangler 重启后恢复。
+- 对话连续性、event 重放、两步 bash 与 Web Search tool 交互，以及 Wrangler 重启后恢复；
+- goal create/edit/pause/clear 生命周期、文件 read/write/edit 工具执行、Typert URL 路由，以及 session projection 广播与冷加载缓存恢复。
 
 一项聚焦故障测试证明，入队后的持久化失败会阻止模型调用，不会把已唤醒 Agent 的 prompt 报告为拒绝。仓库中的 model-visible 与 ARIA golden 会固定 tool transcript 和组装后的上游 Web client。真实 DeepSeek 调用需要开发者的 key，故不纳入仓库测试套件。
 
@@ -275,6 +288,7 @@ pnpm --filter dsh-edge example:install
 - Fork 通过 canonical session seed format 复制 completed-turn prefix，并保留 parent lineage。Edge 拒绝超过 8,192 个事件或 8 MiB 的 seed，不会物化无界 history。
 - Queue mutation 通过 live upstream Agent inbox 编辑、移除或提升条目。同步 mutation 是接纳点；后续 write-behind 与 retirement retry 由 persistence coordinator 负责。
 - Workspace mutation 通过 Durable Object backend 持久化上游 workspace-domain global 与 record shape。Archive 保留 session log 与 Workspace slot；unary response 与 Host frame 携带和上游一致的完整 snapshot。
+- Goal mutation（create、edit、pause、clear）通过 `TypertGatewayService` 经由 `/api/typert/*` Typert RPC 路由。使用 `@Remote` 装饰的 Service 会被自动发现和路由，不需要手写 handler。
 
 ### 认证与 downlink
 
