@@ -577,7 +577,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         })
       }
     }
-    if (event.type === 'turn/end') {
+    if (event.type === 'turn/end' || event.type === 'goal/change') {
       this.sessions.writeProjectionCache(sessionId).catch((error: unknown) => {
         console.warn('dsh-edge: projection cache write failed.', error)
       })

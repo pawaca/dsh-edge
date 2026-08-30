@@ -233,7 +233,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
               projectionValues = live.values
             } else {
               const cached = await runtime.sessions.readProjectionCache(sessionId)
-              if (cached !== undefined && cached.asOfSeq >= page.summary.lastSeq - 1) {
+              if (cached !== undefined && cached.asOfSeq >= page.summary.lastSeq) {
                 projectionValues = cached.values
               }
             }
