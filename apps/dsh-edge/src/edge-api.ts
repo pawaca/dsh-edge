@@ -29,9 +29,6 @@ import {
 import type { MessageId } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
-import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { GoalService } from '@deepseek-ai/dsh-goal'
-import type { GoalRef } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { EDGE_SYSTEM_PROMPT } from './agent.ts'
 import type { EdgeDeploymentProfile } from './deployment.ts'
 import { EDGE_DO_ATTACHMENT_MAX_STORED_BYTES } from './edge-attachment-store.ts'
@@ -663,49 +660,12 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
     },
 
     goals: {
-      async create(request) {
-        return goalMutate(request, (goals, agent) =>
-          goals.create(agent, {
-            objective: request.payload.objective,
-            ...request.payload.maxGoalRounds !== undefined
-              ? { maxGoalRounds: request.payload.maxGoalRounds } : {},
-          }))
-      },
-      async edit(request) {
-        return goalMutate(request, (goals, agent) =>
-          goals.edit(agent, request.payload.ref, {
-            ...request.payload.objective !== undefined ? { objective: request.payload.objective } : {},
-            ...request.payload.maxGoalRounds !== undefined ? { maxGoalRounds: request.payload.maxGoalRounds } : {},
-          }))
-      },
-      async pause(request) {
-        return goalMutate(request, (goals, agent) => goals.pause(agent, request.payload.ref))
-      },
-      async resume(request) {
-        return goalMutate(request, (goals, agent) => goals.resume(agent, request.payload.ref))
-      },
-      async complete(request) {
-        return goalMutate(request, (goals, agent) => goals.complete(agent, request.payload.ref))
-      },
-      async clear(request) {
-        const agent = runtime.sessions.liveAgent(request.payload.sessionId)
-        if (agent === undefined) return fail(request, {
-          code: 'session-not-found',
-          message: 'Session not found or not live.',
-          details: { sessionId: request.payload.sessionId },
-        })
-        try {
-          const goals = agent.ctx.get('goals') as { clear(agent: unknown, ref: unknown): void }
-          goals.clear(agent, request.payload.ref)
-          return ok(request, { cleared: true as const })
-        } catch (error) {
-          return fail(request, {
-            code: 'internal',
-            message: error instanceof Error ? error.message : String(error),
-            details: {},
-          })
-        }
-      },
+      create: unsupported,
+      edit: unsupported,
+      pause: unsupported,
+      resume: unsupported,
+      complete: unsupported,
+      clear: unsupported,
     },
 
     settings: {
@@ -825,28 +785,6 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
     },
 
     respond: () => Promise.resolve({ accepted: false, reason: 'not-pending' }),
-  }
-    async function goalMutate(
-    request: RpcRequest<{ sessionId: SessionId } & Record<string, unknown>>,
-    mutation: (goals: GoalService, agent: Agent) => GoalRef,
-  ): Promise<RpcResponse<{ ref: GoalRef }>> {
-    const agent = runtime.sessions.liveAgent(request.payload.sessionId)
-    if (agent === undefined) return fail(request, {
-      code: 'session-not-found',
-      message: 'Session not found or not live.',
-      details: { sessionId: request.payload.sessionId },
-    }) as never
-    try {
-      const goals = agent.ctx.get('goals') as GoalService
-      const ref = mutation(goals, agent)
-      return ok(request, { ref }) as never
-    } catch (error) {
-      return fail(request, {
-        code: 'internal',
-        message: error instanceof Error ? error.message : String(error),
-        details: {},
-      })
-    }
   }
 
   return api

@@ -231,6 +231,8 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         this.publishSessionEvent(sessionId, event)
       },
       onProjectionChanged: (sessionId, key, value, seq) => {
+        // title and sessionListMetadata use dedicated pushes in publishSessionEvent
+        // (cold rename disposes agent before publication, so the buffer path can't cover them)
         if (key === 'title' || key === 'sessionListMetadata') return
         let queue = this.pendingProjections.get(sessionId)
         if (queue === undefined) {
@@ -293,6 +295,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
   override async fetch(request: Request): Promise<Response> {
     try {
       const url = new URL(request.url)
+      // commands/list stub: SkillRegistry lacks @Remote, so Typert gateway can't route it
       const edgeRemote = await handleEdgeRemote(request)
       if (edgeRemote !== undefined) return edgeRemote
       const typertResponse = await this.handleTypertRpc(request, url)
