@@ -114,6 +114,8 @@ function runtime(
         failures: [],
       })),
       projectionSnapshot: vi.fn(() => undefined),
+      projectionCachedSnapshot: vi.fn(() => undefined),
+      projectionColdSnapshot: vi.fn(async () => undefined),
       ...sessions,
     } as unknown as EdgeApiRuntime['sessions'],
     model: 'deepseek-test',
