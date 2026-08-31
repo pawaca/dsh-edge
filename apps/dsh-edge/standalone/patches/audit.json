@@ -10,6 +10,11 @@
     "removeWhen": "The published plugin's apply() forwards resolveFiles from the plugin config to the adapter constructor."
   },
   {
+    "package": "@deepseek-ai/dsh-message-feedback",
+    "rationale": "Inject an Edge-owned point-read feedback store so Durable Object startup does not materialize every retained feedback row through storage-domain loadAll().",
+    "removeWhen": "The published message-feedback service accepts an equivalent bounded point-read store or no longer loads the complete feedback domain during initialization."
+  },
+  {
     "package": "@deepseek-ai/dsh-session-persistence",
     "rationale": "Expose bounded validated reads and failed-first-write abandonment required by the Durable Object persistence adapter.",
     "removeWhen": "The published persistence coordinator provides equivalent bounded-page validation and unmaterialized-session abandonment APIs, and the Edge persistence suite passes without this patch."
