@@ -301,12 +301,14 @@ try {
   const feedbackMessageId = firstEvents
     .find(event => event.type === 'assistant/message')?.data.message.id
   assert.equal(typeof feedbackMessageId, 'string')
+  // Exercise the service's 8 KiB note boundary with JSON's six-byte control escapes.
+  const maxFeedbackNote = '\u0001'.repeat(8_192)
   const savedFeedback = await typertRpc('messageFeedback', 'put', {
     request: {
       sessionId,
       messageId: feedbackMessageId,
       rating: 'positive',
-      note: 'Useful answer',
+      note: maxFeedbackNote,
       ifVersion: null,
     },
   })
@@ -316,7 +318,7 @@ try {
   assert.deepEqual(feedbackItem, {
     messageId: feedbackMessageId,
     rating: 'positive',
-    note: 'Useful answer',
+    note: maxFeedbackNote,
     version: feedbackItem.version,
     createdAt: feedbackItem.createdAt,
     updatedAt: feedbackItem.updatedAt,
