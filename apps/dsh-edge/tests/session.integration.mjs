@@ -298,6 +298,36 @@ try {
   assert.equal(assistantText(firstEvents), 'remembered-alpha')
   assert.equal(firstEvents.at(-2).type, 'step/end')
   assert.deepEqual(firstEvents.at(-1).data.reason, { kind: 'completed' })
+  const feedbackMessageId = firstEvents
+    .find(event => event.type === 'assistant/message')?.data.message.id
+  assert.equal(typeof feedbackMessageId, 'string')
+  const savedFeedback = await typertRpc('messageFeedback', 'put', {
+    request: {
+      sessionId,
+      messageId: feedbackMessageId,
+      rating: 'positive',
+      note: 'Useful answer',
+      ifVersion: null,
+    },
+  })
+  assert.equal(savedFeedback.body.result.ok, true, JSON.stringify(savedFeedback.body))
+  assert.equal(savedFeedback.body.result.value.ok, true)
+  const feedbackItem = savedFeedback.body.result.value.value
+  assert.deepEqual(feedbackItem, {
+    messageId: feedbackMessageId,
+    rating: 'positive',
+    note: 'Useful answer',
+    version: feedbackItem.version,
+    createdAt: feedbackItem.createdAt,
+    updatedAt: feedbackItem.updatedAt,
+  })
+  const listedFeedback = await typertRpc('messageFeedback', 'list', {
+    request: { sessionId },
+  })
+  assert.deepEqual(listedFeedback.body.result.value, {
+    ok: true,
+    value: { items: [feedbackItem] },
+  })
 
   const secondEvents = await turn(sessionId, 'history check')
   assert.equal(assistantText(secondEvents), 'history-ok')
@@ -384,6 +414,13 @@ try {
   assert.equal(restored.response.status, 200)
   assert.equal(restored.body.session.status, 'idle')
   assert.equal(Object.hasOwn(restored.body, 'messages'), false)
+  const restoredFeedback = await typertRpc('messageFeedback', 'list', {
+    request: { sessionId },
+  })
+  assert.deepEqual(restoredFeedback.body.result.value, {
+    ok: true,
+    value: { items: [feedbackItem] },
+  })
   const restoredFile = await request('/api/workspace/file?path=/workspace/session.txt')
   assert.equal(restoredFile.status, 200)
   assert.equal(await restoredFile.text(), 'cloudflare-tool-value')
@@ -1362,6 +1399,21 @@ async function rpc(method, payload) {
       rpcId,
       method,
       payload,
+    }),
+  })
+  assert.equal(result.body.rpcId, rpcId)
+  return { ...result, rpcId }
+}
+
+async function typertRpc(namespace, method, args) {
+  const rpcId = crypto.randomUUID()
+  const result = await jsonRequest(`/api/${namespace}/${method}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      type: 'client-request',
+      rpcId,
+      payload: { args },
     }),
   })
   assert.equal(result.body.rpcId, rpcId)

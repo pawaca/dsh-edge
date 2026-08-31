@@ -21,6 +21,7 @@ import type {
 import { credentialRef, type CredentialInfo } from '@deepseek-ai/dsh-credentials'
 import LlmRuntime, { ReasoningEffortId, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
+import MessageFeedbackService from '@deepseek-ai/dsh-message-feedback'
 import {
   SESSION_SEARCH_RESULT_LIMIT,
   SESSION_SEARCH_SNIPPET_MAX_CODE_POINTS,
@@ -92,6 +93,7 @@ import type { CreateEdgeSessionInput, EdgeSession } from './protocol.ts'
 import { installEdgeWebSearch } from './web-search.ts'
 
 const MAX_TITLE_BYTES = 640
+const MAX_MESSAGE_FEEDBACK_NOTE_BYTES = 8_192
 const MAX_FORK_EVENTS = 8_192
 
 interface EdgeSessionStoreConfig {
@@ -285,6 +287,14 @@ export class EdgeSessionStore {
     await this.context.plugin(AgentRegistry)
     await installEdgeWebSearch(this.context, config.searchBaseURL)
     await this.context.plugin(DurableObjectSessionPersistence, { storage })
+    await this.context.plugin(MessageFeedbackService, {
+      maxNoteBytes: MAX_MESSAGE_FEEDBACK_NOTE_BYTES,
+    })
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    const { TYPERT: MESSAGE_FEEDBACK_TYPERT } = await import(
+      '@deepseek-ai/dsh-message-feedback/typert' as string
+    )
+    this.context.typert.register(MESSAGE_FEEDBACK_TYPERT as never)
     const workspaceWasInitialized = (await storage.get<{ initialized?: boolean }>(
       'dsh-kv:workspace:__global__',
     ))?.initialized === true

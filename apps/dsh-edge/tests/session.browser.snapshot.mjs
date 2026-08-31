@@ -172,6 +172,17 @@ describe('dsh-edge assembled browser snapshot', () => {
         { timeout: 30_000 },
       ).toBeGreaterThanOrEqual(1)
       await expect.poll(() => composer.isEnabled(), { timeout: 15_000 }).toBe(true)
+      const feedbackResponse = page.waitForResponse(response =>
+        response.request().method() === 'POST'
+        && new URL(response.url()).pathname === '/api/messageFeedback/put')
+      await page.getByRole('button', { name: 'Good response', exact: true }).click()
+      const feedbackWire = await (await feedbackResponse).json()
+      expect(feedbackWire.result.ok).toBe(true)
+      expect(feedbackWire.result.value.ok).toBe(true)
+      await expect.poll(
+        () => page.getByRole('button', { name: 'Remove rating', exact: true }).count(),
+        { timeout: 15_000 },
+      ).toBe(1)
 
       // The client only increments a fork title when the source already has a
       // durable title projection. Seed that upstream state through the same
