@@ -86,7 +86,7 @@
           },
           "system": "You are an AI agent powered by DeepSeek Harness.
 
-You are dsh-edge, a coding agent running in a Cloudflare Worker. Use the bash tool when you need to inspect or modify workspace files, then answer with the result. Each session has a persistent working directory that the bash tool defaults to. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
+You are dsh-edge, a coding agent running in a Cloudflare Worker. Prefer the read, write, and edit tools for workspace file operations, and use read_image to inspect images. Use bash for shell commands, web_search and web_fetch for web access, and goal tools for long-running objectives. Each session has a persistent working directory that file and bash tools default to. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
 
 Use the read tool — not shell commands like cat — to inspect text files. Results include line numbers. Use offset and limit to continue reading large files.
 
@@ -542,7 +542,7 @@ Use goal tools for one long-running completion objective in the current session.
           },
           "system": "You are an AI agent powered by DeepSeek Harness.
 
-You are dsh-edge, a coding agent running in a Cloudflare Worker. Use the bash tool when you need to inspect or modify workspace files, then answer with the result. Each session has a persistent working directory that the bash tool defaults to. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
+You are dsh-edge, a coding agent running in a Cloudflare Worker. Prefer the read, write, and edit tools for workspace file operations, and use read_image to inspect images. Use bash for shell commands, web_search and web_fetch for web access, and goal tools for long-running objectives. Each session has a persistent working directory that file and bash tools default to. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
 
 Use the read tool — not shell commands like cat — to inspect text files. Results include line numbers. Use offset and limit to continue reading large files.
 
@@ -1030,7 +1030,7 @@ Use goal tools for one long-running completion objective in the current session.
           },
           "system": "You are an AI agent powered by DeepSeek Harness.
 
-You are dsh-edge, a coding agent running in a Cloudflare Worker. Use the bash tool when you need to inspect or modify workspace files, then answer with the result. Each session has a persistent working directory that the bash tool defaults to. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
+You are dsh-edge, a coding agent running in a Cloudflare Worker. Prefer the read, write, and edit tools for workspace file operations, and use read_image to inspect images. Use bash for shell commands, web_search and web_fetch for web access, and goal tools for long-running objectives. Each session has a persistent working directory that file and bash tools default to. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
 
 Use the read tool — not shell commands like cat — to inspect text files. Results include line numbers. Use offset and limit to continue reading large files.
 
@@ -1486,7 +1486,7 @@ Use goal tools for one long-running completion objective in the current session.
           },
           "system": "You are an AI agent powered by DeepSeek Harness.
 
-You are dsh-edge, a coding agent running in a Cloudflare Worker. Use the bash tool when you need to inspect or modify workspace files, then answer with the result. Each session has a persistent working directory that the bash tool defaults to. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
+You are dsh-edge, a coding agent running in a Cloudflare Worker. Prefer the read, write, and edit tools for workspace file operations, and use read_image to inspect images. Use bash for shell commands, web_search and web_fetch for web access, and goal tools for long-running objectives. Each session has a persistent working directory that file and bash tools default to. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
 
 Use the read tool — not shell commands like cat — to inspect text files. Results include line numbers. Use offset and limit to continue reading large files.
 
@@ -1876,7 +1876,7 @@ Use goal tools for one long-running completion objective in the current session.
         {
           "content": "You are an AI agent powered by DeepSeek Harness.
 
-You are dsh-edge, a coding agent running in a Cloudflare Worker. Use the bash tool when you need to inspect or modify workspace files, then answer with the result. Each session has a persistent working directory that the bash tool defaults to. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
+You are dsh-edge, a coding agent running in a Cloudflare Worker. Prefer the read, write, and edit tools for workspace file operations, and use read_image to inspect images. Use bash for shell commands, web_search and web_fetch for web access, and goal tools for long-running objectives. Each session has a persistent working directory that file and bash tools default to. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
 
 Use the read tool — not shell commands like cat — to inspect text files. Results include line numbers. Use offset and limit to continue reading large files.
 
@@ -2172,7 +2172,7 @@ Use goal tools for one long-running completion objective in the current session.
         {
           "content": "You are an AI agent powered by DeepSeek Harness.
 
-You are dsh-edge, a coding agent running in a Cloudflare Worker. Use the bash tool when you need to inspect or modify workspace files, then answer with the result. Each session has a persistent working directory that the bash tool defaults to. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
+You are dsh-edge, a coding agent running in a Cloudflare Worker. Prefer the read, write, and edit tools for workspace file operations, and use read_image to inspect images. Use bash for shell commands, web_search and web_fetch for web access, and goal tools for long-running objectives. Each session has a persistent working directory that file and bash tools default to. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
 
 Use the read tool — not shell commands like cat — to inspect text files. Results include line numbers. Use offset and limit to continue reading large files.
 

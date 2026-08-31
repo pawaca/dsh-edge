@@ -96,6 +96,17 @@ async function followup(agent: Agent, text: string): Promise<void> {
 }
 
 describe('dsh-edge native agent runtime', () => {
+  it('advertises dedicated Edge tools without routing file work through bash', () => {
+    expect(EDGE_SYSTEM_PROMPT).toContain('read, write, and edit tools')
+    expect(EDGE_SYSTEM_PROMPT).toContain('read_image')
+    expect(EDGE_SYSTEM_PROMPT).toContain('Use bash for shell commands')
+    expect(EDGE_SYSTEM_PROMPT).toContain('web_search and web_fetch')
+    expect(EDGE_SYSTEM_PROMPT).toContain('goal tools')
+    expect(EDGE_SYSTEM_PROMPT).not.toContain(
+      'Use the bash tool when you need to inspect or modify workspace files',
+    )
+  })
+
   it('reuses the upstream DeepSeek catalog including the experimental vision model', async () => {
     const adapter = new DeepSeekAdapter({
       options: () => resolveAdapterOptions({}),
