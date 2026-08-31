@@ -6,10 +6,30 @@ export async function startMockDeepSeek(port = 0) {
   const requests = []
   const searchRequests = []
   const slowResponseReleases = []
+  let origin
   const server = createServer((request, response) => {
     if (request.method === 'GET' && request.url === '/requests') {
       response.writeHead(200, { 'content-type': 'application/json' })
       response.end(JSON.stringify(requests))
+      return
+    }
+    if (request.method === 'GET' && request.url === '/fetch-page') {
+      response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
+      response.end(`<!doctype html>
+<html>
+  <head>
+    <title>Worker fetch fixture</title>
+    <style>.hidden { display: none; }</style>
+  </head>
+  <body>
+    <main>
+      <h1>Worker Fetch</h1>
+      <p>Rendered <strong>inside</strong> Cloudflare.</p>
+      <table><thead><tr><th>Mode</th><th>Result</th></tr></thead><tbody><tr><td>HTTP</td><td>Markdown</td></tr></tbody></table>
+      <script>globalThis.fixtureMustNotAppear = true</script>
+    </main>
+  </body>
+</html>`)
       return
     }
     if (request.method === 'POST' && request.url === '/anthropic/v1/messages') {
@@ -157,9 +177,39 @@ export async function startMockDeepSeek(port = 0) {
         return
       }
 
+      if (prompt.includes('web fetch') && !hasToolResult) {
+        sendEvents(response, [
+          { choices: [{ delta: { role: 'assistant', content: null, reasoning_content: '' } }] },
+          {
+            choices: [{
+              delta: {
+                tool_calls: [{
+                  index: 0,
+                  id: 'call_mock_fetch',
+                  type: 'function',
+                  function: {
+                    name: 'web_fetch',
+                    arguments: JSON.stringify({ url: `${origin}/fetch-page` }),
+                  },
+                }],
+              },
+            }],
+          },
+          {
+            choices: [{ delta: {}, finish_reason: 'tool_calls' }],
+            usage: { prompt_tokens: 8, completion_tokens: 3 },
+          },
+        ])
+        return
+      }
+
       let text = 'remembered-alpha'
       if (hasToolResult) {
-        text = prompt.includes('web search') ? 'search-finished' : 'tool-finished'
+        text = prompt.includes('web search')
+          ? 'search-finished'
+          : prompt.includes('web fetch')
+            ? 'fetch-finished'
+            : 'tool-finished'
       }
       if (prompt.includes('continue released fixture')) {
         const hasReleasedPrompt = messages.some(message =>
@@ -192,8 +242,9 @@ export async function startMockDeepSeek(port = 0) {
   await new Promise(resolve => { server.listen(port, '127.0.0.1', resolve) })
   const address = server.address()
   if (address === null || typeof address === 'string') throw new Error('Mock server has no port.')
+  origin = `http://127.0.0.1:${address.port}`
   return {
-    url: `http://127.0.0.1:${address.port}`,
+    url: origin,
     requests,
     searchRequests,
     releaseSlowResponses() {

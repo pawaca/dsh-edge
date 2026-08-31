@@ -852,7 +852,7 @@ function edgeAgentPresetContent(
     `    baseURL: ${yamlString(deployment.searchBaseURL)}`,
     '    credentialRef: DEEPSEEK_API_KEY',
     '    maxResults: 8',
-    '    webFetchEnabled: false',
+    '    webFetchEnabled: true',
   ].join('\n') + '\n'
 }
 

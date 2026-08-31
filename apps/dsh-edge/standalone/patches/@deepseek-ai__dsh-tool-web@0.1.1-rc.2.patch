@@ -1,0 +1,21 @@
+diff --git a/lib/index.js b/lib/index.js
+index ee22db7..9185741 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -1,6 +1,7 @@
+ import z from "@deepseek-ai/schemastery";
+ import { defineTool } from "@deepseek-ai/dsh-tools";
+ import TurndownService from "turndown";
++import domino from "@mixmark-io/domino";
+ import { gfm } from "@joplin/turndown-plugin-gfm";
+ import { assertNever } from "@deepseek-ai/dsh-llm";
+ //#region lib/types/search.js
+@@ -521,7 +522,7 @@ function renderBody(body, maxInputChars) {
+ 			};
+ 			try {
+ 				return {
+-					text: turndown.turndown(content),
++					text: turndown.turndown(domino.createDocument(content)),
+ 					sourceTruncated
+ 				};
+ 			} catch {

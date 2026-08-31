@@ -7,7 +7,7 @@
 
 ## DeepSeek Harness
 
-`dsh-edge` assembles published DeepSeek Harness packages and applies 8 version-bound adaptations to the pinned `0.1.1-rc.2` release. DeepSeek Harness remains under its upstream MIT license:
+`dsh-edge` assembles published DeepSeek Harness packages and applies 10 version-bound adaptations to the pinned `0.1.1-rc.2` release. DeepSeek Harness remains under its upstream MIT license:
 
 ```text
 MIT License
@@ -35,7 +35,7 @@ SOFTWARE.
 
 ## Bundled component inventory
 
-The following 463 package versions form the conservative, platform-neutral production closure used to assemble the Web and Worker artifacts in this distribution. Platform-specific build binaries that are not distributed in those artifacts are excluded; tree shaking can omit additional code. The inventory and legal texts are generated during packaging rather than referring recipients to a source checkout. License expressions are SPDX identifiers supplied by each package. Dependencies installed separately by npm remain declared in this package's `package.json`.
+The following 464 package versions form the conservative, platform-neutral production closure used to assemble the Web and Worker artifacts in this distribution. Platform-specific build binaries that are not distributed in those artifacts are excluded; tree shaking can omit additional code. The inventory and legal texts are generated during packaging rather than referring recipients to a source checkout. License expressions are SPDX identifiers supplied by each package. Dependencies installed separately by npm remain declared in this package's `package.json`.
 
 | Component | License |
 | --- | --- |
@@ -249,6 +249,7 @@ The following 463 package versions form the conservative, platform-neutral produ
 | `@deepseek-ai/dsh-user-questions@0.1.1-rc.2` | `MIT` |
 | `@deepseek-ai/dsh-web@0.1.1-rc.2` | `MIT` |
 | `@deepseek-ai/dsh-web-app@0.1.1-rc.2` | `MIT` |
+| `@deepseek-ai/dsh-web-fetch-http@0.1.1-rc.2` | `MIT` |
 | `@deepseek-ai/dsh-web-frontend@0.1.1-rc.2` | `MIT` |
 | `@deepseek-ai/dsh-web-search-deepseek@0.1.1-rc.2` | `MIT` |
 | `@deepseek-ai/dsh-workflow@0.1.1-rc.2` | `MIT` |
@@ -9075,6 +9076,7 @@ Applies to:
 - `@deepseek-ai/dsh-user-questions@0.1.1-rc.2` (`LICENSE`)
 - `@deepseek-ai/dsh-web@0.1.1-rc.2` (`LICENSE`)
 - `@deepseek-ai/dsh-web-app@0.1.1-rc.2` (`LICENSE`)
+- `@deepseek-ai/dsh-web-fetch-http@0.1.1-rc.2` (`LICENSE`)
 - `@deepseek-ai/dsh-web-frontend@0.1.1-rc.2` (`LICENSE`)
 - `@deepseek-ai/dsh-web-search-deepseek@0.1.1-rc.2` (`LICENSE`)
 - `@deepseek-ai/dsh-workflow@0.1.1-rc.2` (`LICENSE`)
