@@ -6,9 +6,10 @@ import { EDGE_SHELL_OUTPUT_LIMIT_BYTES } from './direct-shell-protocol.ts'
 import type { EdgeExecutionId } from './protocol.ts'
 
 export const EDGE_SYSTEM_PROMPT = 'You are dsh-edge, a coding agent running in a Cloudflare Worker. '
-  + 'Use the bash tool when you need to inspect or modify workspace files, '
-  + 'then answer with the result. Each session has a persistent working directory '
-  + 'that the bash tool defaults to. '
+  + 'Prefer the read, write, and edit tools for workspace file operations, '
+  + 'and use read_image to inspect images. Use bash for shell commands, '
+  + 'web_search and web_fetch for web access, and goal tools for long-running objectives. '
+  + 'Each session has a persistent working directory that file and bash tools default to. '
   + 'The shell is just-bash, not Linux: native binaries and background processes are unavailable.'
 
 export interface EdgeShellResult {
