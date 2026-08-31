@@ -25,6 +25,11 @@
     "removeWhen": "The published tool-web package converts HTML in a Cloudflare Worker without a global document and the Edge web_fetch integration assertions pass without this patch."
   },
   {
+    "package": "@deepseek-ai/dsh-web-fetch-http",
+    "rationale": "Reject IP literals and local naming scopes before every HTTP request, including redirected requests. Together with the Worker's global_fetch_strictly_public flag, this keeps model-selected URLs on the public-Internet path and blocks local-development SSRF.",
+    "removeWhen": "The published HTTP fetch provider exposes an equivalent per-hop public-target policy and the Edge private-target assertions pass without this patch."
+  },
+  {
     "package": "@deepseek-ai/dsh-web-search-deepseek",
     "rationale": "Keep redirects unfollowed using the redirect mode supported by Cloudflare Workers instead of a mode that fails before the provider can normalize the response.",
     "removeWhen": "The published DeepSeek search provider preserves no-follow redirect behavior with a fetch mode that passes the Edge Worker integration suite."

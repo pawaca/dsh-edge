@@ -1,0 +1,41 @@
+diff --git a/lib/index.js b/lib/index.js
+index f6f7656..601b36a 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -29,6 +29,29 @@ function validateFetchUrl(input, maxUrlLength) {
+ 	if (url.username.length > 0 || url.password.length > 0) throw new WebError("credentials in URLs are not allowed", "WEB_BLOCKED_URL");
+ 	return url;
+ }
++/** Reject targets that must never leave the public-Internet fetch path. */
++function assertPublicFetchTarget(url) {
++	const hostname = url.hostname.toLowerCase().replace(/\.$/u, "");
++	if (isIpLiteral(hostname) || isLocalHostname(hostname)) throw new WebError(`private or local target "${hostname}" is not allowed`, "WEB_BLOCKED_URL");
++}
++/** WHATWG URL parsing canonicalizes alternate IPv4 spellings before this check. */
++function isIpLiteral(hostname) {
++	if (hostname.startsWith("[") && hostname.endsWith("]")) return true;
++	return /^(?:\d{1,3}\.){3}\d{1,3}$/u.test(hostname);
++}
++/** Names reserved for loopback, link-local, or private naming scopes. */
++function isLocalHostname(hostname) {
++	return hostname === "localhost"
++		|| hostname.endsWith(".localhost")
++		|| hostname === "local"
++		|| hostname.endsWith(".local")
++		|| hostname === "localdomain"
++		|| hostname.endsWith(".localdomain")
++		|| hostname === "internal"
++		|| hostname.endsWith(".internal")
++		|| hostname === "home.arpa"
++		|| hostname.endsWith(".home.arpa");
++}
+ /**
+ * Two URLs are same-origin when scheme, hostname, and port match. A redirect
+ * that crosses origins is refused so each new origin requires a fresh tool call
+@@ -222,5 +245,6 @@ var HttpFetchProvider = class {
+ 		}
+ 	}
+ 	async requestOnce(url, signal) {
++		assertPublicFetchTarget(url);
+ 		try {
+ 			return await fetch(url, {

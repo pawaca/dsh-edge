@@ -365,14 +365,9 @@ try {
   assert.equal(fetchEvents.filter(event => event.type === 'step/start').length, 2)
   assert.equal(fetchEvents.find(event => event.type === 'tool/call')?.data.name, 'web_fetch')
   const fetchResult = fetchEvents.find(event => event.type === 'tool/result')
-  assert.equal(fetchResult?.data.meta.url, `${mock.url}/fetch-page`)
-  assert.equal(fetchResult?.data.meta.statusCode, 200)
-  assert.equal(fetchResult?.data.meta.truncated, false)
-  const fetchedText = toolResultText(fetchResult)
-  assert.match(fetchedText, /# Worker Fetch/u)
-  assert.match(fetchedText, /Rendered \*\*inside\*\* Cloudflare\./u)
-  assert.match(fetchedText, /\| Mode\s+\| Result\s+\|/u)
-  assert.doesNotMatch(fetchedText, /fixtureMustNotAppear/u)
+  assert.equal(fetchResult?.data.error.code, 'WEB_BLOCKED_URL')
+  assert.equal(fetchResult?.data.message.content[0].isError, true)
+  assert.match(toolResultText(fetchResult), /private or local target/u)
 
   const replay = await request(
     `/api/sessions/${sessionId}/events?after=${firstEvents.at(-1).seq}&limit=2`,
