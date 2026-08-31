@@ -194,7 +194,7 @@ Cloudflare static assets -> upstream Web shell + client plugin graph
 | `DSH_EDGE_DEFAULT_COMMAND_TIMEOUT_MS` | Computer 命令默认 timeout；默认 120,000 ms。 |
 | `DSH_EDGE_MAX_COMMAND_TIMEOUT_MS` | 调用方可选 timeout 上限；默认 120,000 ms，且不能低于默认 timeout。 |
 
-部署配置无效时，会在查询 session 或创建 SSE response 前失败。Edge 挂载上游 `web_search`，使用 30 秒 tool-call timeout 和结构化 result。Runtime 尚无 arbitrary-URL network policy，因此 `web_fetch` 保持禁用。
+部署配置无效时，会在查询 session 或创建 SSE response 前失败。Edge 挂载上游 `web_search` 与 `web_fetch`，使用 30 秒 tool-call timeout 和结构化 result。`web_fetch` 使用上游匿名 HTTP(S) provider，并在 Worker 内把 HTML 转成 Markdown。它只接受不含嵌入凭据的 HTTP(S) URL，只跟随同源 redirect，并限制 URL 长度、response 字节数、解码字符数、redirect 次数与耗时。上游 provider 不阻止 private-network 目标，因此部署必须保持在 single-owner 认证边界后；需要 JavaScript 渲染的页面不属于这条基础 HTTP fetch 路径。
 
 ### Owner 认证
 

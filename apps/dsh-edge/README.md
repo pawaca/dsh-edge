@@ -194,7 +194,7 @@ A focused failure test proves that post-enqueue durability failure blocks model 
 | `DSH_EDGE_DEFAULT_COMMAND_TIMEOUT_MS` | Default Computer command timeout; defaults to 120,000 ms. |
 | `DSH_EDGE_MAX_COMMAND_TIMEOUT_MS` | Caller-selectable timeout ceiling; defaults to 120,000 ms and cannot be lower than the default. |
 
-Invalid deployment configuration fails before session lookup or SSE response creation. Edge mounts upstream `web_search` with a 30-second tool-call timeout and structured results. `web_fetch` remains disabled because the runtime has no arbitrary-URL network policy.
+Invalid deployment configuration fails before session lookup or SSE response creation. Edge mounts upstream `web_search` and `web_fetch` with 30-second tool-call timeouts and structured results. `web_fetch` uses the upstream anonymous HTTP(S) provider and converts HTML to Markdown in the Worker. It accepts only HTTP(S) URLs without embedded credentials, follows only same-origin redirects, and bounds URL length, response bytes, decoded characters, redirect count, and elapsed time. The upstream provider does not block private-network destinations, so keep the deployment behind the single-owner authentication boundary; JavaScript-rendered pages remain outside this basic HTTP fetch path.
 
 ### Owner authentication
 

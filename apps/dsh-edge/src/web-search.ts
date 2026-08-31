@@ -4,6 +4,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import * as TimeoutPolicy from '@deepseek-ai/dsh-tool-call-timeout-policy'
 import * as ToolWeb from '@deepseek-ai/dsh-tool-web'
 import WebRuntime from '@deepseek-ai/dsh-web'
+import * as HttpWebFetch from '@deepseek-ai/dsh-web-fetch-http'
 import * as DeepSeekWebSearch from '@deepseek-ai/dsh-web-search-deepseek'
 
 /** Validate the credential-bearing Anthropic-compatible search endpoint. */
@@ -27,12 +28,16 @@ export function resolveEdgeSearchBaseURL(raw?: string): string {
   return parsed.href.replace(/\/+$/u, '')
 }
 
-/** Mount the shipped upstream search seam, provider, and search-only model tool. */
+/** Mount the shipped upstream web seam, search/fetch providers, and model tools. */
 export async function installEdgeWebSearch(ctx: Context, rawBaseURL?: string): Promise<void> {
-  await ctx.plugin(WebRuntime, { searchProvider: DeepSeekWebSearch.DEEPSEEK_PROVIDER_ID })
+  await ctx.plugin(WebRuntime, {
+    searchProvider: DeepSeekWebSearch.DEEPSEEK_PROVIDER_ID,
+    fetchProvider: HttpWebFetch.LOCAL_FETCH_PROVIDER_ID,
+  })
   await ctx.plugin(DeepSeekWebSearch, {
     baseURL: resolveEdgeSearchBaseURL(rawBaseURL),
   })
+  await ctx.plugin(HttpWebFetch)
   await ctx.plugin(TimeoutPolicy)
-  await ctx.plugin(ToolWeb, { search: true, fetch: false })
+  await ctx.plugin(ToolWeb, { search: true, fetch: true })
 }

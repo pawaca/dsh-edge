@@ -360,6 +360,20 @@ try {
   assert.equal(mock.searchRequests[0].authorization, 'Bearer integration-test-key')
   assert.doesNotMatch(JSON.stringify(searchEvents), /integration-test-key/u)
 
+  const fetchEvents = await turn(sessionId, 'use web fetch')
+  assert.equal(assistantText(fetchEvents), 'fetch-finished')
+  assert.equal(fetchEvents.filter(event => event.type === 'step/start').length, 2)
+  assert.equal(fetchEvents.find(event => event.type === 'tool/call')?.data.name, 'web_fetch')
+  const fetchResult = fetchEvents.find(event => event.type === 'tool/result')
+  assert.equal(fetchResult?.data.meta.url, `${mock.url}/fetch-page`)
+  assert.equal(fetchResult?.data.meta.statusCode, 200)
+  assert.equal(fetchResult?.data.meta.truncated, false)
+  const fetchedText = toolResultText(fetchResult)
+  assert.match(fetchedText, /# Worker Fetch/u)
+  assert.match(fetchedText, /Rendered \*\*inside\*\* Cloudflare\./u)
+  assert.match(fetchedText, /\| Mode\s+\| Result\s+\|/u)
+  assert.doesNotMatch(fetchedText, /fixtureMustNotAppear/u)
+
   const replay = await request(
     `/api/sessions/${sessionId}/events?after=${firstEvents.at(-1).seq}&limit=2`,
   )
@@ -375,19 +389,20 @@ try {
   )
   const remainingEvents = parseEvents(await replayRemainder.text())
   assert.equal(replayRemainder.headers.get('x-dsh-edge-has-more'), 'false')
-  assert.equal(remainingEvents.at(-1).seq, searchEvents.at(-1).seq)
+  assert.equal(remainingEvents.at(-1).seq, fetchEvents.at(-1).seq)
   const invalidReplayLimit = await jsonRequest(
     `/api/sessions/${sessionId}/events?limit=257`,
   )
   assert.equal(invalidReplayLimit.response.status, 400)
 
+  const turnRequests = () => mock.requests.filter(r => r.max_tokens !== 32)
+  const turnRequestCount = turnRequests().length
   const slowResponse = await request(`/api/sessions/${sessionId}/turn`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ message: 'slow response' }),
   })
-  const turnRequests = () => mock.requests.filter(r => r.max_tokens !== 32)
-  await waitFor(() => turnRequests().length === 10)
+  await waitFor(() => turnRequests().length === turnRequestCount + 1)
   const busy = await jsonRequest(`/api/sessions/${sessionId}/turn`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -480,7 +495,7 @@ try {
   assert.equal(replayedResume[1].seq, resumedEvents[0].seq)
 
   const turnRequestsSnapshot = turnRequests()
-  assert.equal(turnRequestsSnapshot.length, 11)
+  assert.equal(turnRequestsSnapshot.length, 13)
   assert.ok(turnRequestsSnapshot.every(request => request.max_tokens === 16_384))
   assert.ok(turnRequestsSnapshot.every(request => request.model === 'deepseek-v4-pro'))
   assert.ok(turnRequestsSnapshot.every(request => request.reasoning_effort === 'high'))
@@ -1282,7 +1297,7 @@ try {
   assert.equal(retriedInvalidProtocolPrompt.body.result.error.code, 'internal')
   // Promoting the queued prompt to steering folds it into the active turn
   // instead of starting the extra follow-up request exercised previously.
-  assert.equal(turnRequests().length, 15)
+  assert.equal(turnRequests().length, 17)
   process.stdout.write(`dsh-edge ${runtimeMode} session integration passed\n`)
 } finally {
   mock.releaseSlowResponses()
