@@ -91,6 +91,7 @@ import DurableObjectSessionPersistence, {
 import EdgeModelSelectionBridge from './model-selection-bridge.ts'
 import type { CreateEdgeSessionInput, EdgeSession } from './protocol.ts'
 import { installEdgeWebSearch } from './web-search.ts'
+import { DurableObjectMessageFeedbackStore } from './do-message-feedback-store.ts'
 
 const MAX_TITLE_BYTES = 640
 const MAX_MESSAGE_FEEDBACK_NOTE_BYTES = 8_192
@@ -289,6 +290,7 @@ export class EdgeSessionStore {
     await this.context.plugin(DurableObjectSessionPersistence, { storage })
     await this.context.plugin(MessageFeedbackService, {
       maxNoteBytes: MAX_MESSAGE_FEEDBACK_NOTE_BYTES,
+      store: new DurableObjectMessageFeedbackStore(storage),
     })
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
     const { TYPERT: MESSAGE_FEEDBACK_TYPERT } = await import(
