@@ -172,6 +172,7 @@ async function requestForInstance(request: Request, ownerSessionExpiresAt: numbe
     : url.pathname.endsWith('/turn')
       || url.pathname === '/api/session.prompt'
       || url.pathname === '/api/session.updateQueue'
+      || url.pathname === '/api/skills'
       ? MAX_TURN_BODY_BYTES
       : MAX_SESSION_CREATE_BODY_BYTES
   const body = await readBoundedBody(
