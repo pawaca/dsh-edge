@@ -58,10 +58,13 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as ToolGoal from '@deepseek-ai/dsh-tool-goal'
+import * as ToolSkill from '@deepseek-ai/dsh-tool-skill'
 import * as GoalRoundDriver from '@deepseek-ai/dsh-goal-round-driver'
 import GoalService from '@deepseek-ai/dsh-goal'
+import SkillRegistry from '@deepseek-ai/dsh-skill'
 import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
 import { EdgeFileSystem } from './edge-filesystem.ts'
+import * as EdgeSkillProvider from './edge-skill-provider.ts'
 import {
   EDGE_SYSTEM_PROMPT,
   EdgeShellBindings,
@@ -274,10 +277,13 @@ export class EdgeSessionStore {
     await this.context.plugin(EdgeVfsSpillStore)
     await this.context.plugin(EdgeFileSystem)
     await this.context.plugin(ToolRuntime)
+    await this.context.plugin(SkillRegistry)
+    await this.context.plugin(EdgeSkillProvider, { storage })
     await this.context.plugin(TypertRegistry)
     const { TypertGatewayService } = await import('@deepseek-ai/dsh-api-gateway')
     await this.context.plugin(TypertGatewayService)
     await this.context.plugin(ToolFs)
+    await this.context.plugin(ToolSkill)
     await this.context.plugin(GoalService)
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
     const { TYPERT: GOAL_TYPERT } = await import('@deepseek-ai/dsh-goal/typert' as string)
@@ -355,6 +361,11 @@ export class EdgeSessionStore {
 
   filesystem(): EdgeFileSystem | undefined {
     try { return this.context.fs as EdgeFileSystem } catch { return undefined }
+  }
+
+  async skillRegistry(): Promise<SkillRegistry | undefined> {
+    await this.ready
+    try { return this.context.skills } catch { return undefined }
   }
 
   liveAgent(sessionId: SessionId): Agent | undefined {

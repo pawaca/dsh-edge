@@ -78,6 +78,7 @@ import {
   messageTextByteLength,
 } from './edge-api.ts'
 import { handleEdgeRemote } from './edge-remotes.ts'
+import { putSkill, deleteSkill, listSkillNames } from './edge-skill-provider.ts'
 import type { EdgeApiSessionSummary } from './session-store.ts'
 import { WorkspaceOrderInvalidError } from '@deepseek-ai/dsh-workspace'
 import { DSH_EDGE_VERSION } from './release.ts'
@@ -301,6 +302,9 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       if (typertResponse !== undefined) return typertResponse
       if (url.pathname === '/api/events.mux' || url.pathname === '/api/events.host') {
         return await this.openDownlink(request, url.pathname === '/api/events.mux' ? 'mux' : 'host')
+      }
+      if (url.pathname === '/api/skills') {
+        return await this.handleSkillsCrud(request)
       }
       if (url.pathname.startsWith('/api/') && !url.pathname.startsWith('/api/sessions')) {
         return await this.apiFetch(request)
@@ -649,6 +653,36 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     if (scheduled === null || expiresAt < scheduled) {
       await this.ctx.storage.setAlarm(expiresAt)
     }
+  }
+
+  private async handleSkillsCrud(request: Request): Promise<Response> {
+    const storage = this.ctx.storage
+    if (request.method === 'GET') {
+      const names = await listSkillNames(storage)
+      return jsonResponse({ skills: names })
+    }
+    if (request.method === 'PUT') {
+      const body = await readJsonObject(request, 131_072)
+      const name = requireBoundedString(body.name, 'name', 128)
+      const description = requireBoundedString(body.description, 'description', 512)
+      const content = requireBoundedUtf8String(body.content, 'content', 65_536)
+      await putSkill(storage, {
+        name,
+        description,
+        content,
+        ...typeof body.whenToUse === 'string' ? { whenToUse: body.whenToUse } : {},
+        ...typeof body.modelInvocable === 'boolean' ? { modelInvocable: body.modelInvocable } : {},
+        ...typeof body.userInvocable === 'boolean' ? { userInvocable: body.userInvocable } : {},
+      })
+      return jsonResponse({ ok: true, name })
+    }
+    if (request.method === 'DELETE') {
+      const body = await readJsonObject(request, 1024)
+      const name = requireBoundedString(body.name, 'name', 128)
+      const deleted = await deleteSkill(storage, name)
+      return jsonResponse({ ok: true, name, deleted })
+    }
+    throw new EdgeHttpError(405, 'Method not allowed.')
   }
 
   private async createSession(request: Request): Promise<Response> {
