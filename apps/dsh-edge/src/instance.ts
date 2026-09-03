@@ -670,7 +670,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         name,
         description,
         content,
-        ...typeof body.whenToUse === 'string' ? { whenToUse: body.whenToUse } : {},
+        ...typeof body.whenToUse === 'string' ? { whenToUse: requireBoundedString(body.whenToUse, 'whenToUse', 1024) } : {},
         ...typeof body.modelInvocable === 'boolean' ? { modelInvocable: body.modelInvocable } : {},
         ...typeof body.userInvocable === 'boolean' ? { userInvocable: body.userInvocable } : {},
       })
