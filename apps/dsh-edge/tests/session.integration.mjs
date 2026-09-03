@@ -590,6 +590,22 @@ try {
   )
   assert.equal(commandCatalog.response.headers.get('x-dsh-edge-instance'), null)
 
+  const putSkill = await jsonRequest('/api/skills', {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      name: 'test-skill',
+      description: 'Integration test skill',
+      content: 'Step 1: verify.\nStep 2: done.',
+      whenToUse: 'When testing',
+    }),
+  })
+  assert.equal(putSkill.response.status, 200)
+  assert.deepEqual(putSkill.body, { ok: true, name: 'test-skill' })
+  const listSkills = await jsonRequest('/api/skills')
+  assert.equal(listSkills.response.status, 200)
+  assert.deepEqual(listSkills.body.skills, ['test-skill'])
+
   const globalModels = await rpc('llm.models', {})
   assert.equal(globalModels.body.result.ok, true)
   assert.deepEqual(
@@ -630,6 +646,16 @@ try {
   host.close()
   await worker.stop()
   worker = await startWorker()
+  const restoredSkills = await jsonRequest('/api/skills')
+  assert.deepEqual(restoredSkills.body.skills, ['test-skill'])
+  const deletedSkill = await jsonRequest('/api/skills', {
+    method: 'DELETE',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name: 'test-skill' }),
+  })
+  assert.equal(deletedSkill.body.deleted, true)
+  const emptySkills = await jsonRequest('/api/skills')
+  assert.deepEqual(emptySkills.body.skills, [])
   mux = await openDownlink('/api/events.mux')
   host = await openDownlink('/api/events.host')
   const restoredBlankList = await rpc('session.list', {})

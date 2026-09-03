@@ -10,8 +10,8 @@ import {
   type SkillProviderControl,
 } from '@deepseek-ai/dsh-skill'
 
-const META_PREFIX = 'dsh-edge:skill:'
-const CONTENT_PREFIX = 'dsh-edge:skill-content:'
+const META_PREFIX = 'dsh-edge:skill-meta:'
+const CONTENT_PREFIX = 'dsh-edge:skill-body:'
 const PROVIDER_NAME = 'edge'
 
 interface StoredSkillMeta {
