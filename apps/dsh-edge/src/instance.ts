@@ -662,7 +662,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       return jsonResponse({ skills: names })
     }
     if (request.method === 'PUT') {
-      const body = await readJsonObject(request, 131_072)
+      const body = await readJsonObject(request, 262_144)
       const name = requireBoundedString(body.name, 'name', 128)
       const description = requireBoundedString(body.description, 'description', 512)
       const content = requireBoundedUtf8String(body.content, 'content', 65_536)
