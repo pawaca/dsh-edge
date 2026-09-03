@@ -9,10 +9,22 @@ function createMockStorage(): DurableObjectStorage & { readonly store: Map<strin
   return {
     store,
     get: (key: string) => Promise.resolve(store.get(key)),
-    put: (key: string, value: unknown) => { store.set(key, value); return Promise.resolve() },
-    delete: (key: string) => {
-      const had = store.has(key)
-      store.delete(key)
+    put: (keyOrEntries: string | Record<string, unknown>, value?: unknown) => {
+      if (typeof keyOrEntries === 'object') {
+        for (const [k, v] of Object.entries(keyOrEntries)) store.set(k, v)
+      } else {
+        store.set(keyOrEntries, value)
+      }
+      return Promise.resolve()
+    },
+    delete: (keyOrKeys: string | string[]) => {
+      if (Array.isArray(keyOrKeys)) {
+        let count = 0
+        for (const k of keyOrKeys) { if (store.delete(k)) count++ }
+        return Promise.resolve(count)
+      }
+      const had = store.has(keyOrKeys)
+      store.delete(keyOrKeys)
       return Promise.resolve(had)
     },
     list: (opts?: { prefix?: string }) => {

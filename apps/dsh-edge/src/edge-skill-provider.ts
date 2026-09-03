@@ -10,17 +10,21 @@ import {
   type SkillProviderControl,
 } from '@deepseek-ai/dsh-skill'
 
-const STORAGE_KEY_PREFIX = 'dsh-edge:skill:'
+const META_PREFIX = 'dsh-edge:skill:'
+const CONTENT_PREFIX = 'dsh-edge:skill-content:'
 const PROVIDER_NAME = 'edge'
 
-interface StoredSkill {
+interface StoredSkillMeta {
   name: string
   description: string
-  content: string
   whenToUse?: string
   modelInvocable?: boolean
   userInvocable?: boolean
   metadata?: Record<string, unknown>
+}
+
+export interface StoredSkill extends StoredSkillMeta {
+  content: string
 }
 
 export interface EdgeSkillProviderConfig {
@@ -36,54 +40,59 @@ export function apply(ctx: Context, config: EdgeSkillProviderConfig): void {
     name: PROVIDER_NAME,
 
     async list(_options: SkillLookupOptions): Promise<readonly SkillCandidate[]> {
-      const entries = await storage.list<StoredSkill>({ prefix: STORAGE_KEY_PREFIX })
+      const entries = await storage.list<StoredSkillMeta>({ prefix: META_PREFIX })
       const candidates: SkillCandidate[] = []
-      for (const [, stored] of entries) {
-        if (typeof stored !== 'object' || stored === null) continue
-        candidates.push(toCandidate(stored))
+      for (const [, meta] of entries) {
+        if (typeof meta !== 'object' || meta === null) continue
+        candidates.push(toCandidate(meta))
       }
       return candidates
     },
 
     async get(candidate: SkillCandidate, _options: SkillLookupOptions): Promise<SkillDefinition | undefined> {
-      const stored = await storage.get<StoredSkill>(storageKey(candidate.name))
-      if (stored === undefined) return undefined
+      const meta = await storage.get<StoredSkillMeta>(metaKey(candidate.name))
+      if (meta === undefined) return undefined
+      const content = await storage.get<string>(contentKey(candidate.name))
       return {
-        name: stored.name,
-        description: stored.description,
-        content: stored.content,
+        name: meta.name,
+        description: meta.description,
+        content: content ?? '',
         invocation: {
-          modelInvocable: stored.modelInvocable ?? true,
-          userInvocable: stored.userInvocable ?? true,
+          modelInvocable: meta.modelInvocable ?? true,
+          userInvocable: meta.userInvocable ?? true,
         },
         source: 'custom',
         provider: PROVIDER_NAME,
-        ...(stored.whenToUse !== undefined ? { whenToUse: stored.whenToUse } : {}),
-        ...(stored.metadata !== undefined ? { metadata: stored.metadata } : {}),
+        ...(meta.whenToUse !== undefined ? { whenToUse: meta.whenToUse } : {}),
+        ...(meta.metadata !== undefined ? { metadata: meta.metadata } : {}),
       }
     },
   })))
 }
 
-function toCandidate(stored: StoredSkill): SkillCandidate {
+function toCandidate(meta: StoredSkillMeta): SkillCandidate {
   return {
-    name: stored.name,
-    description: stored.description,
+    name: meta.name,
+    description: meta.description,
     invocation: {
-      modelInvocable: stored.modelInvocable ?? true,
-      userInvocable: stored.userInvocable ?? true,
+      modelInvocable: meta.modelInvocable ?? true,
+      userInvocable: meta.userInvocable ?? true,
     },
     source: 'custom',
     provider: PROVIDER_NAME,
     rank: BUNDLED_SKILL_RANK,
-    locator: stored.name,
-    ...(stored.whenToUse !== undefined ? { whenToUse: stored.whenToUse } : {}),
-    ...(stored.metadata !== undefined ? { metadata: stored.metadata } : {}),
+    locator: meta.name,
+    ...(meta.whenToUse !== undefined ? { whenToUse: meta.whenToUse } : {}),
+    ...(meta.metadata !== undefined ? { metadata: meta.metadata } : {}),
   }
 }
 
-function storageKey(skillName: string): string {
-  return `${STORAGE_KEY_PREFIX}${skillName}`
+function metaKey(skillName: string): string {
+  return `${META_PREFIX}${skillName}`
+}
+
+function contentKey(skillName: string): string {
+  return `${CONTENT_PREFIX}${skillName}`
 }
 
 /** Write or overwrite a skill in Durable Object storage. */
@@ -91,7 +100,11 @@ export async function putSkill(
   storage: DurableObjectStorage,
   skill: StoredSkill,
 ): Promise<void> {
-  await storage.put(storageKey(skill.name), skill)
+  const { content, ...meta } = skill
+  await storage.put({
+    [metaKey(skill.name)]: meta,
+    [contentKey(skill.name)]: content,
+  } as Record<string, unknown>)
 }
 
 /** Remove a skill from Durable Object storage. */
@@ -99,17 +112,18 @@ export async function deleteSkill(
   storage: DurableObjectStorage,
   skillName: string,
 ): Promise<boolean> {
-  return await storage.delete(storageKey(skillName))
+  const count = await storage.delete([metaKey(skillName), contentKey(skillName)])
+  return count > 0
 }
 
 /** List all stored skill names. */
 export async function listSkillNames(
   storage: DurableObjectStorage,
 ): Promise<string[]> {
-  const entries = await storage.list<StoredSkill>({ prefix: STORAGE_KEY_PREFIX })
+  const entries = await storage.list<StoredSkillMeta>({ prefix: META_PREFIX })
   const names: string[] = []
   for (const [key] of entries) {
-    names.push(key.slice(STORAGE_KEY_PREFIX.length))
+    names.push(key.slice(META_PREFIX.length))
   }
   return names
 }
