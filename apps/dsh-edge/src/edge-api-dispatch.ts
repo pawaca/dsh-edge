@@ -10,12 +10,25 @@ import type { EdgeApi } from './edge-api.ts'
 
 type Handler = (request: never, signal: AbortSignal) => Promise<{ rpcId: unknown; result: unknown }>
 
+const NAMESPACE_ALIASES: Record<string, string> = {
+  session: 'sessions',
+  skill: 'skills',
+  agentPreset: 'agentPresets',
+  subagent: 'subagents',
+  goal: 'goals',
+  event: 'events',
+  download: 'downloads',
+}
+
 function resolve(api: EdgeApi, key: string): Handler | undefined {
-  const sep = key.indexOf('/')
+  const dot = key.indexOf('.')
+  const slash = key.indexOf('/')
+  const sep = dot >= 0 ? dot : slash
   if (sep < 0) return undefined
-  const ns = key.slice(0, sep)
+  const rawNs = key.slice(0, sep)
   const method = key.slice(sep + 1)
-  const namespace = (api as unknown as Record<string, Record<string, unknown>>)[ns === 'session' ? 'sessions' : ns === 'skill' ? 'skills' : ns]
+  const ns = NAMESPACE_ALIASES[rawNs] ?? rawNs
+  const namespace = (api as unknown as Record<string, Record<string, unknown>>)[ns]
   if (namespace === undefined) return undefined
   const fn = namespace[method]
   return typeof fn === 'function' ? fn as Handler : undefined

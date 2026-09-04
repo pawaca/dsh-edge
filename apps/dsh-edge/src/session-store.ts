@@ -1015,6 +1015,7 @@ export class EdgeSessionStore {
     const handle = await agents.create({
       sessionId: childId,
       seed,
+      inheritedEventCount: SessionLogOffset(seed.length),
       meta: {
         ...header.cwd === undefined ? {} : { cwd: header.cwd },
         parentSession: id,
