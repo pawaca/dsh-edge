@@ -61,6 +61,7 @@ import * as ToolGoal from '@deepseek-ai/dsh-tool-goal'
 import * as ToolSkill from '@deepseek-ai/dsh-tool-skill'
 import * as GoalRoundDriver from '@deepseek-ai/dsh-goal-round-driver'
 import GoalService from '@deepseek-ai/dsh-goal'
+import CommandRuntime from '@deepseek-ai/dsh-commands'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
 import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
 import { EdgeFileSystem } from './edge-filesystem.ts'
@@ -292,6 +293,12 @@ export class EdgeSessionStore {
     await this.context.plugin(GoalRoundDriver)
     await this.context.plugin(SpillPolicy, { maxInlineBytes: 32_768 })
     await this.context.plugin(AgentRegistry)
+    await this.context.plugin(CommandRuntime)
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    const { TYPERT: COMMANDS_TYPERT } = await import(
+      '@deepseek-ai/dsh-commands/typert' as string
+    )
+    this.context.typert.register(COMMANDS_TYPERT as never)
     await installEdgeWebSearch(this.context, config.searchBaseURL)
     await this.context.plugin(DurableObjectSessionPersistence, { storage })
     await this.context.plugin(MessageFeedbackService, {

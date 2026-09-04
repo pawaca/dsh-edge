@@ -84,6 +84,7 @@
     "@deepseek-ai/dsh-compaction": "0.1.1-rc.2",
     "@deepseek-ai/dsh-compaction-basic": "0.1.1-rc.2",
     "@deepseek-ai/dsh-compaction-tool-result-pruner": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-commands": "0.1.1-rc.2",
     "@deepseek-ai/dsh-credentials": "0.1.1-rc.2",
     "@deepseek-ai/dsh-fs": "0.1.1-rc.2",
     "@deepseek-ai/dsh-goal": "0.1.1-rc.2",
