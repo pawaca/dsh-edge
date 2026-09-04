@@ -119,9 +119,12 @@ function workspaceEntityToView(entity: {
 }
 
 interface DownlinkAttachment {
-  channel: 'mux' | 'host'
+  channel: 'mux' | 'host' | 'remote.mux'
   expiresAt: number
 }
+
+type RemoteStreamEntry = { abort: AbortController; done: Promise<void> }
+const remoteStreams = new WeakMap<WebSocket, Map<string, RemoteStreamEntry>>()
 
 /** Mirror the upstream session-list projection fold at the Edge transport seam. */
 function applySessionListMetadata(
@@ -298,6 +301,9 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       if (url.pathname === '/api/events.mux' || url.pathname === '/api/events.host') {
         return await this.openDownlink(request, url.pathname === '/api/events.mux' ? 'mux' : 'host')
       }
+      if (url.pathname === '/api/remote.mux') {
+        return this.openRemoteMux(request)
+      }
       if (url.pathname === '/api/skills') {
         return await this.handleSkillsCrud(request)
       }
@@ -340,15 +346,27 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     }
   }
 
-  /** Reject client messages because both upstream WebSockets are downlink-only. */
-  override webSocketMessage(socket: WebSocket, _message: string | ArrayBuffer): void {
+  override webSocketMessage(socket: WebSocket, message: string | ArrayBuffer): void {
     if (this.closeExpiredDownlink(socket, Date.now())) return
+    const attachment = readDownlinkAttachment(socket)
+    if (attachment?.channel === 'remote.mux') {
+      if (typeof message !== 'string') {
+        socket.close(1003, 'text messages required')
+        return
+      }
+      this.handleRemoteMuxMessage(socket, message)
+      return
+    }
     socket.close(1008, 'downlink only')
   }
 
-  /** Close a broken downstream without affecting other subscribers. */
+  override webSocketClose(socket: WebSocket, _code: number, _reason: string, _wasClean: boolean): void {
+    this.abortRemoteStreams(socket)
+  }
+
   override webSocketError(socket: WebSocket, error: unknown): void {
     console.error('dsh-edge downstream WebSocket failed.', error)
+    this.abortRemoteStreams(socket)
     socket.close(1011, 'downstream failure')
   }
 
@@ -390,6 +408,97 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       return new Response(null, { status: 101, webSocket: client })
     }
     return channel === 'mux' ? this.sessions.withMuxBaseline(accept) : accept()
+  }
+
+  private openRemoteMux(request: Request): Response {
+    if (request.headers.get('upgrade')?.toLowerCase() !== 'websocket') {
+      throw new EdgeHttpError(426, 'This endpoint requires a WebSocket upgrade.')
+    }
+    const expiresAt = requireOwnerSessionExpiry(request)
+    const pair = new WebSocketPair()
+    const server = pair[1]
+    server.serializeAttachment({ channel: 'remote.mux', expiresAt } satisfies DownlinkAttachment)
+    this.ctx.acceptWebSocket(server, ['remote.mux'])
+    remoteStreams.set(server, new Map())
+    return new Response(null, { status: 101, webSocket: pair[0] })
+  }
+
+  private handleRemoteMuxMessage(socket: WebSocket, text: string): void {
+    let message: { type: string; streamId?: string; endpoint?: string; payload?: unknown }
+    try {
+      message = JSON.parse(text) as typeof message
+      if (typeof message?.type !== 'string') throw new Error()
+    } catch {
+      socket.close(1008, 'invalid Remote stream request')
+      return
+    }
+    const streams = remoteStreams.get(socket)
+    if (streams === undefined) return
+
+    if (message.type === 'cancel' && typeof message.streamId === 'string') {
+      streams.get(message.streamId)?.abort.abort(new Error('Remote stream cancelled'))
+      return
+    }
+
+    if (message.type !== 'open'
+      || typeof message.streamId !== 'string'
+      || typeof message.endpoint !== 'string') {
+      return
+    }
+
+    const { streamId, endpoint, payload } = message
+    if (streams.has(streamId)) {
+      socket.close(1008, 'duplicate Remote stream id')
+      return
+    }
+
+    const gateway = this.sessions.typertGateway()
+    if (gateway === undefined) {
+      const error = { code: 'gateway/service-unavailable', message: 'gateway not available', details: {} }
+      try { socket.send(JSON.stringify({ type: 'error', streamId, error })) } catch {}
+      return
+    }
+
+    const abort = new AbortController()
+    const done = this.pumpRemoteStream(socket, gateway, streamId, endpoint, payload, abort)
+    streams.set(streamId, { abort, done })
+    void done.then(() => { if (streams.get(streamId)?.abort === abort) streams.delete(streamId) })
+  }
+
+  private async pumpRemoteStream(
+    socket: WebSocket,
+    gateway: { wireStream: { open(endpoint: string, payload: unknown, signal: AbortSignal): Promise<AsyncIterable<unknown>>; failure(error: unknown): { code: string; message: string; details: object } } },
+    streamId: string,
+    endpoint: string,
+    payload: unknown,
+    abort: AbortController,
+  ): Promise<void> {
+    try {
+      const source = await gateway.wireStream.open(endpoint, payload, abort.signal)
+      for await (const value of source) {
+        if (socket.readyState !== WebSocket.OPEN) break
+        socket.send(JSON.stringify({ type: 'item', streamId, value }))
+      }
+      if (!abort.signal.aborted && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: 'end', streamId }))
+      }
+    } catch (error) {
+      if (!abort.signal.aborted && socket.readyState === WebSocket.OPEN) {
+        try {
+          const failure = gateway.wireStream.failure(error)
+          socket.send(JSON.stringify({ type: 'error', streamId, error: failure }))
+        } catch {
+          socket.close(1011, 'Remote stream failure could not be delivered')
+        }
+      }
+    }
+  }
+
+  private abortRemoteStreams(socket: WebSocket): void {
+    const streams = remoteStreams.get(socket)
+    if (streams === undefined) return
+    for (const entry of streams.values()) entry.abort.abort(new Error('Remote stream socket closed'))
+    remoteStreams.delete(socket)
   }
 
   private publishSessionCreated(session: EdgeApiSessionSummary): void {
@@ -1094,7 +1203,7 @@ function readDownlinkAttachment(socket: WebSocket): DownlinkAttachment | undefin
     const attachment: unknown = socket.deserializeAttachment()
     if (typeof attachment !== 'object' || attachment === null) return undefined
     const { channel, expiresAt } = attachment as Record<string, unknown>
-    if ((channel !== 'mux' && channel !== 'host')
+    if ((channel !== 'mux' && channel !== 'host' && channel !== 'remote.mux')
       || typeof expiresAt !== 'number'
       || !Number.isSafeInteger(expiresAt)) {
       return undefined
