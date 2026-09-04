@@ -1,0 +1,13 @@
+diff --git a/lib/index.js b/lib/index.js
+index 0f2ec2a31702158d540f5e687085d252e3d8b1fa..e0bd8cecc80eb3cfaf210fd9eee75367f56cad97 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -132,7 +132,7 @@ var DeepSeekSearchProvider = class {
+ 		try {
+ 			response = await fetch(endpoint, {
+ 				method: "POST",
+-				redirect: "error",
++				redirect: "manual",
+ 				headers: {
+ 					"x-api-key": apiKey,
+ 					"authorization": `Bearer ${apiKey}`,

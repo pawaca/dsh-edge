@@ -1,5 +1,5 @@
 diff --git a/lib/index.js b/lib/index.js
-index b9d5a8e125ca4f8e7b4a6f9466490127b835a4db..af0e4c077f818226c6037f3c19b97350f04010a9 100644
+index 881df45e4a86aa1a5d75ee74c19612f9244d6b5c..6d8159d7f40ad97082184946d93abb1f9f00856b 100644
 --- a/lib/index.js
 +++ b/lib/index.js
 @@ -1,5 +1,4 @@
@@ -17,43 +17,42 @@ index b9d5a8e125ca4f8e7b4a6f9466490127b835a4db..af0e4c077f818226c6037f3c19b97350
  }
  //#endregion
  //#region lib/types/entity.js
-@@ -94,7 +93,6 @@ var WorkspaceEntity = class {
+@@ -94,7 +93,8 @@ var WorkspaceEntity = class {
  			} catch (error) {
  				throw new Error(`cannot attach session '${sessionId}' to workspace '${this.record.path}': its cwd '${header.cwd}' does not resolve, so it cannot be validated`, { cause: error });
  			}
 -			if (!(await stat(cwd)).isDirectory()) throw new Error(`cannot attach session '${sessionId}' to workspace '${this.record.path}': its cwd '${header.cwd}' is not a directory`);
++			// Edge VFS: stat check removed
++				if (false) throw new Error(`cannot attach session '${sessionId}' to workspace '${this.record.path}': its cwd '${header.cwd}' is not a directory`);
  			if (cwd !== this.record.path) throw new Error(`cannot attach session '${sessionId}' to workspace '${this.record.path}': its cwd resolves to '${cwd}'`);
  			this.host.rememberSessionPath(sessionId, cwd);
  		}
-@@ -128,11 +126,7 @@ var WorkspaceEntity = class {
- 		} : record);
+@@ -129,7 +129,7 @@ var WorkspaceEntity = class {
  	}
  	async status() {
--		try {
+ 		try {
 -			return (await stat(this.record.path)).isDirectory() ? "ok" : "missing-dir";
--		} catch {
--			return "missing-dir";
--		}
-+		return "ok";
- 	}
- 	/**
- 	* The single write path: run `fn` on the domain write chain via
-@@ -340,7 +334,6 @@ var WorkspaceRegistry = class extends Service {
++			return "ok";
+ 		} catch {
+ 			return "missing-dir";
+ 		}
+@@ -340,7 +340,8 @@ var WorkspaceRegistry = class extends Service {
  	*/
  	async create(path, title) {
  		const canonical = await realpathNormalize(path);
 -		if (!(await stat(canonical)).isDirectory()) throw new Error(`cannot create a workspace at '${canonical}': path is not a directory`);
++		// Edge VFS: stat check removed
++		if (false) throw new Error(`cannot create a workspace at '${canonical}': path is not a directory`);
  		return await this.enqueueOperation(() => this.createCanonical(canonical, title));
  	}
  	/**
-@@ -691,10 +684,6 @@ var WorkspaceRegistry = class extends Service {
+@@ -691,7 +692,8 @@ var WorkspaceRegistry = class extends Service {
  		}
  		try {
  			const path = await realpathNormalize(header.cwd);
 -			if (!(await stat(path)).isDirectory()) {
--				this.invalidSessionPaths.set(header.id, `cwd '${header.cwd}' is not a directory`);
--				return;
--			}
- 			this.sessionPaths.set(header.id, path);
- 			this.invalidSessionPaths.delete(header.id);
- 		} catch {
++			// Edge VFS: stat check removed
++			if (false) {
+ 				this.invalidSessionPaths.set(header.id, `cwd '${header.cwd}' is not a directory`);
+ 				return;
+ 			}

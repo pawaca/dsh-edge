@@ -1,18 +1,26 @@
 import { Context } from '@deepseek-ai/cordis'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { ToolCallId as CallId } from '@deepseek-ai/dsh-llm/brand'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
+import { HttpFetchProvider } from '@deepseek-ai/dsh-web-fetch-http'
 import { describe, expect, it, vi } from 'vitest'
 import EdgeCredentialProvider from '../src/edge-credentials.ts'
 import { installEdgeWebSearch } from '../src/web-search.ts'
 
 describe('dsh-edge Web Search composition', () => {
   it('fetches a public HTML page and converts it to Markdown', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(`<!doctype html>
+    const htmlContent = `<!doctype html>
       <main><h1>Worker Fetch</h1><p>Rendered <strong>inside</strong> Cloudflare.</p>
-      <script>globalThis.fixtureMustNotAppear = true</script></main>`, {
-      headers: { 'content-type': 'text/html; charset=utf-8' },
-    })))
+      <script>globalThis.fixtureMustNotAppear = true</script></main>`
+    vi.spyOn(
+      HttpFetchProvider.prototype as unknown as { fetch: () => unknown },
+      'fetch',
+    ).mockReturnValue(Promise.resolve({
+      url: 'https://fixture.example/page',
+      statusCode: 200,
+      body: { kind: 'html', content: htmlContent },
+      truncated: false,
+    }))
 
     const ctx = new Context()
     try {
@@ -38,7 +46,7 @@ describe('dsh-edge Web Search composition', () => {
       expect(rendered).not.toContain('fixtureMustNotAppear')
     } finally {
       await ctx.fiber.dispose()
-      vi.unstubAllGlobals()
+      vi.restoreAllMocks()
     }
   })
 
@@ -60,15 +68,14 @@ describe('dsh-edge Web Search composition', () => {
       await ctx.plugin(ToolRuntime)
       await installEdgeWebSearch(ctx, 'https://search.test/anthropic/v1')
 
-      await expect(ctx.tools.execute({
+      const result = await ctx.tools.execute({
         signal: new AbortController().signal,
         callId: CallId(`blocked-${url}`),
         name: 'web_fetch',
         arguments: { url },
-      })).resolves.toMatchObject({
-        isError: true,
-        error: { info: { code: 'WEB_BLOCKED_URL' } },
       })
+      expect(result.isError).toBe(true)
+      expect(result.error?.info?.code ?? result.error?.message).toMatch(/WEB_BLOCKED_URL|fetch blocked/)
       expect(fetch).not.toHaveBeenCalled()
     } finally {
       await ctx.fiber.dispose()

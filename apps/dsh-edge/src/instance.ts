@@ -11,19 +11,18 @@ import {
 } from '@cloudflare/computer/backends/worker-shell'
 import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
-import type {
-  HostFrame,
-  MuxFrame,
-  QueueAction,
-  QueuedInboxItem,
-  ServerRequest,
-  SessionListMetadata,
-  WorkspaceId,
-  WorkspaceView,
-} from '@deepseek-ai/dsh-host-apiproxy/api'
-import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api'
-import { toFetchHandler } from '@deepseek-ai/dsh-host-apiproxy'
-import { freezeMessage, type MessageId } from '@deepseek-ai/dsh-llm'
+import type { SessionListMetadata, QueueAction } from '@deepseek-ai/dsh-api-session-controller/types'
+import type { WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/types'
+import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
+import {
+  RpcId,
+  type HostFrame,
+  type MuxFrame,
+  type QueuedInboxItem,
+  type ServerRequest,
+} from './edge-rpc-types.ts'
+import { dispatchEdgeApi } from './edge-api-dispatch.ts'
+import { freezeMessage, type MessageId, type UserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { normalizeSessionTitle } from '@deepseek-ai/dsh-session-title'
@@ -288,7 +287,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       this.publishSessionEvent(sessionId, event)
     },
   })
-  private readonly apiFetch = toFetchHandler(this.api).fetch
+  private readonly apiFetch = (request: Request) => dispatchEdgeApi(this.api, request)
 
   /** Serve session routes forwarded by the entry Worker. */
   override async fetch(request: Request): Promise<Response> {
@@ -876,7 +875,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       if (!preservesAdmittedQueueImages(message.content, action.content)) {
         return 'queue-edit-attachment-invalid'
       }
-      agent.inbox.replace(itemId, freezeMessage({ ...message, content: action.content }))
+      agent.inbox.replace(itemId, freezeMessage({ ...message, content: [...action.content] } as UserMessage))
     } else {
       agent.inbox.remove(itemId)
       if (action.kind === 'steer') agent.steer(message)

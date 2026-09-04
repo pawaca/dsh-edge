@@ -1,15 +1,5 @@
 [
   {
-    "package": "@deepseek-ai/dsh-llm",
-    "rationale": "Resolve the Harness attribution version without runtime node:module path discovery, which is unavailable in the Worker bundle.",
-    "removeWhen": "The published LLM package exposes its version through a Worker-bundle-safe import or injected build constant and bundles without node:module."
-  },
-  {
-    "package": "@deepseek-ai/dsh-llm-deepseek",
-    "rationale": "Forward the resolveFiles config slot to the DeepSeek adapter constructor so Edge can inject a Durable Object-backed file store for the Files API.",
-    "removeWhen": "The published plugin's apply() forwards resolveFiles from the plugin config to the adapter constructor."
-  },
-  {
     "package": "@deepseek-ai/dsh-message-feedback",
     "rationale": "Inject an Edge-owned point-read feedback store so Durable Object startup does not materialize every retained feedback row through storage-domain loadAll().",
     "removeWhen": "The published message-feedback service accepts an equivalent bounded point-read store or no longer loads the complete feedback domain during initialization."
@@ -33,11 +23,6 @@
     "package": "@deepseek-ai/dsh-web-search-deepseek",
     "rationale": "Keep redirects unfollowed using the redirect mode supported by Cloudflare Workers instead of a mode that fails before the provider can normalize the response.",
     "removeWhen": "The published DeepSeek search provider preserves no-follow redirect behavior with a fetch mode that passes the Edge Worker integration suite."
-  },
-  {
-    "package": "@deepseek-ai/dsh-sandbox",
-    "rationale": "Remove node:fs realpathSync and node:os tmpdir imports that are incompatible with Cloudflare Workers. canonicalPath returns path directly (VFS has no symlinks), writableRoots omits tmpdir.",
-    "removeWhen": "The published sandbox package conditionally imports node:fs/node:os or exposes the utility functions (canonicalPath, escalation markers) from a separate Node-free entry point."
   },
   {
     "package": "@deepseek-ai/dsh-api-gateway",

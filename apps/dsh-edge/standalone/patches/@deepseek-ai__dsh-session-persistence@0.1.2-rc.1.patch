@@ -1,8 +1,8 @@
 diff --git a/lib/index.js b/lib/index.js
-index 2340fbd5adae991ac1da82017e152c592d97b5b1..33ed3bbd400c0be4a5e4569b1ab555755cb8e4f6 100644
+index 466804009481f3f96777654919eda4e2ab260af8..f5a84de94754f335ae87882d9e3700b6dbd17d60 100644
 --- a/lib/index.js
 +++ b/lib/index.js
-@@ -351,6 +351,13 @@ var SessionWriteBehind = class {
+@@ -405,6 +405,13 @@ var SessionWriteBehind = class {
  		this.cancelTimer();
  		this.deadlineExpired = false;
  	}
@@ -16,9 +16,9 @@ index 2340fbd5adae991ac1da82017e152c592d97b5b1..33ed3bbd400c0be4a5e4569b1ab55575
  	/** Start the one fixed window for the current pending prefix. */
  	armTimer() {
  		this.timer = setTimeout(() => {
-@@ -805,6 +812,21 @@ var PersistenceCoordinator = class {
- 		if (!Number.isSafeInteger(snapshot.createdAt) || snapshot.createdAt < 0) return Promise.reject(/* @__PURE__ */ new TypeError("session metadata createdAt must be a non-negative safe integer"));
- 		return this.serialize(snapshot.id, () => this.createCore(snapshot));
+@@ -887,6 +894,21 @@ var PersistenceCoordinator = class {
+ 		}
+ 		return this.serialize(snapshot.id, () => this.createCore(storage));
  	}
 +	async abandonUnmaterialized(session) {
 +		const live = this.live.get(session);
@@ -35,16 +35,16 @@ index 2340fbd5adae991ac1da82017e152c592d97b5b1..33ed3bbd400c0be4a5e4569b1ab55575
 +			if (state?.owner === session) this.states.delete(session.id);
 +		});
 +	}
- 	async createCore(meta) {
- 		if (this.states.has(meta.id) || this.preparations.has(meta.id)) throw new Error(`session "${meta.id}" already exists in this backend`);
- 		if (await this.backend.loadStored(meta.id) !== void 0) throw new Error(`session "${meta.id}" already has a persisted log on disk; load/resume it instead of creating`);
-@@ -933,6 +955,47 @@ var PersistenceCoordinator = class {
+ 	/**
+ 	* Materialize one exact live session without inventing a session event.
+ 	* @param session - live session already registered through the write path.
+@@ -1101,6 +1123,39 @@ var PersistenceCoordinator = class {
  		const retired = Promise.resolve(this.retirements.get(id));
  		return (signal === void 0 ? retired : observeQueuedAbort(retired, signal, () => false)).then(() => this.serialize(id, () => this.readFromCore(id, fromSeq, signal), signal));
  	}
 +	readValidatedPage(id, fromSeq, limit, loadStoredPage, signal) {
-+		if (!Number.isSafeInteger(fromSeq) || fromSeq < 0) return Promise.reject(/* @__PURE__ */ new TypeError(`readValidatedPage fromSeq must be a non-negative safe integer, got ${String(fromSeq)}`));
-+		if (!Number.isSafeInteger(limit) || limit <= 0) return Promise.reject(/* @__PURE__ */ new TypeError(`readValidatedPage limit must be a positive safe integer, got ${String(limit)}`));
++		if (!Number.isSafeInteger(fromSeq) || fromSeq < 0) return Promise.reject(new TypeError(`readValidatedPage fromSeq must be a non-negative safe integer, got ${String(fromSeq)}`));
++		if (!Number.isSafeInteger(limit) || limit <= 0) return Promise.reject(new TypeError(`readValidatedPage limit must be a positive safe integer, got ${String(limit)}`));
 +		const retired = Promise.resolve(this.retirements.get(id));
 +		return (signal === void 0 ? retired : observeQueuedAbort(retired, signal, () => false)).then(() => this.serialize(id, () => this.readValidatedPageCore(id, fromSeq, limit, loadStoredPage, signal), signal));
 +	}
@@ -69,19 +69,11 @@ index 2340fbd5adae991ac1da82017e152c592d97b5b1..33ed3bbd400c0be4a5e4569b1ab55575
 +			const normalized = snapshotStoredEvents(prefix.events, id);
 +			this.assertEventsSupported(prefix.meta, normalized);
 +			const suffix = normalized.filter((event) => event.seq >= fromSeq);
-+			return {
-+				meta: structuredClone(prefix.meta),
-+				events: suffix.slice(0, limit),
-+				hasMore: prefix.hasMore
-+			};
++			return { meta: structuredClone(prefix.meta), events: suffix.slice(0, limit), hasMore: prefix.hasMore };
 +		}
 +		const events = snapshotStoredEvents(page.events, id);
 +		this.assertEventsSupported(page.meta, events);
-+		return {
-+			meta: structuredClone(page.meta),
-+			events,
-+			hasMore: page.hasMore
-+		};
++		return { meta: structuredClone(page.meta), events, hasMore: page.hasMore };
 +	}
  	async readFromCore(id, fromSeq, signal) {
  		signal?.throwIfAborted();

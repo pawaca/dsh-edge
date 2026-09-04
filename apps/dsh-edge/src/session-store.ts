@@ -28,12 +28,12 @@ import {
   type ModelCatalogFailure,
   type ModelProviderGroup,
   type ModelReasoning,
-  type QueuedInboxItem,
-  type RpcId,
   type SessionSearchItem,
-} from '@deepseek-ai/dsh-host-apiproxy/api'
+} from '@deepseek-ai/dsh-api-session-controller/types'
+import type { QueuedInboxItem, RpcId } from './edge-rpc-types.ts'
 import SessionStore, {
   SessionId,
+  SessionLogOffset,
   isAppendSurfaceEvent,
   type SessionEvent,
   type SessionEventMap,
@@ -82,7 +82,6 @@ import {
 } from './edge-attachment-store.ts'
 import { EdgeVfsSpillStore } from './edge-spill-store.ts'
 import {
-  settingsNamespace,
   type SettingsDescriptor,
   type SettingsPathOp,
 } from '@deepseek-ai/dsh-settings'
@@ -242,7 +241,7 @@ export class EdgeSessionStore {
       (value: unknown) => value ?? {},
       { toJSON: () => ({ type: 'object' }) },
     ) as never
-    this.context.settings.register(settingsNamespace('ui-onboarding'), onboardingSchema, {})
+    this.context.settings.register('ui-onboarding', onboardingSchema, {})
     await this.context.plugin(LlmRuntime)
     try {
       const doUploadIndex = new DurableObjectUploadIndex(storage)
@@ -395,7 +394,8 @@ export class EdgeSessionStore {
     if (cache === undefined) return undefined
     const session = this.context.sessions.get(summary.id)
     const header = session?.header ?? { id: summary.id, createdAt: summary.createdAt, ...summary.cwd === undefined ? {} : { cwd: summary.cwd } }
-    return cache.cachedSnapshot(header as never)
+    const inheritedEventCount = session?.inheritedEventCount ?? SessionLogOffset(0)
+    return cache.cachedSnapshot(header as never, inheritedEventCount)
   }
 
 
@@ -424,7 +424,7 @@ export class EdgeSessionStore {
   ): Promise<ImageAttachmentRef | undefined> {
     const { sessions, persistence } = await this.services()
     const live = sessions.get(id)
-    if (live !== undefined) return referencedImage(live.events, attachmentId)
+    if (live !== undefined) return referencedImage(live.snapshotEvents(), attachmentId)
     if (!(persistence instanceof DurableObjectSessionPersistence)) {
       throw new EdgeSessionStoreError('INVALID_DATA', 'Edge persistence backend is unavailable.')
     }
@@ -514,7 +514,7 @@ export class EdgeSessionStore {
     expectedRevision?: number,
   ): Promise<SettingsDescriptor | undefined> {
     await this.ready
-    await this.context.settings.update(settingsNamespace(ns), patch, expectedRevision)
+    await this.context.settings.update(ns, patch, expectedRevision)
     return this.context.settings.describe({ redactSecrets: true })
       .find(d => (d.ns as string) === ns)
   }
@@ -526,7 +526,7 @@ export class EdgeSessionStore {
     expectedRevision?: number,
   ): Promise<SettingsDescriptor | undefined> {
     await this.ready
-    await this.context.settings.replace(settingsNamespace(ns), section, expectedRevision)
+    await this.context.settings.replace(ns, section, expectedRevision)
     return this.context.settings.describe({ redactSecrets: true })
       .find(d => (d.ns as string) === ns)
   }
@@ -538,7 +538,7 @@ export class EdgeSessionStore {
     expectedRevision?: number,
   ): Promise<SettingsDescriptor | undefined> {
     await this.ready
-    await this.context.settings.mutate(settingsNamespace(ns), ops, expectedRevision)
+    await this.context.settings.mutate(ns, ops, expectedRevision)
     return this.context.settings.describe({ redactSecrets: true })
       .find(d => (d.ns as string) === ns)
   }
@@ -652,7 +652,7 @@ export class EdgeSessionStore {
     if (agent !== undefined && [...agent.inbox.nextTurn, ...agent.inbox.nextStep]
       .some(message => message.content.some(block => block.type === 'image'))) return true
     const live = sessions.get(id)
-    if (live !== undefined) return appendSurfaceContainsImage(live.events)
+    if (live !== undefined) return appendSurfaceContainsImage(live.snapshotEvents())
     if (!(persistence instanceof DurableObjectSessionPersistence)) {
       throw new EdgeSessionStoreError('INVALID_DATA', 'Edge persistence backend is unavailable.')
     }
@@ -670,7 +670,7 @@ export class EdgeSessionStore {
       events => {
         for (const event of events) {
           if (isAppendSurfaceEvent(event) && referencedImage([event]) !== undefined) return true
-          if (event.seq >= (header.seedLength ?? 0) && event.type === 'agent/inbox/spliced') {
+          if (event.type === 'agent/inbox/spliced') {
             applyEffectiveInboxSplice(inbox, event.data)
           }
         }
@@ -708,7 +708,7 @@ export class EdgeSessionStore {
       // Upstream session creation is intentionally lazy. The required title
       // supplies the first canonical event before this HTTP API returns 201.
       await sessions.flush(session)
-      return summarize(session.header, session.events)
+      return summarize(session.header, session.snapshotEvents())
     } catch (error) {
       if (!(persistence instanceof DurableObjectSessionPersistence)) {
         throw new EdgeSessionStoreError('INVALID_DATA', 'Edge persistence backend is unavailable.')
@@ -823,7 +823,7 @@ export class EdgeSessionStore {
   async getApiSessionSummary(id: SessionId): Promise<EdgeApiSessionSummary> {
     const { sessions, persistence } = await this.services()
     const live = sessions.get(id)
-    if (live !== undefined) return summarizeApiLive(live.header, live.events)
+    if (live !== undefined) return summarizeApiLive(live.header, live.snapshotEvents())
     if (!(persistence instanceof DurableObjectSessionPersistence)) {
       throw new EdgeSessionStoreError('INVALID_DATA', 'Edge persistence backend is unavailable.')
     }
@@ -858,11 +858,11 @@ export class EdgeSessionStore {
       let events: readonly SessionEvent[]
       if (live !== undefined) {
         await sessions.flush(live)
-        if (live.events.length > MAX_SEARCH_EVENTS_PER_SESSION) {
+        if (live.snapshotEvents().length > MAX_SEARCH_EVENTS_PER_SESSION) {
           hasMore = true
           continue
         }
-        events = live.events
+        events = live.snapshotEvents()
       } else if (persistence.readBlankSession(summary.id) !== undefined) {
         continue
       } else {
@@ -932,9 +932,9 @@ export class EdgeSessionStore {
     const boundedMaxMessages = Math.min(maxMessages, EDGE_HISTORY_PAGE_LIMITS.maxMessages)
     const live = sessions.get(id)
     if (live !== undefined) {
-      const page = paginateHistory(live.events, beforeSeq, boundedMaxMessages)
+      const page = paginateHistory(live.snapshotEvents(), beforeSeq, boundedMaxMessages)
       return {
-        summary: summarizeApiLive(live.header, live.events),
+        summary: summarizeApiLive(live.header, live.snapshotEvents()),
         events: page.events,
         hasMore: page.hasMore,
       }
@@ -970,7 +970,7 @@ export class EdgeSessionStore {
     let events: readonly SessionEvent[]
     if (live !== undefined) {
       header = live.header
-      events = live.events
+      events = live.snapshotEvents()
     } else {
       const blank = persistence.readBlankSession(id)
       if (blank !== undefined) {
@@ -1018,7 +1018,7 @@ export class EdgeSessionStore {
       meta: {
         ...header.cwd === undefined ? {} : { cwd: header.cwd },
         parentSession: id,
-        seedLength: seed.length,
+        isSeeded: seed.length > 0,
         agentPreset: header.agentPreset ?? 'dsh-edge',
       },
       agentOptions: { provider: EDGE_PROVIDER, model },
@@ -1026,7 +1026,7 @@ export class EdgeSessionStore {
     })
     try {
       await sessions.flush(handle.agent.session)
-      return summarizeApiLive(handle.agent.session.header, handle.agent.session.events)
+      return summarizeApiLive(handle.agent.session.header, handle.agent.session.snapshotEvents())
     } catch (error) {
       await persistence.abandonUnmaterializedSession(handle.agent.session)
       throw error
@@ -1595,7 +1595,7 @@ function collectApiSessions(
     summaries.set(stored.meta.id, summarizeApiStored(stored))
   }
   for (const session of sessions.list()) {
-    summaries.set(session.id, summarizeApiLive(session.header, session.events))
+    summaries.set(session.id, summarizeApiLive(session.header, session.snapshotEvents()))
   }
   return [...summaries.values()].sort((left, right) =>
     right.updatedAt - left.updatedAt || left.id.localeCompare(right.id))

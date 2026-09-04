@@ -1,5 +1,10 @@
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context, Disposable } from '@deepseek-ai/cordis'
 import { writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
+
+interface EdgeSlots {
+  inject(name: string, callback: () => Disposable | Generator<Disposable>): Disposable
+  register(spec: object, component: unknown): Disposable
+}
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import { EdgeDirectoryFlow } from './EdgeDirectoryFlow.tsx'
@@ -41,10 +46,11 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 
 export const inject = ['slots', 'locale', 'settingsScope', 'workspaces']
 
-export function apply(ctx: ClientContext): void {
+export function apply(ctx: Context): void {
   // Edge's API proxy fully supports settings RPCs over the remote transport.
   // The upstream settings mirror defaults to "memory" (no-load) for non-loopback
   // connections. Promote it to "host" so the Models page can read settings.
+  const slots: EdgeSlots = (ctx as unknown as { slots: EdgeSlots }).slots
   const mirror = (ctx as never as { settingsScope: { describe(): { persistence: string; load(): void } } })
     .settingsScope.describe()
   if (mirror.persistence === 'memory') {
@@ -65,7 +71,7 @@ export function apply(ctx: ClientContext): void {
     copyUpgrade: () => controller.copyUpgrade(),
     signOut: () => controller.signOut(),
   })
-  ctx.slots.inject('settings.section', () => ctx.slots.register({
+  slots.inject('settings.section', () => slots.register({
     name: 'settings.section',
     id: 'dsh-edge',
     order: 90,
@@ -73,13 +79,13 @@ export function apply(ctx: ClientContext): void {
     locale: 'settings.edge',
     inject: injected,
   }, EdgeSettingsSection))
-  ctx.slots.inject('conversation.hero.workspace.directoryFlow', () =>
-    ctx.slots.inject('sidebar.workspaces.directoryFlow', function* () {
-      yield ctx.slots.register(
+  slots.inject('conversation.hero.workspace.directoryFlow', () =>
+    slots.inject('sidebar.workspaces.directoryFlow', function* () {
+      yield slots.register(
         { name: 'conversation.hero.workspace.directoryFlow', locale: 'settings.edge' },
         EdgeDirectoryFlow,
       )
-      yield ctx.slots.register(
+      yield slots.register(
         { name: 'sidebar.workspaces.directoryFlow', locale: 'settings.edge' },
         EdgeDirectoryFlow,
       )

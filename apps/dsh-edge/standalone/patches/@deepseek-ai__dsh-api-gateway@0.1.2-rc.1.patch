@@ -1,0 +1,32 @@
+diff --git a/lib/types/index.js b/lib/types/index.js
+index 72e4275be2292e176c1b947c9302ccd2e080d1eb..9d7fa28fccb796aa241140cefae74860021cfeab 100644
+--- a/lib/types/index.js
++++ b/lib/types/index.js
+@@ -12,7 +12,8 @@ import z from '@deepseek-ai/schemastery';
+ import { RemoteError, remoteErrorOf, remoteMethods, } from '@deepseek-ai/dsh-typert-protocol';
+ import { RemoteStreamMuxServer, rejectRemoteStreamUpgrade, } from "./stream-server.js";
+ import { REMOTE_EVENT_STREAM_ENDPOINT, REMOTE_EVENT_STREAM_READY, REMOTE_EVENT_RESULT_ENDPOINT, REMOTE_STREAM_MUX_PATH, isRemoteEventAgentId, isRemoteJsonValue, parseRemoteEventResult, projectRemoteEventRequest, restoreRemoteEventRejection, } from "./stream-protocol.js";
+-const NEVER_ABORTED_SIGNAL = new AbortController().signal;
++let _neverAbortedSignal;
++function neverAbortedSignal() { return _neverAbortedSignal ??= new AbortController().signal; }
+ const DEFAULT_WEBSOCKET_HEARTBEAT_INTERVAL_MS = 2_000;
+ /**
+  * Dispatch failure produced outside the invoked business method. Rides the
+@@ -197,7 +198,7 @@ export class TypertGatewayService extends Service {
+         if (!isIterable(source)) {
+             throw new TypertGatewayError('gateway/result-invalid', prepared.endpoint, 'stream Remote method did not return Iterable or AsyncIterable', { field: 'result' });
+         }
+-        return cancellableStream(source, prepared.endpoint, request.signal ?? NEVER_ABORTED_SIGNAL);
++        return cancellableStream(source, prepared.endpoint, request.signal ?? neverAbortedSignal());
+     }
+     async dispatchRpc(endpoint, payload, signal) {
+         if (endpoint === REMOTE_EVENT_RESULT_ENDPOINT) {
+@@ -435,7 +436,7 @@ export class TypertGatewayService extends Service {
+         validateBinding(receiver, descriptor.service, descriptor.namespace, endpoint);
+         const args = await Promise.all(descriptor.parameters.map(parameter => this.resolveParameter(parameter, request.args, endpoint)));
+         if (descriptor.cancellation !== undefined)
+-            args.push(request.signal ?? NEVER_ABORTED_SIGNAL);
++            args.push(request.signal ?? neverAbortedSignal());
+         const implementation = descriptor.implementation ?? descriptor.method;
+         const method = Reflect.get(receiver, implementation);
+         if (typeof method !== 'function') {

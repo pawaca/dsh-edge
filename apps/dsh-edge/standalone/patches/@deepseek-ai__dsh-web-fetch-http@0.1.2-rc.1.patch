@@ -1,0 +1,37 @@
+diff --git a/lib/index.js b/lib/index.js
+index 9c99aab33ee450d30768b8ee56e5779876b4fcf6..bc3417a87aaaa19bcd36b625ba6ff414314c0668 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -4,6 +4,24 @@ import { deadline, timeoutOf } from "@deepseek-ai/dsh-timeout";
+ import { lookup } from "node:dns/promises";
+ import { isIP } from "node:net";
+ import ipaddr from "ipaddr.js";
++
++const LOCAL_SUFFIXES = ['.local', '.localdomain', '.internal', '.home.arpa'];
++function isIpLiteral(hostname) {
++	if (/^\d{1,3}(\.\d{1,3}){3}$/.test(hostname)) return true;
++	if (hostname.startsWith('[') && hostname.endsWith(']')) return true;
++	return false;
++}
++function isLocalHostname(hostname) {
++	const lower = hostname.toLowerCase();
++	if (lower === 'localhost') return true;
++	if (LOCAL_SUFFIXES.some(suffix => lower.endsWith(suffix))) return true;
++	return false;
++}
++function assertPublicFetchTarget(url) {
++	const hostname = typeof url === 'string' ? new URL(url).hostname : url.hostname;
++	if (isIpLiteral(hostname)) throw new WebError(`fetch blocked: IP literal "${hostname}" is not allowed`, "WEB_BLOCKED_URL");
++	if (isLocalHostname(hostname)) throw new WebError(`fetch blocked: local hostname "${hostname}" is not allowed`, "WEB_BLOCKED_URL");
++}
+ //#region lib/types/network.js
+ /**
+ * Public-network resolution and address-pinned HTTP transport for `web-fetch-http`.
+@@ -444,6 +462,7 @@ var HttpFetchProvider = class {
+ 		}
+ 	}
+ 	async requestOnce(url, signal) {
++		assertPublicFetchTarget(url);
+ 		try {
+ 			const addresses = await this.resolveAddresses(url.hostname, signal);
+ 			return await publicHttpNetwork.request(url, addresses, {

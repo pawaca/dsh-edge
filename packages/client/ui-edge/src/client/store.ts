@@ -1,5 +1,5 @@
 import { compareVersions, validate } from 'compare-versions'
-import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 
 /** Public release history for the Edge distribution. */
 export const DSH_EDGE_RELEASES_URL = 'https://github.com/pawaca/dsh-edge/releases'
