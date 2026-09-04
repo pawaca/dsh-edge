@@ -82,6 +82,7 @@
     "@deepseek-ai/dsh-attachment": "0.1.2-rc.1",
     "@deepseek-ai/dsh-brand": "0.1.2-rc.1",
     "@deepseek-ai/dsh-api-session-controller": "0.1.2-rc.1",
+    "@deepseek-ai/dsh-api-settings-controller": "0.1.2-rc.1",
     "@deepseek-ai/dsh-api-workspace-controller": "0.1.2-rc.1",
     "@deepseek-ai/dsh-client-store": "0.1.2-rc.1",
     "@deepseek-ai/dsh-compaction": "0.1.2-rc.1",
