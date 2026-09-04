@@ -11,7 +11,10 @@ import type { EdgeApi } from './edge-api.ts'
 type Handler = (request: never, signal: AbortSignal) => Promise<{ rpcId: unknown; result: unknown }>
 
 function resolve(api: EdgeApi, key: string): Handler | undefined {
-  const [ns, method] = key.split('.') as [string, string]
+  const sep = key.indexOf('/')
+  if (sep < 0) return undefined
+  const ns = key.slice(0, sep)
+  const method = key.slice(sep + 1)
   const namespace = (api as unknown as Record<string, Record<string, unknown>>)[ns === 'session' ? 'sessions' : ns === 'skill' ? 'skills' : ns]
   if (namespace === undefined) return undefined
   const fn = namespace[method]
