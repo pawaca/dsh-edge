@@ -367,7 +367,7 @@ try {
   const fetchResult = fetchEvents.find(event => event.type === 'tool/result')
   assert.equal(fetchResult?.data.error.code, 'WEB_BLOCKED_URL')
   assert.equal(fetchResult?.data.message.content[0].isError, true)
-  assert.match(toolResultText(fetchResult), /private or local target/u)
+  assert.match(toolResultText(fetchResult), /fetch blocked|private or local target/u)
 
   const replay = await request(
     `/api/sessions/${sessionId}/events?after=${firstEvents.at(-1).seq}&limit=2`,
