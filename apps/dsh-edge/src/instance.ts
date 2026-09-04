@@ -77,7 +77,6 @@ import {
   createEdgeApi,
   messageTextByteLength,
 } from './edge-api.ts'
-import { handleEdgeRemote } from './edge-remotes.ts'
 import { putSkill, deleteSkill, listSkillNames } from './edge-skill-provider.ts'
 import type { EdgeApiSessionSummary } from './session-store.ts'
 import { WorkspaceOrderInvalidError } from '@deepseek-ai/dsh-workspace'
@@ -295,9 +294,6 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
   override async fetch(request: Request): Promise<Response> {
     try {
       const url = new URL(request.url)
-      // commands/list stub: SkillRegistry lacks @Remote, so Typert gateway can't route it
-      const edgeRemote = await handleEdgeRemote(request)
-      if (edgeRemote !== undefined) return edgeRemote
       const typertResponse = await this.handleTypertRpc(request, url)
       if (typertResponse !== undefined) return typertResponse
       if (url.pathname === '/api/events.mux' || url.pathname === '/api/events.host') {

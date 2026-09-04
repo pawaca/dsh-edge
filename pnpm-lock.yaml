@@ -87,6 +87,9 @@ importers:
       '@deepseek-ai/dsh-brand':
         specifier: 0.1.1-rc.2
         version: 0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1))
+      '@deepseek-ai/dsh-commands':
+        specifier: 0.1.1-rc.2
+        version: 0.1.1-rc.2(83b1a6f9e286864ee72ad4d52555645a)
       '@deepseek-ai/dsh-compaction':
         specifier: 0.1.1-rc.2
         version: 0.1.1-rc.2(b6e3ebe59a56ce5c479ddf7e07d6ea8a)
