@@ -1,0 +1,18 @@
+diff --git a/lib/index.js b/lib/index.js
+index 827dd906f5dc9b6b3d2dee436fdee8775245fa1c..ab1a856d8b185871fc1a4f87eb8b792b0c6cbb26 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -1,4 +1,3 @@
+-import { createRequire } from "node:module";
+ import { Remote, RemoteError, TypertRemoteService } from "@deepseek-ai/dsh-typert-protocol";
+ import { assertNever, deepFreeze } from "@deepseek-ai/dsh-util-values";
+ import { randomUUID } from "@deepseek-ai/dsh-util-crypto";
+@@ -700,7 +699,7 @@ function offloadRequestImagesWithPolicy(messages, policy) {
+ * App-attribution vocabulary for provider requests.
+ * @module @deepseek-ai/dsh-llm/attribution
+ */
+-const { version } = createRequire(import.meta.url)("../package.json");
++const version = "0.1.2-rc.1";
+ /**
+ * The harness's own identity: the default every adapter sends. Deployments
+ * that need a white-label identity pass their own {@link AppIdentity} to

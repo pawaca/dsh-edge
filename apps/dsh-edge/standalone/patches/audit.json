@@ -1,5 +1,10 @@
 [
   {
+    "package": "@deepseek-ai/dsh-llm",
+    "rationale": "Resolve the Harness attribution version without runtime node:module path discovery, which is unavailable in the Worker bundle.",
+    "removeWhen": "The published LLM package exposes its version through a Worker-bundle-safe import or injected build constant and bundles without node:module."
+  },
+  {
     "package": "@deepseek-ai/dsh-message-feedback",
     "rationale": "Inject an Edge-owned point-read feedback store so Durable Object startup does not materialize every retained feedback row through storage-domain loadAll().",
     "removeWhen": "The published message-feedback service accepts an equivalent bounded point-read store or no longer loads the complete feedback domain during initialization."
