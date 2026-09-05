@@ -282,31 +282,8 @@ export class EdgeSessionStore {
     await this.context.plugin(TypertRegistry)
     const { TypertGatewayService } = await import('@deepseek-ai/dsh-api-gateway')
     await this.context.plugin(TypertGatewayService)
-    const AgentDefaultModelStub = class extends CordisService {
-      constructor(ctx: Context) { super(ctx, 'agentDefaultModel') }
-      currentSelection() { return { provider: 'deepseek-official', model: 'deepseek-v4-flash' } }
-      async saveSelection() {}
-    }
-    await this.context.plugin(AgentDefaultModelStub)
-    for (const name of ['sessionQuery', 'fileReferences'] as const) {
-      const Stub = class extends CordisService { constructor(ctx: Context) { super(ctx, name) } }
-      await this.context.plugin(Stub)
-    }
-    const { SessionController } = await import('@deepseek-ai/dsh-api-session-controller')
-    this.context.plugin(SessionController, { nativeOpen: false })
-    const { SettingsController } = await import('@deepseek-ai/dsh-api-settings-controller')
-    await this.context.plugin(SettingsController)
-    const { WorkspaceController } = await import('@deepseek-ai/dsh-api-workspace-controller')
-    this.context.plugin(WorkspaceController)
-    await this.context.plugin(ToolFs)
-    await this.context.plugin(ToolSkill)
-    await this.context.plugin(GoalService)
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-    const { TYPERT: GOAL_TYPERT } = await import('@deepseek-ai/dsh-goal/typert' as string)
-    this.context.typert.register(GOAL_TYPERT as never)
-    await this.context.plugin(ToolGoal)
-    await this.context.plugin(GoalRoundDriver)
-    await this.context.plugin(SpillPolicy, { maxInlineBytes: 32_768 })
+    // AgentRegistry has zero inject deps — register early so SessionController
+    // finds ctx.agents when it activates.
     await this.context.plugin(AgentRegistry)
     await this.context.plugin(CommandRuntime)
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
@@ -314,7 +291,8 @@ export class EdgeSessionStore {
       '@deepseek-ai/dsh-commands/typert' as string
     )
     this.context.typert.register(COMMANDS_TYPERT as never)
-    await installEdgeWebSearch(this.context, config.searchBaseURL)
+    // SessionPersistence + WorkspaceRegistry before SessionController so it
+    // finds ctx.workspaceRegistry on first tick.
     await this.context.plugin(DurableObjectSessionPersistence, { storage })
     await this.context.plugin(MessageFeedbackService, {
       maxNoteBytes: MAX_MESSAGE_FEEDBACK_NOTE_BYTES,
@@ -340,6 +318,35 @@ export class EdgeSessionStore {
     if (this.context.workspaceRegistry.list().length === 0 && !workspaceWasInitialized) {
       await this.context.workspaceRegistry.create('/workspace')
     }
+    // All 9 SessionController inject deps now available: agentDefaultModel (stub),
+    // agents, attachments, llm, sessions, sessionProjections, sessionQuery (stub),
+    // typert, workspaceRegistry. Controller activates synchronously.
+    const AgentDefaultModelStub = class extends CordisService {
+      constructor(ctx: Context) { super(ctx, 'agentDefaultModel') }
+      currentSelection() { return { provider: 'deepseek-official', model: 'deepseek-v4-flash' } }
+      async saveSelection() {}
+    }
+    await this.context.plugin(AgentDefaultModelStub)
+    for (const name of ['sessionQuery', 'fileReferences'] as const) {
+      const Stub = class extends CordisService { constructor(ctx: Context) { super(ctx, name) } }
+      await this.context.plugin(Stub)
+    }
+    const { SessionController } = await import('@deepseek-ai/dsh-api-session-controller')
+    await this.context.plugin(SessionController, { nativeOpen: false })
+    const { SettingsController } = await import('@deepseek-ai/dsh-api-settings-controller')
+    await this.context.plugin(SettingsController)
+    const { WorkspaceController } = await import('@deepseek-ai/dsh-api-workspace-controller')
+    await this.context.plugin(WorkspaceController)
+    await this.context.plugin(ToolFs)
+    await this.context.plugin(ToolSkill)
+    await this.context.plugin(GoalService)
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    const { TYPERT: GOAL_TYPERT } = await import('@deepseek-ai/dsh-goal/typert' as string)
+    this.context.typert.register(GOAL_TYPERT as never)
+    await this.context.plugin(ToolGoal)
+    await this.context.plugin(GoalRoundDriver)
+    await this.context.plugin(SpillPolicy, { maxInlineBytes: 32_768 })
+    await installEdgeWebSearch(this.context, config.searchBaseURL)
     await this.context.plugin(AgentLoop, { agents: [] })
     this.context.effect(
       () => this.context.tools.register(createEdgeBashTool(this.shells)),
