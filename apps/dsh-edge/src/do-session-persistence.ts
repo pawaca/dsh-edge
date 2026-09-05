@@ -354,7 +354,7 @@ export class DurableObjectSessionPersistence
       const meta = rowToHeader(snapshot.row)
       return {
         meta,
-        inheritedEventCount: SessionLogOffset(0),
+        inheritedEventCount: SessionLogOffset(snapshot.row.seed_length ?? 0),
         events: preserved,
         revision: revisionOf(this.storeIdentity, snapshot.row),
         ...tornFrom === undefined ? {} : { tornMarker: tornFrom },
@@ -390,7 +390,7 @@ export class DurableObjectSessionPersistence
       if (snapshot === undefined) return undefined
       return {
         meta: rowToHeader(snapshot.row),
-        inheritedEventCount: SessionLogOffset(0),
+        inheritedEventCount: SessionLogOffset(snapshot.row.seed_length ?? 0),
         events: scanRows(snapshot.eventRows, fromSeq).preserved,
       }
     })
@@ -466,7 +466,7 @@ export class DurableObjectSessionPersistence
   ): Promise<void> {
     return promiseFromSync(() => {
       this.storage.transactionSync(() => {
-        if (!isMaterialized) this.writeRow(storage.meta)
+        if (!isMaterialized) this.writeRow(storage.meta, storage.inheritedEventCount)
         const packed = packChunkRuns(events as SessionEvent[])
         for (const record of packed) this.insertStorageRecord(storage.meta.id, record)
         const updated = this.storage.sql.exec(
@@ -640,7 +640,7 @@ export class DurableObjectSessionPersistence
     return promiseFromSync(() => this.storage.transactionSync(() => {
       const blank = this.readBlankSession(id)
       if (blank === undefined) return false
-      if (this.rowFor(id) === undefined) this.writeRow(blank)
+      if (this.rowFor(id) === undefined) this.writeRow(blank, SessionLogOffset(0))
       this.storage.sql.exec('DELETE FROM dsh_edge_blank_sessions WHERE id = ?', id)
       this.insertEmptyLogSummary(id, blank.createdAt)
       return true
@@ -976,7 +976,7 @@ export class DurableObjectSessionPersistence
     ).toArray()[0]?.seq ?? -1
   }
 
-  private writeRow(meta: SessionHeader): void {
+  private writeRow(meta: SessionHeader, inheritedEventCount: SessionLogOffset): void {
     this.storage.sql.exec(
       `INSERT INTO dsh_sessions
         (id, version, created_at, cwd, parent_session, seed_length, origin,
@@ -996,7 +996,7 @@ export class DurableObjectSessionPersistence
       meta.createdAt,
       meta.cwd ?? null,
       meta.parentSession ?? null,
-      meta.isSeeded ? 1 : null,
+      meta.isSeeded ? inheritedEventCount : null,
       meta.origin ?? null,
       meta.delegationDepth ?? null,
       meta.agentPreset ?? null,

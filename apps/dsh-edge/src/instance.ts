@@ -439,11 +439,12 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     return channel === 'mux' ? this.sessions.withMuxBaseline(accept) : accept()
   }
 
-  private openRemoteMux(request: Request): Response {
+  private async openRemoteMux(request: Request): Promise<Response> {
     if (request.headers.get('upgrade')?.toLowerCase() !== 'websocket') {
       throw new EdgeHttpError(426, 'This endpoint requires a WebSocket upgrade.')
     }
     const expiresAt = requireOwnerSessionExpiry(request)
+    await this.scheduleDownlinkExpiry(expiresAt * 1_000)
     const pair = new WebSocketPair()
     const server = pair[1]
     server.serializeAttachment({ channel: 'remote.mux', expiresAt } satisfies DownlinkAttachment)
@@ -462,7 +463,13 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       return
     }
     const streams = remoteStreams.get(socket)
-    if (streams === undefined) return
+    if (streams === undefined) {
+      // A hibernation-restored socket has no process-local stream state and its
+      // previously pumped streams died with the old isolate. Close it so the
+      // client's reconnect path re-opens every logical stream cleanly.
+      socket.close(1011, 'Remote stream state was lost; reconnect')
+      return
+    }
 
     if (message.type === 'cancel' && typeof message.streamId === 'string') {
       streams.get(message.streamId)?.abort.abort(new Error('Remote stream cancelled'))

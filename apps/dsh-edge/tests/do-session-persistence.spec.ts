@@ -7,6 +7,7 @@ import { ReasoningEffortId, createAssistantMessage, createUserMessage } from '@d
 import SessionStore, {
   SESSION_FORMAT_VERSION,
   SessionId,
+  SessionLogOffset,
   SessionSeq,
   type Session,
   type SessionEvent,
@@ -123,6 +124,45 @@ describe('durable-object bounded event pages', () => {
         reasoningEffort: 'high',
       })
       expect(storage.queries.at(-1)).toMatch(/type = 'request\/header'.*ORDER BY seq DESC LIMIT 1/su)
+    } finally {
+      await fiber.dispose()
+      storage.close()
+    }
+  })
+
+  it('persists and restores the fork-inherited event count across cold loads', async () => {
+    const storage = new TestDurableObjectStorage()
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(DurableObjectSessionPersistence, {
+      storage: storage as never,
+    })
+    const persistence = ctx.sessionPersistence as unknown as DurableObjectSessionPersistence
+    const id = SessionId('forked-inherited-count')
+    try {
+      await persistence.create(
+        { id, version: SESSION_FORMAT_VERSION, createdAt: 1, isSeeded: true },
+        SessionLogOffset(6),
+      )
+      const seed: SessionEvent[] = []
+      for (let turn = 1; turn <= 3; turn += 1) {
+        seed.push(
+          { type: 'turn/start', seq: SessionSeq(seed.length), time: 2, data: { turn } },
+          {
+            type: 'turn/end',
+            seq: SessionSeq(seed.length + 1),
+            time: 3,
+            data: { turn, reason: { kind: 'completed' } },
+          },
+        )
+      }
+      await persistence.append(id, seed)
+
+      const prefix = await persistence.loadStored(id)
+      expect(prefix?.inheritedEventCount).toBe(6)
+      expect(prefix?.meta.isSeeded).toBe(true)
+      const suffix = await persistence.loadStoredFrom(id, SessionLogOffset(0))
+      expect(suffix?.inheritedEventCount).toBe(6)
     } finally {
       await fiber.dispose()
       storage.close()
