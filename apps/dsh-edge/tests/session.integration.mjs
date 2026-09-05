@@ -1383,10 +1383,21 @@ async function seedReleasedState() {
         readFileSync(new URL('./fixtures/dsh-edge-0.1.3-vfs.sql', import.meta.url), 'utf8'),
         readFileSync(new URL('./fixtures/dsh-edge-0.1.3-session.sql', import.meta.url), 'utf8'),
       ],
-      entries: JSON.parse(readFileSync(
-        new URL('./fixtures/dsh-edge-0.1.3-workspace.json', import.meta.url),
-        'utf8',
-      )),
+      entries: {
+        ...JSON.parse(readFileSync(
+          new URL('./fixtures/dsh-edge-0.1.3-workspace.json', import.meta.url),
+          'utf8',
+        )),
+        // A session_projcache medium captured from the published dsh-edge 0.9.0
+        // (Harness 0.1.1-rc.2) Worker by tests/fixtures/capture-released-projcache.mjs:
+        // unit stamp 3 plus one bare checkpoint record. The candidate must open it
+        // through the projection cache's compatibleVersions instead of rejecting
+        // the boot with version-mismatch.
+        ...JSON.parse(readFileSync(
+          new URL('./fixtures/dsh-edge-0.9.0-projcache.json', import.meta.url),
+          'utf8',
+        )),
+      },
     }),
   })
   assert.equal(response.status, 200)

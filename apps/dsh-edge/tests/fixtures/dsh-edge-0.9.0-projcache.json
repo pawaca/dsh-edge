@@ -1,0 +1,62 @@
+{
+  "dsh-kv:session_projcache:__version__": 3,
+  "dsh-kv:session_projcache:sessions:e167a058-7c98-4dc5-82f5-bff3c319995f": {
+    "identity": {
+      "createdAt": 1788608633208,
+      "cwd": "/workspace"
+    },
+    "rows": {
+      "tokenUsage": {
+        "ver": 1,
+        "seq": 16,
+        "val": {
+          "totals": {
+            "uncachedInputTokens": 12,
+            "outputTokens": 2,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          "last": {
+            "turn": 1,
+            "step": 1,
+            "buckets": {
+              "uncachedInputTokens": 12,
+              "outputTokens": 2,
+              "cacheReadTokens": 0,
+              "cacheWriteTokens": 0
+            }
+          }
+        }
+      },
+      "contextPressure": {
+        "ver": 4,
+        "seq": 16,
+        "val": {
+          "surfaceTokens": 26,
+          "contextWindow": 1000000,
+          "pressureTokens": 12,
+          "sampledSurfaceTokens": 14
+        }
+      },
+      "contextBreakdown": {
+        "ver": 2,
+        "seq": 16,
+        "val": {
+          "systemTokens": 653,
+          "toolsTokens": 1450,
+          "messageTokens": 26
+        }
+      },
+      "title": {
+        "ver": 1,
+        "seq": 16,
+        "val": "Captured on dsh-edge 0.9.0"
+      },
+      "goal": {
+        "ver": 4,
+        "seq": 16,
+        "val": null
+      }
+    }
+  }
+}
