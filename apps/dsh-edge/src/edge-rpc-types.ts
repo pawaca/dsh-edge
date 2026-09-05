@@ -74,11 +74,6 @@ export interface HistoryEntry {
   view?: unknown
 }
 
-export interface SessionProjectionsBlock {
-  asOfSeq: number
-  values: Record<string, unknown>
-}
-
 // ---------------------------------------------------------------------------
 // Edge API payload types — one per RPC method in createEdgeApi()
 // ---------------------------------------------------------------------------

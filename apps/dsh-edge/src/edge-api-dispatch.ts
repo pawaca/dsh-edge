@@ -38,6 +38,23 @@ function errorResponse(rpcId: RpcId, error: RpcError): Response {
   return Response.json({ type: 'server-response', rpcId, result: { ok: false, error } })
 }
 
+/**
+ * Invoke one Edge API handler directly, without the HTTP envelope. Returns
+ * undefined when no handler serves the `<namespace>.<method>` key so callers
+ * can surface their own routing failure.
+ */
+export async function callEdgeApi(
+  api: EdgeApi,
+  key: string,
+  rpcId: RpcId,
+  payload: unknown,
+  signal: AbortSignal,
+): Promise<{ rpcId: unknown; result: unknown } | undefined> {
+  const handler = resolve(api, key)
+  if (handler === undefined) return undefined
+  return await handler({ rpcId, payload } as never, signal)
+}
+
 export async function dispatchEdgeApi(api: EdgeApi, request: Request): Promise<Response> {
   const url = new URL(request.url)
   const path = url.pathname
@@ -51,8 +68,7 @@ export async function dispatchEdgeApi(api: EdgeApi, request: Request): Promise<R
   }
 
   const method = path.slice('/api/'.length)
-  const handler = resolve(api, method)
-  if (handler === undefined) return new Response('not found', { status: 404 })
+  if (resolve(api, method) === undefined) return new Response('not found', { status: 404 })
 
   let body: Record<string, unknown>
   try { body = await request.json() as Record<string, unknown> } catch {
@@ -63,7 +79,8 @@ export async function dispatchEdgeApi(api: EdgeApi, request: Request): Promise<R
   const payload = body.payload ?? {}
 
   try {
-    const result = await handler({ rpcId, payload } as never, request.signal)
+    const result = await callEdgeApi(api, method, rpcId, payload, request.signal)
+    if (result === undefined) return new Response('not found', { status: 404 })
     return Response.json({ type: 'server-response', rpcId: result.rpcId, result: result.result })
   } catch (error) {
     return errorResponse(rpcId, { code: 'internal', message: String(error), details: {} })
