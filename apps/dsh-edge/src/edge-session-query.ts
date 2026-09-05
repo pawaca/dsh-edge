@@ -69,10 +69,15 @@ export class EdgeSessionQuery extends SessionQueryEngine {
     return this.ctx.get('sessionPersistence') as DurableObjectSessionPersistence | undefined
   }
 
-  /** Bounded newest-first candidate records without enumerating the corpus. */
+  /**
+   * Bounded newest-first candidate records without enumerating the corpus.
+   * Every collection step stops at the candidate budget before it iterates, so
+   * per-request work never grows with the live registry or the stored corpus.
+   */
   private boundedCandidates(persistence: DurableObjectSessionPersistence): SessionRecord[] {
     const records = new Map<SessionId, SessionRecord>()
     for (const session of this.ctx.sessions.list()) {
+      if (records.size >= MAX_SEARCH_SESSIONS) break
       records.set(session.id, {
         header: structuredClone(session.header) as SessionHeader,
         live: true,
@@ -80,10 +85,11 @@ export class EdgeSessionQuery extends SessionQueryEngine {
       })
     }
     for (const summary of persistence.readRecentSessionSummaries(MAX_SEARCH_SESSIONS)) {
+      if (records.size >= MAX_SEARCH_SESSIONS) break
       if (records.has(summary.meta.id)) continue
       records.set(summary.meta.id, { header: summary.meta, live: false, persisted: true })
     }
-    return [...records.values()].slice(0, MAX_SEARCH_SESSIONS)
+    return [...records.values()]
   }
 
   /**
@@ -135,8 +141,10 @@ export class EdgeSessionQuery extends SessionQueryEngine {
       let events: readonly SessionEvent[] | undefined
       try {
         events = await this.boundedEvents(record.header.id, signal, persistence)
-      } catch {
-        // A corrupt or concurrently-deleted log never fails the whole search.
+      } catch (error) {
+        // Cancellation must reject the whole search; only a corrupt or
+        // concurrently-deleted log is skipped without failing other candidates.
+        if (signal?.aborted) throw error
         continue
       }
       if (events === undefined) continue

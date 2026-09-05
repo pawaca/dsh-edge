@@ -507,16 +507,18 @@ export class EdgeSessionStore {
       this.context.on(name as never, ((...args: unknown[]) => { push(name, args) }) as never)
     }
     gateway.registerRemoteEvents(async function* (signal) {
+      // One abort listener for the stream's lifetime; a per-wait listener would
+      // accumulate on the signal each time an event resolves the wake promise.
+      const aborted = new Promise<void>(resolve => {
+        signal.addEventListener('abort', () => { resolve() }, { once: true })
+      })
       while (!signal.aborted) {
         const frame = queue.shift()
         if (frame !== undefined) {
           yield frame
           continue
         }
-        await new Promise<void>(resolve => {
-          wake = resolve
-          signal.addEventListener('abort', () => { resolve() }, { once: true })
-        })
+        await Promise.race([aborted, new Promise<void>(resolve => { wake = resolve })])
       }
     }, { home: '/workspace' })
   }
