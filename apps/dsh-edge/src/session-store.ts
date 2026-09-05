@@ -64,6 +64,9 @@ import GoalService from '@deepseek-ai/dsh-goal'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
 import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
+import * as ApiRemotes from '@deepseek-ai/dsh-api-remotes'
+import UserQuestionService from '@deepseek-ai/dsh-user-questions'
+import { EdgeTypertConnection, type TypertRpcInterceptor } from './edge-typert-connection.ts'
 import { EdgeFileSystem } from './edge-filesystem.ts'
 import * as EdgeSkillProvider from './edge-skill-provider.ts'
 import {
@@ -123,14 +126,6 @@ const MAX_SEARCH_STORED_BYTES_PER_SESSION = 256 * 1_024
 const EDGE_PROVIDER = 'deepseek-official'
 const DEFAULT_EDGE_MODEL = 'deepseek-v4-flash'
 const AGENT_DEFAULT_MODEL_KEY = 'dsh-edge:agent-default-model'
-/** Application events the Typert gateway forwards to browser `$events` streams. */
-const REMOTE_EVENT_NAMES = [
-  'api-session/added',
-  'api-session/removed',
-  'api-session/status',
-  'api-session/activity',
-  'api-session/error',
-] as const
 const MESSAGE_TYPES = new Set<SessionEvent['type']>(['user/message', 'assistant/message'])
 
 export interface EdgeSessionListPage {
@@ -291,11 +286,17 @@ export class EdgeSessionStore {
     await this.context.plugin(SkillRegistry)
     await this.context.plugin(EdgeSkillProvider, { storage })
     await this.context.plugin(TypertRegistry)
+    // The gateway installs its Remote RPC interceptor on ctx.connection; the
+    // Edge seam captures it so the Durable Object can serve `$events/result`.
+    await this.context.plugin(EdgeTypertConnection)
     const { TypertGatewayService } = await import('@deepseek-ai/dsh-api-gateway')
     await this.context.plugin(TypertGatewayService)
     // AgentRegistry has zero inject deps — register early so SessionController
     // finds ctx.agents when it activates.
     await this.context.plugin(AgentRegistry)
+    // ctx.userQuestions: the upstream answerer waterfall tools and plan mode
+    // ask through. The browser answers it over the forwarded `$events` stream.
+    await this.context.plugin(UserQuestionService)
     await this.context.plugin(CommandRuntime)
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
     const { TYPERT: COMMANDS_TYPERT } = await import(
@@ -406,7 +407,10 @@ export class EdgeSessionStore {
     this.context.typert.register(WORKSPACE_CONTROLLER_TYPERT as never)
     const { WorkspaceController } = await import('@deepseek-ai/dsh-api-workspace-controller')
     await this.context.plugin(WorkspaceController)
-    this.registerRemoteEventSource()
+    // Upstream forwarded-event selection: api-session notifications plus the
+    // Agent-scoped `user-questions/request` waterfall reach browser `$events`
+    // streams through the gateway's own pending-event bookkeeping.
+    await this.context.plugin(ApiRemotes)
     await this.context.plugin(ToolFs)
     await this.context.plugin(ToolSkill)
     await this.context.plugin(GoalService)
@@ -482,44 +486,13 @@ export class EdgeSessionStore {
     try { return this.context.get('typertGateway') as never } catch { return undefined }
   }
 
-  /**
-   * Forward the controllers' application events to browser `$events` streams.
-   * The generator must outlive every client generation; the gateway treats a
-   * returned source as a fault, so it only ends on the gateway's own abort.
-   */
-  private registerRemoteEventSource(): void {
-    const gateway = this.context.get('typertGateway') as {
-      registerRemoteEvents(
-        source: (signal: AbortSignal) => AsyncIterable<{ event: string; args: unknown[] }>,
-        host: { home: string },
-      ): unknown
+  /** The Remote RPC interceptor the upstream gateway registered on the Edge connection seam. */
+  typertRpcInterceptor(): TypertRpcInterceptor | undefined {
+    try {
+      return (this.context.get('connection') as EdgeTypertConnection | undefined)?.current()
+    } catch {
+      return undefined
     }
-    const queue: { event: string; args: unknown[] }[] = []
-    let wake: (() => void) | undefined
-    const push = (event: string, args: unknown[]) => {
-      queue.push({ event, args })
-      const resume = wake
-      wake = undefined
-      resume?.()
-    }
-    for (const name of REMOTE_EVENT_NAMES) {
-      this.context.on(name as never, ((...args: unknown[]) => { push(name, args) }) as never)
-    }
-    gateway.registerRemoteEvents(async function* (signal) {
-      // One abort listener for the stream's lifetime; a per-wait listener would
-      // accumulate on the signal each time an event resolves the wake promise.
-      const aborted = new Promise<void>(resolve => {
-        signal.addEventListener('abort', () => { resolve() }, { once: true })
-      })
-      while (!signal.aborted) {
-        const frame = queue.shift()
-        if (frame !== undefined) {
-          yield frame
-          continue
-        }
-        await Promise.race([aborted, new Promise<void>(resolve => { wake = resolve })])
-      }
-    }, { home: '/workspace' })
   }
 
   projectionSnapshot(sessionId: SessionId): { asOfSeq: number; values: Record<string, unknown> } | undefined {
