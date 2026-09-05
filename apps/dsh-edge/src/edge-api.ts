@@ -273,6 +273,23 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
         }
       },
 
+      async page(request: RpcRequest<Record<string, unknown>>) {
+        const addr = request.payload.address as { sessionId?: SessionId } | undefined
+        const sessionId = addr?.sessionId ?? request.payload.sessionId as SessionId | undefined
+        const beforeSeq = request.payload.beforeSeq as number | undefined
+        const maxMessages = request.payload.maxMessages as number | undefined
+        if (sessionId === undefined) {
+          return fail(request, { code: 'invalid-request', message: 'sessionId is required', details: {} })
+        }
+        try {
+          const historyPage = await runtime.sessions.readHistoryPage(sessionId, beforeSeq, maxMessages ?? DEFAULT_HISTORY_MESSAGES)
+          const records = historyPage.events.map((event: SessionEvent) => ({ type: 'event' as const, event }))
+          return ok(request, { records, hasMore: historyPage.hasMore })
+        } catch (error) {
+          return sessionFailure(request, error, sessionId)
+        }
+      },
+
       async models(request: RpcRequest<SessionModelsPayload>) {
         try {
           const [current, catalog] = await Promise.all([

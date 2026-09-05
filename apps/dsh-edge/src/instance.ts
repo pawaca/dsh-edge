@@ -584,7 +584,14 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       if (socket.readyState !== WebSocket.OPEN) return
       socket.send(JSON.stringify({
         type: 'item', streamId,
-        value: { type: 'baseline', sessionId, events: [], hasMore: false },
+        value: {
+          type: 'snapshot',
+          header: { id: sessionId, version: 1, createdAt: Date.now(), isSeeded: false },
+          cursor: -1,
+          records: [],
+          hasMore: false,
+          projections: { asOfSeq: 0, values: {} },
+        },
       }))
     } catch {}
     const listener = (_sid: SessionId, event: SessionEvent) => {
@@ -592,7 +599,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       try {
         socket.send(JSON.stringify({
           type: 'item', streamId,
-          value: { type: 'event', sessionId, event },
+          value: { type: 'event', event },
         }))
       } catch {}
     }
@@ -778,38 +785,37 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
   private async handleTypertRpc(request: Request, url: URL): Promise<Response | undefined> {
     const match = /^\/api\/([a-zA-Z0-9_$.-]+)\/([a-zA-Z0-9_$.-]+)$/.exec(url.pathname)
     if (match === null || request.method !== 'POST') return undefined
-    const gateway = this.sessions.typertGateway()
-    if (gateway === undefined) return undefined
     let body: Record<string, unknown>
     try { body = await request.json() as Record<string, unknown> } catch { return new Response('invalid JSON', { status: 400 }) }
     const rpcId = body.rpcId as string | undefined ?? 'unknown'
     const payload = body.payload as Record<string, unknown> | undefined
     const args = payload?.args as Record<string, unknown> | undefined ?? {}
-    try {
-      const value = await gateway.invoke({
-        namespace: match[1]!,
-        method: match[2]!,
-        args,
-        signal: AbortSignal.timeout(30_000),
-      })
-      return Response.json({ type: 'server-response', rpcId, result: { ok: true, value } })
-    } catch (error) {
+    const ns = match[1]!
+    const method = match[2]!
+    const edgeDispatch = () => {
       const keys = Object.keys(args)
       const flatArgs = keys.length === 1 && keys[0] === 'request'
         ? args.request as Record<string, unknown>
         : args
       const edgeBody = { ...body, payload: flatArgs }
-      const edgePath = `/api/${match[1]}.${match[2]}`
-      try {
-        return await this.apiFetch(new Request(new URL(edgePath, request.url).href, {
-          method: 'POST',
-          headers: request.headers,
-          body: JSON.stringify(edgeBody),
-        }))
-      } catch {
+      const edgePath = `/api/${ns}.${method}`
+      return this.apiFetch(new Request(new URL(edgePath, request.url).href, {
+        method: 'POST',
+        headers: request.headers,
+        body: JSON.stringify(edgeBody),
+      }))
+    }
+    if (ns === 'session') return edgeDispatch()
+    const gateway = this.sessions.typertGateway()
+    if (gateway === undefined) return edgeDispatch()
+    try {
+      const value = await gateway.invoke({ namespace: ns, method, args, signal: AbortSignal.timeout(30_000) })
+      return Response.json({ type: 'server-response', rpcId, result: { ok: true, value } })
+    } catch {
+      try { return await edgeDispatch() } catch (fallbackError) {
         return Response.json({ type: 'server-response', rpcId, result: {
           ok: false,
-          error: { code: 'internal', message: error instanceof Error ? error.message : String(error), details: {} },
+          error: { code: 'internal', message: fallbackError instanceof Error ? fallbackError.message : String(fallbackError), details: {} },
         } })
       }
     }
