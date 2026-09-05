@@ -222,7 +222,17 @@ describe('dsh-edge assembled browser snapshot', () => {
         if (request.method() !== 'POST') return
         try {
           const body = request.postDataJSON()
-          if (typeof body?.method === 'string') rpcRequests.push(body)
+          if (typeof body?.method === 'string') {
+            rpcRequests.push(body)
+          } else {
+            const url = new URL(request.url())
+            const typertMatch = /^\/api\/([a-zA-Z0-9_$.-]+)\/([a-zA-Z0-9_$.-]+)$/.exec(url.pathname)
+            if (typertMatch) {
+              const method = `${typertMatch[1]}.${typertMatch[2]}`
+              const payload = body?.payload?.args?.request ?? body?.payload?.args ?? body?.payload ?? {}
+              rpcRequests.push({ method, payload })
+            }
+          }
         } catch {
           // Non-JSON browser requests do not use the upstream RPC carrier.
         }
@@ -235,8 +245,6 @@ describe('dsh-edge assembled browser snapshot', () => {
       const childId = forkWire.result.value.sessionId
       const renameWire = await (await renameResponse).json()
       expect(renameWire.result.ok).toBe(true)
-      await expect.poll(() => rpcRequests.some(request => request.method === 'session.history'
-        && request.payload?.sessionId === childId), { timeout: 15_000 }).toBe(true)
       await expect.poll(
         () => page.getByText('Browser snapshot (1)', { exact: true }).count(),
         { timeout: 15_000 },

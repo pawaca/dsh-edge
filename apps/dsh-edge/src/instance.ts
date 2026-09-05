@@ -582,15 +582,22 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
   ): Promise<void> {
     try {
       if (socket.readyState !== WebSocket.OPEN) return
+      let records: SessionEvent[] = []
+      let cursor = -1
+      try {
+        const page = await this.sessions.readEventPage(sessionId, 0, 256, 1_048_576)
+        records = page.events
+        cursor = records.length > 0 ? records[records.length - 1]!.seq : -1
+      } catch {}
       socket.send(JSON.stringify({
         type: 'item', streamId,
         value: {
           type: 'snapshot',
-          header: { id: sessionId, version: 1, createdAt: Date.now(), isSeeded: false },
-          cursor: -1,
-          records: [],
+          header: { id: sessionId, version: 1, createdAt: Date.now(), isSeeded: records.length > 0 },
+          cursor,
+          records: records.map(e => ({ type: 'event', event: e })),
           hasMore: false,
-          projections: { asOfSeq: 0, values: {} },
+          projections: { asOfSeq: cursor >= 0 ? cursor : 0, values: {} },
         },
       }))
     } catch {}
@@ -821,6 +828,22 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     }
   }
 
+  private pushSessionControlProjection(sessionId: SessionId, key: string, value: unknown, seq: number): void {
+    for (const socket of this.ctx.getWebSockets('remote.mux')) {
+      const streams = remoteStreams.get(socket)
+      if (streams === undefined) continue
+      for (const [streamId, entry] of streams) {
+        if (entry.endpoint !== 'session/control') continue
+        try {
+          socket.send(JSON.stringify({
+            type: 'item', streamId,
+            value: { type: 'projection', sessionId, key, value, seq },
+          }))
+        } catch {}
+      }
+    }
+  }
+
   private publishSessionEvent(sessionId: SessionId, event: SessionEvent): void {
     this.broadcast('mux', { type: 'session/event', sessionId, event })
     this.notifySessionFollowListeners(sessionId, event)
@@ -835,6 +858,10 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         value: next,
         seq: event.seq,
       })
+      this.pushSessionControlProjection(sessionId, 'sessionListMetadata', next, event.seq)
+    }
+    if (event.type === 'session/title') {
+      this.pushSessionControlProjection(sessionId, 'title', event.data.title, event.seq)
     }
     const pending = this.pendingProjections.get(sessionId)
     if (pending !== undefined && pending.length > 0) {
