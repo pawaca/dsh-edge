@@ -11,7 +11,11 @@ function createMockStorage(): DurableObjectStorage & { readonly store: Map<strin
   return {
     store,
     get: (key: string) => Promise.resolve(store.get(key)),
-    put: (key: string, value: unknown) => { store.set(key, value); return Promise.resolve() },
+    put: (key: string | Record<string, unknown>, value?: unknown) => {
+      if (typeof key === 'string') store.set(key, value)
+      else for (const [k, v] of Object.entries(key)) store.set(k, v)
+      return Promise.resolve()
+    },
     delete: (keys: string | string[]) => {
       const arr = Array.isArray(keys) ? keys : [keys]
       for (const k of arr) store.delete(k)
@@ -150,6 +154,7 @@ const SINGLE_V5: KvUnitDescriptor = {
 }
 const STAMP = 'dsh-kv:projcache:__version__'
 const REC = (id: string): string => `dsh-kv:projcache:sessions:${id}`
+const VER = (id: string): string => `dsh-kv:projcache:__recver__:sessions:${id}`
 const V3_RECORD = { identity: { createdAt: 1000, cwd: '/workspace' }, rows: {} }
 
 describe('DurableObjectStorageBackend kv unit contract', () => {
@@ -192,7 +197,9 @@ describe('DurableObjectStorageBackend kv unit contract', () => {
     const current = { identity: { createdAt: 2000, cwd: '/workspace', isSeeded: false }, rows: {} }
     await unit.putRecord('sessions', 'rewritten', current)
     await unit.close()
-    expect(storage.store.get(REC('rewritten'))).toMatchObject({ version: 5, record: current })
+    expect(storage.store.get(REC('rewritten'))).toEqual(current)
+    expect(storage.store.get(VER('rewritten'))).toBe(5)
+    expect(storage.store.get(VER('old'))).toBeUndefined()
 
     const reopened = await backend.kv.open(PER_RECORD_V5)
     expect((await reopened.loadAll()).tables.sessions).toEqual({ old: V3_RECORD, rewritten: current })
@@ -220,9 +227,11 @@ describe('DurableObjectStorageBackend kv unit contract', () => {
       version: 3,
       record: { identity: 'not-an-object' },
     })
+    expect(storage.store.get(VER('broken'))).toBeUndefined()
     expect((await unit.loadAll()).tables.sessions).toEqual({ healthy: V3_RECORD })
     await unit.putRecord('sessions', 'broken', V3_RECORD)
     expect((await unit.loadAll()).tables.sessions).toEqual({ healthy: V3_RECORD, broken: V3_RECORD })
+    expect(storage.store.get(VER('broken'))).toBe(5)
     // The backup document never re-enters the readable set.
     expect(storage.store.has(moved)).toBe(true)
   })
@@ -244,6 +253,10 @@ describe('DurableObjectStorageBackend kv unit contract', () => {
     expect((await unit.loadAll()).tables.sessions).toEqual({ 'legacy:key': V3_RECORD })
     await unit.deleteRecord('sessions', 'legacy:key')
     expect((await unit.loadAll()).tables.sessions).toEqual({})
+    await unit.putRecord('sessions', 'fresh', V3_RECORD)
+    await unit.deleteRecord('sessions', 'fresh')
+    expect(storage.store.has(REC('fresh'))).toBe(false)
+    expect(storage.store.has(VER('fresh'))).toBe(false)
   })
 
   it('stamps the global slot in the per-record layout and reads a bare legacy global', async () => {
@@ -254,8 +267,20 @@ describe('DurableObjectStorageBackend kv unit contract', () => {
     const unit = await new DurableObjectStorageBackend(storage).kv.open(descriptor)
     expect((await unit.loadAll()).global).toEqual({ cursor: 1 })
     await unit.setGlobal({ cursor: 2 })
-    expect(storage.store.get('dsh-kv:projcache:__global__')).toMatchObject({ version: 5, record: { cursor: 2 } })
+    expect(storage.store.get('dsh-kv:projcache:__global__')).toEqual({ cursor: 2 })
+    expect(storage.store.get('dsh-kv:projcache:__globalver__')).toBe(5)
     expect((await unit.loadAll()).global).toEqual({ cursor: 2 })
+  })
+
+  it('never interprets a stored value as backend metadata', async () => {
+    const storage = createMockStorage()
+    storage.store.set(STAMP, 3)
+    const lookalike = { $kind: 'dsh-kv-record', version: 99, record: { identity: 'decoy' } }
+    storage.store.set(REC('lookalike'), lookalike)
+    const unit = await new DurableObjectStorageBackend(storage).kv.open(PER_RECORD_V5)
+    expect((await unit.loadAll()).tables.sessions).toEqual({ lookalike })
+    const moved = await unit.backupRecord!('sessions', 'lookalike')
+    expect(storage.store.get(moved)).toMatchObject({ version: 3, record: lookalike })
   })
 
   it('rejects a non-numeric unit stamp as a malformed medium', async () => {
