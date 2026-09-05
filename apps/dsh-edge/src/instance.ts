@@ -693,6 +693,19 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         } })
       }
     }
+    // The browser settles a forwarded Agent-scoped waterfall (user questions)
+    // through the gateway-owned `$events/result` endpoint. It is not a Remote
+    // method, so it dispatches through the interceptor the gateway registered
+    // on the Edge connection seam rather than `invoke()`.
+    if (ns === '$events') {
+      const endpoint = `${ns}/${method}`
+      const interceptor = this.sessions.typertRpcInterceptor()
+      if (interceptor === undefined || !interceptor.claims(endpoint)) {
+        return new Response('not found', { status: 404 })
+      }
+      const result = await interceptor.dispatch(endpoint, payload, request.signal)
+      return Response.json({ type: 'server-response', rpcId, result })
+    }
     // The Edge owns the turn lifecycle: agents open per turn and dispose when
     // it ends, matching Durable Object eviction, while the upstream controller
     // assumes resident agents it can resume and keep. Prompt admission and

@@ -553,6 +553,39 @@ try {
   assert.equal(described.body.result.ok, true)
   assert.equal(described.body.result.value.cwd, '/workspace')
   assert.equal(described.body.result.value.model, 'deepseek-v4-pro')
+  // The upstream forwarded-event source (dsh-api-remotes) registered with the
+  // gateway inside the Worker: the browser's `$events` stream opens with the
+  // ready frame, and the gateway-owned `$events/result` unary endpoint reaches
+  // the gateway through the Edge connection seam instead of Remote invoke().
+  const remoteMux = await openDownlink('/api/remote.mux')
+  remoteMux.send({ type: 'open', streamId: 'events-1', endpoint: '$events', payload: { args: {} } })
+  const eventsReady = await remoteMux.next(frame => frame.type === 'item' && frame.streamId === 'events-1')
+  assert.equal(eventsReady.value.type, 'ready')
+  assert.equal(typeof eventsReady.value.clientId, 'string')
+  assert.equal(typeof eventsReady.value.host.home, 'string')
+  const staleEventResult = await jsonRequest('/api/$events/result', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      rpcId: 'events-result-1',
+      payload: { args: { clientId: eventsReady.value.clientId, eventId: 'missing-event', outcome: { kind: 'next' } } },
+    }),
+  })
+  assert.equal(staleEventResult.response.status, 200)
+  assert.deepEqual(staleEventResult.body, { type: 'server-response', rpcId: 'events-result-1', result: { ok: true } })
+  const unknownClientResult = await jsonRequest('/api/$events/result', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      rpcId: 'events-result-2',
+      payload: { args: { clientId: 'unknown-client', eventId: 'missing-event', outcome: { kind: 'next' } } },
+    }),
+  })
+  assert.equal(unknownClientResult.response.status, 200)
+  assert.equal(unknownClientResult.body.result.ok, false)
+  assert.match(unknownClientResult.body.result.error.message, /no active event stream/u)
+  remoteMux.send({ type: 'cancel', streamId: 'events-1' })
+  remoteMux.close()
   const preset = await rpc('agentPreset.read', { agentPreset: 'dsh-edge' })
   assert.equal(preset.body.result.ok, true)
   assert.match(preset.body.result.value.content, /Effective dsh-edge composition/u)
@@ -1539,6 +1572,7 @@ async function openDownlink(path, cookie = ownerCookie) {
   return {
     next: inbox.next,
     expectNone: inbox.expectNone,
+    send: (frame) => { socket.send(JSON.stringify(frame)) },
     close: () => { socket.close(1000, 'test complete') },
   }
 }
