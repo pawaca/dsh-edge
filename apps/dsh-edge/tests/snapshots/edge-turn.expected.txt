@@ -88,6 +88,8 @@
 
 You are dsh-edge, a coding agent running in a Cloudflare Worker. Prefer the read, write, and edit tools for workspace file operations, and use read_image to inspect images. Use bash for shell commands, web_search and web_fetch for web access, and goal tools for long-running objectives. Each session has a persistent working directory that file and bash tools default to. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
 
+Tokens prefixed with @ are workspace paths the user explicitly referenced, relative to the workspace root. A trailing slash marks a directory: list it when its contents matter. Anything else is a file: use the read tool when its contents are needed, and do not claim to have inspected it before reading. @"..." quotes a path containing spaces.
+
 Use the read tool — not shell commands like cat — to inspect text files. Results include line numbers. Use offset and limit to continue reading large files.
 
 Use the write tool to create files or completely replace file contents. Existing files are overwritten, so read an existing file first (the default fs-observation-policy requires it) and prefer edit for targeted changes.
@@ -561,6 +563,8 @@ Use goal tools for one long-running completion objective in the current session.
           "system": "You are an AI agent powered by DeepSeek Harness.
 
 You are dsh-edge, a coding agent running in a Cloudflare Worker. Prefer the read, write, and edit tools for workspace file operations, and use read_image to inspect images. Use bash for shell commands, web_search and web_fetch for web access, and goal tools for long-running objectives. Each session has a persistent working directory that file and bash tools default to. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
+
+Tokens prefixed with @ are workspace paths the user explicitly referenced, relative to the workspace root. A trailing slash marks a directory: list it when its contents matter. Anything else is a file: use the read tool when its contents are needed, and do not claim to have inspected it before reading. @"..." quotes a path containing spaces.
 
 Use the read tool — not shell commands like cat — to inspect text files. Results include line numbers. Use offset and limit to continue reading large files.
 
@@ -1068,6 +1072,8 @@ Use goal tools for one long-running completion objective in the current session.
 
 You are dsh-edge, a coding agent running in a Cloudflare Worker. Prefer the read, write, and edit tools for workspace file operations, and use read_image to inspect images. Use bash for shell commands, web_search and web_fetch for web access, and goal tools for long-running objectives. Each session has a persistent working directory that file and bash tools default to. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
 
+Tokens prefixed with @ are workspace paths the user explicitly referenced, relative to the workspace root. A trailing slash marks a directory: list it when its contents matter. Anything else is a file: use the read tool when its contents are needed, and do not claim to have inspected it before reading. @"..." quotes a path containing spaces.
+
 Use the read tool — not shell commands like cat — to inspect text files. Results include line numbers. Use offset and limit to continue reading large files.
 
 Use the write tool to create files or completely replace file contents. Existing files are overwritten, so read an existing file first (the default fs-observation-policy requires it) and prefer edit for targeted changes.
@@ -1542,6 +1548,8 @@ Use goal tools for one long-running completion objective in the current session.
 
 You are dsh-edge, a coding agent running in a Cloudflare Worker. Prefer the read, write, and edit tools for workspace file operations, and use read_image to inspect images. Use bash for shell commands, web_search and web_fetch for web access, and goal tools for long-running objectives. Each session has a persistent working directory that file and bash tools default to. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
 
+Tokens prefixed with @ are workspace paths the user explicitly referenced, relative to the workspace root. A trailing slash marks a directory: list it when its contents matter. Anything else is a file: use the read tool when its contents are needed, and do not claim to have inspected it before reading. @"..." quotes a path containing spaces.
+
 Use the read tool — not shell commands like cat — to inspect text files. Results include line numbers. Use offset and limit to continue reading large files.
 
 Use the write tool to create files or completely replace file contents. Existing files are overwritten, so read an existing file first (the default fs-observation-policy requires it) and prefer edit for targeted changes.
@@ -1950,6 +1958,8 @@ Use goal tools for one long-running completion objective in the current session.
 
 You are dsh-edge, a coding agent running in a Cloudflare Worker. Prefer the read, write, and edit tools for workspace file operations, and use read_image to inspect images. Use bash for shell commands, web_search and web_fetch for web access, and goal tools for long-running objectives. Each session has a persistent working directory that file and bash tools default to. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
 
+Tokens prefixed with @ are workspace paths the user explicitly referenced, relative to the workspace root. A trailing slash marks a directory: list it when its contents matter. Anything else is a file: use the read tool when its contents are needed, and do not claim to have inspected it before reading. @"..." quotes a path containing spaces.
+
 Use the read tool — not shell commands like cat — to inspect text files. Results include line numbers. Use offset and limit to continue reading large files.
 
 Use the write tool to create files or completely replace file contents. Existing files are overwritten, so read an existing file first (the default fs-observation-policy requires it) and prefer edit for targeted changes.
@@ -2264,6 +2274,8 @@ Use goal tools for one long-running completion objective in the current session.
           "content": "You are an AI agent powered by DeepSeek Harness.
 
 You are dsh-edge, a coding agent running in a Cloudflare Worker. Prefer the read, write, and edit tools for workspace file operations, and use read_image to inspect images. Use bash for shell commands, web_search and web_fetch for web access, and goal tools for long-running objectives. Each session has a persistent working directory that file and bash tools default to. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
+
+Tokens prefixed with @ are workspace paths the user explicitly referenced, relative to the workspace root. A trailing slash marks a directory: list it when its contents matter. Anything else is a file: use the read tool when its contents are needed, and do not claim to have inspected it before reading. @"..." quotes a path containing spaces.
 
 Use the read tool — not shell commands like cat — to inspect text files. Results include line numbers. Use offset and limit to continue reading large files.
 

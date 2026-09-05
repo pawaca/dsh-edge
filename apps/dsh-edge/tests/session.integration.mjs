@@ -443,6 +443,69 @@ try {
   assert.equal(legacySelector.response.status, 400)
   assert.match(legacySelector.body.error, /one owner workspace/u)
 
+  // Cross-session references run on a dedicated session: a canonical mention
+  // becomes a readable label in the direct message and an untrusted snapshot
+  // of the released fixture right behind it, prepared at agent/pre-step.
+  const referenceSession = await jsonRequest('/api/sessions', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ title: 'Reference session' }),
+  })
+  assert.equal(referenceSession.response.status, 201)
+  const referenceSessionId = referenceSession.body.session.id
+  const referenceRequestCount = mock.requests.length
+  const referenceEvents = await turn(
+    referenceSessionId,
+    `compare with @[Released](dsh-session:${sessionReferencePayload(RELEASED_SESSION_ID)})`,
+  )
+  const referenceMessages = referenceEvents
+    .filter(event => event.type === 'user/message')
+    .map(event => event.data)
+  assert.equal(referenceMessages.length, 2, referenceEvents.map(event => `${event.seq}:${event.type}`).join(' '))
+  assert.equal(referenceMessages[0].source.kind, 'user')
+  assert.equal(referenceMessages[0].content[0].text, 'compare with @Released')
+  assert.equal(referenceMessages[1].source.kind, 'session-reference')
+  assert.equal(referenceMessages[1].source.references[0].sessionId, RELEASED_SESSION_ID)
+  const referenceRequest = mock.requests[referenceRequestCount]
+  const referenceContext = referenceRequest.messages
+    .filter(message => message.role === 'user')
+    .map(message => messageTextOf(message))
+    .find(content => content.includes('<referenced-sessions>'))
+  assert.match(referenceContext ?? '', /fixture prompt/u)
+  assert.match(referenceContext ?? '', /fixture response/u)
+  // Reference discovery routes through the Typert gateway: the Edge provider
+  // lists the session working directory from the Computer VFS and the upstream
+  // resolver ranks the other sessions with canonical mentions. Agent-scoped
+  // Remotes resume the cold session through the upstream controller and keep
+  // it resident, so this runs last before the Worker restarts.
+  const fileCandidates = await typertRpc('fileReferences', 'list', {
+    agentId: referenceSessionId,
+    query: 'rel',
+  })
+  assert.equal(fileCandidates.body.result.ok, true, JSON.stringify(fileCandidates.body))
+  assert.deepEqual(fileCandidates.body.result.value, [{ path: 'released.txt', kind: 'file' }])
+  const escapedCandidates = await typertRpc('fileReferences', 'list', {
+    agentId: referenceSessionId,
+    query: '../',
+  })
+  assert.deepEqual(escapedCandidates.body.result.value, [])
+  const sessionCandidates = await typertRpc('sessionReferenceResolver', 'candidates', {
+    agentId: referenceSessionId,
+    query: '',
+  })
+  assert.equal(sessionCandidates.body.result.ok, true, JSON.stringify(sessionCandidates.body))
+  const candidateIds = sessionCandidates.body.result.value.map(candidate => candidate.sessionId)
+  assert.equal(candidateIds.includes(referenceSessionId), false)
+  assert.equal(candidateIds.includes(sessionId), true)
+  const releasedCandidate = sessionCandidates.body.result.value
+    .find(candidate => candidate.sessionId === RELEASED_SESSION_ID)
+  assert.equal(releasedCandidate.cwd, '/workspace')
+  assert.equal(releasedCandidate.sameWorkspace, true)
+  assert.equal(
+    releasedCandidate.mention,
+    `@[${releasedCandidate.label}](dsh-session:${sessionReferencePayload(RELEASED_SESSION_ID)})`,
+  )
+
   await worker.stop()
   worker = await startWorker()
   const restored = await jsonRequest(`/api/sessions/${sessionId}`)
@@ -512,8 +575,10 @@ try {
   assert.equal(replayedResume[0].type, 'session/end-seed')
   assert.equal(replayedResume[1].seq, resumedEvents[0].seq)
 
+  // The reference turn adds two requests: the mock answers the referenced
+  // snapshot with a tool call before it finishes.
   const turnRequestsSnapshot = turnRequests()
-  assert.equal(turnRequestsSnapshot.length, 13)
+  assert.equal(turnRequestsSnapshot.length, 15)
   assert.ok(turnRequestsSnapshot.every(request => request.max_tokens === 16_384))
   assert.ok(turnRequestsSnapshot.every(request => request.model === 'deepseek-v4-pro'))
   assert.ok(turnRequestsSnapshot.every(request => request.reasoning_effort === 'high'))
@@ -1375,7 +1440,7 @@ try {
   assert.equal(retriedInvalidProtocolPrompt.body.result.error.code, 'internal')
   // Promoting the queued prompt to steering folds it into the active turn
   // instead of starting the extra follow-up request exercised previously.
-  assert.equal(turnRequests().length, 17)
+  assert.equal(turnRequests().length, 19)
   process.stdout.write(`dsh-edge ${runtimeMode} session integration passed\n`)
 } finally {
   mock.releaseSlowResponses()
@@ -1636,6 +1701,16 @@ function parseEvents(source) {
   return source.split('\n')
     .filter(line => line.startsWith('data: '))
     .map(line => JSON.parse(line.slice('data: '.length)))
+}
+
+function sessionReferencePayload(sessionId) {
+  return Buffer.from(JSON.stringify(sessionId), 'utf8').toString('base64url')
+}
+
+function messageTextOf(message) {
+  return typeof message.content === 'string'
+    ? message.content
+    : message.content.filter(block => block.type === 'text').map(block => block.text).join('')
 }
 
 function assistantText(events) {

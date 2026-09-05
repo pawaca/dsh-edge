@@ -316,6 +316,7 @@ pnpm --filter dsh-edge example:install
 - Session creation and fork return `workspace-attach-failed` with the published session and Workspace ids when publication succeeds but Workspace attachment fails. The diagnostic route returns the same code plus the complete created session.
 - Prompt and queue-edit text share a 64 KiB semantic limit. Their 10 MiB RPC carrier leaves room for a 7 MiB raw-image batch after base64 and envelope overhead.
 - Because Edge has no directory-flow provider, the upstream browser hides Delete on its sole Workspace and exposes it again whenever restoration remains possible.
+- `@file` completion serves the upstream `fileReferences/list` Remote from the Computer VFS one directory at a time: the session working directory for a bare fragment, or the directory a trailing slash names. There is no recursive fuzzy index because every listing is a Computer call. `@session` mentions and their pre-step snapshots come from the upstream session-reference service unchanged; its candidate discovery and either agent-scoped Remote resume a cold session through the upstream controller and keep it resident until the Durable Object is evicted.
 
 ### Limits and request admission
 
