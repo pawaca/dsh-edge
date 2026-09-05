@@ -115,7 +115,6 @@ interface EdgeSessionStoreConfig {
   streamIdleTimeoutMs?: string
   onLateSessionEvent?: (sessionId: SessionId, event: SessionEvent) => void
   onProjectionChanged?: (sessionId: SessionId, key: string, value: unknown, seq: number) => void
-  waitUntil?: (promise: Promise<unknown>) => void
 }
 const MAX_FORK_STORED_BYTES = 8 * 1_024 * 1_024
 const MAX_SEARCH_SESSIONS = 32
@@ -425,17 +424,17 @@ export class EdgeSessionStore {
     )
     if (config.onLateSessionEvent !== undefined) {
       const callback = config.onLateSessionEvent
-      const keepAlive = config.waitUntil
       this.context.on('session/event', (session, event) => {
         const agent = this.context.agents.get(session.id)
         if (agent?.session === session && this.turnPublishedAgents.has(agent)) return
         if (event.type === 'session/title' && event.data.source.kind === 'user') return
-        const delivery = this.context.sessions.flush(session).then(() => {
+        // The flush promise is pending work, which keeps the Durable Object
+        // active by itself; DurableObjectState.waitUntil would be a no-op.
+        void this.context.sessions.flush(session).then(() => {
           callback(session.id, event)
         }).catch((error: unknown) => {
           console.error('dsh-edge: failed to flush late session event.', error)
         })
-        keepAlive?.(delivery)
       })
     }
     if (config.onProjectionChanged !== undefined) {

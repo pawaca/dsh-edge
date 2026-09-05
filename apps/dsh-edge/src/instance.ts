@@ -21,7 +21,7 @@ import {
   type QueuedInboxItem,
   type ServerRequest,
 } from './edge-rpc-types.ts'
-import { dispatchEdgeApi } from './edge-api-dispatch.ts'
+import { callEdgeApi, dispatchEdgeApi } from './edge-api-dispatch.ts'
 import { freezeMessage, type MessageId, type UserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
@@ -271,7 +271,6 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         }
         queue.push({ key, value, seq })
       },
-      waitUntil: promise => this.ctx.waitUntil(promise),
     },
   )
   private readonly model = resolveEdgeModel(this.env.DEEPSEEK_MODEL)
@@ -670,22 +669,26 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     const args = payload?.args as Record<string, unknown> | undefined ?? {}
     const ns = match[1]!
     const method = match[2]!
-    const edgeDispatch = () => {
+    const edgeDispatch = async () => {
       const keys = Object.keys(args)
       const flatArgs = keys.length === 1 && keys[0] === 'request'
         ? args.request as Record<string, unknown>
         : args
-      const edgeBody = { ...body, payload: flatArgs }
-      const edgePath = `/api/${ns}.${method}`
-      return this.apiFetch(new Request(new URL(edgePath, request.url).href, {
-        method: 'POST',
-        headers: request.headers,
-        body: JSON.stringify(edgeBody),
-      }))
+      const called = await callEdgeApi(
+        this.api,
+        `${ns}.${method}`,
+        RpcId(rpcId),
+        flatArgs,
+        request.signal,
+      )
+      if (called === undefined) return new Response('not found', { status: 404 })
+      return Response.json({ type: 'server-response', rpcId: called.rpcId, result: called.result })
     }
-    // The Edge owns the turn lifecycle (Computer shell binding and DO
-    // waitUntil keep-alive), so prompt admission and cancellation stay on the
-    // Edge implementation until that lifecycle moves into agent hooks.
+    // The Edge owns the turn lifecycle: agents open per turn and dispose when
+    // it ends, matching Durable Object eviction, while the upstream controller
+    // assumes resident agents it can resume and keep. Prompt admission and
+    // cancellation stay on the Edge implementation until that lifecycle
+    // reconciliation lands.
     if (ns === 'session' && (method === 'prompt' || method === 'cancel')) return edgeDispatch()
     const gateway = this.sessions.typertGateway()
     if (gateway === undefined) return edgeDispatch()
@@ -947,7 +950,9 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         console.error('dsh-edge turn transport failed.', error)
       },
     )
-    this.ctx.waitUntil(completion.catch(() => undefined))
+    // Durable Objects stay active while the turn's pending work runs;
+    // DurableObjectState.waitUntil is a no-op and is deliberately not used.
+    void completion.catch(() => undefined)
 
     return new Response(stream, {
       status: 200,
@@ -1009,9 +1014,9 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
           ? {}
           : { clientTimeZone: input.clientTimeZone },
       })
-      this.ctx.waitUntil(running.catch((error: unknown) => {
+      void running.catch((error: unknown) => {
         console.error('dsh-edge upstream protocol turn failed.', error)
-      }))
+      })
       await claimed.turn.admissionReady
       if (!claimed.turn.wasAdmitted) await running
       return
