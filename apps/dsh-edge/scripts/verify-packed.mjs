@@ -79,7 +79,7 @@ export function verifyPacked(input) {
       || !noticesText.includes('Copyright (c) 2026 DeepSeek')
       || !noticesText.includes('## Bundled component inventory')
       || !noticesText.includes('## Bundled license and notice texts')
-      || !noticesText.includes('`@cloudflare/computer@0.2.0` | `MIT`')
+      || !noticesText.includes('`@cloudflare/computer@0.2.1` | `MIT`')
       || !noticesText.includes('`diff@9.0.0` (`LICENSE`)')
       || !noticesText.includes('Copyright (c) 2009-2015, Kevin Decker')
       || !noticesText.includes('Redistributions in binary form must reproduce')
