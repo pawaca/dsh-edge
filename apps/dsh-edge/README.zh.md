@@ -316,6 +316,7 @@ pnpm --filter dsh-edge example:install
 - Session 创建与 fork 在发布成功但 Workspace attachment 失败时返回 `workspace-attach-failed`，并携带已发布的 session 与 Workspace id。诊断路由返回相同 code 及完整的已创建 session。
 - Prompt 和 queue-edit 文本共用 64 KiB 语义上限。10 MiB RPC 载体为 7 MiB 原始图片在 base64 与 envelope 膨胀后留出空间。
 - Edge 没有目录流 provider，因此上游浏览器会在仅剩一个 Workspace 时隐藏 Delete，并在仍有恢复路径时重新显示。
+- `@file` 补全通过 Computer VFS 为上游 `fileReferences/list` Remote 每次只列出一个目录：裸片段对应会话工作目录，末尾斜杠对应它命名的目录。每次列目录都是一次 Computer 调用，因此没有递归模糊索引。`@session` 提及及其 pre-step 快照原样来自上游 session-reference 服务；它的候选发现以及任一 agent 作用域 Remote 都会通过上游 controller 恢复冷 session，并使其常驻直到 Durable Object 被驱逐。
 
 ### 限制与请求准入
 

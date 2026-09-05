@@ -262,6 +262,16 @@
     ]
   },
   {
+    "id": "@deepseek-ai/dsh-client-ui-reference",
+    "inject": [
+      "@deepseek-ai/dsh-api-remotes",
+      "@deepseek-ai/dsh-api-session-controller",
+      "@deepseek-ai/dsh-client-connection",
+      "@deepseek-ai/dsh-client-locale",
+      "@deepseek-ai/dsh-client-ui-input-trigger"
+    ]
+  },
+  {
     "id": "@deepseek-ai/dsh-client-ui-schedule",
     "inject": [
       "@deepseek-ai/dsh-client-locale",
