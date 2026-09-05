@@ -13,6 +13,23 @@ export const MAX_MESSAGE_FEEDBACK_BODY_BYTES = 64 * 1_024
 export const MAX_TURN_BODY_BYTES = 10 * 1_024 * 1_024
 export const MAX_WORKSPACE_EXEC_BODY_BYTES = 131_072
 
+/**
+ * Body limit for one Durable Object API request, selected before the entry
+ * Worker forwards it. RPC routes are recognised in both wire forms — the
+ * legacy `/api/<namespace>.<method>` envelope and the Typert
+ * `/api/<namespace>/<method>` endpoint — so a prompt carrying inline image
+ * data gets the turn budget whichever path the client uses.
+ */
+export function instanceRequestBodyLimit(pathname: string): number {
+  if (pathname.endsWith('/turn') || pathname === '/api/skills') return MAX_TURN_BODY_BYTES
+  const route = /^\/api\/([a-zA-Z0-9_$-]+)[./]([a-zA-Z0-9_$-]+)$/.exec(pathname)
+  if (route === null) return MAX_SESSION_CREATE_BODY_BYTES
+  const key = `${route[1]}.${route[2]}`
+  if (key === 'session.prompt' || key === 'session.updateQueue') return MAX_TURN_BODY_BYTES
+  if (key === 'messageFeedback.put') return MAX_MESSAGE_FEEDBACK_BODY_BYTES
+  return MAX_SESSION_CREATE_BODY_BYTES
+}
+
 /** Invalid caller input with an explicit HTTP response status. */
 export class EdgeHttpError extends Error {
   constructor(readonly status: number, message: string) {

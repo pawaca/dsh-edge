@@ -187,6 +187,21 @@ try {
   })
   assert.equal(oversizedSessionBody.response.status, 413)
 
+  // A prompt on the Typert route carries inline image data and long text, so
+  // the entry Worker must give it the turn budget rather than the 8 KiB
+  // session-create default; the request reaches the instance and fails on the
+  // unknown session inside the RPC envelope instead of a transport 413.
+  const largeTypertPrompt = await typertRpc('session', 'prompt', {
+    request: {
+      sessionId: 'not-real',
+      mode: 'queue',
+      content: [{ type: 'text', text: 'x'.repeat(64_000) }],
+    },
+  })
+  assert.equal(largeTypertPrompt.response.status, 200)
+  assert.equal(largeTypertPrompt.body.type, 'server-response')
+  assert.equal(largeTypertPrompt.body.result.ok, false)
+
   const malformedSessionId = await jsonRequest('/api/sessions/%/turn', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },

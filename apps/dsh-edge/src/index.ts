@@ -10,14 +10,12 @@ import {
 } from './auth.ts'
 import {
   EdgeHttpError,
-  MAX_MESSAGE_FEEDBACK_BODY_BYTES,
-  MAX_SESSION_CREATE_BODY_BYTES,
-  MAX_TURN_BODY_BYTES,
   MAX_WORKSPACE_EXEC_BODY_BYTES,
   corsHeaders,
   discardUnreadRequestBody,
   errorResponse,
   jsonResponse,
+  instanceRequestBodyLimit,
   readBoundedBody,
   readBoundedText,
   readJsonObject,
@@ -166,15 +164,7 @@ async function requestForInstance(request: Request, ownerSessionExpiresAt: numbe
   headers.delete('x-dsh-edge-instance')
   headers.set(OWNER_SESSION_EXPIRY_HEADER, String(ownerSessionExpiresAt))
   if (request.body === null) return new Request(request, { headers })
-  const url = new URL(request.url)
-  const maxBytes = url.pathname === '/api/messageFeedback/put'
-    ? MAX_MESSAGE_FEEDBACK_BODY_BYTES
-    : url.pathname.endsWith('/turn')
-      || url.pathname === '/api/session.prompt'
-      || url.pathname === '/api/session.updateQueue'
-      || url.pathname === '/api/skills'
-      ? MAX_TURN_BODY_BYTES
-      : MAX_SESSION_CREATE_BODY_BYTES
+  const maxBytes = instanceRequestBodyLimit(new URL(request.url).pathname)
   const body = await readBoundedBody(
     request,
     maxBytes,
