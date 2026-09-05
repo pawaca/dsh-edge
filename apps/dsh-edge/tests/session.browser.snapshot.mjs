@@ -410,13 +410,25 @@ async function stableAria(page, selector) {
   return previous
 }
 
+const RPC_NAMESPACE_PLURALS = {
+  agentPreset: 'agentPresets', session: 'session', workspace: 'workspace',
+  skill: 'skills', subagent: 'subagents', goal: 'goals',
+  event: 'events', download: 'downloads', messageFeedback: 'messageFeedback',
+}
+
 function rpcResponseIs(response, method) {
   if (response.request().method() !== 'POST') return false
   const url = new URL(response.url())
-  const typertPath = `/api/${method.replace('.', '/')}`
-  if (url.pathname === typertPath) return true
+  const [ns, name] = method.split('.')
+  const pluralNs = RPC_NAMESPACE_PLURALS[ns] ?? ns
+  if (url.pathname === `/api/${pluralNs}/${name}`
+    || url.pathname === `/api/${ns}/${name}`
+    || url.pathname === `/api/${ns}.${name}`) return true
   try {
-    return response.request().postDataJSON()?.method === method
+    const bodyMethod = response.request().postDataJSON()?.method
+    return bodyMethod === method
+      || bodyMethod === `${pluralNs}/${name}`
+      || bodyMethod === `${ns}/${name}`
   } catch {
     return false
   }

@@ -709,10 +709,12 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       return Response.json({ type: 'server-response', rpcId, result: { ok: true, value } })
     } catch (error) {
       if (error instanceof Error && error.message.includes('no active Remote method')) {
-        return this.apiFetch(new Request(request.url, {
+        const edgeBody = { ...body, payload: args }
+        const edgePath = `/api/${match[1]}.${match[2]}`
+        return this.apiFetch(new Request(new URL(edgePath, request.url).href, {
           method: 'POST',
           headers: request.headers,
-          body: JSON.stringify(body),
+          body: JSON.stringify(edgeBody),
         }))
       }
       return Response.json({ type: 'server-response', rpcId, result: {
