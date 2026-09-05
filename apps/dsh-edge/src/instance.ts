@@ -123,7 +123,7 @@ interface DownlinkAttachment {
   expiresAt: number
 }
 
-type RemoteStreamEntry = { abort: AbortController; done: Promise<void> }
+type RemoteStreamEntry = { abort: AbortController; done: Promise<void>; endpoint?: string }
 const remoteStreams = new WeakMap<WebSocket, Map<string, RemoteStreamEntry>>()
 
 /** Mirror the upstream session-list projection fold at the Edge transport seam. */
@@ -468,14 +468,28 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     if (endpoint === 'workspace/follow') {
       const abort = new AbortController()
       const done = this.sendWorkspaceBaseline(socket, streamId, abort)
-      streams.set(streamId, { abort, done })
+      streams.set(streamId, { abort, done, endpoint: 'workspace/follow' })
+      return
+    }
+
+    if (endpoint === 'session/follow') {
+      const followArgs = (payload as { args?: { request?: { address?: { sessionId?: string } } } })?.args?.request
+      const sessionId = (followArgs?.address?.sessionId ?? (followArgs as { sessionId?: string } | undefined)?.sessionId) as SessionId | undefined
+      if (sessionId === undefined) {
+        const error = { code: 'gateway/bad-request', message: 'session/follow requires sessionId', details: {} }
+        try { socket.send(JSON.stringify({ type: 'error', streamId, error })) } catch {}
+        return
+      }
+      const abort = new AbortController()
+      const done = this.pumpSessionFollow(socket, streamId, sessionId, abort)
+      streams.set(streamId, { abort, done, endpoint: 'session/follow' })
       return
     }
 
     if (endpoint === 'session/control') {
       const abort = new AbortController()
       const done = this.sendSessionControlBaseline(socket, streamId, abort)
-      streams.set(streamId, { abort, done })
+      streams.set(streamId, { abort, done, endpoint: 'session/control' })
       return
     }
 
@@ -560,6 +574,73 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     await new Promise<void>(resolve => { abort.signal.addEventListener('abort', () => resolve()) })
   }
 
+  private async pumpSessionFollow(
+    socket: WebSocket,
+    streamId: string,
+    sessionId: SessionId,
+    abort: AbortController,
+  ): Promise<void> {
+    try {
+      if (socket.readyState !== WebSocket.OPEN) return
+      socket.send(JSON.stringify({
+        type: 'item', streamId,
+        value: { type: 'baseline', sessionId, events: [], hasMore: false },
+      }))
+    } catch {}
+    const listener = (_sid: SessionId, event: SessionEvent) => {
+      if (_sid !== sessionId || socket.readyState !== WebSocket.OPEN) return
+      try {
+        socket.send(JSON.stringify({
+          type: 'item', streamId,
+          value: { type: 'event', sessionId, event },
+        }))
+      } catch {}
+    }
+    this.sessionFollowListeners.set(streamId, { sessionId, listener })
+    abort.signal.addEventListener('abort', () => { this.sessionFollowListeners.delete(streamId) })
+    await new Promise<void>(resolve => { abort.signal.addEventListener('abort', () => resolve()) })
+  }
+
+  private readonly sessionFollowListeners = new Map<string, { sessionId: SessionId; listener: (sid: SessionId, event: SessionEvent) => void }>()
+
+  private notifySessionFollowListeners(sessionId: SessionId, event: SessionEvent): void {
+    for (const { sessionId: sid, listener } of this.sessionFollowListeners.values()) {
+      if (sid === sessionId) listener(sessionId, event)
+    }
+  }
+
+  private broadcastWorkspaceUpsert(workspace: WorkspaceView): void {
+    for (const socket of this.ctx.getWebSockets('remote.mux')) {
+      const streams = remoteStreams.get(socket)
+      if (streams === undefined) continue
+      for (const [streamId, entry] of streams) {
+        if (entry.endpoint !== 'workspace/follow') continue
+        try {
+          socket.send(JSON.stringify({
+            type: 'item', streamId,
+            value: { type: 'upsert', workspace },
+          }))
+        } catch {}
+      }
+    }
+  }
+
+  private broadcastWorkspaceRemoved(workspaceId: WorkspaceId): void {
+    for (const socket of this.ctx.getWebSockets('remote.mux')) {
+      const streams = remoteStreams.get(socket)
+      if (streams === undefined) continue
+      for (const [streamId, entry] of streams) {
+        if (entry.endpoint !== 'workspace/follow') continue
+        try {
+          socket.send(JSON.stringify({
+            type: 'item', streamId,
+            value: { type: 'remove', workspaceId },
+          }))
+        } catch {}
+      }
+    }
+  }
+
   private abortRemoteStreams(socket: WebSocket): void {
     const streams = remoteStreams.get(socket)
     if (streams === undefined) return
@@ -597,6 +678,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     await entity.attachSession(session.id)
     const workspace = workspaceEntityToView(entity)
     this.broadcast('host', { type: 'host/workspace-changed', workspace })
+    this.broadcastWorkspaceUpsert(workspace)
   }
 
   private async workspaceForSession(sessionId: SessionId): Promise<WorkspaceId | undefined> {
@@ -627,6 +709,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     const entity = await registry.create(path)
     const workspace = workspaceEntityToView(entity)
     this.broadcast('host', { type: 'host/workspace-changed', workspace })
+    this.broadcastWorkspaceUpsert(workspace)
     return { workspace, created: true }
   }
 
@@ -639,6 +722,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     const workspace = workspaceEntityToView(entity)
     if (previousTitle !== title) {
       this.broadcast('host', { type: 'host/workspace-changed', workspace })
+    this.broadcastWorkspaceUpsert(workspace)
     }
     return workspace
   }
@@ -650,6 +734,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       throw new WorkspaceOrderInvalidError(workspaceId)
     }
     this.broadcast('host', { type: 'host/workspace-removed', workspaceId })
+    this.broadcastWorkspaceRemoved(workspaceId)
   }
 
   private async reorderWorkspace(
@@ -671,6 +756,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     await entity.insertSessionBefore(sessionId, beforeSessionId)
     const workspace = workspaceEntityToView(entity)
     this.broadcast('host', { type: 'host/workspace-changed', workspace })
+    this.broadcastWorkspaceUpsert(workspace)
     return workspace
   }
 
@@ -708,7 +794,11 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       })
       return Response.json({ type: 'server-response', rpcId, result: { ok: true, value } })
     } catch (error) {
-      const edgeBody = { ...body, payload: args }
+      const keys = Object.keys(args)
+      const flatArgs = keys.length === 1 && keys[0] === 'request'
+        ? args.request as Record<string, unknown>
+        : args
+      const edgeBody = { ...body, payload: flatArgs }
       const edgePath = `/api/${match[1]}.${match[2]}`
       try {
         return await this.apiFetch(new Request(new URL(edgePath, request.url).href, {
@@ -727,6 +817,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
 
   private publishSessionEvent(sessionId: SessionId, event: SessionEvent): void {
     this.broadcast('mux', { type: 'session/event', sessionId, event })
+    this.notifySessionFollowListeners(sessionId, event)
     const previous = this.sessionListMetadata.get(sessionId) ?? INITIAL_SESSION_LIST_METADATA
     const next = applySessionListMetadata(previous, event)
     if (next !== previous) {

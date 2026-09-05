@@ -145,7 +145,7 @@ describe('dsh-edge assembled browser snapshot', () => {
       })
       expect(selectVision.result.ok).toBe(true)
 
-      const composer = page.locator('textarea:enabled').last()
+      const composer = page.getByRole('textbox').last()
       await composer.waitFor({ timeout: 15_000 })
       await composer.evaluate((textarea) => {
         const png = Uint8Array.from(
@@ -371,7 +371,7 @@ describe('dsh-edge assembled browser snapshot', () => {
         mediaTypes: ['image/png', 'image/jpeg'],
       })
 
-      const composer = page.locator('textarea:enabled').last()
+      const composer = page.getByRole('textbox').last()
       await composer.waitFor({ timeout: 15_000 })
       await composer.evaluate((textarea) => {
         const png = Uint8Array.from(
