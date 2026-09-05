@@ -1,13 +1,16 @@
 diff --git a/lib/index.js b/lib/index.js
-index 9c99aab33ee450d30768b8ee56e5779876b4fcf6..bc3417a87aaaa19bcd36b625ba6ff414314c0668 100644
+index 9c99aab33ee450d30768b8ee56e5779876b4fcf6..b7f7179f4e41e266ccb82cb86ed6e286246ff272 100644
 --- a/lib/index.js
 +++ b/lib/index.js
-@@ -4,6 +4,24 @@ import { deadline, timeoutOf } from "@deepseek-ai/dsh-timeout";
- import { lookup } from "node:dns/promises";
+@@ -1,9 +1,26 @@
+ import z from "@deepseek-ai/schemastery";
+ import { WebError } from "@deepseek-ai/dsh-web";
+ import { deadline, timeoutOf } from "@deepseek-ai/dsh-timeout";
+-import { lookup } from "node:dns/promises";
  import { isIP } from "node:net";
  import ipaddr from "ipaddr.js";
 +
-+const LOCAL_SUFFIXES = ['.local', '.localdomain', '.internal', '.home.arpa'];
++const LOCAL_SUFFIXES = ['.localhost', '.local', '.localdomain', '.internal', '.home.arpa'];
 +function isIpLiteral(hostname) {
 +	if (/^\d{1,3}(\.\d{1,3}){3}$/.test(hostname)) return true;
 +	if (hostname.startsWith('[') && hostname.endsWith(']')) return true;
@@ -27,7 +30,83 @@ index 9c99aab33ee450d30768b8ee56e5779876b4fcf6..bc3417a87aaaa19bcd36b625ba6ff414
  //#region lib/types/network.js
  /**
  * Public-network resolution and address-pinned HTTP transport for `web-fetch-http`.
-@@ -444,6 +462,7 @@ var HttpFetchProvider = class {
+@@ -51,30 +68,17 @@ function isPublicIpAddress(input) {
+ * @param resolver - lookup implementation, overridden only by focused tests.
+ * @returns the validated, non-empty address set.
+ */
+-async function resolvePublicAddresses(hostname, signal, resolver = lookup) {
++async function resolvePublicAddresses(hostname, signal, resolver) {
++	void signal;
++	void resolver;
+ 	const unbracketed = stripIpv6Brackets(hostname);
+ 	const literalFamily = isIP(unbracketed);
+-	const resolved = literalFamily === 0 ? await raceWithSignal(resolver(unbracketed, {
+-		all: true,
+-		order: "verbatim"
+-	}), signal) : [{
++	if (literalFamily === 0) return [];
++	if (!isPublicIpAddress(unbracketed)) throw new WebError(`URL hostname "${hostname}" resolves to a non-public IP address`, "WEB_BLOCKED_URL");
++	return [{
+ 		address: unbracketed,
+ 		family: literalFamily
+ 	}];
+-	if (resolved.length === 0) throw new WebError(`hostname "${hostname}" resolved to no addresses`, "WEB_PROVIDER_ERROR");
+-	const nat64Prefixes = resolved.some((entry) => entry.family === 6 && isIP(entry.address) === 6) ? await discoverNat64Prefixes(signal, resolver) : [];
+-	const addresses = [];
+-	for (const entry of resolved) {
+-		if (entry.family !== 4 && entry.family !== 6 || isIP(entry.address) !== entry.family) throw new WebError(`hostname "${hostname}" resolved to an invalid IP address`, "WEB_PROVIDER_ERROR");
+-		if (!isPublicIpAddress(entry.address)) throw new WebError(`URL hostname "${hostname}" resolves to a non-public IP address`, "WEB_BLOCKED_URL");
+-		const translatedIpv4 = translatedIpv4Address(entry.address, nat64Prefixes);
+-		if (translatedIpv4 !== void 0 && !isPublicIpAddress(translatedIpv4)) throw new WebError(`URL hostname "${hostname}" resolves through NAT64 to a non-public IPv4 address`, "WEB_BLOCKED_URL");
+-		addresses.push({
+-			address: entry.address,
+-			family: entry.family
+-		});
+-	}
+-	return addresses;
+ }
+ /** Discover the active DNS64 prefix set using RFC 7050's reserved hostname. */
+ async function discoverNat64Prefixes(signal, resolver) {
+@@ -131,28 +135,16 @@ function embeddedIpv4Address(bytes, prefixLength) {
+ * @returns a response plus the dispatcher disposer its consumer must call.
+ */
+ async function requestPinned(url, addresses, headers, signal) {
+-	const { Agent, fetch } = await import("undici");
+-	const dispatcher = new Agent({
+-		autoSelectFamily: true,
+-		connect: { lookup: createPinnedLookup(addresses) }
+-	});
+-	try {
+-		return {
+-			response: await fetch(url, {
+-				method: "GET",
+-				redirect: "manual",
+-				headers,
+-				signal,
+-				dispatcher
+-			}),
+-			close: async () => {
+-				await dispatcher.close();
+-			}
+-		};
+-	} catch (error) {
+-		await dispatcher.close();
+-		throw error;
+-	}
++	void addresses;
++	return {
++		response: await fetch(url, {
++			method: "GET",
++			redirect: "manual",
++			headers,
++			signal
++		}),
++		close: async () => {}
++	};
+ }
+ /** Production network operations kept as an object so provider tests can replace resolution only. */
+ const publicHttpNetwork = {
+@@ -444,6 +436,7 @@ var HttpFetchProvider = class {
  		}
  	}
  	async requestOnce(url, signal) {

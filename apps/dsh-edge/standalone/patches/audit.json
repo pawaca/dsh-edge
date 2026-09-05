@@ -26,8 +26,8 @@
   },
   {
     "package": "@deepseek-ai/dsh-web-fetch-http",
-    "rationale": "Reject IP literals and local naming scopes before every HTTP request, including redirected requests. Together with the Worker's global_fetch_strictly_public flag, this keeps model-selected URLs on the public-Internet path and blocks local-development SSRF.",
-    "removeWhen": "The published HTTP fetch provider exposes an equivalent per-hop public-target policy and the Edge private-target assertions pass without this patch."
+    "rationale": "Reject IP literals and local naming scopes before every HTTP request, including redirected requests, and route requests through the Workers global fetch instead of the upstream DNS-pinned undici transport. Cloudflare Workers cannot run undici Agent or node:dns lookups; the platform's global_fetch_strictly_public setting blocks private destinations after DNS resolution, which covers the rebinding attack the pinned transport defends against, and dropping undici removes about 175 KiB of gzip weight.",
+    "removeWhen": "The published HTTP fetch provider exposes a platform-fetch transport (or injectable transport seam) with an equivalent per-hop public-target policy, and the Edge private-target assertions pass without this patch."
   },
   {
     "package": "@deepseek-ai/dsh-web-search-deepseek",
