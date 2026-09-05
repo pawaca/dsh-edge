@@ -38,6 +38,7 @@
     "@deepseek-ai/dsh-api-gateway": "0.1.2-rc.1",
     "@deepseek-ai/dsh-goal": "0.1.2-rc.1",
     "@deepseek-ai/dsh-goal-round-driver": "0.1.2-rc.1",
+    "@deepseek-ai/dsh-host-plugin-inventory": "0.1.2-rc.1",
     "@deepseek-ai/dsh-sandbox": "0.1.2-rc.1",
     "@deepseek-ai/dsh-skill": "0.1.2-rc.1",
     "@deepseek-ai/dsh-tool-fs": "0.1.2-rc.1",
