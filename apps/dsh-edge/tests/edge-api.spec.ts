@@ -512,6 +512,21 @@ describe('Edge upstream API invariants', () => {
     expect(sessionEvent).toHaveBeenCalledWith(parentId, idleEvent)
   })
 
+  it('persists the client-minted requestId on the user message and falls back to the envelope rpcId', async () => {
+    const prompt = vi.fn(async () => {})
+    const edge = runtime({}, { prompt })
+    const content = [{ type: 'text', text: 'hello' }] satisfies PromptContentPart[]
+
+    const typert = request({ sessionId: parentId, mode: 'queue' as const, content, requestId: 'client-minted-id' })
+    const typertResponse = await createEdgeApi(edge).sessions.prompt(typert)
+    expect(typertResponse).toMatchObject({ rpcId: typert.rpcId, result: { ok: true, value: { accepted: true } } })
+    expect(prompt).toHaveBeenLastCalledWith(expect.objectContaining({ rpcId: 'client-minted-id' }))
+
+    const legacy = request({ sessionId: parentId, mode: 'queue' as const, content })
+    await createEdgeApi(edge).sessions.prompt(legacy)
+    expect(prompt).toHaveBeenLastCalledWith(expect.objectContaining({ rpcId: legacy.rpcId }))
+  })
+
   it('shares one UTF-8 text limit across prompts and queue edits', async () => {
     const updateQueue = vi.fn(() => 'accepted' as const)
     const prompt = vi.fn(async () => {})

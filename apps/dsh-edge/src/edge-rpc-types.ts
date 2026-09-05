@@ -89,7 +89,18 @@ export interface SessionModelsPayload { sessionId: SessionId }
 export interface SessionSelectModelPayload { sessionId: SessionId; provider: string; model: string; reasoningEffort?: string }
 export interface SessionRenamePayload { sessionId: SessionId; title: string }
 export interface SessionForkPayload { sessionId: SessionId; atSeq?: number }
-export interface SessionPromptPayload { sessionId: SessionId; mode: 'queue' | 'steer'; content: PromptContentPart[]; clientTimeZone?: string }
+export interface SessionPromptPayload {
+  sessionId: SessionId
+  mode: 'queue' | 'steer'
+  content: PromptContentPart[]
+  clientTimeZone?: string
+  /**
+   * Client-minted identity the Typert client persists on the exact accepted
+   * user message and uses to reconcile its optimistic copy; legacy envelope
+   * callers omit it and fall back to the transport rpcId.
+   */
+  requestId?: string
+}
 export interface SessionAttachmentPayload { sessionId: SessionId; attachmentId: string }
 export interface SessionUpdateQueuePayload { sessionId: SessionId; itemId: MessageId; action: QueueAction }
 export interface SessionCancelPayload { sessionId: SessionId }
