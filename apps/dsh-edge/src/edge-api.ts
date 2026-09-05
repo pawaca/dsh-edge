@@ -48,6 +48,7 @@ import type {
   WorkspaceInsertSessionBeforePayload,
   WorkspaceRenamePayload,
 } from './edge-rpc-types.ts'
+import { RpcId } from './edge-rpc-types.ts'
 import {
   SettingsConflictError,
   type SettingsDescriptor,
@@ -363,7 +364,11 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
       },
 
       async prompt(request: RpcRequest<SessionPromptPayload>) {
-        const { sessionId, mode, content, clientTimeZone } = request.payload
+        const { sessionId, mode, content, clientTimeZone, requestId } = request.payload
+        // The user message carries the client-minted requestId when the Typert
+        // client supplies one, so its optimistic copy reconciles with the
+        // persisted message; the envelope rpcId stays the transport correlation.
+        const messageRpcId = typeof requestId === 'string' && requestId !== '' ? RpcId(requestId) : request.rpcId
         const zone = canonicalClientTimeZone(clientTimeZone)
         if (clientTimeZone !== undefined && zone === undefined) {
           return fail(request, {
@@ -420,7 +425,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
               sessionId,
               mode,
               content: durable,
-              rpcId: request.rpcId,
+              rpcId: messageRpcId,
               ...zone === undefined ? {} : { clientTimeZone: zone },
             })
             return ok(request, { accepted: true as const })

@@ -712,19 +712,30 @@ try {
   assert.equal(invalidRename.body.result.error.code, 'title-invalid')
   assert.equal(invalidRename.body.result.error.details.sessionId, protocolSessionId)
 
-  const protocolPrompt = await rpc('session.prompt', {
-    sessionId: protocolSessionId,
-    mode: 'queue',
-    content: [{ type: 'text', text: 'upstream protocol path' }],
-    clientTimeZone: 'UTC',
+  // The Typert client mints its own requestId and reconciles its optimistic
+  // user message against message.source.rpcId, so the persisted message must
+  // carry that id rather than the transport envelope's rpcId.
+  const protocolRequestId = `client-minted-${crypto.randomUUID()}`
+  const protocolPrompt = await typertRpc('session', 'prompt', {
+    request: {
+      requestId: protocolRequestId,
+      sessionId: protocolSessionId,
+      mode: 'queue',
+      content: [{ type: 'text', text: 'upstream protocol path' }],
+      clientTimeZone: 'UTC',
+    },
   })
-  assert.equal(protocolPrompt.body.result.ok, true)
+  assert.equal(protocolPrompt.body.result.ok, true, JSON.stringify(protocolPrompt.body))
   assert.equal(protocolPrompt.body.result.value.accepted, true)
+  assert.notEqual(protocolPrompt.rpcId, protocolRequestId)
   const admittedHistory = await rpc('session.history', { sessionId: protocolSessionId })
   const admittedPrompt = admittedHistory.body.result.value.events
     .find(entry => entry.event.type === 'agent/inbox/spliced'
-      && entry.event.data.inserted?.some(message => message.source.rpcId === protocolPrompt.rpcId))
+      && entry.event.data.inserted?.some(message => message.source.rpcId === protocolRequestId))
   assert.notEqual(admittedPrompt, undefined)
+  assert.equal(admittedHistory.body.result.value.events.some(entry =>
+    entry.event.type === 'agent/inbox/spliced'
+      && entry.event.data.inserted?.some(message => message.source.rpcId === protocolPrompt.rpcId)), false)
   await host.next(message => message.payload.type === 'host/session-status'
     && message.payload.sessionId === protocolSessionId
     && message.payload.running === true)
@@ -744,7 +755,7 @@ try {
   assert.equal(protocolHistory.body.result.ok, true)
   const protocolUser = protocolHistory.body.result.value.events
     .find(entry => entry.event.type === 'user/message')
-  assert.equal(protocolUser.event.data.source.rpcId, protocolPrompt.rpcId)
+  assert.equal(protocolUser.event.data.source.rpcId, protocolRequestId)
   const protocolPromptProjection = await mux.next(message =>
     message.payload.type === 'session/projection'
       && message.payload.sessionId === protocolSessionId
