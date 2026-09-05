@@ -357,8 +357,15 @@ describe('dsh-edge assembled browser snapshot', () => {
         .find(cookie => cookie.name === 'dsh_edge_owner')
       expect(ownerCookie).toBeDefined()
       const ownerCookieHeader = `${ownerCookie.name}=${ownerCookie.value}`
+      const created = await worker.fetch('http://dsh-edge.test/api/sessions', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', cookie: ownerCookieHeader },
+        body: JSON.stringify({ title: 'image-intake-test' }),
+      })
+      expect(created.status).toBeLessThan(300)
       const sessions = await edgeRpc(worker, ownerCookieHeader, 'session.list', {})
       expect(sessions.result.ok).toBe(true)
+      expect(sessions.result.value.items.length).toBeGreaterThan(0)
       expect(sessions.result.value.items[0].projections.values.imageLimits).toMatchObject({
         maxImagesPerMessage: 4,
         mediaTypes: ['image/png', 'image/jpeg'],

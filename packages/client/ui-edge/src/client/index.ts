@@ -1,10 +1,5 @@
-import type { Context, Disposable } from '@deepseek-ai/cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import { writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
-
-interface EdgeSlots {
-  inject(name: string, callback: () => Disposable | Generator<Disposable>): Disposable
-  register(spec: object, component: unknown): Disposable
-}
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import { EdgeDirectoryFlow } from './EdgeDirectoryFlow.tsx'
@@ -15,6 +10,11 @@ import { en, zh, type EdgeSettingsKey } from './locales.ts'
 export type { EdgeSettingsInjected, EdgeSettingsSectionProps } from './EdgeSettingsSection.tsx'
 export type { EdgeSettingsKey } from './locales.ts'
 export type { EdgeSettingsState, EdgeHealth } from './store.ts'
+
+type Slots = {
+  inject(name: string, callback: (() => unknown) | (() => Generator<unknown>)): unknown
+  register(spec: object, component: unknown): unknown
+}
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap { 'settings.edge': EdgeSettingsKey }
@@ -44,11 +44,17 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   }
 }
 
-export const inject = ['slots']
+export const inject = ['slots', 'locale', 'settingsScope']
 
 export function apply(ctx: Context): void {
-  const slots: EdgeSlots = (ctx as unknown as { slots: EdgeSlots }).slots
-
+  const slots = (ctx as unknown as { slots: Slots }).slots
+  const mirror = (ctx as never as { settingsScope: { describe(): { persistence: string; load(): void } } })
+    .settingsScope.describe()
+  if (mirror.persistence === 'memory') {
+    mirror.persistence = 'host'
+    mirror.load()
+  }
+  ctx.effect(() => ctx.locale.register('settings.edge', { en, zh }), 'ui-edge: settings dictionaries')
   const controller = new EdgeSettingsController({
     fetch: (input, init) => globalThis.fetch(input, init),
     copy: async (text) => {
@@ -62,28 +68,14 @@ export function apply(ctx: Context): void {
     copyUpgrade: () => controller.copyUpgrade(),
     signOut: () => controller.signOut(),
   })
-
-  ctx.inject(['settingsScope'], (settingsCtx) => {
-    const mirror = (settingsCtx as never as { settingsScope: { describe(): { persistence: string; load(): void } } })
-      .settingsScope.describe()
-    if (mirror.persistence === 'memory') {
-      mirror.persistence = 'host'
-      mirror.load()
-    }
-  })
-
-  ctx.inject(['locale'], () => {
-    ctx.locale.register('settings.edge', { en, zh })
-    slots.inject('settings.section', () => slots.register({
-      name: 'settings.section',
-      id: 'dsh-edge',
-      order: 90,
-      label: () => ctx.locale.bind('settings.edge')('nav'),
-      locale: 'settings.edge',
-      inject: injected,
-    }, EdgeSettingsSection))
-  })
-
+  slots.inject('settings.section', () => slots.register({
+    name: 'settings.section',
+    id: 'dsh-edge',
+    order: 90,
+    label: () => ctx.locale.bind('settings.edge')('nav'),
+    locale: 'settings.edge',
+    inject: injected,
+  }, EdgeSettingsSection))
   slots.inject('conversation.hero.workspace.directoryFlow', () =>
     slots.inject('sidebar.workspaces.directoryFlow', function* () {
       yield slots.register(
@@ -96,7 +88,6 @@ export function apply(ctx: Context): void {
       )
     }),
   )
-
   ctx.inject(['workspaces'], () => {
     const workspaces = (ctx as never as { workspaces: { openPath(path: string): Promise<void> } }).workspaces
     const originalOpenPath = workspaces.openPath.bind(workspaces)

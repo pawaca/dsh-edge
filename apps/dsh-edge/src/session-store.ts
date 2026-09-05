@@ -282,12 +282,18 @@ export class EdgeSessionStore {
     await this.context.plugin(TypertRegistry)
     const { TypertGatewayService } = await import('@deepseek-ai/dsh-api-gateway')
     await this.context.plugin(TypertGatewayService)
+    const { Service: CordisService } = await import('@deepseek-ai/cordis')
+    const stubs = ['agentDefaultModel', 'sessionQuery', 'fileReferences'] as const
+    for (const name of stubs) {
+      const Stub = class extends CordisService { constructor(ctx: Context) { super(ctx, name) } }
+      await this.context.plugin(Stub)
+    }
     const { SessionController } = await import('@deepseek-ai/dsh-api-session-controller')
-    await this.context.plugin(SessionController)
+    this.context.plugin(SessionController, { nativeOpen: false })
     const { SettingsController } = await import('@deepseek-ai/dsh-api-settings-controller')
     await this.context.plugin(SettingsController)
     const { WorkspaceController } = await import('@deepseek-ai/dsh-api-workspace-controller')
-    await this.context.plugin(WorkspaceController)
+    this.context.plugin(WorkspaceController)
     await this.context.plugin(ToolFs)
     await this.context.plugin(ToolSkill)
     await this.context.plugin(GoalService)

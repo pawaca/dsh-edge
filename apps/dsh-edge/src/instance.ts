@@ -452,6 +452,26 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       return
     }
 
+    if (endpoint === '$events') {
+      try {
+        socket.send(JSON.stringify({
+          type: 'item', streamId,
+          value: { type: 'ready', clientId: crypto.randomUUID(), host: { home: '/' } },
+        }))
+      } catch {}
+      const abort = new AbortController()
+      const done = new Promise<void>(resolve => { abort.signal.addEventListener('abort', () => resolve()) })
+      streams.set(streamId, { abort, done })
+      return
+    }
+
+    if (endpoint === 'session/control' || endpoint === 'workspace/follow') {
+      const abort = new AbortController()
+      const done = new Promise<void>(resolve => { abort.signal.addEventListener('abort', () => resolve()) })
+      streams.set(streamId, { abort, done })
+      return
+    }
+
     const gateway = this.sessions.typertGateway()
     if (gateway === undefined) {
       const error = { code: 'gateway/service-unavailable', message: 'gateway not available', details: {} }
@@ -461,6 +481,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
 
     const abort = new AbortController()
     const done = this.pumpRemoteStream(socket, gateway, streamId, endpoint, payload, abort)
+      .catch(() => {})
     streams.set(streamId, { abort, done })
     void done.then(() => { if (streams.get(streamId)?.abort === abort) streams.delete(streamId) })
   }

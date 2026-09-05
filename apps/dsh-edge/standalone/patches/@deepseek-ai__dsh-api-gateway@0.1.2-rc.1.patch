@@ -1,3 +1,35 @@
+diff --git a/lib/index.js b/lib/index.js
+index 6fec766f27e713ba34613eca117cfc973f797a19..2b59e6ee0502d13b522ec8fa3b37af15cdb38175 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -394,7 +394,8 @@ function rejectRemoteStreamUpgrade(socket, status) {
+ * streams use the Gateway-owned WebSocket mux.
+ * @module @deepseek-ai/dsh-api-gateway
+ */
+-const NEVER_ABORTED_SIGNAL = new AbortController().signal;
++let _neverAbortedSignal;
++function neverAbortedSignal() { return _neverAbortedSignal ??= new AbortController().signal; }
+ const DEFAULT_WEBSOCKET_HEARTBEAT_INTERVAL_MS = 2e3;
+ /**
+ * Dispatch failure produced outside the invoked business method. Rides the
+@@ -561,7 +562,7 @@ var TypertGatewayService = class extends Service {
+ 			throw error;
+ 		}
+ 		if (!isIterable(source)) throw new TypertGatewayError("gateway/result-invalid", prepared.endpoint, "stream Remote method did not return Iterable or AsyncIterable", { field: "result" });
+-		return cancellableStream(source, prepared.endpoint, request.signal ?? NEVER_ABORTED_SIGNAL);
++		return cancellableStream(source, prepared.endpoint, request.signal ?? neverAbortedSignal());
+ 	}
+ 	async dispatchRpc(endpoint, payload, signal) {
+ 		if (endpoint === "$events/result") try {
+@@ -748,7 +749,7 @@ var TypertGatewayService = class extends Service {
+ 		if (!isObject(receiver)) throw new TypertGatewayError("gateway/service-unavailable", endpoint, `active Service ${JSON.stringify(descriptor.service)} is unavailable`);
+ 		validateBinding(receiver, descriptor.service, descriptor.namespace, endpoint);
+ 		const args = await Promise.all(descriptor.parameters.map((parameter) => this.resolveParameter(parameter, request.args, endpoint)));
+-		if (descriptor.cancellation !== void 0) args.push(request.signal ?? NEVER_ABORTED_SIGNAL);
++		if (descriptor.cancellation !== void 0) args.push(request.signal ?? neverAbortedSignal());
+ 		const implementation = descriptor.implementation ?? descriptor.method;
+ 		const method = Reflect.get(receiver, implementation);
+ 		if (typeof method !== "function") throw new TypertGatewayError("gateway/method-unavailable", endpoint, `active Service ${JSON.stringify(descriptor.service)} has no callable method ${JSON.stringify(implementation)}`);
 diff --git a/lib/types/index.js b/lib/types/index.js
 index 72e4275be2292e176c1b947c9302ccd2e080d1eb..9d7fa28fccb796aa241140cefae74860021cfeab 100644
 --- a/lib/types/index.js
