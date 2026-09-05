@@ -41,7 +41,7 @@
   },
   {
     "package": "@deepseek-ai/dsh-workspace",
-    "rationale": "Remove node:fs/promises realpath and stat calls that are incompatible with Cloudflare Workers. Edge VFS has no symlinks and Computer guarantees path validity.",
+    "rationale": "Replace node:fs/promises realpath with lexical path normalization and remove stat calls, both incompatible with Cloudflare Workers. Edge VFS has no symlinks, so lexical resolution of '.', '..', and duplicate separators is exactly realpath's canonical result and keeps caller-supplied traversal paths from persisting alias workspaces.",
     "removeWhen": "The published workspace registry accepts an injectable path normalizer or the realpath/stat calls are gated behind a platform check."
   }
 ]

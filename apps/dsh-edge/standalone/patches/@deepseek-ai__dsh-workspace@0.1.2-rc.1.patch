@@ -1,5 +1,5 @@
 diff --git a/lib/index.js b/lib/index.js
-index 881df45e4a86aa1a5d75ee74c19612f9244d6b5c..6d8159d7f40ad97082184946d93abb1f9f00856b 100644
+index 881df45e4a86aa1a5d75ee74c19612f9244d6b5c..4e274f01f445f361c9b08611ee4df198501a2d4e 100644
 --- a/lib/index.js
 +++ b/lib/index.js
 @@ -1,5 +1,4 @@
@@ -8,16 +8,26 @@ index 881df45e4a86aa1a5d75ee74c19612f9244d6b5c..6d8159d7f40ad97082184946d93abb1f
  import { basename } from "node:path";
  import { Service } from "@deepseek-ai/cordis";
  import { z } from "zod";
-@@ -23,7 +22,7 @@ import { defineDomain, domainTable } from "@deepseek-ai/dsh-storage-domain";
+@@ -23,7 +22,17 @@ import { defineDomain, domainTable } from "@deepseek-ai/dsh-storage-domain";
  * @returns the canonical absolute path.
  */
  async function realpathNormalize(path) {
 -	return await realpath(path);
-+	return path;
++	if (!path.startsWith("/")) throw new Error(`workspace path '${path}' must be absolute`);
++	const segments = [];
++	for (const segment of path.split("/")) {
++		if (segment === "" || segment === ".") continue;
++		if (segment === "..") {
++			segments.pop();
++			continue;
++		}
++		segments.push(segment);
++	}
++	return `/${segments.join("/")}`;
  }
  //#endregion
  //#region lib/types/entity.js
-@@ -94,7 +93,8 @@ var WorkspaceEntity = class {
+@@ -94,7 +103,8 @@ var WorkspaceEntity = class {
  			} catch (error) {
  				throw new Error(`cannot attach session '${sessionId}' to workspace '${this.record.path}': its cwd '${header.cwd}' does not resolve, so it cannot be validated`, { cause: error });
  			}
@@ -27,7 +37,7 @@ index 881df45e4a86aa1a5d75ee74c19612f9244d6b5c..6d8159d7f40ad97082184946d93abb1f
  			if (cwd !== this.record.path) throw new Error(`cannot attach session '${sessionId}' to workspace '${this.record.path}': its cwd resolves to '${cwd}'`);
  			this.host.rememberSessionPath(sessionId, cwd);
  		}
-@@ -129,7 +129,7 @@ var WorkspaceEntity = class {
+@@ -129,7 +139,7 @@ var WorkspaceEntity = class {
  	}
  	async status() {
  		try {
@@ -36,7 +46,7 @@ index 881df45e4a86aa1a5d75ee74c19612f9244d6b5c..6d8159d7f40ad97082184946d93abb1f
  		} catch {
  			return "missing-dir";
  		}
-@@ -340,7 +340,8 @@ var WorkspaceRegistry = class extends Service {
+@@ -340,7 +350,8 @@ var WorkspaceRegistry = class extends Service {
  	*/
  	async create(path, title) {
  		const canonical = await realpathNormalize(path);
@@ -46,7 +56,7 @@ index 881df45e4a86aa1a5d75ee74c19612f9244d6b5c..6d8159d7f40ad97082184946d93abb1f
  		return await this.enqueueOperation(() => this.createCanonical(canonical, title));
  	}
  	/**
-@@ -691,7 +692,8 @@ var WorkspaceRegistry = class extends Service {
+@@ -691,7 +702,8 @@ var WorkspaceRegistry = class extends Service {
  		}
  		try {
  			const path = await realpathNormalize(header.cwd);

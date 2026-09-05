@@ -840,6 +840,29 @@ try {
     forkedSessionId,
   ])
 
+  const traversalWorkspace = await rpc('workspace.create', {
+    path: '/workspace/aliases/../projects/./deep/',
+  })
+  assert.equal(traversalWorkspace.body.result.ok, true)
+  assert.equal(traversalWorkspace.body.result.value.workspace.path, '/workspace/projects/deep')
+  const aliasWorkspace = await rpc('workspace.create', {
+    path: '/workspace/projects/deep',
+  })
+  assert.equal(aliasWorkspace.body.result.ok, true)
+  assert.equal(aliasWorkspace.body.result.value.created, false)
+  assert.equal(
+    aliasWorkspace.body.result.value.workspace.workspaceId,
+    traversalWorkspace.body.result.value.workspace.workspaceId,
+  )
+  const removedTraversalWorkspace = await rpc('workspace.delete', {
+    workspaceId: traversalWorkspace.body.result.value.workspace.workspaceId,
+  })
+  assert.equal(removedTraversalWorkspace.body.result.ok, true)
+  const removedTraversalFrame = await host.next(message =>
+    message.payload.type === 'host/workspace-removed'
+      && message.payload.workspaceId === traversalWorkspace.body.result.value.workspace.workspaceId)
+  assert.ok(removedTraversalFrame)
+
   const renamedWorkspace = await rpc('workspace.rename', {
     workspaceId: 'edge-workspace',
     title: 'Edge project',
