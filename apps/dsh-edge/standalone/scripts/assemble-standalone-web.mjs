@@ -5,7 +5,7 @@ import { createRequire } from 'node:module'
 import { cp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { bootInjections, orderByModuleGraph } from '@deepseek-ai/dsh-client-modules'
+import { ClientModuleRegistry, bootInjections, orderByModuleGraph } from '@deepseek-ai/dsh-client-modules'
 import { renderIndexInjections } from '@deepseek-ai/dsh-host-webserver'
 
 const standaloneRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -201,7 +201,27 @@ async function main() {
   }
 
   const orderedEntries = orderByModuleGraph(entries)
-  const graph = { rev: shortHash(JSON.stringify(orderedEntries)), entries: orderedEntries }
+  const bootstrapIds = new Set(['@deepseek-ai/dsh-client-modules'])
+  const bootstrapEntries = orderedEntries.filter(e => bootstrapIds.has(e.id))
+  const applicationEntries = orderedEntries.filter(e => !bootstrapIds.has(e.id))
+  const batches = []
+  if (bootstrapEntries.length > 0) {
+    batches.push({
+      phase: 'bootstrap',
+      url: bootstrapEntries[0].url,
+      rev: bootstrapEntries[0].rev,
+      entries: bootstrapEntries.map(e => e.id),
+    })
+  }
+  for (const entry of applicationEntries) {
+    batches.push({
+      phase: 'application',
+      url: entry.url,
+      rev: entry.rev,
+      entries: [entry.id],
+    })
+  }
+  const graph = { rev: shortHash(JSON.stringify(orderedEntries)), entries: orderedEntries, batches }
   const indexPath = join(outputRoot, 'index.html')
   const index = await readFile(indexPath, 'utf8')
   const bootstrappedIndex = renderIndexInjections(index, bootInjections(graph))

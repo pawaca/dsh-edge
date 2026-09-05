@@ -1,7 +1,7 @@
 import { createElement, type ReactNode } from 'react'
 import { vi } from 'vitest'
 
-vi.mock('@deepseek-ai/dsh-client-runtime/client', () => ({
+vi.mock('@deepseek-ai/dsh-client-store', () => ({
   createSnapshotStore<T extends object>(initial: T) {
     let state = initial
     const listeners = new Set<() => void>()

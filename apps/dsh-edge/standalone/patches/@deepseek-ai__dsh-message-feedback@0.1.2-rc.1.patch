@@ -1,8 +1,8 @@
 diff --git a/lib/index.js b/lib/index.js
-index 2a2f0d5b46099b526bfa4fce265ba08ec5742604..16ed38ed05c6d4d77521f16bb2e29c6e184429e5 100644
+index 3b20b33f24ac4ca4f23a6382a393b53f9a8afb8a..d48a050545749a8db724f7e266d6a3ae3aed9753 100644
 --- a/lib/index.js
 +++ b/lib/index.js
-@@ -242,9 +242,12 @@ let MessageFeedbackService = (() => {
+@@ -243,9 +243,12 @@ let MessageFeedbackService = (() => {
  			"sessions"
  		];
  		/** Loader validation for the required note-size policy. */
@@ -17,14 +17,13 @@ index 2a2f0d5b46099b526bfa4fce265ba08ec5742604..16ed38ed05c6d4d77521f16bb2e29c6e
  		operationTails = /* @__PURE__ */ new Map();
  		mutationAdmissionOpen = true;
  		/**
-@@ -254,16 +257,25 @@ let MessageFeedbackService = (() => {
+@@ -255,16 +258,25 @@ let MessageFeedbackService = (() => {
  		constructor(ctx, config) {
  			super(ctx, "messageFeedback");
  			this.maxNoteBytes = resolveMaxNoteBytes(config.maxNoteBytes);
 +			this.store = config.store;
  		}
--		/** Open and own the one message-feedback sidecar domain. */
-+		/** Use an injected point store or open and own the default sidecar domain. */
+ 		/** Open and own the one message-feedback sidecar domain. */
  		async [Service.init]() {
 +			if (this.store !== void 0) {
 +				this.ctx.effect(() => async () => {
@@ -45,7 +44,7 @@ index 2a2f0d5b46099b526bfa4fce265ba08ec5742604..16ed38ed05c6d4d77521f16bb2e29c6e
  		}
  		/**
  		* Read feedback belonging to the current persisted Session lifecycle.
-@@ -274,7 +286,7 @@ let MessageFeedbackService = (() => {
+@@ -275,7 +287,7 @@ let MessageFeedbackService = (() => {
  		async list(request) {
  			const known = await this.inspectSession(request.sessionId);
  			if (!known.ok) return known;
@@ -54,7 +53,7 @@ index 2a2f0d5b46099b526bfa4fce265ba08ec5742604..16ed38ed05c6d4d77521f16bb2e29c6e
  			return success(snapshotList(row !== void 0 && sameIdentity(row, known.value.meta) ? row.items : EMPTY_ITEMS));
  		}
  		/**
-@@ -301,8 +313,8 @@ let MessageFeedbackService = (() => {
+@@ -302,8 +314,8 @@ let MessageFeedbackService = (() => {
  					sessionId: request.sessionId,
  					messageId: request.messageId
  				});
@@ -65,7 +64,7 @@ index 2a2f0d5b46099b526bfa4fce265ba08ec5742604..16ed38ed05c6d4d77521f16bb2e29c6e
  				const items = (stored !== void 0 && sameIdentity(stored, durable.meta) ? stored : void 0)?.items ?? EMPTY_ITEMS;
  				const index = items.findIndex((item) => item.messageId === request.messageId);
  				const existing = items[index];
-@@ -320,7 +332,7 @@ let MessageFeedbackService = (() => {
+@@ -321,7 +333,7 @@ let MessageFeedbackService = (() => {
  				const nextItems = [...items];
  				if (index === -1) nextItems.push(item);
  				else nextItems[index] = item;
@@ -74,7 +73,7 @@ index 2a2f0d5b46099b526bfa4fce265ba08ec5742604..16ed38ed05c6d4d77521f16bb2e29c6e
  				return success(snapshotItem(item));
  			});
  		}
-@@ -334,13 +346,13 @@ let MessageFeedbackService = (() => {
+@@ -335,13 +347,13 @@ let MessageFeedbackService = (() => {
  			return this.enqueue(request.sessionId, async () => {
  				const known = await this.inspectSession(request.sessionId);
  				if (!known.ok) return known;
@@ -91,15 +90,13 @@ index 2a2f0d5b46099b526bfa4fce265ba08ec5742604..16ed38ed05c6d4d77521f16bb2e29c6e
  				return success(Object.freeze({ absent: true }));
  			});
  		}
-@@ -409,10 +421,10 @@ let MessageFeedbackService = (() => {
- 				if (this.operationTails.get(sessionId) === tail) this.operationTails.delete(sessionId);
+@@ -411,9 +423,9 @@ let MessageFeedbackService = (() => {
  			});
  		}
--		/** Resolve the initialized durable table or fail a broken service lifecycle. */
+ 		/** Resolve the initialized durable table or fail a broken service lifecycle. */
 -		requireTable() {
 -			if (this.table === void 0) throw new Error("message-feedback: durable domain is not initialized");
 -			return this.table;
-+		/** Resolve the initialized durable store or fail a broken service lifecycle. */
 +		requireStore() {
 +			if (this.store === void 0) throw new Error("message-feedback: durable store is not initialized");
 +			return this.store;
@@ -107,22 +104,20 @@ index 2a2f0d5b46099b526bfa4fce265ba08ec5742604..16ed38ed05c6d4d77521f16bb2e29c6e
  	};
  })();
 diff --git a/lib/types/index.d.ts b/lib/types/index.d.ts
-index d5dd7ae022c7ad18b6e11b19ffd006bdd50d77b2..34a31b5a9b9ef3df291f712b4b9423ae6ee2a8a5 100644
+index d5dd7ae022c7ad18b6e11b19ffd006bdd50d77b2..ed82023722092b2a4ecba026d1027e3cb153a5c5 100644
 --- a/lib/types/index.d.ts
 +++ b/lib/types/index.d.ts
-@@ -6,13 +6,21 @@ import { Context, Service } from '@deepseek-ai/cordis';
- import s from '@deepseek-ai/schemastery';
- import { TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol';
- import type { MessageFeedbackDeleteRequest, MessageFeedbackDeleteResult, MessageFeedbackListRequest, MessageFeedbackListResult, MessageFeedbackPutRequest, MessageFeedbackPutResult } from './types.ts';
-+import type { MessageFeedbackRow } from './spec.ts';
+@@ -9,10 +9,19 @@ import type { MessageFeedbackDeleteRequest, MessageFeedbackDeleteResult, Message
  export type * from './types.ts';
  export { messageFeedbackDomainSpec, messageFeedbackItemSchema, messageFeedbackRatingSchema, messageFeedbackRowSchema, messageFeedbackSessionIdentitySchema, messageFeedbackVersionSchema, } from './spec.ts';
  export type { MessageFeedbackRow, MessageFeedbackSessionIdentity } from './spec.ts';
++import type { MessageFeedbackRow } from './spec.ts';
 +/** Deployment-owned persistence seam for one feedback row per Session. */
 +export interface MessageFeedbackStore {
 +    get(sessionId: string): MessageFeedbackRow | undefined | Promise<MessageFeedbackRow | undefined>;
 +    put(sessionId: string, row: MessageFeedbackRow): void | Promise<void>;
 +}
++
  /** Required deployment policy for optional notes. */
  export interface Config {
      /** Maximum UTF-8 byte length accepted for one note. */
@@ -132,7 +127,7 @@ index d5dd7ae022c7ad18b6e11b19ffd006bdd50d77b2..34a31b5a9b9ef3df291f712b4b9423ae
  }
  declare module '@deepseek-ai/cordis' {
      interface Context {
-@@ -28,7 +36,7 @@ export declare class MessageFeedbackService extends TypertRemoteService {
+@@ -28,7 +37,7 @@ export declare class MessageFeedbackService extends TypertRemoteService {
      /** Loader validation for the required note-size policy. */
      static Config: s<Config>;
      private readonly maxNoteBytes;
@@ -141,7 +136,7 @@ index d5dd7ae022c7ad18b6e11b19ffd006bdd50d77b2..34a31b5a9b9ef3df291f712b4b9423ae
      private readonly operationTails;
      private mutationAdmissionOpen;
      /**
-@@ -36,7 +44,7 @@ export declare class MessageFeedbackService extends TypertRemoteService {
+@@ -36,7 +45,7 @@ export declare class MessageFeedbackService extends TypertRemoteService {
       * @param config - Required note-size policy.
       */
      constructor(ctx: Context, config: Config);
@@ -150,7 +145,7 @@ index d5dd7ae022c7ad18b6e11b19ffd006bdd50d77b2..34a31b5a9b9ef3df291f712b4b9423ae
      protected [Service.init](): Promise<void>;
      /**
       * Read feedback belonging to the current persisted Session lifecycle.
-@@ -81,8 +89,8 @@ export declare class MessageFeedbackService extends TypertRemoteService {
+@@ -81,8 +90,8 @@ export declare class MessageFeedbackService extends TypertRemoteService {
      private versionConflict;
      /** Queue a complete read/compare/write mutation behind this Session's prior mutation. */
      private enqueue;

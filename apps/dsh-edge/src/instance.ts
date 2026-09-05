@@ -11,19 +11,18 @@ import {
 } from '@cloudflare/computer/backends/worker-shell'
 import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
-import type {
-  HostFrame,
-  MuxFrame,
-  QueueAction,
-  QueuedInboxItem,
-  ServerRequest,
-  SessionListMetadata,
-  WorkspaceId,
-  WorkspaceView,
-} from '@deepseek-ai/dsh-host-apiproxy/api'
-import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api'
-import { toFetchHandler } from '@deepseek-ai/dsh-host-apiproxy'
-import { freezeMessage, type MessageId } from '@deepseek-ai/dsh-llm'
+import type { SessionListMetadata, QueueAction } from '@deepseek-ai/dsh-api-session-controller/types'
+import type { WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/types'
+import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
+import {
+  RpcId,
+  type HostFrame,
+  type MuxFrame,
+  type QueuedInboxItem,
+  type ServerRequest,
+} from './edge-rpc-types.ts'
+import { dispatchEdgeApi } from './edge-api-dispatch.ts'
+import { freezeMessage, type MessageId, type UserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { normalizeSessionTitle } from '@deepseek-ai/dsh-session-title'
@@ -120,9 +119,38 @@ function workspaceEntityToView(entity: {
 }
 
 interface DownlinkAttachment {
-  channel: 'mux' | 'host'
+  channel: 'mux' | 'host' | 'remote.mux'
   expiresAt: number
 }
+
+/** Whether the Typert gateway reported that no active service exports the endpoint. */
+function isUnservedEndpointError(error: unknown): boolean {
+  const code = (error as { code?: unknown }).code
+  if (code === 'gateway/definition-unavailable'
+    || code === 'gateway/method-unavailable'
+    || code === 'gateway/service-unavailable') return true
+  return error instanceof Error && error.message.includes('no active Remote method')
+}
+
+/** Project a gateway failure onto the RPC wire without inventing a new code. */
+function remoteFailureOf(error: unknown): { code: string; message: string; details: object } {
+  const remote = error as { code?: unknown; message?: unknown; details?: unknown }
+  if (typeof remote.code === 'string' && typeof remote.message === 'string') {
+    return {
+      code: remote.code,
+      message: remote.message,
+      details: typeof remote.details === 'object' && remote.details !== null ? remote.details : {},
+    }
+  }
+  return {
+    code: 'internal',
+    message: error instanceof Error ? error.message : String(error),
+    details: {},
+  }
+}
+
+type RemoteStreamEntry = { abort: AbortController; done: Promise<void> }
+const remoteStreams = new WeakMap<WebSocket, Map<string, RemoteStreamEntry>>()
 
 /** Mirror the upstream session-list projection fold at the Edge transport seam. */
 function applySessionListMetadata(
@@ -215,6 +243,9 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       ...this.env.DEEPSEEK_BASE_URL === undefined
         ? {}
         : { baseURL: this.env.DEEPSEEK_BASE_URL },
+      ...this.env.DEEPSEEK_MODEL === undefined
+        ? {}
+        : { model: this.env.DEEPSEEK_MODEL },
       ...this.env.DEEPSEEK_MAX_OUTPUT_TOKENS === undefined
         ? {}
         : { maxTokens: this.env.DEEPSEEK_MAX_OUTPUT_TOKENS },
@@ -288,7 +319,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       this.publishSessionEvent(sessionId, event)
     },
   })
-  private readonly apiFetch = toFetchHandler(this.api).fetch
+  private readonly apiFetch = (request: Request) => dispatchEdgeApi(this.api, request)
 
   /** Serve session routes forwarded by the entry Worker. */
   override async fetch(request: Request): Promise<Response> {
@@ -298,6 +329,9 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       if (typertResponse !== undefined) return typertResponse
       if (url.pathname === '/api/events.mux' || url.pathname === '/api/events.host') {
         return await this.openDownlink(request, url.pathname === '/api/events.mux' ? 'mux' : 'host')
+      }
+      if (url.pathname === '/api/remote.mux') {
+        return this.openRemoteMux(request)
       }
       if (url.pathname === '/api/skills') {
         return await this.handleSkillsCrud(request)
@@ -341,15 +375,27 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     }
   }
 
-  /** Reject client messages because both upstream WebSockets are downlink-only. */
-  override webSocketMessage(socket: WebSocket, _message: string | ArrayBuffer): void {
+  override webSocketMessage(socket: WebSocket, message: string | ArrayBuffer): void {
     if (this.closeExpiredDownlink(socket, Date.now())) return
+    const attachment = readDownlinkAttachment(socket)
+    if (attachment?.channel === 'remote.mux') {
+      if (typeof message !== 'string') {
+        socket.close(1003, 'text messages required')
+        return
+      }
+      this.handleRemoteMuxMessage(socket, message)
+      return
+    }
     socket.close(1008, 'downlink only')
   }
 
-  /** Close a broken downstream without affecting other subscribers. */
+  override webSocketClose(socket: WebSocket, _code: number, _reason: string, _wasClean: boolean): void {
+    this.abortRemoteStreams(socket)
+  }
+
   override webSocketError(socket: WebSocket, error: unknown): void {
     console.error('dsh-edge downstream WebSocket failed.', error)
+    this.abortRemoteStreams(socket)
     socket.close(1011, 'downstream failure')
   }
 
@@ -391,6 +437,105 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       return new Response(null, { status: 101, webSocket: client })
     }
     return channel === 'mux' ? this.sessions.withMuxBaseline(accept) : accept()
+  }
+
+  private async openRemoteMux(request: Request): Promise<Response> {
+    if (request.headers.get('upgrade')?.toLowerCase() !== 'websocket') {
+      throw new EdgeHttpError(426, 'This endpoint requires a WebSocket upgrade.')
+    }
+    const expiresAt = requireOwnerSessionExpiry(request)
+    await this.scheduleDownlinkExpiry(expiresAt * 1_000)
+    const pair = new WebSocketPair()
+    const server = pair[1]
+    server.serializeAttachment({ channel: 'remote.mux', expiresAt } satisfies DownlinkAttachment)
+    this.ctx.acceptWebSocket(server, ['remote.mux'])
+    remoteStreams.set(server, new Map())
+    return new Response(null, { status: 101, webSocket: pair[0] })
+  }
+
+  private handleRemoteMuxMessage(socket: WebSocket, text: string): void {
+    let message: { type: string; streamId?: string; endpoint?: string; payload?: unknown }
+    try {
+      message = JSON.parse(text) as typeof message
+      if (typeof message?.type !== 'string') throw new Error()
+    } catch {
+      socket.close(1008, 'invalid Remote stream request')
+      return
+    }
+    const streams = remoteStreams.get(socket)
+    if (streams === undefined) {
+      // A hibernation-restored socket has no process-local stream state and its
+      // previously pumped streams died with the old isolate. Close it so the
+      // client's reconnect path re-opens every logical stream cleanly.
+      socket.close(1011, 'Remote stream state was lost; reconnect')
+      return
+    }
+
+    if (message.type === 'cancel' && typeof message.streamId === 'string') {
+      streams.get(message.streamId)?.abort.abort(new Error('Remote stream cancelled'))
+      return
+    }
+
+    if (message.type !== 'open'
+      || typeof message.streamId !== 'string'
+      || typeof message.endpoint !== 'string') {
+      return
+    }
+
+    const { streamId, endpoint, payload } = message
+    if (streams.has(streamId)) {
+      socket.close(1008, 'duplicate Remote stream id')
+      return
+    }
+
+    const gateway = this.sessions.typertGateway()
+    if (gateway === undefined) {
+      const error = { code: 'gateway/service-unavailable', message: 'gateway not available', details: {} }
+      try { socket.send(JSON.stringify({ type: 'error', streamId, error })) } catch {}
+      return
+    }
+
+    const abort = new AbortController()
+    const done = this.pumpRemoteStream(socket, gateway, streamId, endpoint, payload, abort)
+      .catch(() => {})
+    streams.set(streamId, { abort, done })
+    void done.then(() => { if (streams.get(streamId)?.abort === abort) streams.delete(streamId) })
+  }
+
+  private async pumpRemoteStream(
+    socket: WebSocket,
+    gateway: { wireStream: { open(endpoint: string, payload: unknown, signal: AbortSignal): Promise<AsyncIterable<unknown>>; failure(error: unknown): { code: string; message: string; details: object } } },
+    streamId: string,
+    endpoint: string,
+    payload: unknown,
+    abort: AbortController,
+  ): Promise<void> {
+    try {
+      const source = await gateway.wireStream.open(endpoint, payload, abort.signal)
+      for await (const value of source) {
+        if (socket.readyState !== WebSocket.OPEN) break
+        socket.send(JSON.stringify({ type: 'item', streamId, value }))
+      }
+      if (!abort.signal.aborted && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: 'end', streamId }))
+      }
+    } catch (error) {
+      if (!abort.signal.aborted && socket.readyState === WebSocket.OPEN) {
+        try {
+          const failure = gateway.wireStream.failure(error)
+          socket.send(JSON.stringify({ type: 'error', streamId, error: failure }))
+        } catch {
+          socket.close(1011, 'Remote stream failure could not be delivered')
+        }
+      }
+    }
+  }
+
+  private abortRemoteStreams(socket: WebSocket): void {
+    const streams = remoteStreams.get(socket)
+    if (streams === undefined) return
+    for (const entry of streams.values()) entry.abort.abort(new Error('Remote stream socket closed'))
+    remoteStreams.delete(socket)
   }
 
   private publishSessionCreated(session: EdgeApiSessionSummary): void {
@@ -518,25 +663,45 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
   private async handleTypertRpc(request: Request, url: URL): Promise<Response | undefined> {
     const match = /^\/api\/([a-zA-Z0-9_$.-]+)\/([a-zA-Z0-9_$.-]+)$/.exec(url.pathname)
     if (match === null || request.method !== 'POST') return undefined
-    const gateway = this.sessions.typertGateway()
-    if (gateway === undefined) return undefined
     let body: Record<string, unknown>
     try { body = await request.json() as Record<string, unknown> } catch { return new Response('invalid JSON', { status: 400 }) }
     const rpcId = body.rpcId as string | undefined ?? 'unknown'
     const payload = body.payload as Record<string, unknown> | undefined
     const args = payload?.args as Record<string, unknown> | undefined ?? {}
+    const ns = match[1]!
+    const method = match[2]!
+    const edgeDispatch = () => {
+      const keys = Object.keys(args)
+      const flatArgs = keys.length === 1 && keys[0] === 'request'
+        ? args.request as Record<string, unknown>
+        : args
+      const edgeBody = { ...body, payload: flatArgs }
+      const edgePath = `/api/${ns}.${method}`
+      return this.apiFetch(new Request(new URL(edgePath, request.url).href, {
+        method: 'POST',
+        headers: request.headers,
+        body: JSON.stringify(edgeBody),
+      }))
+    }
+    // The Edge owns the turn lifecycle (Computer shell binding and DO
+    // waitUntil keep-alive), so prompt admission and cancellation stay on the
+    // Edge implementation until that lifecycle moves into agent hooks.
+    if (ns === 'session' && (method === 'prompt' || method === 'cancel')) return edgeDispatch()
+    const gateway = this.sessions.typertGateway()
+    if (gateway === undefined) return edgeDispatch()
     try {
-      const value = await gateway.invoke({
-        namespace: match[1]!,
-        method: match[2]!,
-        args,
-        signal: AbortSignal.timeout(30_000),
-      })
+      const value = await gateway.invoke({ namespace: ns, method, args, signal: AbortSignal.timeout(30_000) })
       return Response.json({ type: 'server-response', rpcId, result: { ok: true, value } })
     } catch (error) {
+      // Only endpoints no registered controller serves fall back to the Edge
+      // API; validation and business failures surface as the gateway reported
+      // them so protocol regressions stay visible.
+      if (isUnservedEndpointError(error)) {
+        try { return await edgeDispatch() } catch {}
+      }
       return Response.json({ type: 'server-response', rpcId, result: {
         ok: false,
-        error: { code: 'internal', message: error instanceof Error ? error.message : String(error), details: {} },
+        error: remoteFailureOf(error),
       } })
     }
   }
@@ -876,7 +1041,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       if (!preservesAdmittedQueueImages(message.content, action.content)) {
         return 'queue-edit-attachment-invalid'
       }
-      agent.inbox.replace(itemId, freezeMessage({ ...message, content: action.content }))
+      agent.inbox.replace(itemId, freezeMessage({ ...message, content: [...action.content] } as UserMessage))
     } else {
       agent.inbox.remove(itemId)
       if (action.kind === 'steer') agent.steer(message)
@@ -1095,7 +1260,7 @@ function readDownlinkAttachment(socket: WebSocket): DownlinkAttachment | undefin
     const attachment: unknown = socket.deserializeAttachment()
     if (typeof attachment !== 'object' || attachment === null) return undefined
     const { channel, expiresAt } = attachment as Record<string, unknown>
-    if ((channel !== 'mux' && channel !== 'host')
+    if ((channel !== 'mux' && channel !== 'host' && channel !== 'remote.mux')
       || typeof expiresAt !== 'number'
       || !Number.isSafeInteger(expiresAt)) {
       return undefined

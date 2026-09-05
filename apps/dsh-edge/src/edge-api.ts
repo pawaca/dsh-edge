@@ -1,4 +1,4 @@
-/** Upstream ApiProxy implementation over one Cloudflare DSH instance. */
+/** Edge API implementation over one Cloudflare DSH instance. */
 
 import {
   AttachmentError,
@@ -7,20 +7,47 @@ import {
   type ImageAttachmentLimits,
 } from '@deepseek-ai/dsh-attachment'
 import type {
-  ApiProxy,
-  CredentialView,
-  HistoryEntry,
   PromptContentPart,
   QueueAction,
+  SessionProjectionHints,
+  SessionSummary,
+} from '@deepseek-ai/dsh-api-session-controller/types'
+import type { WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/types'
+import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
+import type { CredentialInfo } from '@deepseek-ai/dsh-credentials/types'
+import type { SettingsNamespaceView } from '@deepseek-ai/dsh-settings/types'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
+import type {
+  AgentPresetPayload,
+  CredentialDescribePayload,
+  CredentialSetPayload,
+  CredentialUnsetPayload,
+  HistoryEntry,
   RpcError,
   RpcRequest,
   RpcResponse,
-  SessionProjectionsBlock,
-  SessionSummary,
-  SettingsNamespaceView,
-  WorkspaceId,
-  WorkspaceView,
-} from '@deepseek-ai/dsh-host-apiproxy/api'
+  SessionAttachmentPayload,
+  SessionCancelPayload,
+  SessionCreatePayload,
+  SessionForkPayload,
+  SessionHistoryPayload,
+  SessionListPayload,
+  SessionModelsPayload,
+  SessionPromptPayload,
+  SessionRenamePayload,
+  SessionSearchPayload,
+  SessionSelectModelPayload,
+  SessionUpdateQueuePayload,
+  SettingsMutatePayload,
+  SettingsReplacePayload,
+  SettingsUpdatePayload,
+  WorkspaceArchiveSessionPayload,
+  WorkspaceCreatePayload,
+  WorkspaceDeletePayload,
+  WorkspaceInsertBeforePayload,
+  WorkspaceInsertSessionBeforePayload,
+  WorkspaceRenamePayload,
+} from './edge-rpc-types.ts'
 import {
   SettingsConflictError,
   type SettingsDescriptor,
@@ -68,7 +95,7 @@ export interface EdgeApiRuntime {
   readonly version: string
   readonly imageLimits?: ImageAttachmentLimits
   deploymentProfile(): EdgeDeploymentProfile
-  describeCredential(ref: string): Promise<CredentialView>
+  describeCredential(ref: string): Promise<CredentialInfo>
   setCredential(ref: string, value: string): Promise<void>
   unsetCredential(ref: string): Promise<void>
   settingsWritable(): Promise<boolean>
@@ -120,8 +147,11 @@ export interface EdgeApiRuntime {
   sessionEvent(sessionId: SessionId, event: SessionEvent): void
 }
 
-/** Build the typed upstream API for one isolated Edge instance. */
-export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
+/** The Edge API shape returned by createEdgeApi. */
+export type EdgeApi = ReturnType<typeof createEdgeApi>
+
+/** Build the typed Edge API for one isolated Edge instance. */
+export function createEdgeApi(runtime: EdgeApiRuntime) {
   const imageMutationChains = new Map<SessionId, Promise<void>>()
   const serializeImageMutation = <T>(sessionId: SessionId, operation: () => Promise<T>) => {
     const result = (imageMutationChains.get(sessionId) ?? Promise.resolve()).then(operation)
@@ -131,14 +161,14 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
       if (imageMutationChains.get(sessionId) === tail) imageMutationChains.delete(sessionId)
     })
   }
-  const api: ApiProxy = {
+  const api = {
     sessions: {
-      async list(request) {
+      async list(request: RpcRequest<SessionListPayload>) {
         const sessions = await runtime.sessions.listApiSessions()
         return ok(request, { items: sessions.map(summary => sessionSummary(runtime, summary)) })
       },
 
-      async search(request, signal) {
+      async search(request: RpcRequest<SessionSearchPayload>, signal: AbortSignal) {
         try {
           return ok(request, await runtime.sessions.searchApiSessions(request.payload.query, signal))
         } catch (error) {
@@ -157,7 +187,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
         }
       },
 
-      async create(request) {
+      async create(request: RpcRequest<SessionCreatePayload>) {
         const { workspaceId, cwd, sessionId, agentPreset } = request.payload
         let resolvedCwd = cwd
         if (workspaceId !== undefined) {
@@ -215,7 +245,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
         }
       },
 
-      async history(request) {
+      async history(request: RpcRequest<SessionHistoryPayload>) {
         const { sessionId, beforeSeq, maxMessages } = request.payload
         try {
           const page = await runtime.sessions.readHistoryPage(
@@ -243,7 +273,24 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
         }
       },
 
-      async models(request) {
+      async page(request: RpcRequest<Record<string, unknown>>) {
+        const addr = request.payload.address as { sessionId?: SessionId } | undefined
+        const sessionId = addr?.sessionId ?? request.payload.sessionId as SessionId | undefined
+        const beforeSeq = request.payload.beforeSeq as number | undefined
+        const maxMessages = request.payload.maxMessages as number | undefined
+        if (sessionId === undefined) {
+          return fail(request, { code: 'invalid-request', message: 'sessionId is required', details: {} })
+        }
+        try {
+          const historyPage = await runtime.sessions.readHistoryPage(sessionId, beforeSeq, maxMessages ?? DEFAULT_HISTORY_MESSAGES)
+          const records = historyPage.events.map((event: SessionEvent) => ({ type: 'event' as const, event }))
+          return ok(request, { records, hasMore: historyPage.hasMore })
+        } catch (error) {
+          return sessionFailure(request, error, sessionId)
+        }
+      },
+
+      async models(request: RpcRequest<SessionModelsPayload>) {
         try {
           const [current, catalog] = await Promise.all([
             runtime.sessions.modelSelection(request.payload.sessionId, runtime.model),
@@ -260,7 +307,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
         }
       },
 
-      async selectModel(request) {
+      async selectModel(request: RpcRequest<SessionSelectModelPayload>) {
         const { sessionId, provider, model, reasoningEffort } = request.payload
         return await serializeImageMutation(sessionId, async () => {
           try {
@@ -283,7 +330,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
         })
       },
 
-      async rename(request) {
+      async rename(request: RpcRequest<SessionRenamePayload>) {
         const { sessionId, title } = request.payload
         try {
           const renamed = await runtime.sessions.renameSession(sessionId, title, runtime.model)
@@ -294,7 +341,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
         }
       },
 
-      async fork(request) {
+      async fork(request: RpcRequest<SessionForkPayload>) {
         const { sessionId, atSeq } = request.payload
         try {
           const workspaceId = await runtime.workspaceForSession(sessionId)
@@ -315,7 +362,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
         }
       },
 
-      async prompt(request) {
+      async prompt(request: RpcRequest<SessionPromptPayload>) {
         const { sessionId, mode, content, clientTimeZone } = request.payload
         const zone = canonicalClientTimeZone(clientTimeZone)
         if (clientTimeZone !== undefined && zone === undefined) {
@@ -326,7 +373,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
           })
         }
         const textContent = content.filter(
-          (part): part is Extract<PromptContentPart, { type: 'text' }> => part.type === 'text',
+          (part: PromptContentPart): part is Extract<PromptContentPart, { type: 'text' }> => part.type === 'text',
         )
         if (messageTextByteLength(textContent) > MAX_MESSAGE_TEXT_BYTES) {
           return fail(request, {
@@ -335,12 +382,12 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
             details: { reason: 'PROMPT_TEXT_TOO_LARGE' },
           })
         }
-        const hasImage = content.some(part => part.type === 'image')
+        const hasImage = content.some((part: PromptContentPart) => part.type === 'image')
         const admit = async (): Promise<RpcResponse<{ accepted: true }>> => {
           try {
             let durable: ContentBlock[]
             if (!hasImage) {
-              durable = textContent.map(part => ({ type: 'text', text: part.text }))
+              durable = textContent.map((part: { text: string }) => ({ type: 'text' as const, text: part.text }))
             } else {
               const attachments = await runtime.sessions.attachmentStore()
               if (attachments === undefined) {
@@ -360,12 +407,12 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
               const refs = await admitEncodedImages(
                 attachments,
                 content.filter(
-                  (part): part is Extract<PromptContentPart, { type: 'image' }> =>
+                  (part: PromptContentPart): part is Extract<PromptContentPart, { type: 'image' }> =>
                     part.type === 'image',
                 ),
               )
               let nextImage = 0
-              durable = content.map(part => part.type === 'text'
+              durable = content.map((part: PromptContentPart) => part.type === 'text'
                 ? { type: 'text', text: part.text }
                 : { type: 'image', attachment: refs[nextImage++]! })
             }
@@ -391,7 +438,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
         return hasImage ? serializeImageMutation(sessionId, admit) : admit()
       },
 
-      async attachment(request): Promise<RpcResponse<{
+      async attachment(request: RpcRequest<SessionAttachmentPayload>): Promise<RpcResponse<{
         attachment: ImageAttachmentRef
         data: string
       }>> {
@@ -429,7 +476,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
           return sessionFailure(request, error, sessionId)
         }
       },
-      updateQueue(request) {
+      updateQueue(request: RpcRequest<SessionUpdateQueuePayload>) {
         const { sessionId, itemId, action } = request.payload
         if (action.kind === 'edit'
           && action.content.some(block => block.type !== 'text' && block.type !== 'image')) {
@@ -441,7 +488,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
         }
         if (action.kind === 'edit'
           && messageTextByteLength(
-            action.content as Extract<PromptContentPart, { type: 'text' }>[],
+            action.content.filter((b): b is Extract<PromptContentPart, { type: 'text' }> => b.type === 'text'),
           ) > MAX_MESSAGE_TEXT_BYTES) {
           return Promise.resolve(fail(request, {
             code: 'attachment-error',
@@ -474,7 +521,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
         return Promise.resolve(ok(request, { accepted: true as const }))
       },
 
-      cancel(request) {
+      cancel(request: RpcRequest<SessionCancelPayload>) {
         if (!runtime.cancel(request.payload.sessionId)) {
           return Promise.resolve(fail(request, {
             code: 'agent-busy',
@@ -487,14 +534,14 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
     },
 
     subagents: {
-      list: request => Promise.resolve(ok(request, { entries: [], parentAvailable: false })),
+      list: (request: RpcRequest<SessionListPayload>) => Promise.resolve(ok(request, { entries: [], parentAvailable: false })),
       history: unsupported,
       prompt: unsupported,
       interrupt: unsupported,
     },
 
     host: {
-      async describe(request) {
+      async describe(request: RpcRequest<SessionListPayload>) {
         return ok(request, {
           version: runtime.version,
           cwd: EDGE_WORKSPACE_PATH,
@@ -512,17 +559,17 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
     },
 
     workspace: {
-      async list(request) {
+      async list(request: RpcRequest<SessionListPayload>) {
         return ok(request, await runtime.workspaceList())
       },
-      async create(request) {
+      async create(request: RpcRequest<WorkspaceCreatePayload>) {
         try {
           return ok(request, await runtime.workspaceCreate(request.payload.path))
         } catch (error) {
           return workspaceFailure(request, error, undefined, undefined, undefined, request.payload.path)
         }
       },
-      async rename(request) {
+      async rename(request: RpcRequest<WorkspaceRenamePayload>) {
         const { workspaceId, title } = request.payload
         try {
           return ok(request, {
@@ -532,7 +579,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
           return workspaceFailure(request, error, workspaceId)
         }
       },
-      async delete(request) {
+      async delete(request: RpcRequest<WorkspaceDeletePayload>) {
         const { workspaceId } = request.payload
         try {
           await runtime.workspaceDelete(workspaceId)
@@ -541,7 +588,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
           return workspaceFailure(request, error, workspaceId)
         }
       },
-      async insertBefore(request) {
+      async insertBefore(request: RpcRequest<WorkspaceInsertBeforePayload>) {
         const { workspaceId, beforeWorkspaceId } = request.payload
         try {
           return ok(request, {
@@ -551,7 +598,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
           return workspaceFailure(request, error, workspaceId)
         }
       },
-      async insertSessionBefore(request) {
+      async insertSessionBefore(request: RpcRequest<WorkspaceInsertSessionBeforePayload>) {
         const { workspaceId, sessionId, beforeSessionId } = request.payload
         try {
           return ok(request, {
@@ -565,7 +612,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
           return workspaceFailure(request, error, workspaceId, sessionId, beforeSessionId)
         }
       },
-      async archiveSession(request) {
+      async archiveSession(request: RpcRequest<WorkspaceArchiveSessionPayload>) {
         const { sessionId } = request.payload
         try {
           return ok(request, {
@@ -578,7 +625,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
     },
 
     skills: {
-      async list(request) {
+      async list(request: RpcRequest<SessionListPayload>) {
         const registry = await runtime.sessions.skillRegistry()
         if (registry === undefined) return ok(request, { skills: [] })
         const skills = (await registry.list({ cwd: '/workspace' })).filter(isUserInvocable)
@@ -594,7 +641,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
     },
 
     agentPresets: {
-      list: request => Promise.resolve(ok(request, {
+      list: (request: RpcRequest<SessionListPayload>) => Promise.resolve(ok(request, {
         presets: [{
           id: 'dsh-edge',
           trust: 'system' as const,
@@ -605,7 +652,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
         authorable: false,
         hasDocument: false,
       })),
-      select(request) {
+      select(request: RpcRequest<AgentPresetPayload>) {
         if (request.payload.agentPreset !== 'dsh-edge') {
           return Promise.resolve(fail(request, {
             code: 'agent-preset-not-found',
@@ -615,7 +662,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
         }
         return Promise.resolve(ok(request, { agentPreset: 'dsh-edge' }))
       },
-      async read(request) {
+      async read(request: RpcRequest<AgentPresetPayload>) {
         if (request.payload.agentPreset !== 'dsh-edge') {
           return fail(request, {
             code: 'agent-preset-not-found',
@@ -679,7 +726,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
     },
 
     settings: {
-      async describe(request) {
+      async describe(request: RpcRequest<SessionListPayload>) {
         const [writable, hasDocument, descriptors] = await Promise.all([
           runtime.settingsWritable(),
           runtime.settingsHasDocument(),
@@ -692,7 +739,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
         })
       },
       openDocument: unsupported,
-      async update(request) {
+      async update(request: RpcRequest<SettingsUpdatePayload>) {
         const { ns, patch, expectedRevision } = request.payload
         try {
           const descriptor = await runtime.updateSettings(ns, patch, expectedRevision)
@@ -702,7 +749,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
           return settingsWriteFailure(request, error)
         }
       },
-      async replace(request) {
+      async replace(request: RpcRequest<SettingsReplacePayload>) {
         const { ns, section, expectedRevision } = request.payload
         try {
           const descriptor = await runtime.replaceSettings(ns, section, expectedRevision)
@@ -712,12 +759,12 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
           return settingsWriteFailure(request, error)
         }
       },
-      async mutate(request) {
+      async mutate(request: RpcRequest<SettingsMutatePayload>) {
         const { ns, ops, expectedRevision } = request.payload
         try {
           const descriptor = await runtime.mutateSettings(
             ns,
-            ops as readonly SettingsPathOp[],
+            ops,
             expectedRevision,
           )
           if (descriptor === undefined) return settingsNotRegistered(request, ns)
@@ -729,13 +776,13 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
     },
 
     credentials: {
-      async describe(request) {
-        const entries = await Promise.all(request.payload.refs.map(async ref => (
+      async describe(request: RpcRequest<CredentialDescribePayload>) {
+        const entries = await Promise.all(request.payload.refs.map(async (ref: string) => (
           [ref, await runtime.describeCredential(ref)] as const
         )))
         return ok(request, { credentials: Object.fromEntries(entries) })
       },
-      async set(request) {
+      async set(request: RpcRequest<CredentialSetPayload>) {
         const { ref, value } = request.payload
         try {
           await runtime.setCredential(ref, value)
@@ -748,7 +795,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
           })
         }
       },
-      async unset(request) {
+      async unset(request: RpcRequest<CredentialUnsetPayload>) {
         const { ref } = request.payload
         try {
           await runtime.unsetCredential(ref)
@@ -764,7 +811,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
     },
 
     llm: {
-      async providers(request) {
+      async providers(request: RpcRequest<SessionListPayload>) {
         const configurable = await runtime.listConfigurableProviders()
         return ok(request, {
           providers: configurable.map(entry => ({
@@ -777,15 +824,15 @@ export function createEdgeApi(runtime: EdgeApiRuntime): ApiProxy {
           })),
         })
       },
-      async models(request) {
+      async models(request: RpcRequest<SessionListPayload>) {
         return ok(request, await runtime.sessions.modelCatalog())
       },
       discoverModels: unsupported,
     },
 
     events: {
-      mux: (_request, _signal) => emptyFrames(),
-      host: (_request, _signal) => emptyFrames(),
+      mux: (_request: RpcRequest<SessionListPayload>, _signal: AbortSignal) => emptyFrames(),
+      host: (_request: RpcRequest<SessionListPayload>, _signal: AbortSignal) => emptyFrames(),
     },
 
     downloads: {
@@ -907,7 +954,7 @@ function summaryProjections(
   summary: EdgeApiSessionSummary,
   imageLimits: ImageAttachmentLimits | undefined,
   registrySnapshot: Record<string, unknown> | undefined,
-): SessionProjectionsBlock {
+): SessionProjectionHints {
   return {
     asOfSeq: summary.lastSeq,
     values: {
@@ -918,7 +965,7 @@ function summaryProjections(
       },
       ...summary.title === null ? {} : { title: summary.title },
       ...imageLimits === undefined ? {} : { imageLimits },
-    },
+    } as SessionProjectionHints['values'],
   }
 }
 
@@ -1105,14 +1152,14 @@ function sessionFailure<T>(
 function descriptorToView(d: SettingsDescriptor): SettingsNamespaceView {
   return {
     ns: d.ns as string,
-    schema: d.schema,
-    value: d.value,
+    schema: d.schema as JsonValue,
+    value: d.value as JsonValue,
     revision: d.revision,
     applies: d.applies,
     secrets: (d.secrets ?? []).map(s => ({ path: s.path, set: s.set })),
-    ...d.base === undefined ? {} : { base: d.base },
-    ...d.user === undefined ? {} : { user: d.user },
-  }
+    ...d.base === undefined ? {} : { base: d.base as JsonValue },
+    ...d.user === undefined ? {} : { user: d.user as JsonValue },
+  } as SettingsNamespaceView
 }
 
 function settingsNotRegistered<T>(

@@ -1,10 +1,10 @@
-import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
+import { SessionId, SessionSeq, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { describe, expect, it, vi } from 'vitest'
 import { createLiveSessionEventStream, encodeSessionEvent } from '../src/sse.ts'
 
 const event: SessionEvent = {
   type: 'session/title',
-  seq: 0,
+  seq: SessionSeq(0),
   time: 1,
   data: {
     title: 'Stream contract',
@@ -66,7 +66,7 @@ describe('dsh-edge live event stream', () => {
     } satisfies SessionEvent
     const { stream, completion } = createLiveSessionEventStream(async (publish) => {
       publish(largeEvent)
-      publish({ ...largeEvent, seq: 1 })
+      publish({ ...largeEvent, seq: SessionSeq(1) })
       producerFinished = true
     }, onFailure)
 

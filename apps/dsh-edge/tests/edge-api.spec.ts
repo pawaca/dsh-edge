@@ -1,18 +1,17 @@
-import type {
-  PromptContentPart,
-  RpcRequest,
-  WorkspaceId,
-  WorkspaceView,
-} from '@deepseek-ai/dsh-host-apiproxy/api'
+import type { PromptContentPart } from '@deepseek-ai/dsh-api-session-controller/types'
+import type { WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/types'
+import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
+import type { RpcRequest } from '../src/edge-rpc-types.ts'
 import {
   AttachmentId,
   type AttachmentStore,
   type ImageAttachmentLimits,
   type ImageAttachmentRef,
 } from '@deepseek-ai/dsh-attachment'
-import { RpcId, SESSION_SEARCH_SNIPPET_MAX_CODE_POINTS } from '@deepseek-ai/dsh-host-apiproxy/api'
+import { SESSION_SEARCH_SNIPPET_MAX_CODE_POINTS } from '@deepseek-ai/dsh-api-session-controller/types'
+import { RpcId } from '../src/edge-rpc-types.ts'
 import { createUserMessage, type MessageId } from '@deepseek-ai/dsh-llm'
-import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
+import { SessionId, SessionSeq, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { describe, expect, it, vi } from 'vitest'
 import {
   MAX_MESSAGE_TEXT_BYTES,
@@ -77,7 +76,7 @@ function summary(
 function historyMessage(seq: number, text = `prompt ${String(seq)}`): SessionEvent {
   return {
     type: 'user/message',
-    seq,
+    seq: SessionSeq(seq),
     time: seq,
     data: createUserMessage({
       content: [{ type: 'text', text }],
@@ -184,15 +183,16 @@ describe('Edge upstream API invariants', () => {
       },
     })
     if (!response.result.ok) throw new Error('unreachable')
-    expect(response.result.value.content).toContain('# Effective dsh-edge composition (read-only)')
-    expect(response.result.value.content).toContain('shell: "just-bash-direct"')
-    expect(response.result.value.content).toContain('defaultId: "deepseek-test"')
-    expect(response.result.value.content).toContain('selectionScope: session')
-    expect(response.result.value.content).toContain('id: "deepseek-v4-pro"')
-    expect(response.result.value.content).toContain('id: "deepseek-v4-flash-vision-exp"')
-    expect(response.result.value.content).toContain('configured: true')
-    expect(response.result.value.content).toContain('deploymentId: "test-deployment"')
-    expect(response.result.value.content).not.toContain('apiKey:')
+    const value = response.result.value as Record<string, unknown>
+    expect(value.content).toContain('# Effective dsh-edge composition (read-only)')
+    expect(value.content).toContain('shell: "just-bash-direct"')
+    expect(value.content).toContain('defaultId: "deepseek-test"')
+    expect(value.content).toContain('selectionScope: session')
+    expect(value.content).toContain('id: "deepseek-v4-pro"')
+    expect(value.content).toContain('id: "deepseek-v4-flash-vision-exp"')
+    expect(value.content).toContain('configured: true')
+    expect(value.content).toContain('deploymentId: "test-deployment"')
+    expect(value.content).not.toContain('apiKey:')
 
     const missing = await api.agentPresets.read(request({ agentPreset: 'missing' }))
     expect(missing.result).toMatchObject({
@@ -385,13 +385,13 @@ describe('Edge upstream API invariants', () => {
     const eventHeavy = [
       ...Array.from({ length: EDGE_HISTORY_PAGE_LIMITS.maxEvents }, (_, seq): SessionEvent => ({
         type: 'session/title',
-        seq,
+        seq: SessionSeq(seq),
         time: seq,
         data: { title: `title ${String(seq)}`, messageSeqs: [], source: { kind: 'user' } },
       })),
-      { ...historyMessage(EDGE_HISTORY_PAGE_LIMITS.maxEvents), sourceEventSeqs: [0] },
+      { ...historyMessage(EDGE_HISTORY_PAGE_LIMITS.maxEvents), sourceEventSeqs: [SessionSeq(0)] },
     ]
-    expect(() => paginateHistory(eventHeavy, undefined, 1)).toThrow(/65536 events/)
+    expect(() => paginateHistory(eventHeavy as readonly SessionEvent[], undefined, 1)).toThrow(/65536 events/)
     expect(() => paginateHistory([
       historyMessage(0, 'x'.repeat(EDGE_HISTORY_PAGE_LIMITS.maxStoredBytes)),
     ], undefined, 1)).toThrow(/encoded bytes/)
@@ -477,7 +477,7 @@ describe('Edge upstream API invariants', () => {
   it('publishes renamed sessions only when no active turn observer owns delivery', async () => {
     const activeEvent: SessionEvent<'session/title'> = {
       type: 'session/title',
-      seq: 4,
+      seq: SessionSeq(4),
       time: 1,
       data: {
         title: 'Active',
@@ -487,7 +487,7 @@ describe('Edge upstream API invariants', () => {
     }
     const idleEvent: SessionEvent<'session/title'> = {
       ...activeEvent,
-      seq: 5,
+      seq: SessionSeq(5),
       data: { ...activeEvent.data, title: 'Idle' },
     }
     const sessionEvent = vi.fn()
@@ -760,7 +760,7 @@ describe('Edge upstream API invariants', () => {
     ))
     const imageEvent: SessionEvent = {
       type: 'user/message',
-      seq: EDGE_HISTORY_PAGE_LIMITS.maxEvents,
+      seq: SessionSeq(EDGE_HISTORY_PAGE_LIMITS.maxEvents),
       time: EDGE_HISTORY_PAGE_LIMITS.maxEvents,
       data: createUserMessage({
         content: [{ type: 'image', attachment: imageRef }],
@@ -769,7 +769,7 @@ describe('Edge upstream API invariants', () => {
       surfaceOp: 'append',
     }
     const page = (events: SessionEvent[], hasMore: boolean): EdgeEventPage => ({
-      meta: { id: parentId, version: 0, createdAt: 1 },
+      meta: { id: parentId, version: 0, createdAt: 1, isSeeded: false },
       events,
       hasMore,
     })
@@ -788,7 +788,7 @@ describe('Edge upstream API invariants', () => {
 
   it('finishes a bounded multi-page full-history predicate when no page matches', async () => {
     const page = (events: SessionEvent[], hasMore: boolean): EdgeEventPage => ({
-      meta: { id: parentId, version: 0, createdAt: 1 },
+      meta: { id: parentId, version: 0, createdAt: 1, isSeeded: false },
       events,
       hasMore,
     })
@@ -807,7 +807,7 @@ describe('Edge upstream API invariants', () => {
 
   it('rejects a cold-history page that cannot make bounded progress', async () => {
     const readPage = vi.fn(async (): Promise<EdgeEventPage> => ({
-      meta: { id: parentId, version: 0, createdAt: 1 },
+      meta: { id: parentId, version: 0, createdAt: 1, isSeeded: false },
       events: [],
       hasMore: true,
     }))

@@ -3,6 +3,8 @@
 import { Context } from '@deepseek-ai/cordis'
 import {
   SESSION_FORMAT_VERSION,
+  SessionLogOffset,
+  SessionSeq,
   decodeStorageRecord,
   packChunkRuns,
 } from '@deepseek-ai/dsh-session'
@@ -22,11 +24,14 @@ import {
   SessionPersistence,
   SessionPersistenceRevision,
   sessionFormatVersionRefusal,
+  type BorrowedSessionSource,
   type PersistenceBackend,
+  type SessionEventSuffix,
   type SessionInspection,
   type SessionLocation,
   type SessionPersistenceRevision as PersistenceRevision,
   type SessionPersistenceSnapshot,
+  type SessionStorageMetadata,
   type StoredPrefix,
   type StoredSuffix,
 } from '@deepseek-ai/dsh-session-persistence'
@@ -211,8 +216,8 @@ export class DurableObjectSessionPersistence
     return undefined
   }
 
-  create(meta: SessionHeader): Promise<void> {
-    return this.coordinator.create(meta)
+  create(meta: SessionHeader, inheritedEventCount?: SessionLogOffset): Promise<void> {
+    return this.coordinator.create(meta, inheritedEventCount)
   }
 
   append(id: SessionId, events: readonly SessionEvent[]): Promise<void> {
@@ -236,11 +241,15 @@ export class DurableObjectSessionPersistence
     return this.coordinator.inspect(id, signal)
   }
 
+  borrowSession(id: SessionId, signal?: AbortSignal): Promise<BorrowedSessionSource> {
+    return this.coordinator.borrowSession(id, signal)
+  }
+
   readFrom(
     id: SessionId,
-    fromSeq: number,
+    fromSeq: SessionLogOffset,
     signal?: AbortSignal,
-  ): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
+  ): Promise<SessionEventSuffix> {
     return this.coordinator.readFrom(id, fromSeq, signal)
   }
 
@@ -342,8 +351,10 @@ export class DurableObjectSessionPersistence
       signal?.throwIfAborted()
       if (snapshot === undefined) return undefined
       const { preserved, tornFrom } = scanRows(snapshot.eventRows)
+      const meta = rowToHeader(snapshot.row)
       return {
-        meta: rowToHeader(snapshot.row),
+        meta,
+        inheritedEventCount: SessionLogOffset(snapshot.row.seed_length ?? 0),
         events: preserved,
         revision: revisionOf(this.storeIdentity, snapshot.row),
         ...tornFrom === undefined ? {} : { tornMarker: tornFrom },
@@ -365,7 +376,7 @@ export class DurableObjectSessionPersistence
 
   loadStoredFrom(
     id: SessionId,
-    fromSeq: number,
+    fromSeq: SessionLogOffset,
     signal?: AbortSignal,
   ): Promise<StoredSuffix | undefined> {
     return promiseFromSync(() => {
@@ -379,6 +390,7 @@ export class DurableObjectSessionPersistence
       if (snapshot === undefined) return undefined
       return {
         meta: rowToHeader(snapshot.row),
+        inheritedEventCount: SessionLogOffset(snapshot.row.seed_length ?? 0),
         events: scanRows(snapshot.eventRows, fromSeq).preserved,
       }
     })
@@ -448,28 +460,28 @@ export class DurableObjectSessionPersistence
   }
 
   appendBatch(
-    meta: SessionHeader,
+    storage: SessionStorageMetadata,
     events: readonly SessionEvent[],
     isMaterialized: boolean,
   ): Promise<void> {
     return promiseFromSync(() => {
       this.storage.transactionSync(() => {
-        if (!isMaterialized) this.writeRow(meta)
+        if (!isMaterialized) this.writeRow(storage.meta, storage.inheritedEventCount)
         const packed = packChunkRuns(events as SessionEvent[])
-        for (const record of packed) this.insertStorageRecord(meta.id, record)
+        for (const record of packed) this.insertStorageRecord(storage.meta.id, record)
         const updated = this.storage.sql.exec(
           'UPDATE dsh_sessions SET revision = revision + 1 WHERE id = ?',
-          meta.id,
+          storage.meta.id,
         )
-        if (updated.rowsWritten !== 1) throw new Error(`session ${meta.id} is not materialized`)
-        this.storage.sql.exec('DELETE FROM dsh_edge_blank_sessions WHERE id = ?', meta.id)
-        this.updateSummaryFromBatch(meta.id, events)
+        if (updated.rowsWritten !== 1) throw new Error(`session ${storage.meta.id} is not materialized`)
+        this.storage.sql.exec('DELETE FROM dsh_edge_blank_sessions WHERE id = ?', storage.meta.id)
+        this.updateSummaryFromBatch(storage.meta.id, events)
       })
     })
   }
 
   commitRepair(
-    meta: SessionHeader,
+    storage: SessionStorageMetadata,
     tornMarker: number | undefined,
     closers: readonly SessionEvent[],
   ): Promise<void> {
@@ -478,17 +490,17 @@ export class DurableObjectSessionPersistence
         if (tornMarker !== undefined) {
           this.storage.sql.exec(
             'DELETE FROM dsh_session_events WHERE session_id = ? AND seq >= ?',
-            meta.id,
+            storage.meta.id,
             tornMarker,
           )
         }
-        for (const event of closers) this.insertEvent(meta.id, event)
+        for (const event of closers) this.insertEvent(storage.meta.id, event)
         if (tornMarker !== undefined || closers.length > 0) {
           this.storage.sql.exec(
             'UPDATE dsh_sessions SET revision = revision + 1 WHERE id = ?',
-            meta.id,
+            storage.meta.id,
           )
-          this.recomputeSummary(meta.id)
+          this.recomputeSummary(storage.meta.id)
         }
       })
     })
@@ -585,7 +597,7 @@ export class DurableObjectSessionPersistence
         meta.createdAt,
         meta.cwd ?? null,
         meta.parentSession ?? null,
-        meta.seedLength ?? null,
+        meta.isSeeded ? 1 : null,
         meta.origin ?? null,
         meta.delegationDepth ?? null,
         meta.agentPreset ?? null,
@@ -628,7 +640,7 @@ export class DurableObjectSessionPersistence
     return promiseFromSync(() => this.storage.transactionSync(() => {
       const blank = this.readBlankSession(id)
       if (blank === undefined) return false
-      if (this.rowFor(id) === undefined) this.writeRow(blank)
+      if (this.rowFor(id) === undefined) this.writeRow(blank, SessionLogOffset(0))
       this.storage.sql.exec('DELETE FROM dsh_edge_blank_sessions WHERE id = ?', id)
       this.insertEmptyLogSummary(id, blank.createdAt)
       return true
@@ -964,7 +976,7 @@ export class DurableObjectSessionPersistence
     ).toArray()[0]?.seq ?? -1
   }
 
-  private writeRow(meta: SessionHeader): void {
+  private writeRow(meta: SessionHeader, inheritedEventCount: SessionLogOffset): void {
     this.storage.sql.exec(
       `INSERT INTO dsh_sessions
         (id, version, created_at, cwd, parent_session, seed_length, origin,
@@ -984,7 +996,7 @@ export class DurableObjectSessionPersistence
       meta.createdAt,
       meta.cwd ?? null,
       meta.parentSession ?? null,
-      meta.seedLength ?? null,
+      meta.isSeeded ? inheritedEventCount : null,
       meta.origin ?? null,
       meta.delegationDepth ?? null,
       meta.agentPreset ?? null,
@@ -1059,9 +1071,9 @@ function rowToHeader(row: HeaderRow): SessionHeader {
     id: row.id as SessionId,
     version: row.version,
     createdAt: row.created_at,
+    isSeeded: row.seed_length !== null,
     ...row.cwd === null ? {} : { cwd: row.cwd },
     ...row.parent_session === null ? {} : { parentSession: row.parent_session as SessionId },
-    ...row.seed_length === null ? {} : { seedLength: row.seed_length },
     ...row.origin === null ? {} : { origin: row.origin as 'subagent' },
     ...row.delegation_depth === null ? {} : { delegationDepth: row.delegation_depth },
     ...row.agent_preset === null ? {} : { agentPreset: row.agent_preset },
@@ -1172,7 +1184,7 @@ function storedTitleEvent(
   if (validated === undefined) {
     throw new Error(`stored session ${id} has invalid session/title data`)
   }
-  return { type: 'session/title', seq, time, data: validated }
+  return { type: 'session/title', seq: SessionSeq(seq), time, data: validated }
 }
 
 function sessionTitleEventData(value: unknown): SessionTitleEventData | undefined {
@@ -1181,7 +1193,7 @@ function sessionTitleEventData(value: unknown): SessionTitleEventData | undefine
   if (!isSessionTitleMessageSeqs(value.messageSeqs)) return undefined
   const source = sessionTitleSource(value.source)
   if (source === undefined) return undefined
-  return { title: value.title, messageSeqs: [...value.messageSeqs], source }
+  return { title: value.title, messageSeqs: value.messageSeqs.map(SessionSeq), source }
 }
 
 function sessionTitleSource(value: unknown): SessionTitleSource | undefined {

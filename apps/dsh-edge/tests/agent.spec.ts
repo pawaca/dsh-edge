@@ -1,8 +1,9 @@
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import {
-  CallId,
+  ToolCallId,
   LlmAdapter,
   createUserMessage,
   type GenerateOptions,
@@ -65,6 +66,7 @@ async function harness(replies: readonly (readonly StreamChunk[])[], shell: Edge
   await ctx.plugin(SessionStore)
   await ctx.plugin(SystemPrompt, { persona: EDGE_SYSTEM_PROMPT })
   await ctx.plugin(ToolRuntime)
+  await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(AgentLoop, { agents: [] })
 
@@ -110,8 +112,9 @@ describe('dsh-edge native agent runtime', () => {
   it('reuses the upstream DeepSeek catalog including the experimental vision model', async () => {
     const adapter = new DeepSeekAdapter({
       options: () => resolveAdapterOptions({}),
-      resolveApiKey: async () => 'test-key',
+      resolveApiKey: async (_connection) => 'test-key',
       resolveUserId: () => 'test-user' as never,
+      prepareExtensions: async () => ({}) as never,
     })
     const models = await adapter.listModels('deepseek-official')
 
@@ -222,7 +225,7 @@ describe('dsh-edge native agent runtime', () => {
   })
 
   it('executes a native tool call through the session-bound Computer shell', async () => {
-    const callId = CallId('call-read-file')
+    const callId = ToolCallId('call-read-file')
     const exec = vi.fn<EdgeShell['exec']>().mockResolvedValue({
       executionId: EdgeExecutionId('exec-1'),
       status: 'completed',
@@ -273,7 +276,7 @@ function textReply(text: string, inputTokens: number, outputTokens: number): Str
   ]
 }
 
-function toolReply(callId: CallId, name: string, args: object): StreamChunk[] {
+function toolReply(callId: ToolCallId, name: string, args: object): StreamChunk[] {
   const argumentsJson = JSON.stringify(args)
   return [
     { type: 'block-start', index: 0, blockType: 'tool-call' },

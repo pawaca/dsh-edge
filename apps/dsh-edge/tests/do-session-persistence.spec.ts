@@ -7,6 +7,8 @@ import { ReasoningEffortId, createAssistantMessage, createUserMessage } from '@d
 import SessionStore, {
   SESSION_FORMAT_VERSION,
   SessionId,
+  SessionLogOffset,
+  SessionSeq,
   type Session,
   type SessionEvent,
   type SessionHeader,
@@ -96,13 +98,13 @@ describe('durable-object bounded event pages', () => {
     const fiber = await ctx.plugin(DurableObjectSessionPersistence, {
       storage: storage as never,
     })
-    const persistence = ctx.sessionPersistence as DurableObjectSessionPersistence
+    const persistence = ctx.sessionPersistence as unknown as DurableObjectSessionPersistence
     const id = SessionId('model-selection-projection')
     try {
-      await persistence.create({ id, version: SESSION_FORMAT_VERSION, createdAt: 1 })
+      await persistence.create({ id, version: SESSION_FORMAT_VERSION, createdAt: 1, isSeeded: false })
       await persistence.append(id, [{
         type: 'request/header',
-        seq: 0,
+        seq: SessionSeq(0),
         time: 2,
         data: {
           header: {
@@ -128,6 +130,45 @@ describe('durable-object bounded event pages', () => {
     }
   })
 
+  it('persists and restores the fork-inherited event count across cold loads', async () => {
+    const storage = new TestDurableObjectStorage()
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(DurableObjectSessionPersistence, {
+      storage: storage as never,
+    })
+    const persistence = ctx.sessionPersistence as unknown as DurableObjectSessionPersistence
+    const id = SessionId('forked-inherited-count')
+    try {
+      await persistence.create(
+        { id, version: SESSION_FORMAT_VERSION, createdAt: 1, isSeeded: true },
+        SessionLogOffset(6),
+      )
+      const seed: SessionEvent[] = []
+      for (let turn = 1; turn <= 3; turn += 1) {
+        seed.push(
+          { type: 'turn/start', seq: SessionSeq(seed.length), time: 2, data: { turn } },
+          {
+            type: 'turn/end',
+            seq: SessionSeq(seed.length + 1),
+            time: 3,
+            data: { turn, reason: { kind: 'completed' } },
+          },
+        )
+      }
+      await persistence.append(id, seed)
+
+      const prefix = await persistence.loadStored(id)
+      expect(prefix?.inheritedEventCount).toBe(6)
+      expect(prefix?.meta.isSeeded).toBe(true)
+      const suffix = await persistence.loadStoredFrom(id, SessionLogOffset(0))
+      expect(suffix?.inheritedEventCount).toBe(6)
+    } finally {
+      await fiber.dispose()
+      storage.close()
+    }
+  })
+
   it('resumes and extends the released 0.1.3 session state', async () => {
     const storage = new TestDurableObjectStorage()
     storage.loadFixture(readFileSync(
@@ -142,7 +183,7 @@ describe('durable-object bounded event pages', () => {
       const fiber = await ctx.plugin(DurableObjectSessionPersistence, {
         storage: storage as never,
       })
-      const persistence = ctx.sessionPersistence as DurableObjectSessionPersistence
+      const persistence = ctx.sessionPersistence as unknown as DurableObjectSessionPersistence
       try {
         expect(persistence.readSessionSummary(id)).toMatchObject({
           meta: {
@@ -159,13 +200,13 @@ describe('durable-object bounded event pages', () => {
         })
         const loaded = await persistence.load(id)
         expect(loaded.events).toMatchObject([
-          { seq: 0, type: 'session/title' },
-          { seq: 1, type: 'turn/start' },
-          { seq: 2, type: 'user/message' },
-          { seq: 3, type: 'step/start' },
-          { seq: 4, type: 'assistant/message' },
-          { seq: 5, type: 'step/end' },
-          { seq: 6, type: 'turn/end' },
+          { seq: SessionSeq(0), type: 'session/title' },
+          { seq: SessionSeq(1), type: 'turn/start' },
+          { seq: SessionSeq(2), type: 'user/message' },
+          { seq: SessionSeq(3), type: 'step/start' },
+          { seq: SessionSeq(4), type: 'assistant/message' },
+          { seq: SessionSeq(5), type: 'step/end' },
+          { seq: SessionSeq(6), type: 'turn/end' },
         ])
         expect(persistence.readBlankSession(blankId)).toMatchObject({
           version: SESSION_FORMAT_VERSION,
@@ -216,20 +257,20 @@ describe('durable-object bounded event pages', () => {
       try {
         await expect(reloadedCtx.sessionPersistence.load(id)).resolves.toMatchObject({
           events: [
-            { seq: 0, type: 'session/title' },
-            { seq: 1, type: 'turn/start' },
-            { seq: 2, type: 'user/message' },
-            { seq: 3, type: 'step/start' },
-            { seq: 4, type: 'assistant/message' },
-            { seq: 5, type: 'step/end' },
-            { seq: 6, type: 'turn/end' },
-            { seq: 7, type: 'session/end-seed' },
+            { seq: SessionSeq(0), type: 'session/title' },
+            { seq: SessionSeq(1), type: 'turn/start' },
+            { seq: SessionSeq(2), type: 'user/message' },
+            { seq: SessionSeq(3), type: 'step/start' },
+            { seq: SessionSeq(4), type: 'assistant/message' },
+            { seq: SessionSeq(5), type: 'step/end' },
+            { seq: SessionSeq(6), type: 'turn/end' },
+            { seq: SessionSeq(7), type: 'session/end-seed' },
             { seq: 8, type: 'turn/start' },
             { seq: 9, type: 'turn/end' },
           ],
         })
         await expect(reloadedCtx.sessionPersistence.load(blankId)).resolves.toMatchObject({
-          events: [{ seq: 0, type: 'session/title' }],
+          events: [{ seq: SessionSeq(0), type: 'session/title' }],
         })
       } finally {
         await reloadedFiber.dispose()
@@ -257,22 +298,23 @@ describe('durable-object bounded event pages', () => {
         id,
         version: SESSION_FORMAT_VERSION,
         createdAt: 1,
+        isSeeded: false,
       })
       await ctx.sessionPersistence.append(id, [
-        { type: 'turn/start', seq: 0, time: 2, data: { turn: 1 } },
-        { type: 'step/start', seq: 1, time: 3, data: { turn: 1, step: 1 } },
+        { type: 'turn/start', seq: SessionSeq(0), time: 2, data: { turn: 1 } },
+        { type: 'step/start', seq: SessionSeq(1), time: 3, data: { turn: 1, step: 1 } },
         {
           type: 'assistant/message',
-          seq: 2,
+          seq: SessionSeq(2),
           time: 4,
           data: { turn: 1, step: 1, message, interrupted: true },
           sourceEventSeqs: [],
           surfaceOp: 'append',
         },
-        { type: 'step/end', seq: 3, time: 5, data: { turn: 1, step: 1 } },
+        { type: 'step/end', seq: SessionSeq(3), time: 5, data: { turn: 1, step: 1 } },
         {
           type: 'turn/end',
-          seq: 4,
+          seq: SessionSeq(4),
           time: 6,
           data: { turn: 1, reason: { kind: 'interrupted' } },
         },
@@ -287,12 +329,12 @@ describe('durable-object bounded event pages', () => {
     const coldFiber = await coldCtx.plugin(DurableObjectSessionPersistence, {
       storage: storage as never,
     })
-    const persistence = coldCtx.sessionPersistence as DurableObjectSessionPersistence
+    const persistence = coldCtx.sessionPersistence as unknown as DurableObjectSessionPersistence
     try {
       await expect(persistence.load(id)).resolves.toMatchObject({
         events: [{ seq: 0 }, { seq: 1 }, {
           type: 'assistant/message',
-          seq: 2,
+          seq: SessionSeq(2),
           data: {
             message: { content: [{ type: 'text', text: 'A visible prefix before cancellation.' }] },
             interrupted: true,
@@ -302,7 +344,7 @@ describe('durable-object bounded event pages', () => {
       await expect(persistence.readEventPage(id, 2, 1, 8_192)).resolves.toMatchObject({
         events: [{
           type: 'assistant/message',
-          seq: 2,
+          seq: SessionSeq(2),
           data: { interrupted: true },
         }],
         hasMore: true,
@@ -321,7 +363,7 @@ describe('durable-object bounded event pages', () => {
     const persistenceFiber = await ctx.plugin(DurableObjectSessionPersistence, {
       storage: storage as never,
     })
-    const persistence = ctx.sessionPersistence as DurableObjectSessionPersistence
+    const persistence = ctx.sessionPersistence as unknown as DurableObjectSessionPersistence
     const id = SessionId('bounded-cold-history')
     let session!: Session
     const ownerFiber = await ctx.plugin(Object.assign((inner: Context) => {
@@ -362,7 +404,7 @@ describe('durable-object bounded event pages', () => {
     const persistenceFiber = await ctx.plugin(DurableObjectSessionPersistence, {
       storage: storage as never,
     })
-    const persistence = ctx.sessionPersistence as DurableObjectSessionPersistence
+    const persistence = ctx.sessionPersistence as unknown as DurableObjectSessionPersistence
     const id = SessionId('bounded-cold-history-limit')
     let session!: Session
     const ownerFiber = await ctx.plugin(Object.assign((inner: Context) => {
@@ -404,12 +446,13 @@ describe('durable-object bounded event pages', () => {
     const fiber = await ctx.plugin(DurableObjectSessionPersistence, {
       storage: storage as never,
     })
-    const persistence = ctx.sessionPersistence as DurableObjectSessionPersistence
+    const persistence = ctx.sessionPersistence as unknown as DurableObjectSessionPersistence
     const id = SessionId('retained-blank')
     const header: SessionHeader = {
       id,
       version: SESSION_FORMAT_VERSION,
       createdAt: 17,
+      isSeeded: false,
       cwd: '/workspace',
       agentPreset: 'dsh-edge',
     }
@@ -439,7 +482,7 @@ describe('durable-object bounded event pages', () => {
     const persistenceFiber = await ctx.plugin(DurableObjectSessionPersistence, {
       storage: storage as never,
     })
-    const persistence = ctx.sessionPersistence as DurableObjectSessionPersistence
+    const persistence = ctx.sessionPersistence as unknown as DurableObjectSessionPersistence
     const id = SessionId('abandoned-creation')
     let session!: Session
     const ownerFiber = await ctx.plugin(Object.assign((inner: Context) => {
@@ -474,13 +517,13 @@ describe('durable-object bounded event pages', () => {
     const fiber = await ctx.plugin(DurableObjectSessionPersistence, {
       storage: storage as never,
     })
-    const persistence = ctx.sessionPersistence as DurableObjectSessionPersistence
+    const persistence = ctx.sessionPersistence as unknown as DurableObjectSessionPersistence
     const id = SessionId('point-summary')
     try {
-      await persistence.create({ id, version: SESSION_FORMAT_VERSION, createdAt: 1 })
+      await persistence.create({ id, version: SESSION_FORMAT_VERSION, createdAt: 1, isSeeded: false })
       await persistence.append(id, [{
         type: 'session/title',
-        seq: 0,
+        seq: SessionSeq(0),
         time: 2,
         data: {
           title: 'Point summary',
@@ -494,7 +537,7 @@ describe('durable-object bounded event pages', () => {
       expect(persistence.readSessionHeader(id)).toMatchObject({ id })
       expect(persistence.readSessionSummary(id)).toMatchObject({
         meta: { id },
-        titleEvent: { seq: 0, type: 'session/title' },
+        titleEvent: { seq: SessionSeq(0), type: 'session/title' },
         updatedAt: 2,
       })
       const queries = storage.queries.slice(queryStart)
@@ -515,13 +558,13 @@ describe('durable-object bounded event pages', () => {
     const fiber = await ctx.plugin(DurableObjectSessionPersistence, {
       storage: storage as never,
     })
-    const persistence = ctx.sessionPersistence as DurableObjectSessionPersistence
+    const persistence = ctx.sessionPersistence as unknown as DurableObjectSessionPersistence
     const id = SessionId('future-summary')
     try {
-      await persistence.create({ id, version: SESSION_FORMAT_VERSION, createdAt: 1 })
+      await persistence.create({ id, version: SESSION_FORMAT_VERSION, createdAt: 1, isSeeded: false })
       await persistence.append(id, [{
         type: 'session/title',
-        seq: 0,
+        seq: SessionSeq(0),
         time: 2,
         data: {
           title: 'Current title',
@@ -554,13 +597,13 @@ describe('durable-object bounded event pages', () => {
     const fiber = await ctx.plugin(DurableObjectSessionPersistence, {
       storage: storage as never,
     })
-    const persistence = ctx.sessionPersistence as DurableObjectSessionPersistence
+    const persistence = ctx.sessionPersistence as unknown as DurableObjectSessionPersistence
     const id = SessionId('malformed-title-summary')
     try {
-      await persistence.create({ id, version: SESSION_FORMAT_VERSION, createdAt: 1 })
+      await persistence.create({ id, version: SESSION_FORMAT_VERSION, createdAt: 1, isSeeded: false })
       await persistence.append(id, [{
         type: 'session/title',
-        seq: 0,
+        seq: SessionSeq(0),
         time: 2,
         data: {
           title: 'Current title',
@@ -603,18 +646,19 @@ describe('durable-object bounded event pages', () => {
     const fiber = await ctx.plugin(DurableObjectSessionPersistence, {
       storage: storage as never,
     })
-    const persistence = ctx.sessionPersistence as DurableObjectSessionPersistence
+    const persistence = ctx.sessionPersistence as unknown as DurableObjectSessionPersistence
     const id = SessionId('bounded-validation')
     const header: SessionHeader = {
       id,
       version: SESSION_FORMAT_VERSION,
       createdAt: 1,
+      isSeeded: false,
     }
     try {
       await ctx.sessionPersistence.create(header)
       await ctx.sessionPersistence.append(id, [{
         type: 'future/required-event',
-        seq: 0,
+        seq: SessionSeq(0),
         time: 2,
         data: null,
       } as unknown as SessionEvent])
@@ -637,14 +681,14 @@ describe('durable-object bounded event pages', () => {
     const fiber = await ctx.plugin(DurableObjectSessionPersistence, {
       storage: storage as never,
     })
-    const persistence = ctx.sessionPersistence as DurableObjectSessionPersistence
+    const persistence = ctx.sessionPersistence as unknown as DurableObjectSessionPersistence
     const id = SessionId('bounded-legacy-prefix')
     try {
-      await persistence.create({ id, version: SESSION_FORMAT_VERSION, createdAt: 1 })
+      await persistence.create({ id, version: SESSION_FORMAT_VERSION, createdAt: 1, isSeeded: false })
       await persistence.append(id, [
         {
           type: 'session/title',
-          seq: 0,
+          seq: SessionSeq(0),
           time: 2,
           data: {
             title: '界'.repeat(1_024),
@@ -654,7 +698,7 @@ describe('durable-object bounded event pages', () => {
         },
         {
           type: 'user/message',
-          seq: 1,
+          seq: SessionSeq(1),
           time: 3,
           data: {
             content: [{ type: 'text', text: 'legacy prompt' }],
@@ -669,7 +713,7 @@ describe('durable-object bounded event pages', () => {
       await expect(persistence.readEventPage(id, 1, 1, 8_192)).resolves.toMatchObject({
         events: [{
           type: 'user/message',
-          seq: 1,
+          seq: SessionSeq(1),
           data: { id: `legacy-message:${id}:1` },
         }],
         hasMore: false,
@@ -687,18 +731,19 @@ describe('durable-object bounded event pages', () => {
     const fiber = await ctx.plugin(DurableObjectSessionPersistence, {
       storage: storage as never,
     })
-    const persistence = ctx.sessionPersistence as DurableObjectSessionPersistence
+    const persistence = ctx.sessionPersistence as unknown as DurableObjectSessionPersistence
     const id = SessionId('bounded-payload')
     const header: SessionHeader = {
       id,
       version: SESSION_FORMAT_VERSION,
       createdAt: 1,
+      isSeeded: false,
     }
     try {
       await persistence.create(header)
       await persistence.append(id, [{
         type: 'session/title',
-        seq: 0,
+        seq: SessionSeq(0),
         time: 2,
         data: {
           title: '界'.repeat(1_024),
@@ -712,7 +757,7 @@ describe('durable-object bounded event pages', () => {
         hasMore: true,
       })
       await expect(persistence.readEventPage(id, 0, 1, 8_192)).resolves.toMatchObject({
-        events: [{ seq: 0, type: 'session/title' }],
+        events: [{ seq: SessionSeq(0), type: 'session/title' }],
         hasMore: false,
       })
     } finally {

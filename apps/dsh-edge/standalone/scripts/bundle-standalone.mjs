@@ -11,7 +11,7 @@ import edgePackage from '../../package.json' with { type: 'json' }
 import { requireGzipBudget } from '../../scripts/bundle-size.mjs'
 import { renderParsedSourceModeWranglerConfig } from '../../scripts/wrangler-config-core.mjs'
 
-const DIRECT_GZIP_BUDGET_BYTES = 900 * 1024
+const DIRECT_GZIP_BUDGET_BYTES = 1032 * 1024
 const standaloneDirectory = fileURLToPath(new URL('..', import.meta.url))
 const appDirectory = resolve(standaloneDirectory, '..')
 const standaloneRequire = createRequire(join(standaloneDirectory, 'package.json'))

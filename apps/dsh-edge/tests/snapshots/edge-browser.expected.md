@@ -6,6 +6,10 @@
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
+- button "System prompt":
+  - img
+  - img
+  - text: System prompt
 - button "one-pixel.png, click to view original":
   - img "one-pixel.png"
 - text: snapshot the browser edge path {{clock}}
@@ -20,8 +24,14 @@
   - img
 - button "Branch into a new conversation":
   - img
-- text: {{clock}}Ran for {{metric}} TTFT {{metric}} {{metric}}
-- textbox "Message the agent"
+- button "Usage 14 tok":
+  - img
+  - text: Usage 14 tok
+- button "Ran for {{metric}}":
+  - img
+  - text: Ran for {{metric}}
+- text: {{clock}}
+- textbox "Message or run a task... / commands, @ files or sessions"
 - button "Commands":
   - img
 - button "Select model, current DeepSeek-V4-Flash-Vision-Exp, reasoning effort High":

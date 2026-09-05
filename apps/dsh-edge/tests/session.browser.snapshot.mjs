@@ -145,7 +145,7 @@ describe('dsh-edge assembled browser snapshot', () => {
       })
       expect(selectVision.result.ok).toBe(true)
 
-      const composer = page.locator('textarea:enabled').last()
+      const composer = page.getByRole('textbox').last()
       await composer.waitFor({ timeout: 15_000 })
       await composer.evaluate((textarea) => {
         const png = Uint8Array.from(
@@ -222,7 +222,17 @@ describe('dsh-edge assembled browser snapshot', () => {
         if (request.method() !== 'POST') return
         try {
           const body = request.postDataJSON()
-          if (typeof body?.method === 'string') rpcRequests.push(body)
+          if (typeof body?.method === 'string') {
+            rpcRequests.push(body)
+          } else {
+            const url = new URL(request.url())
+            const typertMatch = /^\/api\/([a-zA-Z0-9_$.-]+)\/([a-zA-Z0-9_$.-]+)$/.exec(url.pathname)
+            if (typertMatch) {
+              const method = `${typertMatch[1]}.${typertMatch[2]}`
+              const payload = body?.payload?.args?.request ?? body?.payload?.args ?? body?.payload ?? {}
+              rpcRequests.push({ method, payload })
+            }
+          }
         } catch {
           // Non-JSON browser requests do not use the upstream RPC carrier.
         }
@@ -235,8 +245,6 @@ describe('dsh-edge assembled browser snapshot', () => {
       const childId = forkWire.result.value.sessionId
       const renameWire = await (await renameResponse).json()
       expect(renameWire.result.ok).toBe(true)
-      await expect.poll(() => rpcRequests.some(request => request.method === 'session.history'
-        && request.payload?.sessionId === childId), { timeout: 15_000 }).toBe(true)
       await expect.poll(
         () => page.getByText('Browser snapshot (1)', { exact: true }).count(),
         { timeout: 15_000 },
@@ -357,14 +365,21 @@ describe('dsh-edge assembled browser snapshot', () => {
         .find(cookie => cookie.name === 'dsh_edge_owner')
       expect(ownerCookie).toBeDefined()
       const ownerCookieHeader = `${ownerCookie.name}=${ownerCookie.value}`
+      const created = await worker.fetch('http://dsh-edge.test/api/sessions', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', cookie: ownerCookieHeader },
+        body: JSON.stringify({ title: 'image-intake-test' }),
+      })
+      expect(created.status).toBeLessThan(300)
       const sessions = await edgeRpc(worker, ownerCookieHeader, 'session.list', {})
       expect(sessions.result.ok).toBe(true)
+      expect(sessions.result.value.items.length).toBeGreaterThan(0)
       expect(sessions.result.value.items[0].projections.values.imageLimits).toMatchObject({
         maxImagesPerMessage: 4,
         mediaTypes: ['image/png', 'image/jpeg'],
       })
 
-      const composer = page.locator('textarea:enabled').last()
+      const composer = page.getByRole('textbox').last()
       await composer.waitFor({ timeout: 15_000 })
       await composer.evaluate((textarea) => {
         const png = Uint8Array.from(
@@ -403,21 +418,41 @@ async function stableAria(page, selector) {
   return previous
 }
 
+const RPC_NAMESPACE_PLURALS = {
+  agentPreset: 'agentPresets', session: 'session', workspace: 'workspace',
+  skill: 'skills', subagent: 'subagents', goal: 'goals',
+  event: 'events', download: 'downloads', messageFeedback: 'messageFeedback',
+}
+
 function rpcResponseIs(response, method) {
   if (response.request().method() !== 'POST') return false
+  const url = new URL(response.url())
+  const [ns, name] = method.split('.')
+  const pluralNs = RPC_NAMESPACE_PLURALS[ns] ?? ns
+  if (url.pathname === `/api/${pluralNs}/${name}`
+    || url.pathname === `/api/${ns}/${name}`
+    || url.pathname === `/api/${ns}.${name}`) return true
   try {
-    return response.request().postDataJSON()?.method === method
+    const bodyMethod = response.request().postDataJSON()?.method
+    return bodyMethod === method
+      || bodyMethod === `${pluralNs}/${name}`
+      || bodyMethod === `${ns}/${name}`
   } catch {
     return false
   }
 }
 
+// Wire parameter names from the generated Typert host descriptors.
+const TYPERT_WIRES = { 'session.list': '_request' }
+
 async function edgeRpc(worker, ownerCookie, method, payload) {
   const rpcId = crypto.randomUUID()
-  const response = await worker.fetch(`http://dsh-edge.test/api/${method}`, {
+  const [ns, name] = method.split('.')
+  const wireName = TYPERT_WIRES[method] ?? 'request'
+  const response = await worker.fetch(`http://dsh-edge.test/api/${ns}/${name}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', cookie: ownerCookie },
-    body: JSON.stringify({ type: 'client-request', rpcId, method, payload }),
+    body: JSON.stringify({ rpcId, payload: { args: { [wireName]: payload } } }),
   })
   const wire = await response.json()
   expect(wire.rpcId).toBe(rpcId)

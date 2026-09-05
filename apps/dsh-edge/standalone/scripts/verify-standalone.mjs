@@ -120,7 +120,7 @@ const clientIds = new Set(boot.entries.map(entry => entry.id))
 if (!clientIds.has('dsh-edge-client-ui')) {
   throw new Error('Standalone Web shell omitted the Edge client plugin.')
 }
-for (const name of ['@deepseek-ai/dsh-client-modules', '@deepseek-ai/dsh-client-runtime']) {
+for (const name of ['@deepseek-ai/dsh-client-modules']) {
   const entry = boot.entries.find(candidate => candidate.id === name)
   if (entry === undefined || !index.includes(`<script src="${entry.url}"></script>`)) {
     throw new Error(`Standalone Web shell omitted the parser-blocking preload for ${name}.`)
