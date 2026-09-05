@@ -17,7 +17,7 @@
     "verify": "node scripts/verify-determinism.mjs && node scripts/verify-standalone.mjs"
   },
   "dependencies": {
-    "@cloudflare/computer": "0.2.0",
+    "@cloudflare/computer": "0.2.1",
     "@deepseek-ai/cordis": "4.0.2",
     "@deepseek-ai/dsh-agent": "0.1.2-rc.1",
     "@deepseek-ai/dsh-agent-loop": "0.1.2-rc.1",
@@ -85,18 +85,18 @@
     "@deepseek-ai/dsh-web-search-deepseek": "0.1.2-rc.1",
     "@mixmark-io/domino": "2.2.0",
     "compare-versions": "6.1.1",
-    "execa": "10.0.0",
+    "execa": "10.0.1",
     "fast-png": "8.0.0",
     "jpeg-js": "0.4.4",
-    "just-bash": "3.3.0",
+    "just-bash": "3.4.2",
     "jsonc-parser": "3.3.1",
-    "wrangler": "4.123.0"
+    "wrangler": "4.129.0"
   },
   "devDependencies": {
-    "lightningcss": "1.32.0",
-    "tsdown": "0.22.2",
-    "tsx": "4.22.4",
+    "lightningcss": "1.33.0",
+    "tsdown": "0.23.0",
+    "tsx": "4.23.13",
     "typescript": "6.0.3",
-    "unrun": "0.3.0"
+    "unrun": "0.3.1"
   }
 }
