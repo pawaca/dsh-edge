@@ -92,6 +92,8 @@ import DurableObjectSessionPersistence, {
   type EdgeEventPage,
 } from './do-session-persistence.ts'
 import EdgeModelSelectionBridge from './model-selection-bridge.ts'
+import EdgeSessionQuery from './edge-session-query.ts'
+import { resolveEdgeModel } from './deepseek.ts'
 import type { CreateEdgeSessionInput, EdgeSession } from './protocol.ts'
 import { installEdgeWebSearch } from './web-search.ts'
 import { DurableObjectMessageFeedbackStore } from './do-message-feedback-store.ts'
@@ -107,6 +109,7 @@ interface EdgeSessionStoreConfig {
   attachmentBucket?: R2Bucket
   images?: unknown
   baseURL?: string
+  model?: string
   maxTokens?: string
   reasoningEffort?: string
   streamIdleTimeoutMs?: string
@@ -120,6 +123,15 @@ const MAX_SEARCH_EVENTS_PER_SESSION = 512
 const MAX_SEARCH_STORED_BYTES_PER_SESSION = 256 * 1_024
 const EDGE_PROVIDER = 'deepseek-official'
 const DEFAULT_EDGE_MODEL = 'deepseek-v4-flash'
+const AGENT_DEFAULT_MODEL_KEY = 'dsh-edge:agent-default-model'
+/** Application events the Typert gateway forwards to browser `$events` streams. */
+const REMOTE_EVENT_NAMES = [
+  'api-session/added',
+  'api-session/removed',
+  'api-session/status',
+  'api-session/activity',
+  'api-session/error',
+] as const
 const MESSAGE_TYPES = new Set<SessionEvent['type']>(['user/message', 'assistant/message'])
 
 export interface EdgeSessionListPage {
@@ -318,25 +330,84 @@ export class EdgeSessionStore {
     if (this.context.workspaceRegistry.list().length === 0 && !workspaceWasInitialized) {
       await this.context.workspaceRegistry.create('/workspace')
     }
-    // All 9 SessionController inject deps now available: agentDefaultModel (stub),
-    // agents, attachments, llm, sessions, sessionProjections, sessionQuery (stub),
-    // typert, workspaceRegistry. Controller activates synchronously.
-    const AgentDefaultModelStub = class extends CordisService {
+    // All 9 SessionController inject deps now available: agentDefaultModel,
+    // agents, attachments, llm, sessions, sessionProjections, sessionQuery,
+    // typert, workspaceRegistry. Controllers activate synchronously.
+    const defaultSelection: ModelSelection = {
+      provider: EDGE_PROVIDER,
+      model: resolveEdgeModel(config.model),
+    }
+    const persistedSelection = await storage.get<ModelSelection>(AGENT_DEFAULT_MODEL_KEY)
+    const EdgeAgentDefaultModel = class extends CordisService {
+      private selection = persistedSelection ?? defaultSelection
       constructor(ctx: Context) { super(ctx, 'agentDefaultModel') }
-      currentSelection() { return { provider: 'deepseek-official', model: 'deepseek-v4-flash' } }
-      async saveSelection() {}
+      currentSelection(): ModelSelection { return { ...this.selection } }
+      async saveSelection(selection: ModelSelection): Promise<void> {
+        this.selection = { ...selection }
+        await storage.put(AGENT_DEFAULT_MODEL_KEY, this.selection)
+      }
     }
-    await this.context.plugin(AgentDefaultModelStub)
-    for (const name of ['sessionQuery', 'fileReferences'] as const) {
-      const Stub = class extends CordisService { constructor(ctx: Context) { super(ctx, name) } }
-      await this.context.plugin(Stub)
+    await this.context.plugin(EdgeAgentDefaultModel)
+    await this.context.plugin(EdgeSessionQuery)
+    const FileReferencesStub = class extends CordisService {
+      constructor(ctx: Context) { super(ctx, 'fileReferences') }
     }
+    await this.context.plugin(FileReferencesStub)
+    // The Edge ships exactly one system preset; the controller stamps its id
+    // into every created session's metadata so the banner chip and preset
+    // roster stay consistent with the Edge API's agentPresets namespace.
+    const EdgeAgentPresets = class extends CordisService {
+      constructor(ctx: Context) { super(ctx, 'agentPresets') }
+      async resolve(presetId?: string): Promise<{ id: string; trust: 'system'; isDefault: true }> {
+        if (presetId !== undefined && presetId !== 'dsh-edge') {
+          throw new Error(`Agent preset "${presetId}" is not available.`)
+        }
+        return { id: 'dsh-edge', trust: 'system', isDefault: true }
+      }
+      async mount(): Promise<void> {
+        // The Edge system prompt and tool composition are mounted globally.
+      }
+    }
+    await this.context.plugin(EdgeAgentPresets)
+    // The upstream preset host package is not part of this deployment, so the
+    // Edge registers the header-derived agentPreset projection the controller
+    // and browser banner read.
+    const agentPresetSchema = {
+      parse: (value: unknown): string | null => (typeof value === 'string' ? value : null),
+    }
+    this.context.sessionProjections.register({
+      key: 'agentPreset',
+      stateSchema: agentPresetSchema,
+      init: (header: SessionHeader) => header.agentPreset ?? null,
+      apply: (state: string | null) => state,
+      wire: {
+        viewSchema: agentPresetSchema,
+        view: (state: string | null) => state,
+      },
+      stateVersion: 1,
+    } as never)
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    const { TYPERT: SESSION_CONTROLLER_TYPERT } = await import(
+      '@deepseek-ai/dsh-api-session-controller/typert' as string
+    )
+    this.context.typert.register(SESSION_CONTROLLER_TYPERT as never)
     const { SessionController } = await import('@deepseek-ai/dsh-api-session-controller')
     await this.context.plugin(SessionController, { nativeOpen: false })
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    const { TYPERT: SETTINGS_CONTROLLER_TYPERT } = await import(
+      '@deepseek-ai/dsh-api-settings-controller/typert' as string
+    )
+    this.context.typert.register(SETTINGS_CONTROLLER_TYPERT as never)
     const { SettingsController } = await import('@deepseek-ai/dsh-api-settings-controller')
     await this.context.plugin(SettingsController)
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    const { TYPERT: WORKSPACE_CONTROLLER_TYPERT } = await import(
+      '@deepseek-ai/dsh-api-workspace-controller/typert' as string
+    )
+    this.context.typert.register(WORKSPACE_CONTROLLER_TYPERT as never)
     const { WorkspaceController } = await import('@deepseek-ai/dsh-api-workspace-controller')
     await this.context.plugin(WorkspaceController)
+    this.registerRemoteEventSource()
     await this.context.plugin(ToolFs)
     await this.context.plugin(ToolSkill)
     await this.context.plugin(GoalService)
@@ -410,6 +481,44 @@ export class EdgeSessionStore {
     }
   } | undefined {
     try { return this.context.get('typertGateway') as never } catch { return undefined }
+  }
+
+  /**
+   * Forward the controllers' application events to browser `$events` streams.
+   * The generator must outlive every client generation; the gateway treats a
+   * returned source as a fault, so it only ends on the gateway's own abort.
+   */
+  private registerRemoteEventSource(): void {
+    const gateway = this.context.get('typertGateway') as {
+      registerRemoteEvents(
+        source: (signal: AbortSignal) => AsyncIterable<{ event: string; args: unknown[] }>,
+        host: { home: string },
+      ): unknown
+    }
+    const queue: { event: string; args: unknown[] }[] = []
+    let wake: (() => void) | undefined
+    const push = (event: string, args: unknown[]) => {
+      queue.push({ event, args })
+      const resume = wake
+      wake = undefined
+      resume?.()
+    }
+    for (const name of REMOTE_EVENT_NAMES) {
+      this.context.on(name as never, ((...args: unknown[]) => { push(name, args) }) as never)
+    }
+    gateway.registerRemoteEvents(async function* (signal) {
+      while (!signal.aborted) {
+        const frame = queue.shift()
+        if (frame !== undefined) {
+          yield frame
+          continue
+        }
+        await new Promise<void>(resolve => {
+          wake = resolve
+          signal.addEventListener('abort', () => { resolve() }, { once: true })
+        })
+      }
+    }, { home: '/workspace' })
   }
 
   projectionSnapshot(sessionId: SessionId): { asOfSeq: number; values: Record<string, unknown> } | undefined {
@@ -630,6 +739,11 @@ export class EdgeSessionStore {
   /** Resolve the selection using the same pending → logged → default order as upstream ApiProxy. */
   async modelSelection(id: SessionId, defaultModel: string): Promise<ModelSelection> {
     const { sessions, persistence } = await this.services()
+    // A live agent adopted from the upstream SessionController consumes the
+    // agent-layer pending selection on its next request, so that selection
+    // wins over the Edge bridge for admission checks.
+    const agentPending = this.agentPendingSelection(id)
+    if (agentPending !== undefined) return agentPending
     const pending = await this.loadModelSelection(id)
     if (pending !== undefined) return pending
     const live = sessions.get(id)
@@ -1128,8 +1242,12 @@ export class EdgeSessionStore {
       this.blankHandles.delete(id)
       return blank
     }
-    if (agents.get(id) !== undefined) {
-      throw new EdgeSessionStoreError('BUSY', 'Session already has a live agent owner.')
+    const live = agents.get(id)
+    if (live !== undefined) {
+      // Sessions created through the upstream SessionController stay live in the
+      // shared registry; the Edge turn enqueues into that agent and leaves
+      // ownership with the controller.
+      return { agent: live, dispose: async () => {} }
     }
     if (!(persistence instanceof DurableObjectSessionPersistence)) {
       throw new EdgeSessionStoreError('INVALID_DATA', 'Edge persistence backend is unavailable.')
@@ -1186,6 +1304,30 @@ export class EdgeSessionStore {
   /** Hydrate the process cache from Durable Object KV after hibernation. */
   private async loadModelSelection(id: SessionId): Promise<ModelSelection | undefined> {
     return await this.modelSelections.load(id)
+  }
+
+  /** Read the agent-layer pending selection installed by the SessionController. */
+  private agentPendingSelection(id: SessionId): ModelSelection | undefined {
+    const agent = this.context.agents.get(id)
+    if (agent === undefined) return undefined
+    try {
+      const state = this.context.sessionProjections.stateOf(agent.session, 'modelSelection') as {
+        pending?: { provider?: unknown; model?: unknown; reasoningEffort?: unknown } | null
+      } | undefined
+      const pending = state?.pending
+      if (pending == null
+        || typeof pending.provider !== 'string'
+        || typeof pending.model !== 'string') return undefined
+      const selection: ModelSelection = { provider: pending.provider, model: pending.model }
+      return typeof pending.reasoningEffort === 'string'
+        ? {
+          ...selection,
+          reasoningEffort: pending.reasoningEffort as NonNullable<ModelSelection['reasoningEffort']>,
+        }
+        : selection
+    } catch {
+      return undefined
+    }
   }
 
   /** Retire the Edge bridge after the matching upstream request header is durable. */

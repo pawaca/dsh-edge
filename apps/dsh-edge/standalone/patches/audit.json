@@ -1,5 +1,10 @@
 [
   {
+    "package": "@deepseek-ai/dsh-api-session-controller",
+    "rationale": "Remove node:fs/promises mkdir/stat calls that are incompatible with Cloudflare Workers. The Edge Computer workspace guarantees /workspace exists, and the DO persistence backend exposes no file location for the cold-blank probe.",
+    "removeWhen": "The published session controller routes directory creation through the ctx.fs seam (or gates it behind a platform check) and the cold-blank probe no longer requires node:fs stat."
+  },
+  {
     "package": "@deepseek-ai/dsh-llm",
     "rationale": "Resolve the Harness attribution version without runtime node:module path discovery, which is unavailable in the Worker bundle.",
     "removeWhen": "The published LLM package exposes its version through a Worker-bundle-safe import or injected build constant and bundles without node:module."

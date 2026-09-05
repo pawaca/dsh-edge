@@ -442,12 +442,17 @@ function rpcResponseIs(response, method) {
   }
 }
 
+// Wire parameter names from the generated Typert host descriptors.
+const TYPERT_WIRES = { 'session.list': '_request' }
+
 async function edgeRpc(worker, ownerCookie, method, payload) {
   const rpcId = crypto.randomUUID()
-  const response = await worker.fetch(`http://dsh-edge.test/api/${method}`, {
+  const [ns, name] = method.split('.')
+  const wireName = TYPERT_WIRES[method] ?? 'request'
+  const response = await worker.fetch(`http://dsh-edge.test/api/${ns}/${name}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', cookie: ownerCookie },
-    body: JSON.stringify({ type: 'client-request', rpcId, method, payload }),
+    body: JSON.stringify({ rpcId, payload: { args: { [wireName]: payload } } }),
   })
   const wire = await response.json()
   expect(wire.rpcId).toBe(rpcId)

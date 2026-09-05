@@ -123,7 +123,33 @@ interface DownlinkAttachment {
   expiresAt: number
 }
 
-type RemoteStreamEntry = { abort: AbortController; done: Promise<void>; endpoint?: string }
+/** Whether the Typert gateway reported that no active service exports the endpoint. */
+function isUnservedEndpointError(error: unknown): boolean {
+  const code = (error as { code?: unknown }).code
+  if (code === 'gateway/definition-unavailable'
+    || code === 'gateway/method-unavailable'
+    || code === 'gateway/service-unavailable') return true
+  return error instanceof Error && error.message.includes('no active Remote method')
+}
+
+/** Project a gateway failure onto the RPC wire without inventing a new code. */
+function remoteFailureOf(error: unknown): { code: string; message: string; details: object } {
+  const remote = error as { code?: unknown; message?: unknown; details?: unknown }
+  if (typeof remote.code === 'string' && typeof remote.message === 'string') {
+    return {
+      code: remote.code,
+      message: remote.message,
+      details: typeof remote.details === 'object' && remote.details !== null ? remote.details : {},
+    }
+  }
+  return {
+    code: 'internal',
+    message: error instanceof Error ? error.message : String(error),
+    details: {},
+  }
+}
+
+type RemoteStreamEntry = { abort: AbortController; done: Promise<void> }
 const remoteStreams = new WeakMap<WebSocket, Map<string, RemoteStreamEntry>>()
 
 /** Mirror the upstream session-list projection fold at the Edge transport seam. */
@@ -217,6 +243,9 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       ...this.env.DEEPSEEK_BASE_URL === undefined
         ? {}
         : { baseURL: this.env.DEEPSEEK_BASE_URL },
+      ...this.env.DEEPSEEK_MODEL === undefined
+        ? {}
+        : { model: this.env.DEEPSEEK_MODEL },
       ...this.env.DEEPSEEK_MAX_OUTPUT_TOKENS === undefined
         ? {}
         : { maxTokens: this.env.DEEPSEEK_MAX_OUTPUT_TOKENS },
@@ -452,47 +481,6 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       return
     }
 
-    if (endpoint === '$events') {
-      try {
-        socket.send(JSON.stringify({
-          type: 'item', streamId,
-          value: { type: 'ready', clientId: crypto.randomUUID(), host: { home: '/' } },
-        }))
-      } catch {}
-      const abort = new AbortController()
-      const done = new Promise<void>(resolve => { abort.signal.addEventListener('abort', () => resolve()) })
-      streams.set(streamId, { abort, done })
-      return
-    }
-
-    if (endpoint === 'workspace/follow') {
-      const abort = new AbortController()
-      const done = this.sendWorkspaceBaseline(socket, streamId, abort)
-      streams.set(streamId, { abort, done, endpoint: 'workspace/follow' })
-      return
-    }
-
-    if (endpoint === 'session/follow') {
-      const followArgs = (payload as { args?: { request?: { address?: { sessionId?: string } } } })?.args?.request
-      const sessionId = (followArgs?.address?.sessionId ?? (followArgs as { sessionId?: string } | undefined)?.sessionId) as SessionId | undefined
-      if (sessionId === undefined) {
-        const error = { code: 'gateway/bad-request', message: 'session/follow requires sessionId', details: {} }
-        try { socket.send(JSON.stringify({ type: 'error', streamId, error })) } catch {}
-        return
-      }
-      const abort = new AbortController()
-      const done = this.pumpSessionFollow(socket, streamId, sessionId, abort)
-      streams.set(streamId, { abort, done, endpoint: 'session/follow' })
-      return
-    }
-
-    if (endpoint === 'session/control') {
-      const abort = new AbortController()
-      const done = this.sendSessionControlBaseline(socket, streamId, abort)
-      streams.set(streamId, { abort, done, endpoint: 'session/control' })
-      return
-    }
-
     const gateway = this.sessions.typertGateway()
     if (gateway === undefined) {
       const error = { code: 'gateway/service-unavailable', message: 'gateway not available', details: {} }
@@ -536,125 +524,6 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     }
   }
 
-  private async sendWorkspaceBaseline(
-    socket: WebSocket,
-    streamId: string,
-    abort: AbortController,
-  ): Promise<void> {
-    try {
-      const { items, archivedSessionIds } = await this.listWorkspaces()
-      if (socket.readyState !== WebSocket.OPEN) return
-      socket.send(JSON.stringify({
-        type: 'item', streamId,
-        value: { type: 'baseline', value: { items, archivedSessionIds } },
-      }))
-    } catch {}
-    await new Promise<void>(resolve => { abort.signal.addEventListener('abort', () => resolve()) })
-  }
-
-  private async sendSessionControlBaseline(
-    socket: WebSocket,
-    streamId: string,
-    abort: AbortController,
-  ): Promise<void> {
-    try {
-      const sessions = await this.sessions.listApiSessions()
-      if (socket.readyState !== WebSocket.OPEN) return
-      const projections: Record<string, { asOfSeq: number; values: Record<string, unknown> }> = {}
-      for (const s of sessions) {
-        const snap = this.sessions.projectionSnapshot(s.id)
-          ?? this.sessions.projectionCachedSnapshot(s)
-        if (snap !== undefined) projections[s.id] = snap
-      }
-      socket.send(JSON.stringify({
-        type: 'item', streamId,
-        value: { type: 'baseline', value: { queues: {}, jobs: {}, projections } },
-      }))
-    } catch {}
-    await new Promise<void>(resolve => { abort.signal.addEventListener('abort', () => resolve()) })
-  }
-
-  private async pumpSessionFollow(
-    socket: WebSocket,
-    streamId: string,
-    sessionId: SessionId,
-    abort: AbortController,
-  ): Promise<void> {
-    try {
-      if (socket.readyState !== WebSocket.OPEN) return
-      let records: SessionEvent[] = []
-      let cursor = -1
-      try {
-        const page = await this.sessions.readEventPage(sessionId, 0, 256, 1_048_576)
-        records = page.events
-        cursor = records.length > 0 ? records[records.length - 1]!.seq : -1
-      } catch {}
-      socket.send(JSON.stringify({
-        type: 'item', streamId,
-        value: {
-          type: 'snapshot',
-          header: { id: sessionId, version: 1, createdAt: Date.now(), isSeeded: records.length > 0 },
-          cursor,
-          records: records.map(e => ({ type: 'event', event: e })),
-          hasMore: false,
-          projections: { asOfSeq: cursor >= 0 ? cursor : 0, values: {} },
-        },
-      }))
-    } catch {}
-    const listener = (_sid: SessionId, event: SessionEvent) => {
-      if (_sid !== sessionId || socket.readyState !== WebSocket.OPEN) return
-      try {
-        socket.send(JSON.stringify({
-          type: 'item', streamId,
-          value: { type: 'event', event },
-        }))
-      } catch {}
-    }
-    this.sessionFollowListeners.set(streamId, { sessionId, listener })
-    abort.signal.addEventListener('abort', () => { this.sessionFollowListeners.delete(streamId) })
-    await new Promise<void>(resolve => { abort.signal.addEventListener('abort', () => resolve()) })
-  }
-
-  private readonly sessionFollowListeners = new Map<string, { sessionId: SessionId; listener: (sid: SessionId, event: SessionEvent) => void }>()
-
-  private notifySessionFollowListeners(sessionId: SessionId, event: SessionEvent): void {
-    for (const { sessionId: sid, listener } of this.sessionFollowListeners.values()) {
-      if (sid === sessionId) listener(sessionId, event)
-    }
-  }
-
-  private broadcastWorkspaceUpsert(workspace: WorkspaceView): void {
-    for (const socket of this.ctx.getWebSockets('remote.mux')) {
-      const streams = remoteStreams.get(socket)
-      if (streams === undefined) continue
-      for (const [streamId, entry] of streams) {
-        if (entry.endpoint !== 'workspace/follow') continue
-        try {
-          socket.send(JSON.stringify({
-            type: 'item', streamId,
-            value: { type: 'upsert', workspace },
-          }))
-        } catch {}
-      }
-    }
-  }
-
-  private broadcastWorkspaceRemoved(workspaceId: WorkspaceId): void {
-    for (const socket of this.ctx.getWebSockets('remote.mux')) {
-      const streams = remoteStreams.get(socket)
-      if (streams === undefined) continue
-      for (const [streamId, entry] of streams) {
-        if (entry.endpoint !== 'workspace/follow') continue
-        try {
-          socket.send(JSON.stringify({
-            type: 'item', streamId,
-            value: { type: 'remove', workspaceId },
-          }))
-        } catch {}
-      }
-    }
-  }
-
   private abortRemoteStreams(socket: WebSocket): void {
     const streams = remoteStreams.get(socket)
     if (streams === undefined) return
@@ -692,7 +561,6 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     await entity.attachSession(session.id)
     const workspace = workspaceEntityToView(entity)
     this.broadcast('host', { type: 'host/workspace-changed', workspace })
-    this.broadcastWorkspaceUpsert(workspace)
   }
 
   private async workspaceForSession(sessionId: SessionId): Promise<WorkspaceId | undefined> {
@@ -723,7 +591,6 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     const entity = await registry.create(path)
     const workspace = workspaceEntityToView(entity)
     this.broadcast('host', { type: 'host/workspace-changed', workspace })
-    this.broadcastWorkspaceUpsert(workspace)
     return { workspace, created: true }
   }
 
@@ -736,7 +603,6 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     const workspace = workspaceEntityToView(entity)
     if (previousTitle !== title) {
       this.broadcast('host', { type: 'host/workspace-changed', workspace })
-    this.broadcastWorkspaceUpsert(workspace)
     }
     return workspace
   }
@@ -748,7 +614,6 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       throw new WorkspaceOrderInvalidError(workspaceId)
     }
     this.broadcast('host', { type: 'host/workspace-removed', workspaceId })
-    this.broadcastWorkspaceRemoved(workspaceId)
   }
 
   private async reorderWorkspace(
@@ -770,7 +635,6 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     await entity.insertSessionBefore(sessionId, beforeSessionId)
     const workspace = workspaceEntityToView(entity)
     this.broadcast('host', { type: 'host/workspace-changed', workspace })
-    this.broadcastWorkspaceUpsert(workspace)
     return workspace
   }
 
@@ -812,41 +676,31 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         body: JSON.stringify(edgeBody),
       }))
     }
-    if (ns === 'session') return edgeDispatch()
+    // The Edge owns the turn lifecycle (Computer shell binding and DO
+    // waitUntil keep-alive), so prompt admission and cancellation stay on the
+    // Edge implementation until that lifecycle moves into agent hooks.
+    if (ns === 'session' && (method === 'prompt' || method === 'cancel')) return edgeDispatch()
     const gateway = this.sessions.typertGateway()
     if (gateway === undefined) return edgeDispatch()
     try {
       const value = await gateway.invoke({ namespace: ns, method, args, signal: AbortSignal.timeout(30_000) })
       return Response.json({ type: 'server-response', rpcId, result: { ok: true, value } })
-    } catch {
-      try { return await edgeDispatch() } catch (fallbackError) {
-        return Response.json({ type: 'server-response', rpcId, result: {
-          ok: false,
-          error: { code: 'internal', message: fallbackError instanceof Error ? fallbackError.message : String(fallbackError), details: {} },
-        } })
+    } catch (error) {
+      // Only endpoints no registered controller serves fall back to the Edge
+      // API; validation and business failures surface as the gateway reported
+      // them so protocol regressions stay visible.
+      if (isUnservedEndpointError(error)) {
+        try { return await edgeDispatch() } catch {}
       }
-    }
-  }
-
-  private pushSessionControlProjection(sessionId: SessionId, key: string, value: unknown, seq: number): void {
-    for (const socket of this.ctx.getWebSockets('remote.mux')) {
-      const streams = remoteStreams.get(socket)
-      if (streams === undefined) continue
-      for (const [streamId, entry] of streams) {
-        if (entry.endpoint !== 'session/control') continue
-        try {
-          socket.send(JSON.stringify({
-            type: 'item', streamId,
-            value: { type: 'projection', sessionId, key, value, seq },
-          }))
-        } catch {}
-      }
+      return Response.json({ type: 'server-response', rpcId, result: {
+        ok: false,
+        error: remoteFailureOf(error),
+      } })
     }
   }
 
   private publishSessionEvent(sessionId: SessionId, event: SessionEvent): void {
     this.broadcast('mux', { type: 'session/event', sessionId, event })
-    this.notifySessionFollowListeners(sessionId, event)
     const previous = this.sessionListMetadata.get(sessionId) ?? INITIAL_SESSION_LIST_METADATA
     const next = applySessionListMetadata(previous, event)
     if (next !== previous) {
@@ -858,10 +712,6 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         value: next,
         seq: event.seq,
       })
-      this.pushSessionControlProjection(sessionId, 'sessionListMetadata', next, event.seq)
-    }
-    if (event.type === 'session/title') {
-      this.pushSessionControlProjection(sessionId, 'title', event.data.title, event.seq)
     }
     const pending = this.pendingProjections.get(sessionId)
     if (pending !== undefined && pending.length > 0) {
