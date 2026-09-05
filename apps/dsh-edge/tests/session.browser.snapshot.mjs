@@ -101,6 +101,29 @@ describe('dsh-edge assembled browser snapshot', () => {
       const edgeSettingsSnapshot = await stableAria(page, '[role="dialog"]')
       await expect(normalize(edgeSettingsSnapshot))
         .toMatchFileSnapshot('./snapshots/edge-settings.expected.md')
+      await settings.getByRole('navigation')
+        .getByRole('button', { name: 'Plugins', exact: true })
+        .click()
+      await settings.getByRole('tab', { name: 'Plugin list', exact: true }).waitFor()
+      const pluginsSnapshot = await stableAria(page, '[role="dialog"]')
+      await expect(normalize(pluginsSnapshot))
+        .toMatchFileSnapshot('./snapshots/edge-plugins.expected.md')
+      const inventoryResponse = page.waitForResponse(response =>
+        rpcResponseIs(response, 'pluginInventory.list'))
+      await settings.getByRole('tab', { name: 'Plugin list', exact: true }).click()
+      const inventoryWire = await (await inventoryResponse).json()
+      expect(inventoryWire.result.ok).toBe(true)
+      const inventoryIds = inventoryWire.result.value.entries.map(entry => entry.entryId)
+      expect(inventoryIds).toContain('web:@deepseek-ai/dsh-client-ui-settings-plugin-inventory')
+      expect(inventoryIds).toContain('host:PluginInventoryGateway')
+      expect(inventoryWire.result.value.entries
+        .filter(entry => entry.entryId.startsWith('web:'))
+        .every(entry => entry.enabled === true && entry.fiberPhase === 'active')).toBe(true)
+      expect(inventoryWire.result.value.agentPresets).toEqual([])
+      await expect.poll(
+        () => settings.locator('[data-plugin-entry]').count(),
+        { timeout: 15_000 },
+      ).toBe(inventoryIds.length)
       await settings.getByRole('button', { name: 'Agent presets', exact: true }).click()
       const presetReadResponse = page.waitForResponse(response =>
         rpcResponseIs(response, 'agentPreset.read'))

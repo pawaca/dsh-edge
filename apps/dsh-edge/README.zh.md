@@ -28,6 +28,7 @@
 - Image composer、gallery、lightbox、attachment wire contract 与 DeepSeek serializer 全部原样复用。
 - Storage seam 为新的永久部署选择私有 R2，为临时部署选择有界 Durable Object storage，并让 0.3 之前的 Worker 在首次升级时由 owner 做一次选择。
 - 缺少对应 host domain 的客户端插件会被排除，而不会 fork UI 代码。Session log export 与可选的本地 host 插件目前仍不可用。
+- Settings → Plugins 通过上游 `dsh-host-plugin-inventory` Remote 列出当前运行的 composition。Workers 上没有 cordis Loader，因此 Edge 自有的 `EdgeLoader` 用实时的 host 插件 registry 和经过评审的 Web boot graph 来回答它注入的 `loader`。
 - 一个小型 Edge 登录外壳在不修改上游 UI 和协议的前提下保护它们。
 
 ## 快速导航
@@ -123,7 +124,7 @@ curl -b /tmp/dsh-edge-cookie -N -X POST -H 'content-type: application/json' \
 | Workspace filesystem | 本地 filesystem services 和 host paths | 适配 | 在 owner 基于 SQLite 的 Durable Object VFS 中保存 `/workspace`。 |
 | Session persistence | `SessionPersistence` service、`PersistenceCoordinator` 及本地 JSONL/SQLite backends | 原生 backend 适配 | 复用上游 service 及 coordinator 的职责划分，在 Durable Object SQL 上实现存储原语，并使用上游 header/event 映射。一个 Edge 独有表会在透明休眠期间保留 empty session header，并在 canonical rows 物化时删除；Edge 不定义 turn 或 message schema。内部 coordinator helper 负责校验有界 replay loader，并在 disposal 前放弃失败且尚未物化的创建。 |
 | Settings and credentials | 基于文件的 settings、launch environment 和 credential services | 可写，使用 DO 存储 | 上游 `dsh-settings` 插件通过 `DurableObjectSettingsProvider` 把 user section 持久化到 Durable Object KV。上游 `dsh-llm-deepseek` cordis 插件直接安装，自动注册 `llm-deepseek` Settings 命名空间和可配置 Provider 条目；Settings → Models 页面可在运行时读取和修改 Provider 配置（base URL、model catalog、API key reference、reasoning effort），无需重新部署。`EdgeCredentialProvider` 先从 DO KV 解析凭证，然后降级到 Worker 环境变量 secret；`set`/`unset` 通过上游接缝持久化。部署默认值（maxTokens 256,000，reasoningEffort high）与上游插件对齐，未设置部署变量时与上游行为一致。 |
-| Host boot and plugins | Node 命令行、Cordis profile loading、package resolution 和 HMR | 显式 Edge composition | 不在 Workerd 中运行本地 boot profile。部署前构建 immutable 客户端包，并排除 HMR 及 Edge `ApiProxy` 未暴露的 host domain。 |
+| Host boot and plugins | Node 命令行、Cordis profile loading、package resolution 和 HMR | 显式 Edge composition | 不在 Workerd 中运行本地 boot profile。部署前构建 immutable 客户端包，并排除 HMR 及 Edge `ApiProxy` 未暴露的 host domain。上游 `dsh-host-plugin-inventory` Remote 为 Settings → Plugins 提供数据；`EdgeLoader` 从实时插件 registry 投影带 fiber phase 的 `host:` 条目，并从 `expected-boot-graph.json` 投影 `web:` 条目。 |
 | DSH transport | Typed HTTP RPC 加 mux/host WebSocket downlink | 复用并提供 Edge 服务端实现 | 对 unary method 使用上游 fetch carrier，并保留其 envelope、schema、projection、lazy blank-session 行为、有界内容搜索、prompt 与 queue mutation、workspace mutation、queue snapshot 和 event frame。两条 downlink 都由 Durable Object WebSocket 休眠机制持有；mux 重连会重放 live inbox 的待处理状态，REST/SSE 路由则保留为诊断兼容路径。 |
 | Workspace registry | Storage-domain global state 加 `WorkspaceRecord` rows | 原生 backend 适配 | 保持上游 global 和 record value shape，包括手动 session 顺序与 archive membership；仅把物理 key 和原子写入映射到 Durable Object storage。Edge 把 registry 限制为一个原生 `/workspace` VFS；rename、delete、recreate 与 session reorder 保持上游 RPC 和 Host-frame 语义。 |
 | Existing Web UI | 运行时加载的 shell 和 `dsh.client` 插件 graph | 复用并采用通用 composition fallback | 把上游 shell 和受支持的上游客户端包组装成 Worker 静态资源；共享的 slot occupancy 规则会隐藏缺少 provider 的 action。Cloudflare 直接提供普通资源，`/`、`/login` 与 `/api/*` 则进入 Worker 执行 owner access control。组装后的 asset policy 会阻止所有直接或 SPA-fallback shell alias 被嵌入 frame。 |

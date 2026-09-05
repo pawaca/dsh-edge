@@ -64,7 +64,9 @@ import GoalService from '@deepseek-ai/dsh-goal'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
 import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
+import PluginInventoryGateway from '@deepseek-ai/dsh-host-plugin-inventory'
 import { EdgeFileSystem } from './edge-filesystem.ts'
+import { EdgeLoader } from './edge-plugin-loader.ts'
 import * as EdgeSkillProvider from './edge-skill-provider.ts'
 import {
   EDGE_SYSTEM_PROMPT,
@@ -366,8 +368,23 @@ export class EdgeSessionStore {
       async mount(): Promise<void> {
         // The Edge system prompt and tool composition are mounted globally.
       }
+      async compositionInventory(): Promise<readonly never[]> {
+        // No per-preset composition rows: the plugin inventory lists the
+        // global composition and the browser boot graph instead.
+        return []
+      }
     }
     await this.context.plugin(EdgeAgentPresets)
+    // Upstream plugin inventory injects the cordis Loader. The Edge composes
+    // programmatically, so EdgeLoader answers its read-only entries() from the
+    // live plugin registry and the reviewed Web boot graph.
+    await this.context.plugin(EdgeLoader)
+    await this.context.plugin(PluginInventoryGateway)
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    const { TYPERT: PLUGIN_INVENTORY_TYPERT } = await import(
+      '@deepseek-ai/dsh-host-plugin-inventory/typert' as string
+    )
+    this.context.typert.register(PLUGIN_INVENTORY_TYPERT as never)
     // The upstream preset host package is not part of this deployment, so the
     // Edge registers the header-derived agentPreset projection the controller
     // and browser banner read.
