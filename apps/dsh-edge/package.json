@@ -119,6 +119,7 @@
     "@deepseek-ai/dsh-system-prompt": "0.1.2-rc.1",
     "@deepseek-ai/dsh-timeout": "0.1.2-rc.1",
     "@deepseek-ai/dsh-token-meter": "0.1.2-rc.1",
+    "@deepseek-ai/dsh-tool-ask-user": "0.1.2-rc.1",
     "@deepseek-ai/dsh-tool-call-timeout-policy": "0.1.2-rc.1",
     "@deepseek-ai/dsh-tool-fs": "0.1.2-rc.1",
     "@deepseek-ai/dsh-tool-goal": "0.1.2-rc.1",

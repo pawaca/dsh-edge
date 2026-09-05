@@ -918,6 +918,9 @@ function edgeAgentPresetContent(
     '    credentialRef: DEEPSEEK_API_KEY',
     '    maxResults: 8',
     '    webFetchEnabled: true',
+    '  - id: ask_user_question',
+    '    seam: "@deepseek-ai/dsh-user-questions"',
+    '    answerer: web-client',
   ].join('\n') + '\n'
 }
 

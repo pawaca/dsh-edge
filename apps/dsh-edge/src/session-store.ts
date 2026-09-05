@@ -67,6 +67,7 @@ import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
 import PluginInventoryGateway from '@deepseek-ai/dsh-host-plugin-inventory'
 import * as ApiRemotes from '@deepseek-ai/dsh-api-remotes'
 import UserQuestionService from '@deepseek-ai/dsh-user-questions'
+import * as ToolAskUser from '@deepseek-ai/dsh-tool-ask-user'
 import { EdgeTypertConnection, type TypertRpcInterceptor } from './edge-typert-connection.ts'
 import { EdgeFileSystem } from './edge-filesystem.ts'
 import { EdgeLoader } from './edge-plugin-loader.ts'
@@ -299,6 +300,9 @@ export class EdgeSessionStore {
     // ctx.userQuestions: the upstream answerer waterfall tools and plan mode
     // ask through. The browser answers it over the forwarded `$events` stream.
     await this.context.plugin(UserQuestionService)
+    // Model-facing ask_user_question over that seam; registered globally in
+    // ToolRuntime like the other upstream tools, so every Edge agent mounts it.
+    await this.context.plugin(ToolAskUser)
     await this.context.plugin(CommandRuntime)
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
     const { TYPERT: COMMANDS_TYPERT } = await import(

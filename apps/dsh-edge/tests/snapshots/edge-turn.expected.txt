@@ -86,7 +86,7 @@
           },
           "system": "You are an AI agent powered by DeepSeek Harness.
 
-You are dsh-edge, a coding agent running in a Cloudflare Worker. Prefer the read, write, and edit tools for workspace file operations, and use read_image to inspect images. Use bash for shell commands, web_search and web_fetch for web access, and goal tools for long-running objectives. Each session has a persistent working directory that file and bash tools default to. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
+You are dsh-edge, a coding agent running in a Cloudflare Worker. Prefer the read, write, and edit tools for workspace file operations, and use read_image to inspect images. Use bash for shell commands, web_search and web_fetch for web access, and goal tools for long-running objectives. Use ask_user_question when you need a decision, a choice, or missing information from the user before proceeding. Each session has a persistent working directory that file and bash tools default to. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
 
 Use the read tool — not shell commands like cat — to inspect text files. Results include line numbers. Use offset and limit to continue reading large files.
 
@@ -100,6 +100,69 @@ Use the web_fetch tool to retrieve the content of a specific HTTP(S) URL (for ex
 
 Use goal tools for one long-running completion objective in the current session. create_goal may infer goal intent from a direct human request in any language; do not create a goal for routine single-turn work. Call get_goal before update_goal and copy its exact goal_id and revision. After session resume or fork, an active goal is disarmed: when a human asks to continue or resume in any wording or language, use update_goal action resume to rearm it. Mark complete only when the objective is actually achieved. Mark blocked only after the same blocking condition persists for at least 3 consecutive goal rounds, and report that concrete condition in blocked_reason; difficulty, uncertainty, or useful remaining work is not blocked.",
           "tools": [
+            {
+              "description": "Ask the user a concise question when you need confirmation, a choice, or missing information before proceeding. Send one or more questions, each with a stable id that will be echoed in the answer.",
+              "name": "ask_user_question",
+              "parameters": {
+                "properties": {
+                  "questions": {
+                    "description": "Questions to ask the user before continuing.",
+                    "items": {
+                      "additionalProperties": true,
+                      "properties": {
+                        "header": {
+                          "description": "Optional short heading for the question, such as "Confirm" or "Choose Mode".",
+                          "type": "string",
+                        },
+                        "id": {
+                          "description": "Stable id for this question; echoed in the answer.",
+                          "type": "string",
+                        },
+                        "multi_select": {
+                          "description": "Whether the user may select more than one option. Defaults to false.",
+                          "type": "boolean",
+                        },
+                        "options": {
+                          "description": "Optional choices to show the user. If you recommend one, put it first and append "(Recommended)" to that label.",
+                          "items": {
+                            "additionalProperties": true,
+                            "properties": {
+                              "description": {
+                                "description": "One sentence explaining the tradeoff or impact.",
+                                "type": "string",
+                              },
+                              "label": {
+                                "description": "Short user-facing option label.",
+                                "type": "string",
+                              },
+                            },
+                            "required": [
+                              "label",
+                            ],
+                            "type": "object",
+                          },
+                          "type": "array",
+                        },
+                        "question": {
+                          "description": "The specific question to ask the user.",
+                          "type": "string",
+                        },
+                      },
+                      "required": [
+                        "id",
+                        "question",
+                      ],
+                      "type": "object",
+                    },
+                    "type": "array",
+                  },
+                },
+                "required": [
+                  "questions",
+                ],
+                "type": "object",
+              },
+            },
             {
               "description": "Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in the session working directory unless workdir is supplied.",
               "name": "bash",
@@ -560,7 +623,7 @@ Use goal tools for one long-running completion objective in the current session.
           },
           "system": "You are an AI agent powered by DeepSeek Harness.
 
-You are dsh-edge, a coding agent running in a Cloudflare Worker. Prefer the read, write, and edit tools for workspace file operations, and use read_image to inspect images. Use bash for shell commands, web_search and web_fetch for web access, and goal tools for long-running objectives. Each session has a persistent working directory that file and bash tools default to. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
+You are dsh-edge, a coding agent running in a Cloudflare Worker. Prefer the read, write, and edit tools for workspace file operations, and use read_image to inspect images. Use bash for shell commands, web_search and web_fetch for web access, and goal tools for long-running objectives. Use ask_user_question when you need a decision, a choice, or missing information from the user before proceeding. Each session has a persistent working directory that file and bash tools default to. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
 
 Use the read tool — not shell commands like cat — to inspect text files. Results include line numbers. Use offset and limit to continue reading large files.
 
@@ -574,6 +637,69 @@ Use the web_fetch tool to retrieve the content of a specific HTTP(S) URL (for ex
 
 Use goal tools for one long-running completion objective in the current session. create_goal may infer goal intent from a direct human request in any language; do not create a goal for routine single-turn work. Call get_goal before update_goal and copy its exact goal_id and revision. After session resume or fork, an active goal is disarmed: when a human asks to continue or resume in any wording or language, use update_goal action resume to rearm it. Mark complete only when the objective is actually achieved. Mark blocked only after the same blocking condition persists for at least 3 consecutive goal rounds, and report that concrete condition in blocked_reason; difficulty, uncertainty, or useful remaining work is not blocked.",
           "tools": [
+            {
+              "description": "Ask the user a concise question when you need confirmation, a choice, or missing information before proceeding. Send one or more questions, each with a stable id that will be echoed in the answer.",
+              "name": "ask_user_question",
+              "parameters": {
+                "properties": {
+                  "questions": {
+                    "description": "Questions to ask the user before continuing.",
+                    "items": {
+                      "additionalProperties": true,
+                      "properties": {
+                        "header": {
+                          "description": "Optional short heading for the question, such as "Confirm" or "Choose Mode".",
+                          "type": "string",
+                        },
+                        "id": {
+                          "description": "Stable id for this question; echoed in the answer.",
+                          "type": "string",
+                        },
+                        "multi_select": {
+                          "description": "Whether the user may select more than one option. Defaults to false.",
+                          "type": "boolean",
+                        },
+                        "options": {
+                          "description": "Optional choices to show the user. If you recommend one, put it first and append "(Recommended)" to that label.",
+                          "items": {
+                            "additionalProperties": true,
+                            "properties": {
+                              "description": {
+                                "description": "One sentence explaining the tradeoff or impact.",
+                                "type": "string",
+                              },
+                              "label": {
+                                "description": "Short user-facing option label.",
+                                "type": "string",
+                              },
+                            },
+                            "required": [
+                              "label",
+                            ],
+                            "type": "object",
+                          },
+                          "type": "array",
+                        },
+                        "question": {
+                          "description": "The specific question to ask the user.",
+                          "type": "string",
+                        },
+                      },
+                      "required": [
+                        "id",
+                        "question",
+                      ],
+                      "type": "object",
+                    },
+                    "type": "array",
+                  },
+                },
+                "required": [
+                  "questions",
+                ],
+                "type": "object",
+              },
+            },
             {
               "description": "Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in the session working directory unless workdir is supplied.",
               "name": "bash",
@@ -1066,7 +1192,7 @@ Use goal tools for one long-running completion objective in the current session.
           },
           "system": "You are an AI agent powered by DeepSeek Harness.
 
-You are dsh-edge, a coding agent running in a Cloudflare Worker. Prefer the read, write, and edit tools for workspace file operations, and use read_image to inspect images. Use bash for shell commands, web_search and web_fetch for web access, and goal tools for long-running objectives. Each session has a persistent working directory that file and bash tools default to. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
+You are dsh-edge, a coding agent running in a Cloudflare Worker. Prefer the read, write, and edit tools for workspace file operations, and use read_image to inspect images. Use bash for shell commands, web_search and web_fetch for web access, and goal tools for long-running objectives. Use ask_user_question when you need a decision, a choice, or missing information from the user before proceeding. Each session has a persistent working directory that file and bash tools default to. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
 
 Use the read tool — not shell commands like cat — to inspect text files. Results include line numbers. Use offset and limit to continue reading large files.
 
@@ -1080,6 +1206,69 @@ Use the web_fetch tool to retrieve the content of a specific HTTP(S) URL (for ex
 
 Use goal tools for one long-running completion objective in the current session. create_goal may infer goal intent from a direct human request in any language; do not create a goal for routine single-turn work. Call get_goal before update_goal and copy its exact goal_id and revision. After session resume or fork, an active goal is disarmed: when a human asks to continue or resume in any wording or language, use update_goal action resume to rearm it. Mark complete only when the objective is actually achieved. Mark blocked only after the same blocking condition persists for at least 3 consecutive goal rounds, and report that concrete condition in blocked_reason; difficulty, uncertainty, or useful remaining work is not blocked.",
           "tools": [
+            {
+              "description": "Ask the user a concise question when you need confirmation, a choice, or missing information before proceeding. Send one or more questions, each with a stable id that will be echoed in the answer.",
+              "name": "ask_user_question",
+              "parameters": {
+                "properties": {
+                  "questions": {
+                    "description": "Questions to ask the user before continuing.",
+                    "items": {
+                      "additionalProperties": true,
+                      "properties": {
+                        "header": {
+                          "description": "Optional short heading for the question, such as "Confirm" or "Choose Mode".",
+                          "type": "string",
+                        },
+                        "id": {
+                          "description": "Stable id for this question; echoed in the answer.",
+                          "type": "string",
+                        },
+                        "multi_select": {
+                          "description": "Whether the user may select more than one option. Defaults to false.",
+                          "type": "boolean",
+                        },
+                        "options": {
+                          "description": "Optional choices to show the user. If you recommend one, put it first and append "(Recommended)" to that label.",
+                          "items": {
+                            "additionalProperties": true,
+                            "properties": {
+                              "description": {
+                                "description": "One sentence explaining the tradeoff or impact.",
+                                "type": "string",
+                              },
+                              "label": {
+                                "description": "Short user-facing option label.",
+                                "type": "string",
+                              },
+                            },
+                            "required": [
+                              "label",
+                            ],
+                            "type": "object",
+                          },
+                          "type": "array",
+                        },
+                        "question": {
+                          "description": "The specific question to ask the user.",
+                          "type": "string",
+                        },
+                      },
+                      "required": [
+                        "id",
+                        "question",
+                      ],
+                      "type": "object",
+                    },
+                    "type": "array",
+                  },
+                },
+                "required": [
+                  "questions",
+                ],
+                "type": "object",
+              },
+            },
             {
               "description": "Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in the session working directory unless workdir is supplied.",
               "name": "bash",
@@ -1540,7 +1729,7 @@ Use goal tools for one long-running completion objective in the current session.
           },
           "system": "You are an AI agent powered by DeepSeek Harness.
 
-You are dsh-edge, a coding agent running in a Cloudflare Worker. Prefer the read, write, and edit tools for workspace file operations, and use read_image to inspect images. Use bash for shell commands, web_search and web_fetch for web access, and goal tools for long-running objectives. Each session has a persistent working directory that file and bash tools default to. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
+You are dsh-edge, a coding agent running in a Cloudflare Worker. Prefer the read, write, and edit tools for workspace file operations, and use read_image to inspect images. Use bash for shell commands, web_search and web_fetch for web access, and goal tools for long-running objectives. Use ask_user_question when you need a decision, a choice, or missing information from the user before proceeding. Each session has a persistent working directory that file and bash tools default to. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
 
 Use the read tool — not shell commands like cat — to inspect text files. Results include line numbers. Use offset and limit to continue reading large files.
 
@@ -1554,6 +1743,69 @@ Use the web_fetch tool to retrieve the content of a specific HTTP(S) URL (for ex
 
 Use goal tools for one long-running completion objective in the current session. create_goal may infer goal intent from a direct human request in any language; do not create a goal for routine single-turn work. Call get_goal before update_goal and copy its exact goal_id and revision. After session resume or fork, an active goal is disarmed: when a human asks to continue or resume in any wording or language, use update_goal action resume to rearm it. Mark complete only when the objective is actually achieved. Mark blocked only after the same blocking condition persists for at least 3 consecutive goal rounds, and report that concrete condition in blocked_reason; difficulty, uncertainty, or useful remaining work is not blocked.",
           "tools": [
+            {
+              "description": "Ask the user a concise question when you need confirmation, a choice, or missing information before proceeding. Send one or more questions, each with a stable id that will be echoed in the answer.",
+              "name": "ask_user_question",
+              "parameters": {
+                "properties": {
+                  "questions": {
+                    "description": "Questions to ask the user before continuing.",
+                    "items": {
+                      "additionalProperties": true,
+                      "properties": {
+                        "header": {
+                          "description": "Optional short heading for the question, such as "Confirm" or "Choose Mode".",
+                          "type": "string",
+                        },
+                        "id": {
+                          "description": "Stable id for this question; echoed in the answer.",
+                          "type": "string",
+                        },
+                        "multi_select": {
+                          "description": "Whether the user may select more than one option. Defaults to false.",
+                          "type": "boolean",
+                        },
+                        "options": {
+                          "description": "Optional choices to show the user. If you recommend one, put it first and append "(Recommended)" to that label.",
+                          "items": {
+                            "additionalProperties": true,
+                            "properties": {
+                              "description": {
+                                "description": "One sentence explaining the tradeoff or impact.",
+                                "type": "string",
+                              },
+                              "label": {
+                                "description": "Short user-facing option label.",
+                                "type": "string",
+                              },
+                            },
+                            "required": [
+                              "label",
+                            ],
+                            "type": "object",
+                          },
+                          "type": "array",
+                        },
+                        "question": {
+                          "description": "The specific question to ask the user.",
+                          "type": "string",
+                        },
+                      },
+                      "required": [
+                        "id",
+                        "question",
+                      ],
+                      "type": "object",
+                    },
+                    "type": "array",
+                  },
+                },
+                "required": [
+                  "questions",
+                ],
+                "type": "object",
+              },
+            },
             {
               "description": "Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in the session working directory unless workdir is supplied.",
               "name": "bash",
@@ -1948,7 +2200,7 @@ Use goal tools for one long-running completion objective in the current session.
         {
           "content": "You are an AI agent powered by DeepSeek Harness.
 
-You are dsh-edge, a coding agent running in a Cloudflare Worker. Prefer the read, write, and edit tools for workspace file operations, and use read_image to inspect images. Use bash for shell commands, web_search and web_fetch for web access, and goal tools for long-running objectives. Each session has a persistent working directory that file and bash tools default to. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
+You are dsh-edge, a coding agent running in a Cloudflare Worker. Prefer the read, write, and edit tools for workspace file operations, and use read_image to inspect images. Use bash for shell commands, web_search and web_fetch for web access, and goal tools for long-running objectives. Use ask_user_question when you need a decision, a choice, or missing information from the user before proceeding. Each session has a persistent working directory that file and bash tools default to. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
 
 Use the read tool — not shell commands like cat — to inspect text files. Results include line numbers. Use offset and limit to continue reading large files.
 
@@ -1978,6 +2230,72 @@ Use goal tools for one long-running completion objective in the current session.
         "type": "enabled",
       },
       "tools": [
+        {
+          "function": {
+            "description": "Ask the user a concise question when you need confirmation, a choice, or missing information before proceeding. Send one or more questions, each with a stable id that will be echoed in the answer.",
+            "name": "ask_user_question",
+            "parameters": {
+              "properties": {
+                "questions": {
+                  "description": "Questions to ask the user before continuing.",
+                  "items": {
+                    "additionalProperties": true,
+                    "properties": {
+                      "header": {
+                        "description": "Optional short heading for the question, such as "Confirm" or "Choose Mode".",
+                        "type": "string",
+                      },
+                      "id": {
+                        "description": "Stable id for this question; echoed in the answer.",
+                        "type": "string",
+                      },
+                      "multi_select": {
+                        "description": "Whether the user may select more than one option. Defaults to false.",
+                        "type": "boolean",
+                      },
+                      "options": {
+                        "description": "Optional choices to show the user. If you recommend one, put it first and append "(Recommended)" to that label.",
+                        "items": {
+                          "additionalProperties": true,
+                          "properties": {
+                            "description": {
+                              "description": "One sentence explaining the tradeoff or impact.",
+                              "type": "string",
+                            },
+                            "label": {
+                              "description": "Short user-facing option label.",
+                              "type": "string",
+                            },
+                          },
+                          "required": [
+                            "label",
+                          ],
+                          "type": "object",
+                        },
+                        "type": "array",
+                      },
+                      "question": {
+                        "description": "The specific question to ask the user.",
+                        "type": "string",
+                      },
+                    },
+                    "required": [
+                      "id",
+                      "question",
+                    ],
+                    "type": "object",
+                  },
+                  "type": "array",
+                },
+              },
+              "required": [
+                "questions",
+              ],
+              "type": "object",
+            },
+          },
+          "type": "function",
+        },
         {
           "function": {
             "description": "Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in the session working directory unless workdir is supplied.",
@@ -2263,7 +2581,7 @@ Use goal tools for one long-running completion objective in the current session.
         {
           "content": "You are an AI agent powered by DeepSeek Harness.
 
-You are dsh-edge, a coding agent running in a Cloudflare Worker. Prefer the read, write, and edit tools for workspace file operations, and use read_image to inspect images. Use bash for shell commands, web_search and web_fetch for web access, and goal tools for long-running objectives. Each session has a persistent working directory that file and bash tools default to. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
+You are dsh-edge, a coding agent running in a Cloudflare Worker. Prefer the read, write, and edit tools for workspace file operations, and use read_image to inspect images. Use bash for shell commands, web_search and web_fetch for web access, and goal tools for long-running objectives. Use ask_user_question when you need a decision, a choice, or missing information from the user before proceeding. Each session has a persistent working directory that file and bash tools default to. The shell is just-bash, not Linux: native binaries and background processes are unavailable.
 
 Use the read tool — not shell commands like cat — to inspect text files. Results include line numbers. Use offset and limit to continue reading large files.
 
@@ -2312,6 +2630,72 @@ Use goal tools for one long-running completion objective in the current session.
         "type": "enabled",
       },
       "tools": [
+        {
+          "function": {
+            "description": "Ask the user a concise question when you need confirmation, a choice, or missing information before proceeding. Send one or more questions, each with a stable id that will be echoed in the answer.",
+            "name": "ask_user_question",
+            "parameters": {
+              "properties": {
+                "questions": {
+                  "description": "Questions to ask the user before continuing.",
+                  "items": {
+                    "additionalProperties": true,
+                    "properties": {
+                      "header": {
+                        "description": "Optional short heading for the question, such as "Confirm" or "Choose Mode".",
+                        "type": "string",
+                      },
+                      "id": {
+                        "description": "Stable id for this question; echoed in the answer.",
+                        "type": "string",
+                      },
+                      "multi_select": {
+                        "description": "Whether the user may select more than one option. Defaults to false.",
+                        "type": "boolean",
+                      },
+                      "options": {
+                        "description": "Optional choices to show the user. If you recommend one, put it first and append "(Recommended)" to that label.",
+                        "items": {
+                          "additionalProperties": true,
+                          "properties": {
+                            "description": {
+                              "description": "One sentence explaining the tradeoff or impact.",
+                              "type": "string",
+                            },
+                            "label": {
+                              "description": "Short user-facing option label.",
+                              "type": "string",
+                            },
+                          },
+                          "required": [
+                            "label",
+                          ],
+                          "type": "object",
+                        },
+                        "type": "array",
+                      },
+                      "question": {
+                        "description": "The specific question to ask the user.",
+                        "type": "string",
+                      },
+                    },
+                    "required": [
+                      "id",
+                      "question",
+                    ],
+                    "type": "object",
+                  },
+                  "type": "array",
+                },
+              },
+              "required": [
+                "questions",
+              ],
+              "type": "object",
+            },
+          },
+          "type": "function",
+        },
         {
           "function": {
             "description": "Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in the session working directory unless workdir is supplied.",
