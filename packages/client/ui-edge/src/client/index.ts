@@ -44,20 +44,11 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   }
 }
 
-export const inject = ['slots', 'locale', 'settingsScope', 'workspaces']
+export const inject = ['slots']
 
 export function apply(ctx: Context): void {
-  // Edge's API proxy fully supports settings RPCs over the remote transport.
-  // The upstream settings mirror defaults to "memory" (no-load) for non-loopback
-  // connections. Promote it to "host" so the Models page can read settings.
   const slots: EdgeSlots = (ctx as unknown as { slots: EdgeSlots }).slots
-  const mirror = (ctx as never as { settingsScope: { describe(): { persistence: string; load(): void } } })
-    .settingsScope.describe()
-  if (mirror.persistence === 'memory') {
-    mirror.persistence = 'host'
-    mirror.load()
-  }
-  ctx.effect(() => ctx.locale.register('settings.edge', { en, zh }), 'ui-edge: settings dictionaries')
+
   const controller = new EdgeSettingsController({
     fetch: (input, init) => globalThis.fetch(input, init),
     copy: async (text) => {
@@ -71,14 +62,28 @@ export function apply(ctx: Context): void {
     copyUpgrade: () => controller.copyUpgrade(),
     signOut: () => controller.signOut(),
   })
-  slots.inject('settings.section', () => slots.register({
-    name: 'settings.section',
-    id: 'dsh-edge',
-    order: 90,
-    label: () => ctx.locale.bind('settings.edge')('nav'),
-    locale: 'settings.edge',
-    inject: injected,
-  }, EdgeSettingsSection))
+
+  ctx.inject(['settingsScope'], (settingsCtx) => {
+    const mirror = (settingsCtx as never as { settingsScope: { describe(): { persistence: string; load(): void } } })
+      .settingsScope.describe()
+    if (mirror.persistence === 'memory') {
+      mirror.persistence = 'host'
+      mirror.load()
+    }
+  })
+
+  ctx.inject(['locale'], () => {
+    ctx.locale.register('settings.edge', { en, zh })
+    slots.inject('settings.section', () => slots.register({
+      name: 'settings.section',
+      id: 'dsh-edge',
+      order: 90,
+      label: () => ctx.locale.bind('settings.edge')('nav'),
+      locale: 'settings.edge',
+      inject: injected,
+    }, EdgeSettingsSection))
+  })
+
   slots.inject('conversation.hero.workspace.directoryFlow', () =>
     slots.inject('sidebar.workspaces.directoryFlow', function* () {
       yield slots.register(
@@ -91,22 +96,25 @@ export function apply(ctx: Context): void {
       )
     }),
   )
-  const workspaces = (ctx as never as { workspaces: { openPath(path: string): Promise<void> } }).workspaces
-  const originalOpenPath = workspaces.openPath.bind(workspaces)
-  workspaces.openPath = async (path: string) => {
-    try {
-      await originalOpenPath(path)
-    } catch {
-      const url = `/api/workspace/file?path=${encodeURIComponent(path)}`
-      const res = await globalThis.fetch(url)
-      if (!res.ok) throw new Error(`path open failed: ${res.status === 413 ? 'file too large' : await res.text()}`)
-      const blob = await res.blob()
-      const blobUrl = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = blobUrl
-      a.download = path.split('/').pop() ?? 'file'
-      a.click()
-      URL.revokeObjectURL(blobUrl)
+
+  ctx.inject(['workspaces'], () => {
+    const workspaces = (ctx as never as { workspaces: { openPath(path: string): Promise<void> } }).workspaces
+    const originalOpenPath = workspaces.openPath.bind(workspaces)
+    workspaces.openPath = async (path: string) => {
+      try {
+        await originalOpenPath(path)
+      } catch {
+        const url = `/api/workspace/file?path=${encodeURIComponent(path)}`
+        const res = await globalThis.fetch(url)
+        if (!res.ok) throw new Error(`path open failed: ${res.status === 413 ? 'file too large' : await res.text()}`)
+        const blob = await res.blob()
+        const blobUrl = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = blobUrl
+        a.download = path.split('/').pop() ?? 'file'
+        a.click()
+        URL.revokeObjectURL(blobUrl)
+      }
     }
-  }
+  })
 }

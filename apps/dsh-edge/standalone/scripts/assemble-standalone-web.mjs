@@ -210,16 +210,15 @@ async function main() {
       phase: 'bootstrap',
       url: bootstrapEntries[0].url,
       rev: bootstrapEntries[0].rev,
-      entries: bootstrapEntries.map(e => ({ id: e.id, url: e.url })),
+      entries: bootstrapEntries.map(e => e.id),
     })
   }
-  if (applicationEntries.length > 0) {
-    const appRev = shortHash(JSON.stringify(applicationEntries.map(e => e.id)))
+  for (const entry of applicationEntries) {
     batches.push({
       phase: 'application',
-      url: applicationEntries[0].url,
-      rev: appRev,
-      entries: applicationEntries.map(e => ({ id: e.id, url: e.url })),
+      url: entry.url,
+      rev: entry.rev,
+      entries: [entry.id],
     })
   }
   const graph = { rev: shortHash(JSON.stringify(orderedEntries)), entries: orderedEntries, batches }
