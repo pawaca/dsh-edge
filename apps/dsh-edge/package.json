@@ -93,6 +93,7 @@
     "@deepseek-ai/dsh-fs": "0.1.2-rc.1",
     "@deepseek-ai/dsh-goal": "0.1.2-rc.1",
     "@deepseek-ai/dsh-goal-round-driver": "0.1.2-rc.1",
+    "@deepseek-ai/dsh-host-plugin-inventory": "0.1.2-rc.1",
     "@deepseek-ai/dsh-launch-environment": "0.1.2-rc.1",
     "@deepseek-ai/dsh-llm": "0.1.2-rc.1",
     "@deepseek-ai/dsh-llm-deepseek": "0.1.2-rc.1",
