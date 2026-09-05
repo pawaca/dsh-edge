@@ -12,44 +12,44 @@ import { StorageError } from '@deepseek-ai/dsh-storage'
  * Key schema (all prefixed to avoid collisions with other DO KV usage):
  *
  *   dsh-kv:{unitName}:__version__                       → number
- *   dsh-kv:{unitName}:__global__                        → value | StampedDocument
- *   dsh-kv:{unitName}:{table}:{key}                     → value | StampedDocument
+ *   dsh-kv:{unitName}:__global__                        → value
+ *   dsh-kv:{unitName}:{table}:{key}                     → value
+ *   dsh-kv:{unitName}:__recver__:{table}:{key}          → number (per-record layout)
+ *   dsh-kv:{unitName}:__globalver__                     → number (per-record layout)
  *   dsh-kv:{unitName}:__backup__:{table}:{key}:{stamp}  → BackupDocument
+ *
+ * Values stay exactly the opaque JSON the domain layer handed over; the
+ * backend never wraps or inspects them, so no business value can be mistaken
+ * for backend metadata. Version stamps live in sidecar keys written in the
+ * same atomic multi-key put as the value.
  *
  * Layout semantics follow the upstream `KvUnitDescriptor` contract:
  *
  * - `single` (the default): the unit stamp is exact. A stored stamp that
  *   differs from the descriptor version rejects the open with
- *   `version-mismatch`; values are stored bare.
- * - `per-record`: every document carries its own version stamp
- *   ({@link StampedDocument}); reads accept the descriptor version plus its
- *   `compatibleVersions`, and a document stamped with any other version is
- *   FOREIGN and reads as absent — never deleted, never a rejected open. Bare
- *   documents predate the stamped format; they inherit the unit stamp
- *   (`__version__`), which is therefore never rewritten once present, so a
- *   later version bump still classifies them by the version that wrote them.
- *   Writes always stamp the descriptor version, so a medium upgrades one
- *   record at a time as the owner rewrites it — no startup scan.
+ *   `version-mismatch`; records carry no sidecar stamp.
+ * - `per-record`: every write stamps its record through the sidecar key;
+ *   reads accept the descriptor version plus its `compatibleVersions`, and a
+ *   record stamped with any other version is FOREIGN and reads as absent —
+ *   never deleted, never a rejected open. Records without a sidecar stamp
+ *   predate the stamped format; they inherit the unit stamp (`__version__`),
+ *   which is therefore never rewritten once present, so a later version bump
+ *   still classifies them by the version that wrote them. A medium upgrades
+ *   one record at a time as the owner rewrites it — no startup scan.
  */
 
 const KV_PREFIX = 'dsh-kv:'
-const DOCUMENT_KIND = 'dsh-kv-record'
 const BACKUP_KIND = 'dsh-kv-backup'
+const RECORD_VERSION_TABLE = '__recver__'
 const BACKUP_TABLE = '__backup__'
+const META_TABLES = new Set(['__version__', '__global__', '__globalver__', RECORD_VERSION_TABLE, BACKUP_TABLE])
 /** Per-record keys become key segments; the upstream contract rejects anything else on write. */
 const SAFE_KEY_RE = /^[a-zA-Z0-9_-]+$/
 
-/** One `per-record` document: the version that wrote it plus the value. */
-interface StampedDocument {
-  readonly $kind: typeof DOCUMENT_KIND
-  readonly version: number
-  readonly record: unknown
-}
-
-/** A document moved aside by {@link KvUnit.backupRecord}, retained for inspection. */
+/** A record moved aside by {@link KvUnit.backupRecord}, retained for inspection. */
 interface BackupDocument {
   readonly $kind: typeof BACKUP_KIND
-  readonly version: number | undefined
+  readonly version: number
   readonly record: unknown
   readonly backedUpAt: string
 }
@@ -62,8 +62,16 @@ function globalKey(unit: string): string {
   return `${KV_PREFIX}${unit}:__global__`
 }
 
+function globalVersionKey(unit: string): string {
+  return `${KV_PREFIX}${unit}:__globalver__`
+}
+
 function recordKey(unit: string, table: string, key: string): string {
   return `${KV_PREFIX}${unit}:${table}:${key}`
+}
+
+function recordVersionKey(unit: string, table: string, key: string): string {
+  return `${KV_PREFIX}${unit}:${RECORD_VERSION_TABLE}:${table}:${key}`
 }
 
 function backupKey(unit: string, table: string, key: string, stamp: string): string {
@@ -72,17 +80,6 @@ function backupKey(unit: string, table: string, key: string, stamp: string): str
 
 function unitPrefix(unit: string): string {
   return `${KV_PREFIX}${unit}:`
-}
-
-function isStampedDocument(value: unknown): value is StampedDocument {
-  return typeof value === 'object'
-    && value !== null
-    && (value as { $kind?: unknown }).$kind === DOCUMENT_KIND
-    && typeof (value as { version?: unknown }).version === 'number'
-}
-
-function stampDocument(version: number, record: unknown): StampedDocument {
-  return { $kind: DOCUMENT_KIND, version, record }
 }
 
 /** UTC `YYYYMMDDHHmm` suffix for backed-up documents, matching the upstream json backend. */
@@ -100,8 +97,8 @@ function assertSafeKey(unit: string, key: string): void {
 
 /**
  * One opened KV unit over Durable Object storage. Reads are list-scans;
- * writes are single-key puts; the domain layer serializes concurrent writes,
- * so no locking is needed here.
+ * writes are single atomic puts (value plus sidecar stamp); the domain layer
+ * serializes concurrent writes, so no locking is needed here.
  */
 class DurableObjectKvUnit implements KvUnit {
   private closed = false
@@ -110,7 +107,7 @@ class DurableObjectKvUnit implements KvUnit {
   private readonly acceptedVersions: ReadonlySet<number>
 
   /**
-   * Move one record's document out of the readable set. Only offered for the
+   * Move one record out of the readable set. Only offered for the
    * `per-record` layout: a `single`-layout unit omits the member so the domain
    * layer takes its reject-loud path, per the upstream contract.
    */
@@ -119,7 +116,7 @@ class DurableObjectKvUnit implements KvUnit {
   constructor(
     private readonly storage: DurableObjectStorage,
     private readonly descriptor: KvUnitDescriptor,
-    /** The stamp bare (pre-stamped-format) documents inherit. */
+    /** The stamp records without a sidecar stamp inherit. */
     private readonly legacyVersion: number,
   ) {
     this.perRecord = descriptor.layout === 'per-record'
@@ -129,19 +126,20 @@ class DurableObjectKvUnit implements KvUnit {
         this.assertOpen()
         this.assertTable(table)
         const active = recordKey(this.descriptor.name, table, key)
-        const stored = await this.storage.get(active)
+        const stampKey = recordVersionKey(this.descriptor.name, table, key)
+        const [stored, stamp] = await Promise.all([this.storage.get(active), this.storage.get(stampKey)])
         const moved = backupKey(this.descriptor.name, table, key, backupStamp(new Date()))
         if (stored !== undefined) {
           const backup: BackupDocument = {
             $kind: BACKUP_KIND,
-            version: isStampedDocument(stored) ? stored.version : this.legacyVersion,
-            record: isStampedDocument(stored) ? stored.record : stored,
+            version: typeof stamp === 'number' ? stamp : this.legacyVersion,
+            record: stored,
             backedUpAt: new Date().toISOString(),
           }
           // Copy first, then delete: a crash between the two leaves the record
           // readable and re-backed-up on the next open, never lost.
           await this.storage.put(moved, backup)
-          await this.storage.delete(active)
+          await this.storage.delete([active, stampKey])
         }
         return moved
       }
@@ -159,13 +157,20 @@ class DurableObjectKvUnit implements KvUnit {
     for (const table of this.descriptor.tables) {
       tables[table] = {}
     }
+    const values = new Map<string, { table: string; key: string; value: unknown }>()
+    const stamps = new Map<string, number>()
     let global: unknown = null
+    let globalStamp: number | undefined
     const gk = globalKey(this.descriptor.name)
+    const gvk = globalVersionKey(this.descriptor.name)
     for (const [key, value] of entries) {
       if (key === versionKey(this.descriptor.name)) continue
       if (key === gk) {
-        const read = this.readDocument(value)
-        if (read.present) global = read.record
+        global = value
+        continue
+      }
+      if (key === gvk) {
+        if (typeof value === 'number') globalStamp = value
         continue
       }
       // Parse record keys: dsh-kv:{unit}:{table}:{recordKey}
@@ -174,31 +179,56 @@ class DurableObjectKvUnit implements KvUnit {
       const separatorIndex = suffix.indexOf(':')
       if (separatorIndex < 0) continue
       const tableName = suffix.slice(0, separatorIndex)
-      const recordId = suffix.slice(separatorIndex + 1)
-      // Skip meta keys and backed-up documents (never part of the readable set).
-      if (tableName === '__version__' || tableName === '__global__' || tableName === BACKUP_TABLE) continue
-      const table = tables[tableName]
-      if (table === undefined) continue
-      const read = this.readDocument(value)
-      if (read.present) table[recordId] = read.record
+      const rest = suffix.slice(separatorIndex + 1)
+      if (tableName === RECORD_VERSION_TABLE) {
+        // Sidecar stamp: dsh-kv:{unit}:__recver__:{table}:{recordKey}
+        if (typeof value === 'number') stamps.set(rest, value)
+        continue
+      }
+      if (META_TABLES.has(tableName)) continue
+      if (tables[tableName] === undefined) continue
+      values.set(`${tableName}:${rest}`, { table: tableName, key: rest, value })
     }
-    return { tables, global }
+    for (const [path, entry] of values) {
+      if (!this.isReadable(stamps.get(path))) continue
+      tables[entry.table]![entry.key] = entry.value
+    }
+    return { tables, global: this.isReadable(globalStamp) ? global : null }
   }
 
   async putRecord(table: string, key: string, value: unknown): Promise<void> {
     this.assertOpen()
-    if (this.perRecord) assertSafeKey(this.descriptor.name, key)
-    await this.storage.put(recordKey(this.descriptor.name, table, key), this.writeDocument(value))
+    const active = recordKey(this.descriptor.name, table, key)
+    if (!this.perRecord) {
+      await this.storage.put(active, value)
+      return
+    }
+    assertSafeKey(this.descriptor.name, key)
+    // One atomic put: the value and its stamp can never be observed apart.
+    await this.storage.put({
+      [active]: value,
+      [recordVersionKey(this.descriptor.name, table, key)]: this.descriptor.version,
+    })
   }
 
   async deleteRecord(table: string, key: string): Promise<void> {
     this.assertOpen()
-    await this.storage.delete(recordKey(this.descriptor.name, table, key))
+    const active = recordKey(this.descriptor.name, table, key)
+    if (!this.perRecord) {
+      await this.storage.delete(active)
+      return
+    }
+    await this.storage.delete([active, recordVersionKey(this.descriptor.name, table, key)])
   }
 
   async setGlobal(value: unknown): Promise<void> {
     this.assertOpen()
-    await this.storage.put(globalKey(this.descriptor.name), this.writeDocument(value))
+    const gk = globalKey(this.descriptor.name)
+    if (!this.perRecord) {
+      await this.storage.put(gk, value)
+      return
+    }
+    await this.storage.put({ [gk]: value, [globalVersionKey(this.descriptor.name)]: this.descriptor.version })
   }
 
   async close(): Promise<void> {
@@ -206,24 +236,14 @@ class DurableObjectKvUnit implements KvUnit {
   }
 
   /**
-   * Classify one stored value. In the `single` layout every value is bare and
-   * current. In the `per-record` layout a stamped document is readable only
-   * when its stamp is accepted; a bare document inherits the unit stamp.
+   * Whether a stored record is part of the readable set. In the `single`
+   * layout every record is current. In the `per-record` layout a record is
+   * readable when its sidecar stamp — or, for a record that predates sidecar
+   * stamps, the unit stamp — is accepted.
    */
-  private readDocument(value: unknown): { present: true; record: unknown } | { present: false } {
-    if (!this.perRecord) return { present: true, record: value }
-    if (isStampedDocument(value)) {
-      return this.acceptedVersions.has(value.version)
-        ? { present: true, record: value.record }
-        : { present: false }
-    }
-    return this.acceptedVersions.has(this.legacyVersion)
-      ? { present: true, record: value }
-      : { present: false }
-  }
-
-  private writeDocument(value: unknown): unknown {
-    return this.perRecord ? stampDocument(this.descriptor.version, value) : value
+  private isReadable(stamp: number | undefined): boolean {
+    if (!this.perRecord) return true
+    return this.acceptedVersions.has(stamp ?? this.legacyVersion)
   }
 
   private assertTable(table: string): void {
