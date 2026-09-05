@@ -330,6 +330,14 @@ try {
     ok: true,
     value: { items: [feedbackItem] },
   })
+  // A rejecting Edge handler on the direct fallback path must still produce a
+  // correlated server-response RPC error envelope, not an HTTP-level failure.
+  const malformedPrompt = await typertRpc('session', 'prompt', {
+    request: { sessionId },
+  })
+  assert.equal(malformedPrompt.body.type, 'server-response')
+  assert.equal(malformedPrompt.body.result.ok, false, JSON.stringify(malformedPrompt.body))
+  assert.equal(typeof malformedPrompt.body.result.error.code, 'string')
 
   const secondEvents = await turn(sessionId, 'history check')
   assert.equal(assistantText(secondEvents), 'history-ok')

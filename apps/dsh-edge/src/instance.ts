@@ -674,15 +674,24 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       const flatArgs = keys.length === 1 && keys[0] === 'request'
         ? args.request as Record<string, unknown>
         : args
-      const called = await callEdgeApi(
-        this.api,
-        `${ns}.${method}`,
-        RpcId(rpcId),
-        flatArgs,
-        request.signal,
-      )
-      if (called === undefined) return new Response('not found', { status: 404 })
-      return Response.json({ type: 'server-response', rpcId: called.rpcId, result: called.result })
+      try {
+        const called = await callEdgeApi(
+          this.api,
+          `${ns}.${method}`,
+          RpcId(rpcId),
+          flatArgs,
+          request.signal,
+        )
+        if (called === undefined) return new Response('not found', { status: 404 })
+        return Response.json({ type: 'server-response', rpcId: called.rpcId, result: called.result })
+      } catch (error) {
+        // Same error envelope the HTTP dispatcher produces, so handler
+        // rejections stay correlated server-responses on the direct path.
+        return Response.json({ type: 'server-response', rpcId, result: {
+          ok: false,
+          error: { code: 'internal', message: String(error), details: {} },
+        } })
+      }
     }
     // The Edge owns the turn lifecycle: agents open per turn and dispose when
     // it ends, matching Durable Object eviction, while the upstream controller
