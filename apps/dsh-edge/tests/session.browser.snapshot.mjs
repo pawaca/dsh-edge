@@ -355,6 +355,16 @@ describe('dsh-edge assembled browser snapshot', () => {
       const channel = process.env.DSH_EDGE_PLAYWRIGHT_CHANNEL
       browser = await chromium.launch(channel ? { channel } : undefined)
       const page = await browser.newPage({ locale: 'en-US' })
+      // The composer enables image intake from the session's imageLimits
+      // projection, which the Edge pushes over the downlink after the client
+      // creates its session; a paste that lands before that frame is dropped
+      // by design. Track the frame so the paste waits for readiness.
+      let imageLimitsSeen = false
+      page.on('websocket', socket => {
+        socket.on('framereceived', frame => {
+          if (String(frame.payload).includes('"imageLimits"')) imageLimitsSeen = true
+        })
+      })
       const origin = `http://${worker.address}:${String(worker.port)}`
       await page.goto(origin, { waitUntil: 'load' })
       await page.getByLabel('Owner access key').fill(ACCESS_KEY)
@@ -381,7 +391,8 @@ describe('dsh-edge assembled browser snapshot', () => {
 
       const composer = page.getByRole('textbox').last()
       await composer.waitFor({ timeout: 15_000 })
-      await composer.evaluate((textarea) => {
+      await expect.poll(() => imageLimitsSeen, { timeout: 15_000 }).toBe(true)
+      const pasteImage = () => composer.evaluate((textarea) => {
         const png = Uint8Array.from(
           atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4XmP4z8DwHwAFAAH/NQZ7kgAAAABJRU5ErkJggg=='),
           character => character.charCodeAt(0),
@@ -394,10 +405,14 @@ describe('dsh-edge assembled browser snapshot', () => {
           clipboardData: transfer,
         }))
       })
-      await expect.poll(
-        () => page.getByRole('group', { name: 'Pending images' }).count(),
-        { timeout: 15_000 },
-      ).toBe(1)
+      const pendingImages = page.getByRole('group', { name: 'Pending images' })
+      // The frame precedes the React commit that enables intake; a paste in
+      // that gap is dropped (never deferred), so retrying cannot double-add.
+      for (let attempt = 0; attempt < 3 && await pendingImages.count() === 0; attempt++) {
+        await pasteImage()
+        await page.waitForTimeout(500)
+      }
+      await expect.poll(() => pendingImages.count(), { timeout: 15_000 }).toBe(1)
     } finally {
       await browser?.close()
       await worker?.stop()
