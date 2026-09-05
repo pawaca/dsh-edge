@@ -465,9 +465,16 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       return
     }
 
-    if (endpoint === 'session/control' || endpoint === 'workspace/follow') {
+    if (endpoint === 'workspace/follow') {
       const abort = new AbortController()
-      const done = new Promise<void>(resolve => { abort.signal.addEventListener('abort', () => resolve()) })
+      const done = this.sendWorkspaceBaseline(socket, streamId, abort)
+      streams.set(streamId, { abort, done })
+      return
+    }
+
+    if (endpoint === 'session/control') {
+      const abort = new AbortController()
+      const done = this.sendSessionControlBaseline(socket, streamId, abort)
       streams.set(streamId, { abort, done })
       return
     }
@@ -513,6 +520,44 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         }
       }
     }
+  }
+
+  private async sendWorkspaceBaseline(
+    socket: WebSocket,
+    streamId: string,
+    abort: AbortController,
+  ): Promise<void> {
+    try {
+      const { items, archivedSessionIds } = await this.listWorkspaces()
+      if (socket.readyState !== WebSocket.OPEN) return
+      socket.send(JSON.stringify({
+        type: 'item', streamId,
+        value: { type: 'baseline', value: { items, archivedSessionIds } },
+      }))
+    } catch {}
+    await new Promise<void>(resolve => { abort.signal.addEventListener('abort', () => resolve()) })
+  }
+
+  private async sendSessionControlBaseline(
+    socket: WebSocket,
+    streamId: string,
+    abort: AbortController,
+  ): Promise<void> {
+    try {
+      const sessions = await this.sessions.listApiSessions()
+      if (socket.readyState !== WebSocket.OPEN) return
+      const projections: Record<string, { asOfSeq: number; values: Record<string, unknown> }> = {}
+      for (const s of sessions) {
+        const snap = this.sessions.projectionSnapshot(s.id)
+          ?? this.sessions.projectionCachedSnapshot(s)
+        if (snap !== undefined) projections[s.id] = snap
+      }
+      socket.send(JSON.stringify({
+        type: 'item', streamId,
+        value: { type: 'baseline', value: { queues: {}, jobs: {}, projections } },
+      }))
+    } catch {}
+    await new Promise<void>(resolve => { abort.signal.addEventListener('abort', () => resolve()) })
   }
 
   private abortRemoteStreams(socket: WebSocket): void {
@@ -663,6 +708,13 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       })
       return Response.json({ type: 'server-response', rpcId, result: { ok: true, value } })
     } catch (error) {
+      if (error instanceof Error && error.message.includes('no active Remote method')) {
+        return this.apiFetch(new Request(request.url, {
+          method: 'POST',
+          headers: request.headers,
+          body: JSON.stringify(body),
+        }))
+      }
       return Response.json({ type: 'server-response', rpcId, result: {
         ok: false,
         error: { code: 'internal', message: error instanceof Error ? error.message : String(error), details: {} },

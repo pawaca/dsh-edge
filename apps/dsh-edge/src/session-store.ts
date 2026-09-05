@@ -1,6 +1,6 @@
 /** Canonical DSH sessions backed by the upstream persistence service. */
 
-import { Context } from '@deepseek-ai/cordis'
+import { Context, Service as CordisService } from '@deepseek-ai/cordis'
 import Storage from '@deepseek-ai/dsh-storage'
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
 import WorkspaceRegistry from '@deepseek-ai/dsh-workspace'
@@ -282,9 +282,13 @@ export class EdgeSessionStore {
     await this.context.plugin(TypertRegistry)
     const { TypertGatewayService } = await import('@deepseek-ai/dsh-api-gateway')
     await this.context.plugin(TypertGatewayService)
-    const { Service: CordisService } = await import('@deepseek-ai/cordis')
-    const stubs = ['agentDefaultModel', 'sessionQuery', 'fileReferences'] as const
-    for (const name of stubs) {
+    const AgentDefaultModelStub = class extends CordisService {
+      constructor(ctx: Context) { super(ctx, 'agentDefaultModel') }
+      currentSelection() { return { provider: 'deepseek-official', model: 'deepseek-v4-flash' } }
+      async saveSelection() {}
+    }
+    await this.context.plugin(AgentDefaultModelStub)
+    for (const name of ['sessionQuery', 'fileReferences'] as const) {
       const Stub = class extends CordisService { constructor(ctx: Context) { super(ctx, name) } }
       await this.context.plugin(Stub)
     }

@@ -412,6 +412,9 @@ async function stableAria(page, selector) {
 
 function rpcResponseIs(response, method) {
   if (response.request().method() !== 'POST') return false
+  const url = new URL(response.url())
+  const typertPath = `/api/${method.replace('.', '/')}`
+  if (url.pathname === typertPath) return true
   try {
     return response.request().postDataJSON()?.method === method
   } catch {
