@@ -358,6 +358,14 @@
     ]
   },
   {
+    "id": "@deepseek-ai/dsh-client-ui-plan",
+    "inject": [
+      "@deepseek-ai/dsh-api-remotes",
+      "@deepseek-ai/dsh-client-locale",
+      "@deepseek-ai/dsh-client-ui-conversation"
+    ]
+  },
+  {
     "id": "@deepseek-ai/dsh-client-ui-user-questions",
     "inject": [
       "@deepseek-ai/dsh-api-remotes",

@@ -67,6 +67,7 @@ import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
 import PluginInventoryGateway from '@deepseek-ai/dsh-host-plugin-inventory'
 import * as ApiRemotes from '@deepseek-ai/dsh-api-remotes'
 import UserQuestionService from '@deepseek-ai/dsh-user-questions'
+import PlanModeController from '@deepseek-ai/dsh-plan-mode'
 import * as ToolAskUser from '@deepseek-ai/dsh-tool-ask-user'
 import { EdgeTypertConnection, type TypertRpcInterceptor } from './edge-typert-connection.ts'
 import SessionReferenceResolver from '@deepseek-ai/dsh-session-reference'
@@ -75,6 +76,7 @@ import { EdgeFileReferenceService, type EdgeReferenceFiles } from './edge-file-r
 import { EdgeLoader } from './edge-plugin-loader.ts'
 import * as EdgeSkillProvider from './edge-skill-provider.ts'
 import {
+  EDGE_PLAN_MODE_SECTION,
   EDGE_SYSTEM_PROMPT,
   EdgeShellBindings,
   createEdgeBashTool,
@@ -307,6 +309,10 @@ export class EdgeSessionStore {
     // Model-facing ask_user_question over that seam; registered globally in
     // ToolRuntime like the other upstream tools, so every Edge agent mounts it.
     await this.context.plugin(ToolAskUser)
+    // Upstream plan mode as-is: the logged `plan` projection, the plan:policy
+    // prompt section, the exit_plan_mode tool whose review asks ctx.userQuestions,
+    // and the /plan command once CommandRuntime composes below.
+    await this.context.plugin(PlanModeController, { section: EDGE_PLAN_MODE_SECTION })
     await this.context.plugin(CommandRuntime)
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
     const { TYPERT: COMMANDS_TYPERT } = await import(

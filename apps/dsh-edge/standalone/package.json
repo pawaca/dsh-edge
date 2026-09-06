@@ -80,6 +80,7 @@
     "@deepseek-ai/dsh-tool-web": "0.1.2-rc.1",
     "@deepseek-ai/dsh-tools": "0.1.2-rc.1",
     "@deepseek-ai/dsh-user-questions": "0.1.2-rc.1",
+    "@deepseek-ai/dsh-plan-mode": "0.1.2-rc.1",
     "@deepseek-ai/dsh-typert-protocol": "0.1.2-rc.1",
     "@deepseek-ai/dsh-typert-registry": "0.1.2-rc.1",
     "@deepseek-ai/dsh-web": "0.1.2-rc.1",

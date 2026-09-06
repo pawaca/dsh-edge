@@ -211,6 +211,32 @@ export async function startMockDeepSeek(port = 0) {
         return
       }
 
+      if (prompt.includes('plan the') && !hasToolResult) {
+        sendEvents(response, [
+          { choices: [{ delta: { role: 'assistant', content: null, reasoning_content: '' } }] },
+          {
+            choices: [{
+              delta: {
+                tool_calls: [{
+                  index: 0,
+                  id: 'call_mock_plan',
+                  type: 'function',
+                  function: {
+                    name: 'exit_plan_mode',
+                    arguments: JSON.stringify({ plan: '# Deploy plan\n\n1. Build.\n2. Ship.' }),
+                  },
+                }],
+              },
+            }],
+          },
+          {
+            choices: [{ delta: {}, finish_reason: 'tool_calls' }],
+            usage: { prompt_tokens: 8, completion_tokens: 3 },
+          },
+        ])
+        return
+      }
+
       if (prompt.includes('web fetch') && !hasToolResult) {
         sendEvents(response, [
           { choices: [{ delta: { role: 'assistant', content: null, reasoning_content: '' } }] },
@@ -245,7 +271,9 @@ export async function startMockDeepSeek(port = 0) {
             ? 'fetch-finished'
             : prompt.includes('ask the user')
               ? `question-finished:${messageText(toolResults[0])}`
-              : 'tool-finished'
+              : prompt.includes('plan the')
+                ? `plan-finished:${messageText(toolResults[0])}`
+                : 'tool-finished'
       }
       if (prompt.includes('continue released fixture')) {
         const hasReleasedPrompt = messages.some(message =>

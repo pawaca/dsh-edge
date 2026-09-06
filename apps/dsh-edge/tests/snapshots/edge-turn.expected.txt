@@ -245,6 +245,22 @@ Use goal tools for one long-running completion objective in the current session.
               },
             },
             {
+              "description": "Use only in plan mode. Present your plan for the user's review and, on approval, leave plan mode. Send the COMPLETE plan as markdown, starting with a # heading that names it. The user may approve (carry out the plan from your next step) or keep planning — their feedback comes back in the tool result; revise and present again.",
+              "name": "exit_plan_mode",
+              "parameters": {
+                "properties": {
+                  "plan": {
+                    "description": "The complete plan, as markdown, starting with a # heading that names it.",
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "plan",
+                ],
+                "type": "object",
+              },
+            },
+            {
               "description": "Read the current same-session goal, including its exact id/revision, objective, phase, completed continuation rounds, round limit, blocker reason when present, and whether another continuation is armed. Call this before updating a goal.",
               "name": "get_goal",
               "parameters": {
@@ -779,6 +795,22 @@ Use goal tools for one long-running completion objective in the current session.
                   "file_path",
                   "old_string",
                   "new_string",
+                ],
+                "type": "object",
+              },
+            },
+            {
+              "description": "Use only in plan mode. Present your plan for the user's review and, on approval, leave plan mode. Send the COMPLETE plan as markdown, starting with a # heading that names it. The user may approve (carry out the plan from your next step) or keep planning — their feedback comes back in the tool result; revise and present again.",
+              "name": "exit_plan_mode",
+              "parameters": {
+                "properties": {
+                  "plan": {
+                    "description": "The complete plan, as markdown, starting with a # heading that names it.",
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "plan",
                 ],
                 "type": "object",
               },
@@ -1355,6 +1387,22 @@ Use goal tools for one long-running completion objective in the current session.
               },
             },
             {
+              "description": "Use only in plan mode. Present your plan for the user's review and, on approval, leave plan mode. Send the COMPLETE plan as markdown, starting with a # heading that names it. The user may approve (carry out the plan from your next step) or keep planning — their feedback comes back in the tool result; revise and present again.",
+              "name": "exit_plan_mode",
+              "parameters": {
+                "properties": {
+                  "plan": {
+                    "description": "The complete plan, as markdown, starting with a # heading that names it.",
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "plan",
+                ],
+                "type": "object",
+              },
+            },
+            {
               "description": "Read the current same-session goal, including its exact id/revision, objective, phase, completed continuation rounds, round limit, blocker reason when present, and whether another continuation is armed. Call this before updating a goal.",
               "name": "get_goal",
               "parameters": {
@@ -1894,6 +1942,22 @@ Use goal tools for one long-running completion objective in the current session.
               },
             },
             {
+              "description": "Use only in plan mode. Present your plan for the user's review and, on approval, leave plan mode. Send the COMPLETE plan as markdown, starting with a # heading that names it. The user may approve (carry out the plan from your next step) or keep planning — their feedback comes back in the tool result; revise and present again.",
+              "name": "exit_plan_mode",
+              "parameters": {
+                "properties": {
+                  "plan": {
+                    "description": "The complete plan, as markdown, starting with a # heading that names it.",
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "plan",
+                ],
+                "type": "object",
+              },
+            },
+            {
               "description": "Read the current same-session goal, including its exact id/revision, objective, phase, completed continuation rounds, round limit, blocker reason when present, and whether another continuation is armed. Call this before updating a goal.",
               "name": "get_goal",
               "parameters": {
@@ -2396,6 +2460,25 @@ Use goal tools for one long-running completion objective in the current session.
         },
         {
           "function": {
+            "description": "Use only in plan mode. Present your plan for the user's review and, on approval, leave plan mode. Send the COMPLETE plan as markdown, starting with a # heading that names it. The user may approve (carry out the plan from your next step) or keep planning — their feedback comes back in the tool result; revise and present again.",
+            "name": "exit_plan_mode",
+            "parameters": {
+              "properties": {
+                "plan": {
+                  "description": "The complete plan, as markdown, starting with a # heading that names it.",
+                  "type": "string",
+                },
+              },
+              "required": [
+                "plan",
+              ],
+              "type": "object",
+            },
+          },
+          "type": "function",
+        },
+        {
+          "function": {
             "description": "Read the current same-session goal, including its exact id/revision, objective, phase, completed continuation rounds, round limit, blocker reason when present, and whether another continuation is armed. Call this before updating a goal.",
             "name": "get_goal",
             "parameters": {
@@ -2790,6 +2873,25 @@ Use goal tools for one long-running completion objective in the current session.
                 "file_path",
                 "old_string",
                 "new_string",
+              ],
+              "type": "object",
+            },
+          },
+          "type": "function",
+        },
+        {
+          "function": {
+            "description": "Use only in plan mode. Present your plan for the user's review and, on approval, leave plan mode. Send the COMPLETE plan as markdown, starting with a # heading that names it. The user may approve (carry out the plan from your next step) or keep planning — their feedback comes back in the tool result; revise and present again.",
+            "name": "exit_plan_mode",
+            "parameters": {
+              "properties": {
+                "plan": {
+                  "description": "The complete plan, as markdown, starting with a # heading that names it.",
+                  "type": "string",
+                },
+              },
+              "required": [
+                "plan",
               ],
               "type": "object",
             },

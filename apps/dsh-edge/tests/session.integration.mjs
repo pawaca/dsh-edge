@@ -688,6 +688,68 @@ try {
     'question-finished:{"answers":[{"id":"deploy","selected":["Yes (Recommended)"]}]}',
   )
   assert.equal(askEvents.filter(event => event.type === 'step/start').length, 2)
+  // Upstream plan mode end to end: /plan runs through the upstream command
+  // runtime and appends the logged plan/mode event, the deployment's
+  // plan:policy section reaches the model request, exit_plan_mode presents the
+  // plan through the same user-questions path, and the approved review leaves
+  // plan mode from the next accepted step.
+  const planCommands = await rpc('commands/list', { args: { agentId: sessionId } })
+  assert.deepEqual(planCommands.body.result.value, [{
+    name: 'plan',
+    description: 'Enter or leave plan mode',
+    input: { hint: '[off|message]', images: true },
+  }])
+  const planOn = await rpc('commands/execute', {
+    args: { agentId: sessionId, line: '/plan', images: [] },
+  })
+  assert.equal(planOn.body.result.ok, true)
+  assert.deepEqual(planOn.body.result.value.result, {
+    kind: 'success',
+    text: 'Plan mode on. Use /plan off to leave.',
+  })
+  const planningTurn = turn(sessionId, 'plan the deployment')
+  const reviewFrame = await remoteMux.next(frame => frame.type === 'item' && frame.streamId === 'events-1'
+    && frame.value.type === 'waterfall' && frame.value.event === 'user-questions/request')
+  assert.equal(reviewFrame.value.agentId, sessionId)
+  const [review] = reviewFrame.value.request.questions
+  assert.equal(review.id, 'plan-review')
+  assert.equal(review.header, 'Plan review')
+  assert.equal(review.detail, '# Deploy plan\n\n1. Build.\n2. Ship.')
+  assert.deepEqual(review.intent, { kind: 'plan-review', approve: 'Approve' })
+  assert.deepEqual(review.options.map(option => option.label), ['Approve', 'Keep planning'])
+  const reviewAnswer = await jsonRequest('/api/$events/result', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      rpcId: 'events-result-4',
+      payload: { args: {
+        clientId: eventsReady.value.clientId,
+        eventId: reviewFrame.value.eventId,
+        outcome: { kind: 'result', value: { answers: [{ id: 'plan-review', selected: ['Approve'] }] } },
+      } },
+    }),
+  })
+  assert.deepEqual(reviewAnswer.body.result, { ok: true })
+  const planEvents = await planningTurn
+  assert.equal(planEvents.find(event => event.type === 'tool/call')?.data.name, 'exit_plan_mode')
+  const approvedText = 'Plan approved — plan mode exited; carry out the plan starting with your next step.'
+  assert.equal(toolResultText(planEvents.find(event => event.type === 'tool/result')), approvedText)
+  assert.deepEqual(
+    planEvents.filter(event => event.type === 'plan/mode').map(event => event.data),
+    [{ active: false }],
+  )
+  assert.equal(assistantText(planEvents), `plan-finished:${approvedText}`)
+  const [planningRequest, approvedRequest] = turnRequests().slice(-2)
+  assert.equal(planningRequest.messages[0].role, 'system')
+  assert.match(planningRequest.messages[0].content, /You are in plan mode\./u)
+  assert.doesNotMatch(approvedRequest.messages[0].content, /You are in plan mode\./u)
+  const planOff = await rpc('commands/execute', {
+    args: { agentId: sessionId, line: '/plan off', images: [] },
+  })
+  assert.deepEqual(planOff.body.result.value.result, {
+    kind: 'success',
+    text: 'Plan mode is already inactive.',
+  })
   remoteMux.send({ type: 'cancel', streamId: 'events-1' })
   remoteMux.close()
   const preset = await rpc('agentPreset.read', { agentPreset: 'dsh-edge' })
@@ -704,6 +766,7 @@ try {
   assert.match(preset.body.result.value.content, /configured: true/u)
   assert.match(preset.body.result.value.content, /id: web_search/u)
   assert.match(preset.body.result.value.content, /id: ask_user_question/u)
+  assert.match(preset.body.result.value.content, /id: exit_plan_mode/u)
   assert.doesNotMatch(preset.body.result.value.content, /integration-test-key/u)
   const credential = await rpc('credentials.describe', {
     refs: ['DEEPSEEK_API_KEY'],
@@ -743,7 +806,7 @@ try {
     args: { agentId: protocolSessionId },
   })
   assert.equal(commandCatalog.body.result.ok, true)
-  assert.deepEqual(commandCatalog.body.result.value, [])
+  assert.deepEqual(commandCatalog.body.result.value.map(command => command.name), ['plan'])
   assert.equal(commandCatalog.response.headers.get('access-control-allow-origin'), '*')
   assert.doesNotMatch(
     commandCatalog.response.headers.get('access-control-expose-headers') ?? '',
@@ -1513,8 +1576,9 @@ try {
   assert.equal(retriedInvalidProtocolPrompt.body.result.error.code, 'internal')
   // Promoting the queued prompt to steering folds it into the active turn
   // instead of starting the extra follow-up request exercised previously; the
-  // ask_user_question turn adds its tool-call request and continuation.
-  assert.equal(turnRequests().length, 21)
+  // ask_user_question and exit_plan_mode turns each add a tool-call request
+  // and its continuation.
+  assert.equal(turnRequests().length, 23)
   process.stdout.write(`dsh-edge ${runtimeMode} session integration passed\n`)
 } finally {
   mock.releaseSlowResponses()

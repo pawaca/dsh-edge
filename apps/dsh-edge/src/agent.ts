@@ -13,6 +13,16 @@ export const EDGE_SYSTEM_PROMPT = 'You are dsh-edge, a coding agent running in a
   + 'Each session has a persistent working directory that file and bash tools default to. '
   + 'The shell is just-bash, not Linux: native binaries and background processes are unavailable.'
 
+/**
+ * Deployment-owned guidance the upstream `dsh-plan-mode` plugin renders as the
+ * `plan:policy` prompt section while a session is in plan mode. Plan mode is
+ * guidance, not enforcement: every tool stays callable.
+ */
+export const EDGE_PLAN_MODE_SECTION = 'You are in plan mode. Explore the workspace and design before executing: '
+  + 'read files, search, and reason, but do not write, edit, or run commands that change the workspace. '
+  + 'When the plan is complete, present it through exit_plan_mode as markdown starting with a # heading; '
+  + 'the user approves it or sends feedback to keep planning.'
+
 export interface EdgeShellResult {
   executionId: EdgeExecutionId
   status: 'completed' | 'failed' | 'cancelled'
