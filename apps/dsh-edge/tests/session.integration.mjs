@@ -1514,7 +1514,7 @@ try {
   // Promoting the queued prompt to steering folds it into the active turn
   // instead of starting the extra follow-up request exercised previously; the
   // ask_user_question turn adds its tool-call request and continuation.
-  assert.equal(turnRequests().length, 19)
+  assert.equal(turnRequests().length, 21)
   process.stdout.write(`dsh-edge ${runtimeMode} session integration passed\n`)
 } finally {
   mock.releaseSlowResponses()
