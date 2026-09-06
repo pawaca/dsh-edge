@@ -360,6 +360,45 @@ describe('dsh-edge assembled browser snapshot', () => {
       expect(pageErrors).toEqual([])
       expect(mock.requests.filter(r => r.max_tokens !== 32)).toHaveLength(1)
 
+      // A conversation file link goes through the upstream Session Remote,
+      // which the Edge Host refuses (no desktop opener on Workers); the Edge
+      // Web client then streams the file through /api/workspace/file as a
+      // browser download instead of surfacing the upstream open-failure dialog.
+      const probePath = '/workspace/picked/download-probe.txt'
+      const probeWrite = await page.evaluate(async (path) => {
+        const response = await window.fetch(`/api/workspace/file?path=${encodeURIComponent(path)}`, {
+          method: 'PUT',
+          body: 'download probe body',
+        })
+        return response.status
+      }, probePath)
+      expect(probeWrite).toBe(200)
+      // Archiving left the archived child selected with an inert composer;
+      // return to its live source session before sending the probe turn.
+      await page.getByRole('treeitem', { name: /^Browser snapshot(?! \()/u }).click()
+      const liveComposer = page.getByRole('textbox', { name: /Message or run a task/u }).last()
+      await expect.poll(() => liveComposer.isEditable(), { timeout: 15_000 }).toBe(true)
+      await liveComposer.fill(`read the file ${probePath} please`)
+      await page.getByRole('button', { name: 'Send message', exact: true }).click()
+      await expect.poll(
+        () => page.getByText('read-finished', { exact: true }).count(),
+        { timeout: 30_000 },
+      ).toBeGreaterThanOrEqual(1)
+      // The tool rows sit behind the turn's collapsed process disclosure.
+      await page.getByRole('button', { name: /^1 tool call/u }).last().click()
+      const fileLink = page.getByRole('button', { name: /download-probe\.txt$/u }).last()
+      await fileLink.waitFor({ timeout: 15_000 })
+      const downloadEvent = page.waitForEvent('download', { timeout: 15_000 })
+      const fileResponse = page.waitForResponse(response =>
+        response.request().method() === 'GET'
+        && new URL(response.url()).pathname === '/api/workspace/file')
+      await fileLink.click()
+      expect((await fileResponse).status()).toBe(200)
+      const download = await downloadEvent
+      expect(download.suggestedFilename()).toBe('download-probe.txt')
+      await expect.poll(() => page.getByRole('dialog').count()).toBe(0)
+      expect(pageErrors).toEqual([])
+
       await page.waitForSelector('[class*="frame"]', { timeout: 15_000 })
       const nowSeconds = Math.floor(Date.now() / 1_000)
       const signedExpiresAt = nowSeconds - 1

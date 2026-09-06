@@ -139,6 +139,8 @@ const EDGE_PROVIDER = 'deepseek-official'
 const DEFAULT_EDGE_MODEL = 'deepseek-v4-flash'
 const AGENT_DEFAULT_MODEL_KEY = 'dsh-edge:agent-default-model'
 const MESSAGE_TYPES = new Set<SessionEvent['type']>(['user/message', 'assistant/message'])
+/** Wire-visible reason the Host cannot open a workspace path on a desktop. */
+export const EDGE_NATIVE_OPEN_UNAVAILABLE = 'Native file open is not available on Cloudflare Workers; the Web client downloads the file instead.'
 
 export interface EdgeSessionListPage {
   sessions: EdgeSession[]
@@ -435,7 +437,20 @@ export class EdgeSessionStore {
     )
     this.context.typert.register(SESSION_CONTROLLER_TYPERT as never)
     const { SessionController } = await import('@deepseek-ai/dsh-api-session-controller')
-    await this.context.plugin(SessionController, { nativeOpen: false })
+    // Upstream hands `session/openWorkspacePath` to a native desktop opener
+    // (child_process.execFile). Workers have no desktop, so the Edge composes
+    // the controller through its `internals` seam: the native probe answers
+    // false and an open attempt fails with a message the browser can show,
+    // while the Edge Web client downloads the file through /api/workspace/file.
+    class EdgeSessionController extends SessionController {
+      constructor(ctx: Context, config: ConstructorParameters<typeof SessionController>[1]) {
+        super(ctx, config, {
+          openPath: () => Promise.reject(new Error(EDGE_NATIVE_OPEN_UNAVAILABLE)),
+          canOpenPath: () => false,
+        })
+      }
+    }
+    await this.context.plugin(EdgeSessionController, { nativeOpen: false })
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
     const { TYPERT: SETTINGS_CONTROLLER_TYPERT } = await import(
       '@deepseek-ai/dsh-api-settings-controller/typert' as string

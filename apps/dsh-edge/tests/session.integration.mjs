@@ -539,6 +539,17 @@ try {
   const nativePick = await typertRpc('directoryPicker', 'pick', {})
   assert.equal(nativePick.body.result.ok, false)
   assert.equal(nativePick.body.result.error.code, 'directory-picker/unavailable')
+  // Conversation file links: the upstream Session Remote would hand the path to
+  // a native desktop opener. The Edge composes the controller through its
+  // internals seam so the probe answers false and an open attempt carries a
+  // reason the browser can show; the Edge Web client downloads the file instead.
+  const canOpen = await typertRpc('session', 'canOpenWorkspacePath', {})
+  assert.deepEqual(canOpen.body.result, { ok: true, value: false })
+  const nativeOpen = await typertRpc('session', 'openWorkspacePath', { request: { path: '/workspace/picked' } })
+  assert.equal(nativeOpen.body.result.ok, false)
+  assert.equal(nativeOpen.body.result.error.code, 'gateway/internal')
+  assert.match(nativeOpen.body.result.error.message, /not available on Cloudflare Workers/u)
+  assert.doesNotMatch(nativeOpen.body.result.error.message, /child_process/u)
   const pickedWorkspace = await rpc('workspace.create', { path: '/workspace/picked' })
   assert.equal(pickedWorkspace.body.result.ok, true, JSON.stringify(pickedWorkspace.body))
   assert.equal(pickedWorkspace.body.result.value.workspace.path, '/workspace/picked')
