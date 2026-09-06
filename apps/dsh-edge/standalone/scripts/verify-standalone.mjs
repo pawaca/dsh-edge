@@ -1,6 +1,7 @@
 /** Verify the pinned standalone dependency closure and its assembled artifacts. */
 
 import { access, readFile, readdir, stat } from 'node:fs/promises'
+import { OWNER_HOST_DECLARATION } from './web-shell-head.mjs'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import edgePackage from '../../package.json' with { type: 'json' }
@@ -107,6 +108,9 @@ const webRoot = join(standaloneRoot, 'dist')
 const index = await readFile(join(webRoot, 'index.html'), 'utf8')
 if (!index.includes('window.__ModuleLoader__=')) {
   throw new Error('Standalone Web shell omitted the upstream module-loader bootstrap facade.')
+}
+if (!OWNER_HOST_DECLARATION.test(index)) {
+  throw new Error('Standalone Web shell does not declare the browser transport as host-owning (__DSH_TRANSPORT__.ownsHost).')
 }
 const bootMatch = index.match(/globalThis\["__DSH_BOOT__"\] = (\{.*?\})<\/script>/s)
 if (bootMatch === null) throw new Error('Standalone Web shell has no boot manifest.')

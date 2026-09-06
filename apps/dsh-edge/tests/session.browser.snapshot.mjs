@@ -4,6 +4,7 @@ import { createHmac } from 'node:crypto'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { networkInterfaces } from 'node:os'
 import { chromium } from 'playwright'
 import { describe, expect, it } from 'vitest'
 import { unstable_dev } from 'wrangler'
@@ -17,6 +18,19 @@ import { startMockDeepSeek } from './fixtures/mock-deepseek.mjs'
 const edgePackage = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
 const mockChannelVersion = `${Number(edgePackage.version.split('.')[0]) + 1}.0.0`
 const ACCESS_KEY = 'browser-snapshot-owner-key-32-bytes'
+
+
+/** First routable private IPv4 address of this machine, or undefined when it only has loopback. */
+function lanIPv4Address() {
+  for (const entries of Object.values(networkInterfaces())) {
+    for (const entry of entries ?? []) {
+      if (entry.family !== 'IPv4' || entry.internal) continue
+      if (entry.address.startsWith('169.254.')) continue
+      if (/^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/u.test(entry.address)) return entry.address
+    }
+  }
+  return undefined
+}
 
 describe('dsh-edge assembled browser snapshot', () => {
   it('pins the transcript rendered through the upstream Web client and Edge protocol', async () => {
@@ -126,6 +140,78 @@ describe('dsh-edge assembled browser snapshot', () => {
         () => settings.locator('[data-plugin-entry]').count(),
         { timeout: 15_000 },
       ).toBe(inventoryIds.length)
+
+      // Upstream classifies the page as a trusted local client only on a
+      // loopback hostname or when the shell declares host ownership. The Edge
+      // shell declares it, so the host-persisted plugin configuration cards
+      // must render from a non-loopback origin exactly as they do on 127.0.0.1.
+      // Browsers send Sec-Fetch headers only to secure contexts, and the Edge
+      // login refuses a form post without them, so the remote instance serves
+      // HTTPS on every interface and the page reaches it through a LAN address.
+      const lanAddress = lanIPv4Address()
+      if (lanAddress === undefined) {
+        console.warn('[browser snapshot] no LAN IPv4 interface; skipping the non-loopback origin check')
+      } else {
+        const remoteState = mkdtempSync(join(tmpdir(), 'dsh-edge-browser-remote-'))
+        const remoteConfig = join(remoteState, 'wrangler.json')
+        await writePrebuiltModeWranglerConfig('direct', remoteConfig)
+        let remoteWorker
+        let remoteBrowser
+        try {
+          remoteWorker = await unstable_dev(workerArtifactPath('direct'), {
+            config: remoteConfig,
+            persistTo: remoteState,
+            ip: '0.0.0.0',
+            localProtocol: 'https',
+            vars: {
+              DEEPSEEK_API_KEY: 'keyless-browser-remote-no-call',
+              DSH_EDGE_ACCESS_KEY: ACCESS_KEY,
+            },
+            logLevel: 'error',
+            experimental: {
+              disableExperimentalWarning: true,
+              showInteractiveDevSession: false,
+              watch: false,
+            },
+          })
+          remoteBrowser = await chromium.launch({
+            ...(channel ? { channel } : {}),
+            // A system proxy would otherwise carry the LAN request away from the
+            // local instance.
+            args: ['--no-proxy-server'],
+          })
+          const remoteOrigin = `https://${lanAddress}:${String(remoteWorker.port)}`
+          const remotePage = await remoteBrowser.newPage({ locale: 'en-US', ignoreHTTPSErrors: true })
+          await remotePage.goto(remoteOrigin, { waitUntil: 'load' })
+          await remotePage.getByLabel('Owner access key').fill(ACCESS_KEY)
+          await remotePage.getByRole('button', { name: 'Unlock', exact: true }).click()
+          await remotePage.waitForURL(`${remoteOrigin}/`)
+          await remotePage.waitForSelector('[class*="frame"]', { timeout: 30_000 })
+          // The app shell (not the script-free login page) carries the declaration.
+          expect(await remotePage.evaluate(() => globalThis.__DSH_TRANSPORT__?.ownsHost)).toBe(true)
+          const remoteContinue = remotePage.getByRole('button', { name: 'Continue', exact: true })
+          if (await remoteContinue.count() > 0
+            || await remoteContinue.waitFor({ timeout: 5_000 }).then(() => true, () => false)) {
+            await remoteContinue.click()
+          }
+          await remotePage.locator('button[aria-haspopup="dialog"]').last().click()
+          const remoteSettings = remotePage.getByRole('dialog', { name: 'Settings', exact: true })
+          await remoteSettings.getByRole('navigation')
+            .getByRole('button', { name: 'Plugins', exact: true })
+            .click()
+          await remoteSettings.getByRole('tab', { name: 'Plugin configuration', exact: true }).waitFor()
+          for (const card of ['Agent loop', 'Web search']) {
+            await expect.poll(
+              () => remoteSettings.getByRole('button', { name: `Show settings: ${card}`, exact: true }).count(),
+              { timeout: 15_000 },
+            ).toBe(1)
+          }
+        } finally {
+          await remoteBrowser?.close()
+          await remoteWorker?.stop()
+          rmSync(remoteState, { recursive: true, force: true })
+        }
+      }
       await settings.getByRole('button', { name: 'Agent presets', exact: true }).click()
       const presetReadResponse = page.waitForResponse(response =>
         rpcResponseIs(response, 'agentPreset.read'))
@@ -427,7 +513,7 @@ describe('dsh-edge assembled browser snapshot', () => {
       await mock.close()
       rmSync(persistedState, { recursive: true, force: true })
     }
-  }, 60_000)
+  }, 120_000)
 
   it('enables upstream image intake through the temporary DO attachment backend', async () => {
     const persistedState = mkdtempSync(join(tmpdir(), 'dsh-edge-browser-temporary-'))

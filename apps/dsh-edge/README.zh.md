@@ -208,6 +208,7 @@ Cloudflare static assets -> upstream Web shell + client plugin graph
 - Cookie 不包含用户数据，不会转发给 Durable Object，并在 access key 轮换后失效。
 - 未认证的 API 与 WebSocket 请求返回 401。只有携带 `WWW-Authenticate: DshEdgeOwner` 的 owner-authentication 401 才会让同 origin shell 导航到 `/login`；provider/配置的 401 诊断仍然可见。
 - 来自其他 origin 的已认证浏览器 API 与 WebSocket 请求，即使携带 same-site cookie 也会返回 403。
+- Web shell 会把浏览器传输层声明为拥有宿主（`__DSH_TRANSPORT__.ownsHost`），因此上游仅限 loopback 的信任层级（它决定宿主持久化的插件设置和设置文档编辑器是否可用）对任意 origin 上的已认证 owner 同样生效。
 - Asset policy 会阻止通过 `/`、`/index.html` 或 SPA fallback 进行 frame 嵌入。`/` 重定向到 `/login`；`/api/health` 与 immutable asset 保持公开。
 
 这里刻意不是 account system 或多租户边界。
