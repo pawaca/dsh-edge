@@ -31,7 +31,7 @@ export interface EdgeDirectoryPickerConfig {
 }
 
 const DEFAULT_ROOT = '/workspace'
-/** Mirrors the upstream browse backend: the bound GitHub's web UI applies to directory listings. */
+/** Mirrors the upstream browse backend's default `maxEntries` (1000): the complete-result bound one `list` call puts on the wire. */
 const DEFAULT_MAX_ENTRIES = 1_000
 
 /**
@@ -85,9 +85,9 @@ export class EdgeDirectoryPicker extends DirectoryPicker {
     } catch (error) {
       signal?.throwIfAborted()
       // The Edge materializes the workspace root lazily (before the first
-      // command or file write), so a root the VFS has not created yet is an
-      // empty level rather than an unreadable one.
-      if (target === this.root) children = []
+      // command or file write), so a root the VFS confirms absent is an empty
+      // level; every other failure still reports the level as unreadable.
+      if (target === this.root && isNotFound(error)) children = []
       else {
         throw new DirectoryPickerError('directory-unreadable', target, `cannot list ${target}: ${messageOf(error)}`)
       }
@@ -135,8 +135,9 @@ export class EdgeDirectoryPicker extends DirectoryPicker {
         try {
           await files.stat(target)
           return true
-        } catch {
-          return false
+        } catch (error) {
+          if (isNotFound(error)) return false
+          throw error
         }
       })
       if (!exists) {
@@ -206,6 +207,11 @@ function hasControlCharacter(value: string): boolean {
     if (code < 0x20 || code === 0x7f) return true
   }
   return false
+}
+
+/** The Computer VFS reports a missing path with a Node-style `ENOENT` code, as `EdgeFileSystem` already relies on. */
+function isNotFound(error: unknown): boolean {
+  return error instanceof Error && 'code' in error && (error as { code: unknown }).code === 'ENOENT'
 }
 
 function messageOf(error: unknown): string {

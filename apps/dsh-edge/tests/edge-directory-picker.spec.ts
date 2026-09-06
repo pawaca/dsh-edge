@@ -16,9 +16,20 @@ function file(name: string): EdgeDirectoryEntry {
   return { name, isDirectory: false }
 }
 
+/** The Computer VFS shape for a missing path: an Error carrying a Node-style code. */
+function notFound(path: string): Error {
+  return Object.assign(new Error(`no such path: ${path}`), { code: 'ENOENT', path })
+}
+
 async function backend(
   tree: Record<string, EdgeDirectoryEntry[]>,
-  options: { maxEntries?: number; root?: string; failMkdir?: string } = {},
+  options: {
+    maxEntries?: number
+    root?: string
+    failMkdir?: string
+    readdirFailure?: Error
+    statFailure?: Error
+  } = {},
 ) {
   const ctx = new Context()
   const calls: string[] = []
@@ -27,7 +38,7 @@ async function backend(
       calls.push(`readdir ${path}`)
       const entries = tree[path]
       return entries === undefined
-        ? Promise.reject(new Error(`ENOENT: ${path}`))
+        ? Promise.reject(options.readdirFailure ?? notFound(path))
         : Promise.resolve(entries)
     },
     stat: (path: string) => {
@@ -36,7 +47,7 @@ async function backend(
       const name = path.slice(path.lastIndexOf('/') + 1)
       const entry = tree[parent]?.find(candidate => candidate.name === name)
       return entry === undefined
-        ? Promise.reject(new Error(`ENOENT: ${path}`))
+        ? Promise.reject(options.statFailure ?? notFound(path))
         : Promise.resolve({ isDirectory: entry.isDirectory })
     },
     mkdir: (path: string, mkdirOptions?: { recursive?: boolean }) => {
@@ -49,7 +60,7 @@ async function backend(
       const parent = path.slice(0, path.lastIndexOf('/')) || '/'
       const name = path.slice(path.lastIndexOf('/') + 1)
       const siblings = tree[parent]
-      if (siblings === undefined) return Promise.reject(new Error(`ENOENT: ${parent}`))
+      if (siblings === undefined) return Promise.reject(notFound(parent))
       siblings.push(dir(name))
       tree[path] = []
       return Promise.resolve()
@@ -143,13 +154,31 @@ describe('EdgeDirectoryPicker', () => {
     expect(listing.crumbs).toEqual([{ name: '/workspace', path: '/workspace', hidden: false }])
   })
 
+  it('keeps a root failure that is not a confirmed not-found as unreadable', async () => {
+    const { capability, calls } = await backend({}, { readdirFailure: new Error('storage backend unavailable') })
+    const error = await failure(capability.list())
+    expect(error.code).toBe('directory-unreadable')
+    expect(error.path).toBe('/workspace')
+    expect(error.message).toContain('storage backend unavailable')
+    expect(calls).toEqual(['readdir /workspace'])
+  })
+
+  it('does not create over a child whose existence probe failed for another reason', async () => {
+    const { capability, calls } = await backend({ '/workspace': [] }, { statFailure: new Error('storage backend unavailable') })
+    const error = await failure(capability.createDirectory('/workspace', 'project'))
+    expect(error.code).toBe('directory-create-failed')
+    expect(error.path).toBe('/workspace/project')
+    expect(error.message).toContain('storage backend unavailable')
+    expect(calls).toEqual(['stat /workspace/project'])
+  })
+
   it('materializes the workspace root before creating a child directly under it', async () => {
     const calls: string[] = []
     const ctx = new Context()
     await ctx.plugin(EdgeDirectoryPicker, {
       withFiles: run => run({
-        readdir: () => Promise.reject(new Error('ENOENT')),
-        stat: (path: string) => { calls.push(`stat ${path}`); return Promise.reject(new Error('ENOENT')) },
+        readdir: (path: string) => Promise.reject(notFound(path)),
+        stat: (path: string) => { calls.push(`stat ${path}`); return Promise.reject(notFound(path)) },
         mkdir: (path: string, options?: { recursive?: boolean }) => {
           calls.push(`mkdir ${path}${options?.recursive === true ? ' recursive' : ''}`)
           return Promise.resolve()
@@ -170,7 +199,7 @@ describe('EdgeDirectoryPicker', () => {
     const error = await failure(capability.list('/workspace/missing'))
     expect(error.code).toBe('directory-unreadable')
     expect(error.path).toBe('/workspace/missing')
-    expect(error.message).toContain('ENOENT')
+    expect(error.message).toContain('no such path')
   })
 
   it('rejects with the abort reason instead of a listing', async () => {
