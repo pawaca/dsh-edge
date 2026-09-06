@@ -69,7 +69,9 @@ import * as ApiRemotes from '@deepseek-ai/dsh-api-remotes'
 import UserQuestionService from '@deepseek-ai/dsh-user-questions'
 import * as ToolAskUser from '@deepseek-ai/dsh-tool-ask-user'
 import { EdgeTypertConnection, type TypertRpcInterceptor } from './edge-typert-connection.ts'
+import SessionReferenceResolver from '@deepseek-ai/dsh-session-reference'
 import { EdgeFileSystem } from './edge-filesystem.ts'
+import { EdgeFileReferenceService, type EdgeReferenceFiles } from './edge-file-reference.ts'
 import { EdgeLoader } from './edge-plugin-loader.ts'
 import * as EdgeSkillProvider from './edge-skill-provider.ts'
 import {
@@ -119,6 +121,8 @@ interface EdgeSessionStoreConfig {
   maxTokens?: string
   reasoningEffort?: string
   streamIdleTimeoutMs?: string
+  /** Read the Durable Object's Computer workspace for `@file` completion outside a turn. */
+  withWorkspaceFiles<T>(read: (files: EdgeReferenceFiles) => Promise<T>): Promise<T>
   onLateSessionEvent?: (sessionId: SessionId, event: SessionEvent) => void
   onProjectionChanged?: (sessionId: SessionId, key: string, value: unknown, seq: number) => void
 }
@@ -355,10 +359,19 @@ export class EdgeSessionStore {
     }
     await this.context.plugin(EdgeAgentDefaultModel)
     await this.context.plugin(EdgeSessionQuery)
-    const FileReferencesStub = class extends CordisService {
-      constructor(ctx: Context) { super(ctx, 'fileReferences') }
-    }
-    await this.context.plugin(FileReferencesStub)
+    // Upstream cross-session references consume ctx.sessionQuery as-is; the
+    // registered TYPERT lets the gateway route sessionReferenceResolver/candidates.
+    await this.context.plugin(SessionReferenceResolver)
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    const { TYPERT: SESSION_REFERENCE_TYPERT } = await import(
+      '@deepseek-ai/dsh-session-reference/typert' as string
+    )
+    this.context.typert.register(SESSION_REFERENCE_TYPERT as never)
+    // The upstream local file-reference provider walks node:fs; the Edge serves
+    // the same seam from the Computer VFS so fileReferences/list answers.
+    await this.context.plugin(EdgeFileReferenceService, {
+      withFiles: read => config.withWorkspaceFiles(read),
+    })
     // The Edge ships exactly one system preset; the controller stamps its id
     // into every created session's metadata so the banner chip and preset
     // roster stay consistent with the Edge API's agentPresets namespace.

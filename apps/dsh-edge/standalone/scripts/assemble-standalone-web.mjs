@@ -40,7 +40,6 @@ const edgeExcludedPackages = new Set([
   '@deepseek-ai/dsh-cordis-client-runner',
   '@deepseek-ai/dsh-client-ui-cordis',
   '@deepseek-ai/dsh-client-ui-plan',
-  '@deepseek-ai/dsh-client-ui-reference',
   '@deepseek-ai/dsh-session-log-export',
 ])
 const shellStaticPackages = new Set(['@deepseek-ai/dsh-client-ui-primitives'])
