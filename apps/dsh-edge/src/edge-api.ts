@@ -921,6 +921,10 @@ function edgeAgentPresetContent(
     '  - id: ask_user_question',
     '    seam: "@deepseek-ai/dsh-user-questions"',
     '    answerer: web-client',
+    '  - id: exit_plan_mode',
+    '    plugin: "@deepseek-ai/dsh-plan-mode"',
+    '    command: /plan',
+    '    review: web-client',
   ].join('\n') + '\n'
 }
 
