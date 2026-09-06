@@ -7,6 +7,7 @@ import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { ClientModuleRegistry, bootInjections, orderByModuleGraph } from '@deepseek-ai/dsh-client-modules'
 import { renderIndexInjections } from '@deepseek-ai/dsh-host-webserver'
+import { injectOwnerSessionGuard } from './web-shell-head.mjs'
 
 const standaloneRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const appRoot = resolve(standaloneRoot, '..')
@@ -105,32 +106,6 @@ function resolvePublishedPackage(name) {
     }
   }
   return undefined
-}
-
-function injectOwnerSessionGuard(html) {
-  const script = `<script>(() => {
-  const originalFetch = window.fetch.bind(window)
-  let redirecting = false
-  window.fetch = async (...args) => {
-    const input = args[0]
-    const href = input instanceof Request ? input.url : String(input)
-    const target = new URL(href, window.location.href)
-    const response = await originalFetch(...args)
-    if (!redirecting
-      && response.status === 401
-      && response.headers.get('www-authenticate') === 'DshEdgeOwner'
-      && target.origin === window.location.origin
-      && target.pathname.startsWith('/api/')) {
-      redirecting = true
-      window.location.replace('/login')
-    }
-    return response
-  }
-})()</script>`
-  const head = html.indexOf('<head>')
-  return head === -1
-    ? `${script}${html}`
-    : `${html.slice(0, head + 6)}${script}${html.slice(head + 6)}`
 }
 
 async function copyBundle(record, pkg, entries) {

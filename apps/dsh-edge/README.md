@@ -208,6 +208,7 @@ Invalid deployment configuration fails before session lookup or SSE response cre
 - The cookie carries no user data, is never forwarded to the Durable Object, and becomes invalid when the access key rotates.
 - Unauthenticated API and WebSocket requests return 401. Only an owner-authentication 401 carrying `WWW-Authenticate: DshEdgeOwner` makes the same-origin shell navigate to `/login`; provider/configuration 401 diagnostics remain visible.
 - Authenticated browser API and WebSocket requests from another origin return 403 even with a same-site cookie.
+- The Web shell declares the browser transport as host-owning (`__DSH_TRANSPORT__.ownsHost`), so upstream's loopback-only trust tier, which gates host-persisted plugin settings and the settings document editor, applies to the authenticated owner on any origin.
 - The asset policy prevents framing through `/`, `/index.html`, or an SPA fallback. `/` redirects to `/login`; `/api/health` and immutable assets remain public.
 
 This deliberately is not an account system or multi-tenant boundary.
