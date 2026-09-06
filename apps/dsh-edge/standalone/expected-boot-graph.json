@@ -387,6 +387,15 @@
     ]
   },
   {
+    "id": "@deepseek-ai/dsh-client-ui-directory-picker-browse",
+    "inject": [
+      "@deepseek-ai/dsh-api-remotes",
+      "@deepseek-ai/dsh-client-ui-renderer",
+      "@deepseek-ai/dsh-client-ui-workspace",
+      "@deepseek-ai/dsh-client-locale"
+    ]
+  },
+  {
     "id": "dsh-edge-client-ui",
     "inject": [
       "@deepseek-ai/dsh-api-workspace-controller",

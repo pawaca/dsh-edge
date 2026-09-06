@@ -14,6 +14,10 @@ const expectedBootShape = JSON.parse(
 )
 const patchAudit = JSON.parse(await readFile(join(standaloneRoot, 'patches', 'audit.json'), 'utf8'))
 const targetVersion = edgePackage.dshEdge.upstreamVersion
+const requiredClientPackages = [
+  'dsh-edge-client-ui',
+  '@deepseek-ai/dsh-client-ui-directory-picker-browse',
+]
 const excludedClientPackages = [
   '@deepseek-ai/dsh-client-hmr',
   '@deepseek-ai/dsh-cordis-client-runner',
@@ -113,8 +117,8 @@ if (!Array.isArray(boot.entries) || boot.entries.length !== expectedBootShape.le
   )
 }
 const clientIds = new Set(boot.entries.map(entry => entry.id))
-if (!clientIds.has('dsh-edge-client-ui')) {
-  throw new Error('Standalone Web shell omitted the Edge client plugin.')
+for (const name of requiredClientPackages) {
+  if (!clientIds.has(name)) throw new Error(`Standalone Web shell omitted required plugin ${name}.`)
 }
 for (const name of ['@deepseek-ai/dsh-client-modules']) {
   const entry = boot.entries.find(candidate => candidate.id === name)

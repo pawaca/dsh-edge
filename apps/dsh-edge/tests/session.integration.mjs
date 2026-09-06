@@ -505,6 +505,49 @@ try {
     releasedCandidate.mention,
     `@[${releasedCandidate.label}](dsh-session:${sessionReferencePayload(RELEASED_SESSION_ID)})`,
   )
+  // Directory picking routes through the upstream DirectoryPickerController
+  // over the Edge browse backend: one VFS level per call, rooted at
+  // /workspace, with the upstream wire failure vocabulary.
+  const homeListing = await typertRpc('directoryPicker', 'list', {})
+  assert.equal(homeListing.body.result.ok, true, JSON.stringify(homeListing.body))
+  assert.equal(homeListing.body.result.value.path, '/workspace')
+  assert.equal(homeListing.body.result.value.home, '/workspace')
+  assert.deepEqual(homeListing.body.result.value.crumbs, [{ name: '/workspace', path: '/workspace', hidden: false }])
+  assert.equal(homeListing.body.result.value.truncated, false)
+  assert.equal(homeListing.body.result.value.entries.some(entry => entry.name === 'released.txt'), false)
+  const pickedDirectory = await typertRpc('directoryPicker', 'createDirectory', {
+    path: '/workspace',
+    name: 'picked',
+  })
+  assert.equal(pickedDirectory.body.result.ok, true, JSON.stringify(pickedDirectory.body))
+  assert.equal(pickedDirectory.body.result.value, '/workspace/picked')
+  const pickedListing = await typertRpc('directoryPicker', 'list', { path: '/workspace/picked' })
+  assert.equal(pickedListing.body.result.ok, true, JSON.stringify(pickedListing.body))
+  assert.deepEqual(pickedListing.body.result.value.crumbs.map(crumb => crumb.path), ['/workspace', '/workspace/picked'])
+  assert.deepEqual(pickedListing.body.result.value.entries, [])
+  const homeAfterCreate = await typertRpc('directoryPicker', 'list', { path: '/workspace' })
+  assert.equal(homeAfterCreate.body.result.value.entries.some(entry => entry.path === '/workspace/picked'), true)
+  const duplicateDirectory = await typertRpc('directoryPicker', 'createDirectory', {
+    path: '/workspace',
+    name: 'picked',
+  })
+  assert.equal(duplicateDirectory.body.result.ok, false)
+  assert.equal(duplicateDirectory.body.result.error.code, 'directory-picker/exists')
+  const escapedListing = await typertRpc('directoryPicker', 'list', { path: '/etc' })
+  assert.equal(escapedListing.body.result.ok, false)
+  assert.equal(escapedListing.body.result.error.code, 'directory-picker/unreadable')
+  const nativePick = await typertRpc('directoryPicker', 'pick', {})
+  assert.equal(nativePick.body.result.ok, false)
+  assert.equal(nativePick.body.result.error.code, 'directory-picker/unavailable')
+  const pickedWorkspace = await rpc('workspace.create', { path: '/workspace/picked' })
+  assert.equal(pickedWorkspace.body.result.ok, true, JSON.stringify(pickedWorkspace.body))
+  assert.equal(pickedWorkspace.body.result.value.workspace.path, '/workspace/picked')
+  // Drop the registration again so the restart assertions below keep seeing
+  // the released fixture workspace first; the directory itself stays.
+  const removedPickedWorkspace = await rpc('workspace.delete', {
+    workspaceId: pickedWorkspace.body.result.value.workspace.workspaceId,
+  })
+  assert.equal(removedPickedWorkspace.body.result.ok, true, JSON.stringify(removedPickedWorkspace.body))
 
   await worker.stop()
   worker = await startWorker()

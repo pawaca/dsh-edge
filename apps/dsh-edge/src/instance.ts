@@ -77,8 +77,7 @@ import {
   messageTextByteLength,
 } from './edge-api.ts'
 import { putSkill, deleteSkill, listSkillNames } from './edge-skill-provider.ts'
-import type { EdgeReferenceFiles } from './edge-file-reference.ts'
-import type { EdgeApiSessionSummary } from './session-store.ts'
+import type { EdgeApiSessionSummary, EdgeWorkspaceFiles } from './session-store.ts'
 import { WorkspaceOrderInvalidError } from '@deepseek-ai/dsh-workspace'
 import { DSH_EDGE_VERSION } from './release.ts'
 import {
@@ -571,10 +570,10 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     this.broadcast('host', { type: 'host/workspace-changed', workspace })
   }
 
-  /** Run one bounded read against the Computer workspace outside an agent turn. */
-  private async withWorkspaceFiles<T>(read: (files: EdgeReferenceFiles) => Promise<T>): Promise<T> {
+  /** Run one bounded Computer workspace operation outside an agent turn. */
+  private async withWorkspaceFiles<T>(read: (files: EdgeWorkspaceFiles) => Promise<T>): Promise<T> {
     using workspace = await getWorkspace(this)
-    return await read(workspace.fs as unknown as EdgeReferenceFiles)
+    return await read(workspace.fs as unknown as EdgeWorkspaceFiles)
   }
 
   private async workspaceForSession(sessionId: SessionId): Promise<WorkspaceId | undefined> {
