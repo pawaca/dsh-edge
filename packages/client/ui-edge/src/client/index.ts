@@ -2,7 +2,6 @@ import type { Context } from '@deepseek-ai/cordis'
 import { writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
-import { EdgeDirectoryFlow } from './EdgeDirectoryFlow.tsx'
 import { EdgeSettingsSection, type EdgeSettingsInjected } from './EdgeSettingsSection.tsx'
 import { EdgeSettingsController } from './store.ts'
 import { en, zh, type EdgeSettingsKey } from './locales.ts'
@@ -18,30 +17,6 @@ type Slots = {
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap { 'settings.edge': EdgeSettingsKey }
-  interface SlotMap {
-    'sidebar.workspaces.directoryFlow': {
-      kind: 'single'
-      scope: 'root'
-      owner: {
-        open: boolean
-        busy: boolean
-        onPicked: (path: string) => void
-        onCancel: () => void
-        onError: (message: string) => void
-      }
-    }
-    'conversation.hero.workspace.directoryFlow': {
-      kind: 'single'
-      scope: 'root'
-      owner: {
-        open: boolean
-        busy: boolean
-        onPicked: (path: string) => void
-        onCancel: () => void
-        onError: (message: string) => void
-      }
-    }
-  }
 }
 
 export const inject = ['slots', 'locale', 'settingsScope']
@@ -76,18 +51,6 @@ export function apply(ctx: Context): void {
     locale: 'settings.edge',
     inject: injected,
   }, EdgeSettingsSection))
-  slots.inject('conversation.hero.workspace.directoryFlow', () =>
-    slots.inject('sidebar.workspaces.directoryFlow', function* () {
-      yield slots.register(
-        { name: 'conversation.hero.workspace.directoryFlow', locale: 'settings.edge' },
-        EdgeDirectoryFlow,
-      )
-      yield slots.register(
-        { name: 'sidebar.workspaces.directoryFlow', locale: 'settings.edge' },
-        EdgeDirectoryFlow,
-      )
-    }),
-  )
   ctx.inject(['workspaces'], () => {
     const workspaces = (ctx as never as { workspaces: { openPath(path: string): Promise<void> } }).workspaces
     const originalOpenPath = workspaces.openPath.bind(workspaces)

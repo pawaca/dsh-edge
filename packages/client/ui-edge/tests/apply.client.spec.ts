@@ -1,10 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import { apply, inject } from '../src/client/index.ts'
 import { EdgeSettingsSection } from '../src/client/EdgeSettingsSection.tsx'
-import { EdgeDirectoryFlow } from '../src/client/EdgeDirectoryFlow.tsx'
 
 describe('ui-edge apply', () => {
-  it('registers the settings section and directory flow slots', () => {
+  it('registers the settings section and leaves the directory flow to the upstream browse picker', () => {
     expect(inject).toEqual(['slots', 'locale', 'settingsScope'])
     const entries: Array<{
       options: Record<string, unknown> & { inject?: () => unknown }
@@ -49,13 +48,9 @@ describe('ui-edge apply', () => {
     expect(typeof injected.load).toBe('function')
     expect(typeof injected.copyUpgrade).toBe('function')
 
-    const flowEntries = entries.filter(e => e.component === EdgeDirectoryFlow)
-    expect(flowEntries).toHaveLength(2)
-    const flowNames = new Set(flowEntries.map(e => e.options.name))
-    expect(flowNames).toContain('conversation.hero.workspace.directoryFlow')
-    expect(flowNames).toContain('sidebar.workspaces.directoryFlow')
-    for (const flow of flowEntries) {
-      expect(flow.options.locale).toBe('settings.edge')
-    }
+    // The upstream browse picker face fills both `directoryFlow` holes; a second
+    // occupant of a `single` hole would fail the composition loud.
+    const flowNames = entries.map(e => e.options.name).filter(name => String(name).endsWith('directoryFlow'))
+    expect(flowNames).toEqual([])
   })
 })

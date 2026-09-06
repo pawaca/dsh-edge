@@ -73,6 +73,7 @@ import { EdgeTypertConnection, type TypertRpcInterceptor } from './edge-typert-c
 import SessionReferenceResolver from '@deepseek-ai/dsh-session-reference'
 import { EdgeFileSystem } from './edge-filesystem.ts'
 import { EdgeFileReferenceService, type EdgeReferenceFiles } from './edge-file-reference.ts'
+import { EdgeDirectoryPicker, type EdgeDirectoryFiles } from './edge-directory-picker.ts'
 import { EdgeLoader } from './edge-plugin-loader.ts'
 import * as EdgeSkillProvider from './edge-skill-provider.ts'
 import {
@@ -123,11 +124,13 @@ interface EdgeSessionStoreConfig {
   maxTokens?: string
   reasoningEffort?: string
   streamIdleTimeoutMs?: string
-  /** Read the Durable Object's Computer workspace for `@file` completion outside a turn. */
-  withWorkspaceFiles<T>(read: (files: EdgeReferenceFiles) => Promise<T>): Promise<T>
+  /** Run one bounded Computer workspace operation outside a turn (`@file` completion, directory browsing). */
+  withWorkspaceFiles<T>(read: (files: EdgeWorkspaceFiles) => Promise<T>): Promise<T>
   onLateSessionEvent?: (sessionId: SessionId, event: SessionEvent) => void
   onProjectionChanged?: (sessionId: SessionId, key: string, value: unknown, seq: number) => void
 }
+/** The Computer VFS surface the Edge seams drive outside an agent turn. */
+export type EdgeWorkspaceFiles = EdgeReferenceFiles & EdgeDirectoryFiles
 const MAX_FORK_STORED_BYTES = 8 * 1_024 * 1_024
 const MAX_SEARCH_SESSIONS = 32
 const MAX_SEARCH_EVENTS_PER_SESSION = 512
@@ -445,6 +448,12 @@ export class EdgeSessionStore {
       '@deepseek-ai/dsh-api-workspace-controller/typert' as string
     )
     this.context.typert.register(WORKSPACE_CONTROLLER_TYPERT as never)
+    // The upstream browse picker backend walks node:fs; the Edge serves the same
+    // `browse` capability from the /workspace Computer VFS so the controller's
+    // directoryPicker inject resolves and the Web browse dialog answers.
+    await this.context.plugin(EdgeDirectoryPicker, {
+      withFiles: run => config.withWorkspaceFiles(run),
+    })
     const { WorkspaceController } = await import('@deepseek-ai/dsh-api-workspace-controller')
     await this.context.plugin(WorkspaceController)
     // Upstream forwarded-event selection: api-session notifications plus the

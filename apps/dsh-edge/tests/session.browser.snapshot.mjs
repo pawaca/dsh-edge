@@ -117,6 +117,8 @@ describe('dsh-edge assembled browser snapshot', () => {
       expect(inventoryIds).toContain('web:@deepseek-ai/dsh-client-ui-settings-plugin-inventory')
       expect(inventoryIds).toContain('host:PluginInventoryGateway')
       expect(inventoryWire.result.value.entries
+        .find(entry => entry.entryId === 'host:DirectoryPickerController')?.fiberPhase).toBe('active')
+      expect(inventoryWire.result.value.entries
         .filter(entry => entry.entryId.startsWith('web:'))
         .every(entry => entry.enabled === true && entry.fiberPhase === 'active')).toBe(true)
       expect(inventoryWire.result.value.agentPresets).toEqual([])
@@ -156,6 +158,41 @@ describe('dsh-edge assembled browser snapshot', () => {
         () => page.getByRole('treeitem', { name: 'Edge browser', exact: true }).count(),
         { timeout: 15_000 },
       ).toBe(1)
+
+      // The upstream browse dialog fills the workspace directory flow over the
+      // Edge browse backend: list /workspace, create a folder, adopt it.
+      const browseListResponse = page.waitForResponse(response =>
+        rpcResponseIs(response, 'directoryPicker.list'))
+      await page.getByRole('button', { name: 'Add workspace', exact: true }).click()
+      const addWorkspaceMenuItem = page.getByRole('menuitem', { name: 'Add workspace…', exact: true })
+      if (await addWorkspaceMenuItem.count() > 0) await addWorkspaceMenuItem.click()
+      const browseDialog = page.getByRole('dialog', { name: 'Select Workspace Directory', exact: true })
+      await browseDialog.waitFor({ timeout: 15_000 })
+      const browseListWire = await (await browseListResponse).json()
+      expect(browseListWire.result.ok).toBe(true)
+      expect(browseListWire.result.value.home).toBe('/workspace')
+      const newFolder = browseDialog.getByRole('button', { name: 'New folder', exact: true })
+      await expect.poll(() => newFolder.isEnabled(), { timeout: 15_000 }).toBe(true)
+      await newFolder.click()
+      await page.getByRole('textbox', { name: 'Folder name', exact: true }).fill('picked')
+      const createDirectoryResponse = page.waitForResponse(response =>
+        rpcResponseIs(response, 'directoryPicker.createDirectory'))
+      await page.getByRole('button', { name: 'Create', exact: true }).click()
+      const createDirectoryWire = await (await createDirectoryResponse).json()
+      expect(createDirectoryWire.result.ok).toBe(true)
+      expect(createDirectoryWire.result.value).toBe('/workspace/picked')
+      const workspaceCreateResponse = page.waitForResponse(response =>
+        rpcResponseIs(response, 'workspace.create'))
+      await browseDialog.getByRole('button', { name: 'Open', exact: true }).click()
+      const workspaceCreateWire = await (await workspaceCreateResponse).json()
+      expect(workspaceCreateWire.result.ok).toBe(true)
+      expect(workspaceCreateWire.result.value.workspace.path).toBe('/workspace/picked')
+      await expect.poll(
+        () => page.getByRole('treeitem', { name: 'picked', exact: true }).count(),
+        { timeout: 15_000 },
+      ).toBe(1)
+      // Adopting the picked directory selects it, so the sessions created below
+      // belong to the new workspace group and the archived tree pins that.
 
       const initialSessions = await edgeRpc(worker, ownerCookieHeader, 'session.list', {})
       const initialSessionId = initialSessions.result.value.items

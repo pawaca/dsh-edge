@@ -35,6 +35,10 @@ const edgeClientPackages = new Map([
   }],
 ])
 
+// Upstream composes the browse picking face dynamically: the `-auto` chooser
+// mounts it as a Loader entry at boot. The Edge has no Loader and always serves
+// the browse capability, so it pins the browser half in the reviewed roster.
+const edgeIncludedPackages = ['@deepseek-ai/dsh-client-ui-directory-picker-browse']
 const edgeExcludedPackages = new Set([
   '@deepseek-ai/dsh-client-hmr',
   '@deepseek-ai/dsh-cordis-client-runner',
@@ -163,6 +167,7 @@ async function main() {
   for (const patchPath of deploymentPatches) {
     declared.push(...deploymentPackageNames(await readFile(patchPath, 'utf8')))
   }
+  declared.push(...edgeIncludedPackages)
   declared.push(...edgeClientPackages.keys())
 
   const roster = []
