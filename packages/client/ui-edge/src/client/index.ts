@@ -51,24 +51,56 @@ export function apply(ctx: Context): void {
     locale: 'settings.edge',
     inject: injected,
   }, EdgeSettingsSection))
-  ctx.inject(['workspaces'], () => {
-    const workspaces = (ctx as never as { workspaces: { openPath(path: string): Promise<void> } }).workspaces
-    const originalOpenPath = workspaces.openPath.bind(workspaces)
-    workspaces.openPath = async (path: string) => {
-      try {
-        await originalOpenPath(path)
-      } catch {
-        const url = `/api/workspace/file?path=${encodeURIComponent(path)}`
-        const res = await globalThis.fetch(url)
-        if (!res.ok) throw new Error(`path open failed: ${res.status === 413 ? 'file too large' : await res.text()}`)
-        const blob = await res.blob()
-        const blobUrl = URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = blobUrl
-        a.download = path.split('/').pop() ?? 'file'
-        a.click()
-        URL.revokeObjectURL(blobUrl)
+  // Upstream `dsh-client-ui-chat` opens a conversation file link through the
+  // generated `ctx.remote.session.openWorkspacePath` Remote, whose Host side
+  // hands the path to a native desktop opener that Cloudflare Workers cannot
+  // provide. The Edge keeps the upstream call and, when the Host refuses it,
+  // streams the file through the owner-authenticated `/api/workspace/file`
+  // route as a browser download instead, so the chat sees a settled open.
+  ctx.inject(['remote.session'], (scope) => {
+    scope.effect(() => {
+      const session = (scope as never as { get(key: string): RemoteSessionNamespace | undefined }).get('remote.session')
+      const descriptor = session === undefined ? undefined : Object.getOwnPropertyDescriptor(session, 'openWorkspacePath')
+      const upstream = descriptor?.get?.bind(session) as (() => OpenWorkspacePath) | undefined
+      if (session === undefined || descriptor === undefined || upstream === undefined) return () => {}
+      Object.defineProperty(session, 'openWorkspacePath', {
+        configurable: true,
+        enumerable: true,
+        get: () => async (request: { path: string }) => {
+          const result = await upstream()(request)
+          if (result.ok || result.error.code === 'gateway/bad-request') return result
+          return await downloadWorkspaceFile(request.path)
+        },
+      })
+      return () => {
+        Object.defineProperty(session, 'openWorkspacePath', descriptor)
       }
-    }
+    }, 'ui-edge: workspace file download fallback')
   })
+}
+
+type RemoteResult<T> = { ok: true; value: T } | { ok: false; error: { code: string; message: string } }
+type OpenWorkspacePath = (request: { path: string }) => Promise<RemoteResult<{ opened: true }>>
+type RemoteSessionNamespace = { openWorkspacePath: OpenWorkspacePath }
+
+/** Fetch one workspace file through the Edge route and hand it to the browser as a download. */
+export async function downloadWorkspaceFile(path: string): Promise<RemoteResult<{ opened: true }>> {
+  if (path === '.' || path.endsWith('/.') || path.endsWith('/')) {
+    return { ok: false, error: { code: 'gateway/internal', message: 'Folders cannot be downloaded from the Edge workspace; open a file instead.' } }
+  }
+  const res = await globalThis.fetch(`/api/workspace/file?path=${encodeURIComponent(path)}`, { credentials: 'same-origin' })
+  if (!res.ok) {
+    return { ok: false, error: { code: 'gateway/internal', message: res.status === 413 ? 'file too large' : await res.text() } }
+  }
+  const blob = await res.blob()
+  const blobUrl = URL.createObjectURL(blob)
+  try {
+    const anchor = document.createElement('a')
+    anchor.href = blobUrl
+    anchor.download = path.split('/').pop() ?? 'file'
+    anchor.click()
+  } finally {
+    URL.revokeObjectURL(blobUrl)
+  }
+  return { ok: true, value: { opened: true } }
 }

@@ -151,6 +151,33 @@ export async function startMockDeepSeek(port = 0) {
         return
       }
 
+      if (prompt.includes('read the file') && !hasToolResult) {
+        const fileMatch = /read the file (\S+)/u.exec(prompt)
+        sendEvents(response, [
+          { choices: [{ delta: { role: 'assistant', content: null, reasoning_content: '' } }] },
+          {
+            choices: [{
+              delta: {
+                tool_calls: [{
+                  index: 0,
+                  id: 'call_mock_read',
+                  type: 'function',
+                  function: {
+                    name: 'read',
+                    arguments: JSON.stringify({ file_path: fileMatch?.[1] ?? '/workspace/session.txt' }),
+                  },
+                }],
+              },
+            }],
+          },
+          {
+            choices: [{ delta: {}, finish_reason: 'tool_calls' }],
+            usage: { prompt_tokens: 8, completion_tokens: 3 },
+          },
+        ])
+        return
+      }
+
       if (prompt.includes('web search') && !hasToolResult) {
         sendEvents(response, [
           { choices: [{ delta: { role: 'assistant', content: null, reasoning_content: '' } }] },
@@ -269,7 +296,9 @@ export async function startMockDeepSeek(port = 0) {
           ? 'search-finished'
           : prompt.includes('web fetch')
             ? 'fetch-finished'
-            : prompt.includes('ask the user')
+            : prompt.includes('read the file')
+              ? 'read-finished'
+              : prompt.includes('ask the user')
               ? `question-finished:${messageText(toolResults[0])}`
               : prompt.includes('plan the')
                 ? `plan-finished:${messageText(toolResults[0])}`
