@@ -35,7 +35,7 @@ SOFTWARE.
 
 ## Bundled component inventory
 
-The following 506 package versions form the conservative, platform-neutral production closure used to assemble the Web and Worker artifacts in this distribution. Platform-specific build binaries that are not distributed in those artifacts are excluded; tree shaking can omit additional code. The inventory and legal texts are generated during packaging rather than referring recipients to a source checkout. License expressions are SPDX identifiers supplied by each package. Dependencies installed separately by npm remain declared in this package's `package.json`.
+The following 507 package versions form the conservative, platform-neutral production closure used to assemble the Web and Worker artifacts in this distribution. Platform-specific build binaries that are not distributed in those artifacts are excluded; tree shaking can omit additional code. The inventory and legal texts are generated during packaging rather than referring recipients to a source checkout. License expressions are SPDX identifiers supplied by each package. Dependencies installed separately by npm remain declared in this package's `package.json`.
 
 | Component | License |
 | --- | --- |
@@ -236,6 +236,7 @@ The following 506 package versions form the conservative, platform-neutral produ
 | `@deepseek-ai/dsh-system-prompt@0.1.2-rc.1` | `MIT` |
 | `@deepseek-ai/dsh-timeout@0.1.2-rc.1` | `MIT` |
 | `@deepseek-ai/dsh-token-meter@0.1.2-rc.1` | `MIT` |
+| `@deepseek-ai/dsh-tool-ask-user@0.1.2-rc.1` | `MIT` |
 | `@deepseek-ai/dsh-tool-bash@0.1.2-rc.1` | `MIT` |
 | `@deepseek-ai/dsh-tool-call-timeout-policy@0.1.2-rc.1` | `MIT` |
 | `@deepseek-ai/dsh-tool-fs@0.1.2-rc.1` | `MIT` |
@@ -9501,6 +9502,7 @@ Applies to:
 - `@deepseek-ai/dsh-system-prompt@0.1.2-rc.1` (`LICENSE`)
 - `@deepseek-ai/dsh-timeout@0.1.2-rc.1` (`LICENSE`)
 - `@deepseek-ai/dsh-token-meter@0.1.2-rc.1` (`LICENSE`)
+- `@deepseek-ai/dsh-tool-ask-user@0.1.2-rc.1` (`LICENSE`)
 - `@deepseek-ai/dsh-tool-bash@0.1.2-rc.1` (`LICENSE`)
 - `@deepseek-ai/dsh-tool-call-timeout-policy@0.1.2-rc.1` (`LICENSE`)
 - `@deepseek-ai/dsh-tool-fs@0.1.2-rc.1` (`LICENSE`)

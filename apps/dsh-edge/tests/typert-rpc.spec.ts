@@ -17,6 +17,13 @@ describe('Typert RPC URL matching', () => {
     expect(match![2]).toBe('files')
   })
 
+  it('matches the gateway-owned forwarded-event result endpoint', () => {
+    const match = TYPERT_URL_PATTERN.exec('/api/$events/result')
+    expect(match).not.toBeNull()
+    expect(match![1]).toBe('$events')
+    expect(match![2]).toBe('result')
+  })
+
   it('rejects single-segment apiproxy paths', () => {
     expect(TYPERT_URL_PATTERN.exec('/api/goal.edit')).toBeNull()
     expect(TYPERT_URL_PATTERN.exec('/api/session.list')).toBeNull()

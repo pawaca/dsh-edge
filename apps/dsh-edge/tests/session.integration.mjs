@@ -553,6 +553,78 @@ try {
   assert.equal(described.body.result.ok, true)
   assert.equal(described.body.result.value.cwd, '/workspace')
   assert.equal(described.body.result.value.model, 'deepseek-v4-pro')
+  // The upstream forwarded-event source (dsh-api-remotes) registered with the
+  // gateway inside the Worker: the browser's `$events` stream opens with the
+  // ready frame, and the gateway-owned `$events/result` unary endpoint reaches
+  // the gateway through the Edge connection seam instead of Remote invoke().
+  const remoteMux = await openDownlink('/api/remote.mux')
+  remoteMux.send({ type: 'open', streamId: 'events-1', endpoint: '$events', payload: { args: {} } })
+  const eventsReady = await remoteMux.next(frame => frame.type === 'item' && frame.streamId === 'events-1')
+  assert.equal(eventsReady.value.type, 'ready')
+  assert.equal(typeof eventsReady.value.clientId, 'string')
+  assert.equal(typeof eventsReady.value.host.home, 'string')
+  const staleEventResult = await jsonRequest('/api/$events/result', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      rpcId: 'events-result-1',
+      payload: { args: { clientId: eventsReady.value.clientId, eventId: 'missing-event', outcome: { kind: 'next' } } },
+    }),
+  })
+  assert.equal(staleEventResult.response.status, 200)
+  assert.deepEqual(staleEventResult.body, { type: 'server-response', rpcId: 'events-result-1', result: { ok: true } })
+  const unknownClientResult = await jsonRequest('/api/$events/result', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      rpcId: 'events-result-2',
+      payload: { args: { clientId: 'unknown-client', eventId: 'missing-event', outcome: { kind: 'next' } } },
+    }),
+  })
+  assert.equal(unknownClientResult.response.status, 200)
+  assert.equal(unknownClientResult.body.result.ok, false)
+  assert.match(unknownClientResult.body.result.error.message, /no active event stream/u)
+  // End to end: the mock model calls ask_user_question, the upstream tool asks
+  // ctx.userQuestions, the waterfall reaches this `$events` client scoped to
+  // the session's agent, the answer returns through `$events/result`, and the
+  // turn resumes with that answer as the tool result.
+  const askingTurn = turn(sessionId, 'ask the user before deploying')
+  const askFrame = await remoteMux.next(frame => frame.type === 'item' && frame.streamId === 'events-1'
+    && frame.value.type === 'waterfall' && frame.value.event === 'user-questions/request')
+  assert.equal(askFrame.value.agentId, sessionId)
+  assert.deepEqual(askFrame.value.request.questions, [{
+    id: 'deploy',
+    question: 'Deploy now?',
+    header: 'Confirm',
+    options: [
+      { label: 'Yes (Recommended)', description: 'Ships the build.' },
+      { label: 'No', description: 'Keeps the current release.' },
+    ],
+  }])
+  const askAnswer = await jsonRequest('/api/$events/result', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      rpcId: 'events-result-3',
+      payload: { args: {
+        clientId: eventsReady.value.clientId,
+        eventId: askFrame.value.eventId,
+        outcome: { kind: 'result', value: { answers: [{ id: 'deploy', selected: ['Yes (Recommended)'] }] } },
+      } },
+    }),
+  })
+  assert.deepEqual(askAnswer.body.result, { ok: true })
+  const askEvents = await askingTurn
+  assert.equal(askEvents.find(event => event.type === 'tool/call')?.data.name, 'ask_user_question')
+  const askResultText = toolResultText(askEvents.find(event => event.type === 'tool/result'))
+  assert.deepEqual(JSON.parse(askResultText), { answers: [{ id: 'deploy', selected: ['Yes (Recommended)'] }] })
+  assert.equal(
+    assistantText(askEvents),
+    'question-finished:{"answers":[{"id":"deploy","selected":["Yes (Recommended)"]}]}',
+  )
+  assert.equal(askEvents.filter(event => event.type === 'step/start').length, 2)
+  remoteMux.send({ type: 'cancel', streamId: 'events-1' })
+  remoteMux.close()
   const preset = await rpc('agentPreset.read', { agentPreset: 'dsh-edge' })
   assert.equal(preset.body.result.ok, true)
   assert.match(preset.body.result.value.content, /Effective dsh-edge composition/u)
@@ -566,6 +638,7 @@ try {
   assert.match(preset.body.result.value.content, /id: "deepseek-v4-flash-vision-exp"/u)
   assert.match(preset.body.result.value.content, /configured: true/u)
   assert.match(preset.body.result.value.content, /id: web_search/u)
+  assert.match(preset.body.result.value.content, /id: ask_user_question/u)
   assert.doesNotMatch(preset.body.result.value.content, /integration-test-key/u)
   const credential = await rpc('credentials.describe', {
     refs: ['DEEPSEEK_API_KEY'],
@@ -1374,8 +1447,9 @@ try {
   assert.equal(retriedInvalidProtocolPrompt.body.result.ok, false)
   assert.equal(retriedInvalidProtocolPrompt.body.result.error.code, 'internal')
   // Promoting the queued prompt to steering folds it into the active turn
-  // instead of starting the extra follow-up request exercised previously.
-  assert.equal(turnRequests().length, 17)
+  // instead of starting the extra follow-up request exercised previously; the
+  // ask_user_question turn adds its tool-call request and continuation.
+  assert.equal(turnRequests().length, 19)
   process.stdout.write(`dsh-edge ${runtimeMode} session integration passed\n`)
 } finally {
   mock.releaseSlowResponses()
@@ -1539,6 +1613,7 @@ async function openDownlink(path, cookie = ownerCookie) {
   return {
     next: inbox.next,
     expectNone: inbox.expectNone,
+    send: (frame) => { socket.send(JSON.stringify(frame)) },
     close: () => { socket.close(1000, 'test complete') },
   }
 }
