@@ -114,6 +114,10 @@ describe('ui-edge apply', () => {
     const anchor = click.mock.instances[0] as HTMLAnchorElement
     expect(anchor.download).toBe('a.txt')
     expect(anchor.href).toBe('blob:edge/probe')
+    // The blob URL outlives the click task so browsers that start the download
+    // asynchronously (Firefox, Safari) still find it; it is released afterwards.
+    expect(revokeObjectURL).not.toHaveBeenCalled()
+    await new Promise(resolve => { setTimeout(resolve, 0) })
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:edge/probe')
   })
 

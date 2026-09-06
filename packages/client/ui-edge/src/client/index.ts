@@ -94,13 +94,15 @@ export async function downloadWorkspaceFile(path: string): Promise<RemoteResult<
   }
   const blob = await res.blob()
   const blobUrl = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = blobUrl
+  anchor.download = path.split('/').pop() ?? 'file'
   try {
-    const anchor = document.createElement('a')
-    anchor.href = blobUrl
-    anchor.download = path.split('/').pop() ?? 'file'
     anchor.click()
   } finally {
-    URL.revokeObjectURL(blobUrl)
+    // Firefox and Safari cancel a download whose blob URL is revoked in the
+    // same task as the click; release it on a later macrotask instead.
+    setTimeout(() => { URL.revokeObjectURL(blobUrl) }, 0)
   }
   return { ok: true, value: { opened: true } }
 }
