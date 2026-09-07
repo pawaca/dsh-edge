@@ -1,5 +1,7 @@
 /** Workspace Durable Object with persistent sessions and streamed agent turns. */
 
+import { AsyncLocalStorage } from 'node:async_hooks'
+
 import {
   getWorkspace,
   withWorkspace,
@@ -22,7 +24,7 @@ import {
   type ServerRequest,
 } from './edge-rpc-types.ts'
 import { callEdgeApi, dispatchEdgeApi } from './edge-api-dispatch.ts'
-import { freezeMessage, type MessageId, type UserMessage } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, freezeMessage, MessageId, type UserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { normalizeSessionTitle } from '@deepseek-ai/dsh-session-title'
@@ -53,6 +55,7 @@ import {
   EdgeSessionStoreError,
   type EdgeAgentPromptAdmitter,
   type EdgeMuxBaseline,
+  disposeAgentHandle,
 } from './session-store.ts'
 import {
   EdgeTurnId,
@@ -85,6 +88,8 @@ import {
   EDGE_R2_IMAGE_LIMITS,
   resolveEdgeAttachmentStorage,
 } from './edge-attachment-store.ts'
+
+import { MainSessionQueue, SteeringAdmissions, MAIN_WAKE_MS, MAIN_RUN_TIMEOUT_MS, type MainInput } from './main-session-queue.ts'
 
 const EDGE_WORKSPACE_PATH = '/workspace'
 const MAX_SESSION_TITLE_LENGTH = 160
@@ -212,6 +217,7 @@ const DshEdgeWorkspace = withWorkspace(
 
 interface ActiveTurn {
   turnId: EdgeTurnId
+  turnStartSeq?: number
   agent?: Agent
   cancelRequested: boolean
   accepting: boolean
@@ -275,6 +281,14 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     },
   )
   private readonly model = resolveEdgeModel(this.env.DEEPSEEK_MODEL)
+  private readonly mainQueue = new MainSessionQueue(this.ctx.storage)
+  private readonly steeringAdmissions = new SteeringAdmissions()
+  private mainDriving = false
+  private mainStreamCount = 0
+  private readonly controlTarget = new AsyncLocalStorage<EdgeTurnId>()
+  private readonly runtimeQueueListeners = new Set<(sessionId: SessionId) => void>()
+  private readonly liveQueues = new Map<SessionId, QueuedInboxItem[]>()
+  private readonly mainStreams = new Map<number, Set<{ publish(event: SessionEvent): void; resolve(): void; reject(error: unknown): void }>>()
   private readonly activeTurns = new Map<SessionId, ActiveTurn>()
   private readonly sessionListMetadata = new Map<SessionId, SessionListMetadata>()
   private readonly pendingProjections = new Map<SessionId, { key: string; value: unknown; seq: number }[]>()
@@ -299,6 +313,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     listLlmProviders: () => this.sessions.listLlmProviders(),
     isRunning: sessionId => this.activeTurns.has(sessionId),
     prompt: input => this.startApiPrompt(input),
+    hasPrompt: (sessionId, rpcId, digest) => this.mainQueue.hasReceipt(sessionId, `edge:${rpcId}`, digest),
     updateQueue: (sessionId, itemId, action) => this.updateQueue(sessionId, itemId, action),
     cancel: sessionId => this.requestTurnCancellation(sessionId),
     workspaceList: () => this.listWorkspaces(),
@@ -337,6 +352,12 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         return await this.handleSkillsCrud(request)
       }
       if (url.pathname.startsWith('/api/') && !url.pathname.startsWith('/api/sessions')) {
+        const expected = request.headers.get('x-dsh-edge-turn-seq')
+        if (expected !== null && ['/api/session.cancel', '/api/session.prompt', '/api/session.updateQueue'].includes(url.pathname)) {
+          const body = await readJsonObject(request.clone() as Request, MAX_TURN_BODY_BYTES)
+          const payload = body.payload as { sessionId?: string } | undefined
+          return await this.withObservedTurn(expected, payload?.sessionId, () => this.apiFetch(request))
+        }
         return await this.apiFetch(request)
       }
       const route = parseSessionRoute(url.pathname)
@@ -365,7 +386,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       } else if (route.action === 'turn' && request.method === 'POST') {
         return await this.startTurn(request, route.sessionId)
       } else if (route.action === 'cancel' && request.method === 'POST') {
-        return this.cancelTurn(route.sessionId)
+        return this.cancelTurn(route.sessionId, request)
       }
 
       throw new EdgeHttpError(404, 'Session route not found.')
@@ -401,8 +422,106 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
 
   /** End hibernating downlinks when the owner session used to open them expires. */
   override async alarm(): Promise<void> {
-    const nextExpiry = this.closeExpiredDownlinks()
-    if (nextExpiry !== undefined) await this.ctx.storage.setAlarm(nextExpiry)
+    await this.driveMain(true)
+    await this.scheduleMainWake()
+  }
+
+  private async scheduleMainWake(): Promise<void> {
+    const expiry = this.closeExpiredDownlinks()
+    const work = this.mainQueue.hasWork()
+      ? Date.now() + (this.mainDriving || this.mainQueue.current() !== undefined ? MAIN_WAKE_MS : 1)
+      : undefined
+    const next = expiry === undefined ? work : work === undefined ? expiry : Math.min(expiry, work)
+    if (next === undefined) await this.ctx.storage.deleteAlarm()
+    else await this.ctx.storage.setAlarm(next)
+  }
+
+  private kickMain(): void {
+    void this.driveMain(false).catch((error: unknown) => {
+      console.error('dsh-edge main session scheduler failed.', error)
+    })
+  }
+
+  private async driveMain(fromAlarm: boolean): Promise<void> {
+    if (this.mainDriving || this.activeTurns.size > 0) return
+    this.mainDriving = true
+    const stopAt = Date.now() + MAIN_RUN_TIMEOUT_MS
+    try {
+      const stale = this.mainQueue.current()
+      if (stale !== undefined) {
+        const input = this.mainQueue.get(stale.seq)
+        if (input !== undefined) {
+          // The constructor has no old JS owner. Prepare and close its canonical suffix.
+          const handle = await this.sessions.openAgentForTurn(SessionId(input.sessionId), this.model)
+          handle.agent.inbox.clear()
+          await handle.dispose()
+          this.mainQueue.finish(stale.seq, stale.epoch, true)
+          this.publishAgentError(SessionId(input.sessionId), new Error('Execution interrupted. Send a new message to continue; pending inputs are paused.'))
+        }
+      }
+      do {
+        const claim = this.mainQueue.claim()
+        if (claim === undefined) break
+        const { input, epoch } = claim
+        const sessionId = SessionId(input.sessionId)
+        let failure: unknown
+        let interrupted = false
+        let timer: ReturnType<typeof setTimeout> | undefined
+        await this.scheduleMainWake()
+        try {
+          const { commandTimeoutPolicy } = resolveEdgeDeploymentConfig(this.env)
+          const claimed = await this.claimTurn(sessionId)
+          this.publishSessionQueue(sessionId)
+          timer = setTimeout(() => {
+            interrupted = true
+            claimed.turn.cancelRequested = true
+            claimed.handle.agent.cancel({ kind: 'user' })
+          }, Math.max(1, claim.deadline - Date.now()))
+          await this.runClaimedTurn({ claimed, commandTimeoutPolicy, mode: 'queue',
+            message: input.message, content: input.message.content,
+            publish: event => {
+              if (event.type === 'turn/end' && event.data.reason.kind !== 'completed' && !claimed.turn.cancelRequested) interrupted = true
+              for (const observer of this.mainStreams.get(input.seq) ?? []) observer.publish(event)
+            },
+          })
+        } catch (error) { failure = error; interrupted = true }
+        finally {
+          clearTimeout(timer)
+          // Settle only after upstream teardown has released the live owner.
+          if (!this.activeTurns.has(sessionId)) {
+            this.mainQueue.finish(input.seq, epoch, interrupted)
+            this.liveQueues.delete(sessionId)
+            this.publishSessionQueue(sessionId)
+            for (const observer of this.mainStreams.get(input.seq) ?? []) {
+              if (failure === undefined) observer.resolve()
+              else observer.reject(failure)
+            }
+            this.mainStreams.delete(input.seq)
+          }
+        }
+        if (this.activeTurns.has(sessionId)) throw failure ?? new Error('Main session cleanup did not finish.')
+      } while (!fromAlarm && Date.now() < stopAt)
+    } finally {
+      this.mainDriving = false
+      await this.scheduleMainWake()
+    }
+  }
+
+  private async enqueueMain(sessionId: SessionId, content: ContentBlock[], rpcId?: RpcId, clientTimeZone?: string, contentDigest?: string, announce = true): Promise<MainInput> {
+    resolveEdgeDeploymentConfig(this.env)
+    await this.sessions.getApiSessionSummary(sessionId)
+    const identity = rpcId ?? RpcId(crypto.randomUUID())
+    if (String(identity).length > 128) throw new EdgeHttpError(400, 'Input identity exceeds 128 characters.')
+    const inputId = `edge:${identity}`
+    const digestBytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify({ content, clientTimeZone })))
+    const digest = contentDigest ?? Array.from(new Uint8Array(digestBytes), byte => byte.toString(16).padStart(2, '0')).join('')
+    const message = freezeMessage({ ...createUserMessage({ content, source: {
+      kind: 'user', ...rpcId === undefined ? {} : { rpcId }, ...clientTimeZone === undefined ? {} : { clientTimeZone },
+    } }), id: MessageId(inputId) })
+    const input = this.mainQueue.enqueue(sessionId, inputId, digest, message, !announce)
+    await this.scheduleMainWake()
+    if (announce) this.publishSessionQueue(sessionId)
+    return input
   }
 
   private async openDownlink(request: Request, channel: 'mux' | 'host'): Promise<Response> {
@@ -426,7 +545,10 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
             lastSeq: session.lastSeq,
           })) break
         }
-        for (const queue of baseline.queues) {
+        const queues = new Map(baseline.queues.map(queue => [queue.sessionId, queue.items]))
+        for (const id of this.mainQueue.sessions()) if (!queues.has(SessionId(id))) queues.set(SessionId(id), [])
+        for (const [sessionId, liveItems] of queues) {
+          const queue = { sessionId, items: [...liveItems, ...this.mainQueue.pending(sessionId).map(input => ({ id: input.message.id, placement: 'queued' as const, message: input.message }))] }
           if (!this.sendFrame(server, {
             type: 'session/queue',
             sessionId: queue.sessionId,
@@ -510,11 +632,29 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     payload: unknown,
     abort: AbortController,
   ): Promise<void> {
+    const control = endpoint === 'session/control'
+    const sendQueue = (sessionId: SessionId) => {
+      if (socket.readyState === WebSocket.OPEN && !abort.signal.aborted) socket.send(JSON.stringify({
+        type: 'item', streamId, value: { type: 'queue', sessionId, items: this.runtimeQueueItems(sessionId) },
+      }))
+    }
     try {
       const source = await gateway.wireStream.open(endpoint, payload, abort.signal)
       for await (const value of source) {
         if (socket.readyState !== WebSocket.OPEN) break
-        socket.send(JSON.stringify({ type: 'item', streamId, value }))
+        let outgoing = value
+        if (control) {
+          const frame = value as { type: string; sessionId?: string; items?: unknown[]; value?: { queues: Record<string, unknown[]> } }
+          if (frame.type === 'baseline' && frame.value !== undefined) {
+            const queues = { ...frame.value.queues }
+            for (const id of new Set([...Object.keys(queues), ...this.mainQueue.sessions()])) queues[id] = this.runtimeQueueItems(SessionId(id), queues[id])
+            outgoing = { ...frame, value: { ...frame.value, queues } }
+            this.runtimeQueueListeners.add(sendQueue)
+          } else if (frame.type === 'queue' && frame.sessionId !== undefined) {
+            outgoing = { ...frame, items: this.runtimeQueueItems(SessionId(frame.sessionId), frame.items) }
+          }
+        }
+        socket.send(JSON.stringify({ type: 'item', streamId, value: outgoing }))
       }
       if (!abort.signal.aborted && socket.readyState === WebSocket.OPEN) {
         socket.send(JSON.stringify({ type: 'end', streamId }))
@@ -528,6 +668,8 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
           socket.close(1011, 'Remote stream failure could not be delivered')
         }
       }
+    } finally {
+      this.runtimeQueueListeners.delete(sendQueue)
     }
   }
 
@@ -718,11 +860,24 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     // assumes resident agents it can resume and keep. Prompt admission and
     // cancellation stay on the Edge implementation until that lifecycle
     // reconciliation lands.
-    if (ns === 'session' && (method === 'prompt' || method === 'cancel')) return edgeDispatch()
+    if (ns === 'session' && ['list', 'create', 'prompt', 'cancel', 'updateQueue', 'selectModel', 'rename', 'fork'].includes(method)) {
+      const expected = request.headers.get('x-dsh-edge-turn-seq')
+      if (expected !== null && ['prompt', 'cancel', 'updateQueue'].includes(method)) {
+        const flatArgs = Object.keys(args).length === 1 && 'request' in args
+          ? args.request as { sessionId?: string } : args as { sessionId?: string }
+        return this.withObservedTurn(expected, flatArgs?.sessionId, edgeDispatch)
+      }
+      return edgeDispatch()
+    }
     const gateway = this.sessions.typertGateway()
     if (gateway === undefined) return edgeDispatch()
     try {
-      const value = await gateway.invoke({ namespace: ns, method, args, signal: AbortSignal.timeout(30_000) })
+      const invoke = () => gateway.invoke({ namespace: ns, method, args, signal: AbortSignal.timeout(30_000) })
+      // Agent-scoped commands (including /plan) use the same residency budget.
+      // Their upstream lookup may otherwise leave a cold Agent permanently live.
+      const value = typeof args.agentId === 'string'
+        ? await this.withAgentControl(SessionId(args.agentId), invoke)
+        : await invoke()
       return Response.json({ type: 'server-response', rpcId, result: { ok: true, value } })
     } catch (error) {
       // Only endpoints no registered controller serves fall back to the Edge
@@ -735,6 +890,28 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         ok: false,
         error: remoteFailureOf(error),
       } })
+    }
+  }
+
+  /** Both HTTP spellings bind controls to the same observed run before dispatch. */
+  private withObservedTurn<T>(expected: string, sessionId: string | undefined, dispatch: () => Promise<T>): Promise<T> {
+    const active = sessionId === undefined ? undefined : this.activeTurns.get(SessionId(sessionId))
+    if (active === undefined || active.turnStartSeq === undefined || String(active.turnStartSeq) !== expected) throw new EdgeHttpError(409, 'The observed run has ended.')
+    return this.controlTarget.run(active.turnId, dispatch)
+  }
+
+  private async withAgentControl<T>(sessionId: SessionId, invoke: () => Promise<T>): Promise<T> {
+    if (this.activeTurns.get(sessionId)?.agent !== undefined) return invoke()
+    if (this.mainDriving || this.activeTurns.size > 0) throw new EdgeSessionStoreError('BUSY', 'The main slot is occupied; retry this command after the current turn.')
+    this.mainDriving = true
+    try {
+      const model = resolveEdgeDeploymentConfig(this.env).model
+      const handle = await this.sessions.openAgentForTurn(sessionId, model)
+      try { return await invoke() }
+      finally { await handle.dispose() }
+    } finally {
+      this.mainDriving = false
+      this.kickMain()
     }
   }
 
@@ -776,8 +953,14 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     })
   }
 
-  private publishSessionQueue(sessionId: SessionId, items: QueuedInboxItem[]): void {
-    this.broadcast('mux', { type: 'session/queue', sessionId, items })
+  private runtimeQueueItems(sessionId: SessionId, live?: readonly unknown[]): unknown[] {
+    return [...(live ?? this.liveQueues.get(sessionId) ?? []), ...this.mainQueue.pending(sessionId).map(input => ({ id: input.message.id, placement: 'queued', message: input.message }))]
+  }
+
+  private publishSessionQueue(sessionId: SessionId, items?: QueuedInboxItem[]): void {
+    if (items !== undefined) this.liveQueues.set(sessionId, items)
+    for (const listener of this.runtimeQueueListeners) listener(sessionId)
+    this.broadcast('mux', { type: 'session/queue', sessionId, items: [...(this.liveQueues.get(sessionId) ?? []), ...this.mainQueue.pending(sessionId).map(input => ({ id: input.message.id, placement: 'queued' as const, message: input.message }))] })
   }
 
   private publishRunning(sessionId: SessionId, running: boolean): void {
@@ -964,29 +1147,37 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
   private async startTurn(request: Request, sessionId: SessionId): Promise<Response> {
     const body = await readJsonObject(request, MAX_TURN_BODY_BYTES)
     const message = requireBoundedUtf8String(body.message, 'message', MAX_MESSAGE_TEXT_BYTES)
-    const { commandTimeoutPolicy } = resolveEdgeDeploymentConfig(this.env)
-    const claimed = await this.claimTurn(sessionId)
-
-    const { stream, completion } = createLiveSessionEventStream(
-      publish => this.runClaimedTurn({
-        claimed,
-        commandTimeoutPolicy,
-        mode: 'queue',
-        content: [{ type: 'text', text: message }],
-        publish,
-      }),
-      (error) => {
-        console.error('dsh-edge turn transport failed.', error)
-      },
-    )
-    // Durable Objects stay active while the turn's pending work runs;
-    // DurableObjectState.waitUntil is a no-op and is deliberately not used.
+    const id = request.headers.get('Idempotency-Key')
+    if (id !== null && (id.length === 0 || id.length > 128)) throw new EdgeHttpError(400, 'Invalid Idempotency-Key.')
+    if (this.mainStreamCount >= 32) throw new EdgeHttpError(429, 'Too many live turn streams.')
+    this.mainStreamCount++
+    let input: MainInput
+    try { input = await this.enqueueMain(sessionId, [{ type: 'text', text: message }], id === null ? undefined : RpcId(id)) }
+    catch (error) { this.mainStreamCount--; throw error }
+    const { stream, completion } = createLiveSessionEventStream(async (publish, signal) => {
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const state = this.mainQueue.state(input.seq)
+          if (signal.aborted || state === 'settled' || state === 'cancelled' || state === 'interrupted') { resolve(); return }
+          let observers = this.mainStreams.get(input.seq)
+          if (observers === undefined) { observers = new Set(); this.mainStreams.set(input.seq, observers) }
+          const cleanup = () => {
+            signal.removeEventListener('abort', abort)
+            observers.delete(observer)
+            if (observers.size === 0) this.mainStreams.delete(input.seq)
+          }
+          const observer = { publish, resolve: () => { cleanup(); resolve() }, reject: (error: unknown) => { cleanup(); reject(error) } }
+          const abort = () => observer.resolve()
+          observers.add(observer)
+          signal.addEventListener('abort', abort, { once: true })
+          this.kickMain()
+        })
+      } finally { this.mainStreamCount-- }
+    }, error => { console.error('dsh-edge turn transport failed.', error) }, 'durably received')
     void completion.catch(() => undefined)
-
-    return new Response(stream, {
-      status: 200,
-      headers: edgeEventStreamHeaders(corsHeaders()),
-    })
+    const headers = edgeEventStreamHeaders(corsHeaders())
+    headers.set('x-dsh-edge-input-id', input.inputId)
+    return new Response(stream, { status: 200, headers })
   }
 
   private async startApiPrompt(input: {
@@ -995,68 +1186,63 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     content: ContentBlock[]
     rpcId: RpcId
     clientTimeZone?: string
+    contentDigest?: string
   }): Promise<void> {
-    if (messageTextByteLength(input.content.filter(
-      (part): part is Extract<ContentBlock, { type: 'text' }> => part.type === 'text',
-    )) > MAX_MESSAGE_TEXT_BYTES) {
-      throw new EdgeHttpError(
-        413,
-        `Prompt text is limited to ${MAX_MESSAGE_TEXT_BYTES} UTF-8 bytes.`,
-      )
+    if (messageTextByteLength(input.content.filter((part): part is Extract<ContentBlock, { type: 'text' }> => part.type === 'text')) > MAX_MESSAGE_TEXT_BYTES) {
+      throw new EdgeHttpError(413, 'Prompt exceeds the message limit.')
     }
-    while (true) {
-      const active = this.activeTurns.get(input.sessionId)
-      if (active !== undefined) {
+    if (input.mode === 'steer') {
+      const key = JSON.stringify([input.sessionId, input.rpcId])
+      const digest = input.contentDigest ?? JSON.stringify([input.content, input.clientTimeZone])
+      return this.steeringAdmissions.run(key, digest, async () => {
+        // The earlier API receipt check may have raced a completed admission.
+        if (input.contentDigest !== undefined && this.mainQueue.hasReceipt(input.sessionId, `edge:${input.rpcId}`, input.contentDigest)) return
+        const active = this.activeTurns.get(input.sessionId)
+        if (active === undefined || (this.controlTarget.getStore() !== undefined && this.controlTarget.getStore() !== active.turnId)) throw new EdgeSessionStoreError('BUSY', 'The target run has ended; submit a queued message.')
         await active.admissionReady
-        if (this.activeTurns.get(input.sessionId) === active
-          && active.accepting
-          && active.admit !== undefined) {
-          await active.admit({
-            mode: input.mode,
-            content: input.content,
-            rpcId: input.rpcId,
-            ...input.clientTimeZone === undefined
-              ? {}
-              : { clientTimeZone: input.clientTimeZone },
-          })
-          return
+        if (this.activeTurns.get(input.sessionId) !== active || !active.accepting || active.admit === undefined) throw new EdgeSessionStoreError('BUSY', 'The target run has ended.')
+        const queued = await this.enqueueMain(input.sessionId, input.content, input.rpcId, input.clientTimeZone, input.contentDigest, false)
+        // Only the transaction that created this receipt may mutate the inbox.
+        if (!queued.created || this.mainQueue.state(queued.seq) !== 'steering') return
+        if (this.activeTurns.get(input.sessionId) !== active || !active.accepting) {
+          this.mainQueue.finishSteer(input.sessionId, queued.inputId, false)
+          throw new EdgeSessionStoreError('BUSY', 'The target run has ended.')
         }
-        await active.releaseComplete
-        continue
-      }
-
-      const { commandTimeoutPolicy } = resolveEdgeDeploymentConfig(this.env)
-      let claimed: Awaited<ReturnType<DshEdgeInstance['claimTurn']>>
-      try {
-        claimed = await this.claimTurn(input.sessionId)
-      } catch (error) {
-        if (error instanceof EdgeSessionStoreError && error.code === 'BUSY') continue
-        throw error
-      }
-      const running = this.runClaimedTurn({
-        claimed,
-        commandTimeoutPolicy,
-        mode: input.mode,
-        content: input.content,
-        rpcId: input.rpcId,
-        ...input.clientTimeZone === undefined
-          ? {}
-          : { clientTimeZone: input.clientTimeZone },
+        const admit = active.admit
+        await this.mainQueue.admitSteer(input.sessionId, queued.inputId, () => admit({ ...input, message: queued.message }))
       })
-      void running.catch((error: unknown) => {
-        console.error('dsh-edge upstream protocol turn failed.', error)
-      })
-      await claimed.turn.admissionReady
-      if (!claimed.turn.wasAdmitted) await running
-      return
     }
+    await this.enqueueMain(input.sessionId, input.content, input.rpcId, input.clientTimeZone, input.contentDigest)
+    this.kickMain()
   }
 
-  private updateQueue(
+  private async updateQueue(
     sessionId: SessionId,
     itemId: MessageId,
     action: QueueAction,
-  ): 'accepted' | 'queue-item-not-found' | 'steer-unavailable' | 'queue-edit-attachment-invalid' {
+  ): Promise<'accepted' | 'queue-item-not-found' | 'steer-unavailable' | 'queue-edit-attachment-invalid'> {
+    const pending = this.mainQueue.pending(sessionId).find(input => input.message.id === itemId)
+    if (pending !== undefined) {
+      if (action.kind === 'steer') {
+        const active = this.activeTurns.get(sessionId)
+        if (active?.agent?.status !== 'running' || (this.controlTarget.getStore() !== undefined && this.controlTarget.getStore() !== active.turnId) || !active.accepting || active.admit === undefined) return 'steer-unavailable'
+        this.mainQueue.stageSteer(pending.seq)
+        const admit = active.admit
+        await this.mainQueue.admitSteer(sessionId, pending.inputId, () => admit({ mode: 'steer', content: pending.message.content, message: pending.message }))
+        return 'accepted'
+      }
+      if (action.kind === 'edit') {
+        if (!preservesAdmittedQueueImages(pending.message.content, action.content)) return 'queue-edit-attachment-invalid'
+        this.mainQueue.edit(sessionId, itemId, { ...pending.message, content: [...action.content] })
+      } else {
+        this.mainQueue.remove(sessionId, itemId)
+        for (const observer of this.mainStreams.get(pending.seq) ?? []) observer.resolve()
+        this.mainStreams.delete(pending.seq)
+      }
+      this.publishSessionQueue(sessionId)
+      this.kickMain()
+      return 'accepted'
+    }
     const active = this.activeTurns.get(sessionId)
     const agent = active?.agent
     if (agent === undefined) return 'queue-item-not-found'
@@ -1089,7 +1275,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     handle: AgentHandle
   }> {
     const summary = await this.sessions.getApiSessionSummary(sessionId)
-    if (this.activeTurns.has(sessionId)) {
+    if (this.activeTurns.size > 0) {
       throw new EdgeSessionStoreError('BUSY', 'The session already has a running turn.')
     }
     this.rememberSessionListMetadata(summary)
@@ -1115,6 +1301,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
   }
 
   private async runClaimedTurn(input: {
+    message?: UserMessage
     claimed: { sessionId: SessionId; turn: ActiveTurn; handle: AgentHandle }
     commandTimeoutPolicy: EdgeCommandTimeoutPolicy
     content: ContentBlock[]
@@ -1140,6 +1327,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
           turn.accepting = false
         },
         publish: async (event) => {
+          if (event.type === 'turn/start') turn.turnStartSeq = event.seq
           this.publishSessionEvent(sessionId, event)
           await input.publish?.(event)
         },
@@ -1153,17 +1341,17 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     } finally {
       turn.accepting = false
       turn.resolveAdmissionReady()
-      await handle.dispose().catch((error: unknown) => {
-        console.error('dsh-edge failed to release the turn agent.', error)
+      await disposeAgentHandle(handle, () => {
+        const active = this.activeTurns.get(sessionId)
+        if (active?.turnId === turn.turnId) this.activeTurns.delete(sessionId)
+        turn.resolveReleaseComplete()
+        this.publishRunning(sessionId, false)
       })
-      const active = this.activeTurns.get(sessionId)
-      if (active?.turnId === turn.turnId) this.activeTurns.delete(sessionId)
-      turn.resolveReleaseComplete()
-      this.publishRunning(sessionId, false)
     }
   }
 
   private async runTurn(input: {
+    message?: UserMessage
     agent: Agent
     commandTimeoutPolicy: EdgeCommandTimeoutPolicy
     content: ContentBlock[]
@@ -1182,6 +1370,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     const edgeFs = this.sessions.filesystem()
     const runTurn = async () => {
     await this.sessions.runAgentTurn({
+      ...input.message === undefined ? {} : { message: input.message },
       agent: input.agent,
       mode: input.mode,
       content: input.content,
@@ -1223,8 +1412,10 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     }
   }
 
-  private cancelTurn(sessionId: SessionId): Response {
+  private cancelTurn(sessionId: SessionId, request: Request): Response {
     const active = this.activeTurns.get(sessionId)
+    const expected = request.headers.get('x-dsh-edge-turn-seq')
+    if (expected !== null && String(active?.turnStartSeq) !== expected) throw new EdgeHttpError(409, 'The observed run has ended.')
     if (active === undefined || !this.requestTurnCancellation(sessionId)) {
       throw new EdgeHttpError(409, 'The session has no active turn in this Worker instance.')
     }
@@ -1238,7 +1429,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
 
   private requestTurnCancellation(sessionId: SessionId): boolean {
     const active = this.activeTurns.get(sessionId)
-    if (active === undefined) return false
+    if (active === undefined || (this.controlTarget.getStore() !== undefined && this.controlTarget.getStore() !== active.turnId)) return false
     active.cancelRequested = true
     active.agent?.cancel({ kind: 'user' })
     return true

@@ -14,6 +14,7 @@ import SessionStore, {
   type SessionHeader,
 } from '@deepseek-ai/dsh-session'
 import { describe, expect, it } from 'vitest'
+import { MainSessionQueue } from '../src/main-session-queue.ts'
 import DurableObjectSessionPersistence from '../src/do-session-persistence.ts'
 
 /** Minimal Node-backed implementation of the DO synchronous SQL surface. */
@@ -91,6 +92,32 @@ function cursor<T extends TestRow>(
 }
 
 describe('durable-object bounded event pages', () => {
+  it('commits the admission receipt atomically with the canonical inbox append', async () => {
+    const storage = new TestDurableObjectStorage()
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(DurableObjectSessionPersistence, { storage: storage as never })
+    const persistence = ctx.sessionPersistence as DurableObjectSessionPersistence
+    const queue = new MainSessionQueue(storage as never)
+    const id = SessionId('atomic-main-admission')
+    const message = createUserMessage({ content: [{ type: 'text', text: 'only once' }], source: { kind: 'user' } })
+    const input = queue.enqueue(id, message.id, 'digest', message)
+    queue.claim()
+    const meta: SessionHeader = { id, version: SESSION_FORMAT_VERSION, createdAt: 1, isSeeded: false }
+    const event: SessionEvent<'agent/inbox/spliced'> = {
+      type: 'agent/inbox/spliced', seq: SessionSeq(0), time: 1,
+      data: { target: 'next-turn', start: 0, inserted: [message] },
+    }
+    try {
+      storage.failNextEventInsert()
+      await expect(persistence.appendBatch({ meta, inheritedEventCount: SessionLogOffset(0) }, [event], false)).rejects.toThrow('injected')
+      expect(queue.state(input.seq)).toBe('claimed')
+      await persistence.appendBatch({ meta, inheritedEventCount: SessionLogOffset(0) }, [event], false)
+      expect(queue.state(input.seq)).toBe('admitted')
+      expect((await persistence.load(id)).events).toHaveLength(1)
+    } finally { await fiber.dispose(); storage.close() }
+  })
+
   it('projects the latest upstream request/header model selection with a point read', async () => {
     const storage = new TestDurableObjectStorage()
     const ctx = new Context()
@@ -462,12 +489,19 @@ describe('durable-object bounded event pages', () => {
       expect(persistence.readBlankSession(id)).toEqual(header)
       expect(persistence.readAllBlankSessions()).toEqual([header])
 
-      await expect(persistence.materializeBlankSession(id)).resolves.toBe(true)
+      // Exercise the same cold prepare used by model selection/upstream follow.
+      const prepared = await persistence.prepare(id)
+      const detach = ctx.sessions.enter(prepared.session)
+      ctx.sessions.announce(prepared.session)
+      prepared.session.append('model/selection', { provider: 'deepseek-official', model: 'deepseek-v4-flash' })
+      await ctx.sessions.flush(prepared.session)
+      detach()
+      prepared[Symbol.dispose]()
       expect(persistence.readBlankSession(id)).toBeUndefined()
       expect(persistence.hasSession(id)).toBe(true)
       await expect(persistence.inspect(id)).resolves.toMatchObject({
         meta: header,
-        events: [],
+        events: [expect.objectContaining({ type: 'session/end-seed' }), expect.objectContaining({ type: 'model/selection' })],
       })
     } finally {
       await fiber.dispose()

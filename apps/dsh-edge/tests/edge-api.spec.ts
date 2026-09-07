@@ -1,3 +1,4 @@
+import { MainQueueFullError } from '../src/main-session-queue.ts'
 import type { PromptContentPart } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/types'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
@@ -510,6 +511,18 @@ describe('Edge upstream API invariants', () => {
     expect(idle.result).toMatchObject({ ok: true, value: { title: 'Idle', seq: 5 } })
     expect(sessionEvent).toHaveBeenCalledOnce()
     expect(sessionEvent).toHaveBeenCalledWith(parentId, idleEvent)
+  })
+
+  it('maps admission and queue-edit overload to retryable busy results', async () => {
+    const full = () => { throw new MainQueueFullError('Queue is full; retry later.') }
+    const api = createEdgeApi(runtime({}, { prompt: async () => full(), updateQueue: full }))
+    const content = [{ type: 'text' as const, text: 'hello' }]
+    for (const mode of ['queue', 'steer'] as const) {
+      const result = await api.sessions.prompt(request({ sessionId: parentId, mode, content }))
+      expect(result.result).toMatchObject({ ok: false, error: { code: 'agent-busy' } })
+    }
+    const result = await api.sessions.updateQueue(request({ sessionId: parentId, itemId: 'pending' as MessageId, action: { kind: 'edit', content } }))
+    expect(result.result).toMatchObject({ ok: false, error: { code: 'agent-busy' } })
   })
 
   it('persists the client-minted requestId on the user message and falls back to the envelope rpcId', async () => {

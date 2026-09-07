@@ -33,7 +33,7 @@ import {
   resolveEdgeStreamIdleTimeoutMs,
 } from '../src/deepseek.ts'
 import { EdgeExecutionId } from '../src/protocol.ts'
-import { createDurablePromptAdmitter } from '../src/session-store.ts'
+import { createDurablePromptAdmitter, disposeAgentHandle } from '../src/session-store.ts'
 
 class ScriptedAdapter extends LlmAdapter {
   readonly requests: GenerateOptions[] = []
@@ -76,17 +76,18 @@ async function harness(replies: readonly (readonly StreamChunk[])[], shell: Edge
   ctx.tools.register(createEdgeBashTool(shells))
 
   const sessionId = SessionId(crypto.randomUUID())
-  const { agent } = await ctx.agents.create({
+  const handle = await ctx.agents.create({
     sessionId,
     meta: { cwd: '/workspace', agentPreset: 'dsh-edge' },
     agentOptions: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
   })
+  const { agent } = handle
   const events: SessionEvent[] = []
   ctx.on('session/event', (subject, event) => {
     if (subject === agent.session) events.push(event)
   })
   const releaseShell = shells.bind(sessionId, shell, '/workspace')
-  return { ctx, agent, adapter, events, releaseShell }
+  return { ctx, agent, handle, adapter, events, releaseShell }
 }
 
 async function followup(agent: Agent, text: string): Promise<void> {
@@ -98,6 +99,37 @@ async function followup(agent: Agent, text: string): Promise<void> {
 }
 
 describe('dsh-edge native agent runtime', () => {
+  it('releases the Edge owner only after upstream teardown settles, including failure', async () => {
+    const { ctx, agent, handle, releaseShell } = await harness([], { exec: vi.fn<EdgeShell['exec']>() })
+    const gate = Promise.withResolvers<void>()
+    const nativeDispose = handle.dispose.bind(handle)
+    const failure = new Error('injected teardown failure')
+    // Inject a teardown failure after real upstream scope disposal. The factory
+    // must still detach both registry entries in its finally boundary.
+    const scope = (agent as Agent & { scope: { dispose(): Promise<void> } }).scope
+    const scopeDispose = scope.dispose.bind(scope)
+    vi.spyOn(scope, 'dispose').mockImplementation(async () => {
+      await gate.promise
+      await scopeDispose()
+      throw failure
+    })
+    const released = vi.fn(() => {
+      expect(ctx.agents.get(agent.id)).toBeUndefined()
+      expect(ctx.sessions.get(agent.session.id)).toBeUndefined()
+    })
+    const closing = disposeAgentHandle(handle, released)
+    const assertion = expect(closing).rejects.toBe(failure)
+    await Promise.resolve()
+    expect(released).not.toHaveBeenCalled()
+    expect(ctx.agents.get(agent.id)).toBe(agent)
+    gate.resolve()
+    await assertion
+    expect(released).toHaveBeenCalledOnce()
+    await expect(nativeDispose()).rejects.toBe(failure)
+    releaseShell()
+    await ctx.fiber.dispose()
+  })
+
   it('advertises dedicated Edge tools without routing file work through bash', () => {
     expect(EDGE_SYSTEM_PROMPT).toContain('read, write, and edit tools')
     expect(EDGE_SYSTEM_PROMPT).toContain('read_image')
@@ -208,7 +240,7 @@ describe('dsh-edge native agent runtime', () => {
       await expect(admission.admit({
         mode: 'queue',
         content: [{ type: 'text', text: 'do not spend model quota' }],
-      })).resolves.toBeUndefined()
+      })).resolves.toEqual({ durable: false })
       await runtime.agent.whenIdle()
 
       expect(runtime.adapter.requests).toHaveLength(0)

@@ -1,9 +1,11 @@
+import { MainQueueFullError } from '../src/main-session-queue.ts'
 import { describe, expect, it } from 'vitest'
 import {
   MAX_MESSAGE_FEEDBACK_BODY_BYTES,
   MAX_SESSION_CREATE_BODY_BYTES,
   MAX_TURN_BODY_BYTES,
   instanceRequestBodyLimit,
+  errorResponse,
 } from '../src/http.ts'
 
 describe('instanceRequestBodyLimit', () => {
@@ -28,4 +30,10 @@ describe('instanceRequestBodyLimit', () => {
     expect(instanceRequestBodyLimit('/api/workspace/create')).toBe(MAX_SESSION_CREATE_BODY_BYTES)
     expect(instanceRequestBodyLimit('/api/session/prompt/extra')).toBe(MAX_SESSION_CREATE_BODY_BYTES)
   })
+})
+
+it('returns a retryable HTTP response for queue saturation', async () => {
+  const response = errorResponse(new MainQueueFullError('Queue is full; retry later.'))
+  expect(response.status).toBe(429)
+  expect(await response.json()).toEqual({ ok: false, error: 'Queue is full; retry later.', code: 'QUEUE_FULL' })
 })

@@ -1,0 +1,270 @@
+/** Real prebuilt Worker + two browser tabs + controlled HTTP tool executors. */
+import assert from 'node:assert/strict'
+import { createServer } from 'node:http'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { chromium } from 'playwright'
+import { unstable_dev } from 'wrangler'
+import { workerArtifactPath, writePrebuiltModeWranglerConfig } from '../scripts/wrangler-config.mjs'
+const mode = process.env.DSH_EDGE_TEST_RUNTIME_MODE ?? 'direct'
+const state = mkdtempSync(join(tmpdir(), 'dsh-runtime-probe-'))
+const requests = []
+const tools = []
+const held = new Map()
+const delays = []
+let peak = 0
+let mockOrigin
+const mock = createServer(async (req, res) => {
+  let raw = ''
+  for await (const chunk of req) raw += chunk
+  const body = JSON.parse(raw)
+  if (req.url === '/anthropic/v1/messages') {
+    const path = `/pool/${tools.length + 1}`
+    tools.push(path)
+    held.set(path, res)
+    peak = Math.max(peak, held.size)
+    res.on('close', () => held.delete(path))
+    return
+  }
+  const last = body.messages.findLast(m => m.role === 'user')
+  const text = typeof last?.content === 'string' ? last.content : JSON.stringify(last?.content)
+  requests.push(text)
+  const afterUser = body.messages.slice(body.messages.lastIndexOf(last) + 1)
+  const hasResults = afterUser.some(m => m.role === 'tool')
+  res.writeHead(200, { 'content-type': 'text/event-stream' })
+  const emit = delta => res.write(`data: ${JSON.stringify({ choices: [{ delta }] })}\n\n`)
+  emit({ role: 'assistant' })
+  if (text.includes('hold-A')) await new Promise(resolve => delays.push(resolve))
+  if (text.includes('pool-probe') && !hasResults) {
+    emit({ tool_calls: [1, 2, 3].map(n => ({ index: n - 1, id: `pool_${n}`, type: 'function', function: { name: 'web_search', arguments: JSON.stringify({ queries: [`pool-${n}`] }) } })) })
+    res.write(`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 5, completion_tokens: 5 } })}\n\n`)
+  } else {
+    emit({ content: 'probe-complete' })
+    res.write(`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 5, completion_tokens: 2 } })}\n\n`)
+  }
+  res.end('data: [DONE]\n\n')
+})
+await new Promise(resolve => mock.listen(0, '127.0.0.1', resolve))
+mockOrigin = `http://127.0.0.1:${mock.address().port}`
+let worker, browser, startWorker
+const release = path => {
+  const res = held.get(path)
+  assert.ok(res, `missing held ${path}`)
+  held.delete(path)
+  res.writeHead(200, { 'content-type': 'application/json' })
+  res.end(JSON.stringify({ content: [{ type: 'text', text: `finished ${path}` }] }))
+}
+const wait = async (predicate, label, timeoutMs = 20000) => {
+  const end = Date.now() + timeoutMs
+  while (!await predicate()) {
+    if (Date.now() > end) throw new Error(`Timed out: ${label}; tools=${tools.join(',')}`)
+    await new Promise(resolve => setTimeout(resolve, 25))
+  }
+}
+try {
+  const config = join(state, 'wrangler.json')
+  await writePrebuiltModeWranglerConfig(mode, config)
+  startWorker = () => unstable_dev(workerArtifactPath(mode), {
+    config, env: mode === 'direct' ? '' : 'isolated', persistTo: state,
+    vars: { DSH_EDGE_ACCESS_KEY: 'runtime-probe-owner-key-32-bytes', DEEPSEEK_API_KEY: 'local-mock-only', DEEPSEEK_BASE_URL: mockOrigin, DEEPSEEK_SEARCH_BASE_URL: `${mockOrigin}/anthropic/v1` },
+    logLevel: 'error', experimental: { disableExperimentalWarning: true, showInteractiveDevSession: false, watch: false },
+  })
+  worker = await startWorker()
+  browser = await chromium.launch(process.env.DSH_EDGE_PLAYWRIGHT_CHANNEL ? { channel: process.env.DSH_EDGE_PLAYWRIGHT_CHANNEL } : {})
+  const context = await browser.newContext()
+  const origin = `http://${worker.address}:${worker.port}`
+  const login = await context.request.post(`${origin}/api/auth/login`, { form: { accessKey: 'runtime-probe-owner-key-32-bytes' } })
+  assert.ok(login.ok())
+  const cookieHeader = (await context.cookies()).map(cookie => `${cookie.name}=${cookie.value}`).join('; ')
+  const a = await context.newPage(), b = await context.newPage()
+  await Promise.all([a.goto(origin), b.goto(origin)])
+  const rpc = (page, method, payload, rpcId = crypto.randomUUID()) => page.evaluate(async ({ method, payload, rpcId }) => {
+    const response = await fetch(`/api/${method.replace('.', '/')}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type: 'client-request', rpcId, payload: { args: { request: payload } } }) })
+    return response.json()
+  }, { method, payload, rpcId })
+  const prompt = (page, sessionId, text, id) => rpc(page, 'session.prompt', { sessionId, mode: 'queue', content: [{ type: 'text', text }] }, id)
+  for (const sessionId of ['probe-a', 'probe-b', 'probe-pool']) assert.equal((await rpc(a, 'session.create', { sessionId })).result.ok, true)
+  // Observe actual mux pushes in the second tab, including durable queued inputs.
+  await b.evaluate(() => {
+    globalThis.probeFrames = []
+    globalThis.probeMux = new WebSocket(`${location.origin.replace('http', 'ws')}/api/events.mux`)
+    globalThis.probeMux.onmessage = event => globalThis.probeFrames.push(JSON.parse(event.data).payload)
+  })
+  await b.waitForFunction(() => globalThis.probeMux.readyState === WebSocket.OPEN)
+  // The current browser follows cold history through Typert. This must not
+  // promote idle Agents outside the main slot (fails without activateOnFollow).
+  for (const page of [a, b]) await page.evaluate(async () => {
+    globalThis.remoteFrames = []
+    const socket = globalThis.runtimeRemote = new WebSocket(`${location.origin.replace('http', 'ws')}/api/remote.mux`)
+    socket.onmessage = event => globalThis.remoteFrames.push(JSON.parse(event.data))
+    await new Promise(resolve => socket.onopen = resolve)
+    socket.send(JSON.stringify({ type: 'open', streamId: 'control', endpoint: 'session/control', payload: { args: {} } }))
+    socket.send(JSON.stringify({ type: 'open', streamId: 'follow-a', endpoint: 'session/follow', payload: { args: { request: { address: { kind: 'session', sessionId: 'probe-a' }, afterSeq: -1 } } } }))
+  })
+  await wait(() => b.evaluate(() => globalThis.remoteFrames.some(f => f.streamId === 'follow-a' && f.value?.type === 'snapshot')), 'cold Remote follow snapshot')
+
+  assert.equal((await prompt(a, 'probe-a', 'hold-A', 'a-first')).result.ok, true)
+  await wait(() => requests.some(t => t.includes('hold-A')), 'A model start')
+  const steeringRetries = await Promise.all(Array.from({ length: 20 }, (_, i) => rpc(i % 2 ? a : b, 'session.prompt', {
+    sessionId: 'probe-a', mode: 'steer', requestId: 'concurrent-steer-retry', content: [{ type: 'text', text: 'steer once despite retries' }],
+  })))
+  for (const result of steeringRetries) assert.equal(result.result.ok, true, JSON.stringify(result))
+  const steeringHistory = await rpc(a, 'session.history', { sessionId: 'probe-a' })
+  const admittedSteers = steeringHistory.result.value.events.flatMap(entry => entry.event.type === 'agent/inbox/spliced' ? entry.event.data.inserted ?? [] : [])
+    .filter(message => message.source?.rpcId === 'concurrent-steer-retry')
+  assert.equal(admittedSteers.length, 1, 'overlapping steer retries must append exactly one canonical inbox occurrence')
+  console.log('PASS concurrent steer retries: 20 requests from two tabs admit exactly one inbox occurrence')
+
+  assert.equal((await prompt(a, 'probe-a', 'promoted steer', 'promoted-steer')).result.ok, true)
+  assert.equal((await rpc(b, 'session.updateQueue', { sessionId: 'probe-a', itemId: 'edge:promoted-steer', action: { kind: 'steer' } })).result.ok, true)
+  assert.equal((await prompt(b, 'probe-a', 'promoted steer', 'promoted-steer')).result.ok, true)
+  const promotedHistory = await rpc(a, 'session.history', { sessionId: 'probe-a' })
+  assert.equal(promotedHistory.result.value.events.flatMap(entry => entry.event.type === 'agent/inbox/spliced' ? entry.event.data.inserted ?? [] : [])
+    .filter(message => message.source?.rpcId === 'promoted-steer').length, 1)
+  console.log('PASS queue promotion: one canonical steer, original receipt remains accepted, capacity released')
+
+  // One claimed input plus 127 waiting inputs reaches the owner's durable cap.
+  for (let i = 0; i < 127; i++) assert.equal((await prompt(b, 'probe-b', `capacity-${i}`, `capacity-${i}`)).result.ok, true)
+  const overloaded = await prompt(b, 'probe-b', 'capacity-retry', 'capacity-retry')
+  assert.equal(overloaded.result.error.code, 'agent-busy')
+  const rawOverload = await a.evaluate(async () => {
+    const response = await fetch('/api/sessions/probe-b/turn', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ message: 'raw-capacity' }),
+    })
+    return { status: response.status, body: await response.json() }
+  })
+  assert.equal(rawOverload.status, 429)
+  assert.equal(rawOverload.body.code, 'QUEUE_FULL')
+  assert.equal((await rpc(b, 'session.updateQueue', { sessionId: 'probe-b', itemId: 'edge:capacity-0', action: { kind: 'remove' } })).result.ok, true)
+  assert.equal((await prompt(b, 'probe-b', 'capacity-retry', 'capacity-retry')).result.ok, true)
+  for (const id of [...Array.from({ length: 126 }, (_, i) => `capacity-${i + 1}`), 'capacity-retry']) {
+    assert.equal((await rpc(b, 'session.updateQueue', { sessionId: 'probe-b', itemId: `edge:${id}`, action: { kind: 'remove' } })).result.ok, true)
+  }
+  assert.equal(requests.some(text => text.startsWith('capacity-')), false)
+  console.log('PASS durable capacity: 128 inputs; RPC busy and HTTP 429; same-identity retry succeeds after removal')
+
+  assert.equal((await prompt(b, 'probe-b', 'B waits', 'b-first')).result.ok, true)
+  assert.equal((await prompt(b, 'probe-b', 'B waits', 'b-first')).result.ok, true)
+  await wait(() => b.evaluate(() => globalThis.probeFrames.some(f => f.type === 'session/queue' && f.sessionId === 'probe-b' && f.items.length === 1)), 'B queued once in second tab')
+  await wait(() => b.evaluate(() => globalThis.remoteFrames.some(f => f.streamId === 'control' && f.value?.type === 'queue' && f.value.sessionId === 'probe-b' && f.value.items.length === 1)), 'current browser Remote queue update')
+  await new Promise(resolve => setTimeout(resolve, 200))
+  assert.equal(requests.some(t => t === 'B waits'), false, 'B must not start while A owns slot')
+  assert.equal((await prompt(b, 'probe-a', 'A followup from second tab', 'a-second')).result.ok, true)
+  console.log('PASS two browser tabs: B durably queued once; no B LLM while A active')
+  for (const resolve of delays.splice(0)) resolve()
+  await wait(() => requests.some(t => t === 'B waits'), 'B starts after A releases')
+  const history = await rpc(b, 'session.history', { sessionId: 'probe-b' })
+  assert.equal(history.result.value.events.filter(e => e.event.type === 'user/message').length, 1)
+  console.log('PASS duplicate receipt: one canonical B user message')
+  await wait(() => requests.includes('A followup from second tab'), 'second-tab input resumes the same session')
+  assert.ok(requests.indexOf('B waits') < requests.indexOf('A followup from second tab'), 'the busy session rotates behind B')
+  console.log('PASS same-session multi-tab queue: followup waits and session rotation remains fair')
+  await wait(() => b.evaluate(() => globalThis.probeFrames.some(f => f.type === 'session/queue' && f.sessionId === 'probe-b' && f.items.length === 0)), 'B dequeued')
+  assert.equal((await prompt(a, 'probe-pool', 'pool-probe', 'pool-first')).result.ok, true)
+  try { await wait(() => tools.length === 2, 'first two tool requests') }
+  catch (error) {
+    const debug = await rpc(a, 'session.history', { sessionId: 'probe-pool' })
+    console.log('probe diagnostics', JSON.stringify(debug.result.value.events.filter(e => ['tool/result', 'turn/end', 'assistant/message'].includes(e.event.type))))
+    console.log('model prompt observations', requests)
+    throw error
+  }
+  await new Promise(resolve => setTimeout(resolve, 200))
+  assert.equal(tools.length, 2, 'third tool must wait for a permit')
+  release('/pool/1')
+  await wait(() => tools.length === 3, 'third tool after first completes')
+  assert.equal(peak, 2)
+  release('/pool/2'); release('/pool/3')
+  await wait(async () => (await rpc(a, 'session.history', { sessionId: 'probe-pool' })).result.value.events.some(e => e.event.type === 'turn/end'), 'pool turn completion')
+  console.log('PASS actual HTTP tool pool: peak=2; tool 3 starts only after tool 1 releases')
+  // Cancel while two provider HTTP requests are held and the third awaits a permit.
+  tools.length = 0
+  await rpc(a, 'session.create', { sessionId: 'probe-cancel' })
+  await prompt(a, 'probe-cancel', 'pool-probe', 'cancel-first')
+  await wait(() => tools.length === 2, 'cancellation fixture starts')
+  const staleCancelStatus = await a.evaluate(async () => {
+    const response = await fetch('/api/session.cancel', {
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-dsh-edge-turn-seq': '-1' },
+      body: JSON.stringify({ type: 'client-request', method: 'session.cancel', rpcId: crypto.randomUUID(), payload: { sessionId: 'probe-cancel' } }),
+    })
+    return response.status
+  })
+  assert.equal(staleCancelStatus, 409)
+  const staleSlashStatuses = await a.evaluate(async () => {
+    const statuses = []
+    for (const method of ['cancel', 'prompt', 'updateQueue']) {
+      const payload = { sessionId: 'probe-cancel', mode: 'steer', content: [{ type: 'text', text: 'stale' }], itemId: 'missing', action: { kind: 'steer' } }
+      for (const args of [{ request: payload }, payload]) {
+        const response = await fetch(`/api/session/${method}`, {
+          method: 'POST', headers: { 'content-type': 'application/json', 'x-dsh-edge-turn-seq': '-1' },
+          body: JSON.stringify({ rpcId: crypto.randomUUID(), payload: { args } }),
+        })
+        statuses.push(response.status)
+      }
+    }
+    return statuses
+  })
+  assert.deepEqual(staleSlashStatuses, [409, 409, 409, 409, 409, 409])
+
+  assert.equal(held.size, 2, 'stale tab cancellation cannot stop the current tools')
+  await prompt(b, 'probe-cancel', 'followup after explicit cancellation', 'cancel-followup')
+  assert.equal(requests.includes('followup after explicit cancellation'), false)
+  const cancelHistory = await rpc(a, 'session.history', { sessionId: 'probe-cancel' })
+  const observedTurn = cancelHistory.result.value.events.findLast(entry => entry.event.type === 'turn/start').event.seq
+  const currentCancel = await a.evaluate(async seq => {
+    const response = await fetch('/api/session/cancel', {
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-dsh-edge-turn-seq': String(seq) },
+      body: JSON.stringify({ rpcId: crypto.randomUUID(), payload: { args: { request: { sessionId: 'probe-cancel' } } } }),
+    })
+    return response.json()
+  }, observedTurn)
+  assert.equal(currentCancel.result.ok, true)
+  await wait(() => held.size === 0, 'real provider HTTP abort cleanup')
+  assert.equal(tools.length, 2, 'cancelled third tool must never reach provider')
+  await wait(() => requests.includes('followup after explicit cancellation'), 'queued followup runs after explicit cancellation without another message')
+  console.log('PASS cancellation: provider connections close; waiting tool never starts; queued followup resumes')
+
+  await rpc(a, 'session.create', { sessionId: 'probe-crash-a' })
+  await rpc(a, 'session.create', { sessionId: 'probe-crash-b' })
+  await prompt(a, 'probe-crash-a', 'hold-A crash', 'crash-a')
+  await wait(() => requests.some(t => t === 'hold-A crash'), 'crash fixture running')
+  await prompt(b, 'probe-crash-b', 'B after restart', 'crash-b')
+  assert.equal(requests.some(t => t === 'B after restart'), false)
+  await context.close() // no tabs or reconnect requests can drive the new instance
+  await worker.stop()
+  assert.equal(requests.some(t => t === 'B after restart'), false, 'B must not run during teardown')
+  worker = await startWorker()
+  await wait(() => requests.some(t => t === 'B after restart'), 'alarm resumes queued B without tabs', 45000)
+  assert.equal(requests.filter(t => t === 'hold-A crash').length, 1, 'interrupted A must not be replayed')
+  console.log('PASS persisted alarm: restart with all tabs closed starts queued B; interrupted A is not replayed')
+  const headlessRpc = async (method, payload) => {
+    const response = await worker.fetch(`/api/session/${method}`, {
+      method: 'POST', headers: { 'content-type': 'application/json', cookie: cookieHeader },
+      body: JSON.stringify({ rpcId: crypto.randomUUID(), payload: { args: { request: payload } } }),
+    })
+    const result = await response.json()
+    assert.equal(result.result.ok, true, JSON.stringify(result))
+  }
+  await headlessRpc('create', { sessionId: 'probe-explicit-resume' })
+  await headlessRpc('prompt', { sessionId: 'probe-explicit-resume', mode: 'queue', content: [{ type: 'text', text: 'hold-A explicit-resume' }] })
+  await wait(() => requests.includes('hold-A explicit-resume'), 'explicit resume fixture owns slot')
+  await headlessRpc('prompt', { sessionId: 'probe-explicit-resume', mode: 'queue', content: [{ type: 'text', text: 'old pending before resume' }] })
+  await worker.stop()
+  worker = await startWorker()
+  assert.equal(requests.includes('old pending before resume'), false)
+  // First DO request after this restart is the user's explicit new submission.
+  await headlessRpc('prompt', { sessionId: 'probe-explicit-resume', mode: 'queue', content: [{ type: 'text', text: 'new message resumes once' }] })
+  await wait(() => requests.includes('new message resumes once'), 'first post-restart message resumes pending work')
+  assert.ok(requests.indexOf('old pending before resume') < requests.indexOf('new message resumes once'))
+  assert.equal(requests.filter(text => text === 'hold-A explicit-resume').length, 1)
+  console.log('PASS explicit resume: first post-restart submission survives stale cleanup; no extra message or replay')
+  console.log(`PASS runtime queues probe (${mode})`)
+} finally {
+  for (const resolve of delays.splice(0)) resolve()
+  for (const res of held.values()) res.destroy()
+  await browser?.close()
+  await worker?.stop()
+  mock.closeAllConnections()
+  await new Promise(resolve => mock.close(resolve))
+  rmSync(state, { recursive: true, force: true })
+}

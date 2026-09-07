@@ -1,5 +1,6 @@
 /** Edge API implementation over one Cloudflare DSH instance. */
 
+import { MainQueueFullError } from './main-session-queue.ts'
 import {
   AttachmentError,
   admitEncodedImages,
@@ -115,7 +116,9 @@ export interface EdgeApiRuntime {
   }[]>
   listLlmProviders(): Promise<{ id: string; name: string }[]>
   isRunning(sessionId: SessionId): boolean
+  hasPrompt?(sessionId: SessionId, rpcId: RpcRequest<unknown>['rpcId'], digest: string): boolean
   prompt(input: {
+    contentDigest?: string
     sessionId: SessionId
     mode: 'queue' | 'steer'
     content: ContentBlock[]
@@ -126,7 +129,7 @@ export interface EdgeApiRuntime {
     sessionId: SessionId,
     itemId: MessageId,
     action: QueueAction,
-  ): 'accepted' | 'queue-item-not-found' | 'steer-unavailable' | 'queue-edit-attachment-invalid'
+  ): 'accepted' | 'queue-item-not-found' | 'steer-unavailable' | 'queue-edit-attachment-invalid' | Promise<'accepted' | 'queue-item-not-found' | 'steer-unavailable' | 'queue-edit-attachment-invalid'>
   cancel(sessionId: SessionId): boolean
   workspaceList(): Promise<{
     items: WorkspaceView[]
@@ -390,6 +393,12 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
         const hasImage = content.some((part: PromptContentPart) => part.type === 'image')
         const admit = async (): Promise<RpcResponse<{ accepted: true }>> => {
           try {
+            let contentDigest: string | undefined
+            if (runtime.hasPrompt !== undefined) {
+              const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify({ content, clientTimeZone: zone })))
+              contentDigest = Array.from(new Uint8Array(hash), byte => byte.toString(16).padStart(2, '0')).join('')
+              if (runtime.hasPrompt(sessionId, messageRpcId, contentDigest)) return ok(request, { accepted: true as const })
+            }
             let durable: ContentBlock[]
             if (!hasImage) {
               durable = textContent.map((part: { text: string }) => ({ type: 'text' as const, text: part.text }))
@@ -422,6 +431,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
                 : { type: 'image', attachment: refs[nextImage++]! })
             }
             await runtime.prompt({
+              ...contentDigest === undefined ? {} : { contentDigest },
               sessionId,
               mode,
               content: durable,
@@ -481,7 +491,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
           return sessionFailure(request, error, sessionId)
         }
       },
-      updateQueue(request: RpcRequest<SessionUpdateQueuePayload>) {
+      async updateQueue(request: RpcRequest<SessionUpdateQueuePayload>) {
         const { sessionId, itemId, action } = request.payload
         if (action.kind === 'edit'
           && action.content.some(block => block.type !== 'text' && block.type !== 'image')) {
@@ -501,7 +511,12 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
             details: { reason: 'QUEUE_EDIT_TEXT_TOO_LARGE' },
           }))
         }
-        const outcome = runtime.updateQueue(sessionId, itemId, action)
+        let outcome: Awaited<ReturnType<EdgeApiRuntime['updateQueue']>>
+        try {
+          outcome = await runtime.updateQueue(sessionId, itemId, action)
+        } catch (error) {
+          return sessionFailure(request, error, sessionId)
+        }
         if (outcome === 'queue-item-not-found') {
           return Promise.resolve(fail(request, {
             code: 'queue-item-not-found',
@@ -1106,6 +1121,9 @@ function sessionFailure<T>(
   error: unknown,
   sessionId: SessionId | undefined,
 ): RpcResponse<T> {
+  if (error instanceof MainQueueFullError) {
+    return fail(request, { code: 'agent-busy', message: error.message, details: { reason: 'queue-full' } })
+  }
   if (error instanceof EdgeSessionStoreError) {
     if (error.code === 'NOT_FOUND' && sessionId !== undefined) {
       return fail(request, {

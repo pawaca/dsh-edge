@@ -31,6 +31,18 @@
 - Settings → Plugins 通过上游 `dsh-host-plugin-inventory` Remote 列出当前运行的 composition。Workers 上没有 cordis Loader，因此 Edge 自有的 `EdgeLoader` 用实时的 host 插件 registry 和经过评审的 Web boot graph 来回答它注入的 `loader`。
 - 一个小型 Edge 登录外壳在不修改上游 UI 和协议的前提下保护它们。
 
+## 主会话 Runtime 队列
+
+owner Durable Object 同一时间只准入一个活跃主会话。普通输入先持久排队再确认收到；每次驻留准入一条普通输入，上游 loop 空闲且清理完成后，有待处理输入的会话回到就绪队尾。其他 tab 可以提交并观察同一份队列。显式 steer 仍指向当前运行。Edge 浏览器把 steer/取消绑定到它观察到的 canonical turn，防止延迟操作影响新运行；旧 API 客户端可通过 `x-dsh-edge-turn-seq` 启用同样的校验。
+
+每个 owner 最多接受 128 条未收尾输入和 2 MiB 的序列化输入数据。容量耗尽返回 HTTP 429（`QUEUE_FULL`）或 RPC `agent-busy`；待积压任务减少后重试。浏览器 RPC 重试复用 `requestId`（旧客户端复用 `rpcId`）；原始 SSE 调用可提供最长 128 字符的 `Idempotency-Key`。同一身份携带不同内容会失败。并发 steer 重试共享准入结果；被拒绝的 steer 再次重试仍返回拒绝，重启后也一样。若收件箱已接受变更但持久化屏障失败，则阻止模型消费并释放 steering 容量；从队列提升的输入保留原先已接受的收件状态。原始 SSE 先发送收件注释，并返回 `x-dsh-edge-input-id`；断开流不会取消排队输入，可通过 `session.updateQueue` 移除。
+
+实际工具执行共享两个许可，最多等待 32 项，排队期限 30 秒，合作式执行期限 60 秒。工具池期限是额外的上限：bash 配置更长的超时不会延长它，交互式 `ask_user_question` / `exit_plan_mode` 也必须在此期限内结束。取消后必须等清理结束才归还许可。上游的并行/独占分类继续有效；嵌套调用继承根执行预算。后台标题流单独使用一个有界许可，保留上游超时。这些限制不能中断无界同步代码，也不会为每个工具分配独立内存。
+
+输入请求和完成事件立即推进队列。现有 downlink 过期 alarm 同时检查持久工作；运行中的恢复检查间隔为 30 秒，alarm 每次等待一份驻留执行结束。用户主动取消会结束当前 turn，并在清理完成后继续处理排队输入。每次驻留独立获得十分钟期限，为 alarm 的平台时限留出清理余量。重启后标记中断，暂停该会话的后续输入；用户发送新消息可明确恢复待处理输入。结果未知的外部工具副作用不会自动重放。冷历史订阅在交付快照后释放准备状态，不会激活 Agent。`/plan` 等 Agent 作用域命令临时使用同一个驻留预算。冷会话切换模型仍会发布上游的持久投影。本次不加入 cron 或 subagent。
+
+构建并提升产物（`pnpm run bundle:workers`）后，在本包目录运行 `DSH_EDGE_PLAYWRIGHT_CHANNEL=chrome node tests/runtime-queues.probe.mjs`，可用真实浏览器 tab 本地验证。设置 `DSH_EDGE_TEST_RUNTIME_MODE=isolated` 可验证 Dynamic Worker 模式。探针使用本地模拟 provider，检查实际 HTTP 并发与取消，并关闭所有 tab 后重启 Worker 验证 alarm 恢复。
+
 ## 快速导航
 
 - [子系统 wiki：架构与路线图](https://github.com/pawaca/dsh-edge/wiki)

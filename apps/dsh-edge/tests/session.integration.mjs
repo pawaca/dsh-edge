@@ -421,13 +421,16 @@ try {
     body: JSON.stringify({ message: 'slow response' }),
   })
   await waitFor(() => turnRequests().length === turnRequestCount + 1)
-  const busy = await jsonRequest(`/api/sessions/${sessionId}/turn`, {
+  const queuedRaw = await request(`/api/sessions/${sessionId}/turn`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ message: 'must be rejected' }),
+    headers: { 'content-type': 'application/json', 'Idempotency-Key': 'raw-queued-probe' },
+    body: JSON.stringify({ message: 'must wait for the main slot' }),
   })
-  assert.equal(busy.response.status, 409)
-  assert.equal(busy.body.code, 'BUSY')
+  assert.equal(queuedRaw.status, 200)
+  assert.equal(queuedRaw.headers.get('x-dsh-edge-input-id'), 'edge:raw-queued-probe')
+  const removedRaw = await rpc('session.updateQueue', { sessionId, itemId: 'edge:raw-queued-probe', action: { kind: 'remove' } })
+  assert.equal(removedRaw.body.result.ok, true)
+  assert.deepEqual(parseEvents(await queuedRaw.text()), [])
   const cancelled = await jsonRequest(`/api/sessions/${sessionId}/cancel`, { method: 'POST' })
   assert.equal(cancelled.response.status, 202)
   const cancelledEvents = parseEvents(await slowResponse.text())
@@ -914,7 +917,7 @@ try {
     .find(item => item.sessionId === protocolSessionId)
   assert.equal(protocolSummary.blank, true)
   assert.equal(protocolSummary.cwd, '/workspace')
-  assert.equal(protocolSummary.projections.asOfSeq, -1)
+  assert.equal(protocolSummary.projections.asOfSeq, (await rpc('session.history', { sessionId: protocolSessionId })).body.result.value.events.at(-1)?.event.seq ?? -1)
   assert.deepEqual(protocolSummary.projections.values.imageLimits.mediaTypes, [
     'image/png',
     'image/jpeg',
@@ -940,7 +943,7 @@ try {
   const restoredBlank = restoredBlankList.body.result.value.items
     .find(item => item.sessionId === protocolSessionId)
   assert.equal(restoredBlank.blank, true)
-  assert.equal(restoredBlank.projections.asOfSeq, -1)
+  assert.equal(restoredBlank.projections.asOfSeq, protocolSummary.projections.asOfSeq)
   const restoredSessionModels = await rpc('session.models', { sessionId: protocolSessionId })
   assert.deepEqual(restoredSessionModels.body.result.value.current, {
     provider: 'deepseek-official',
@@ -1498,7 +1501,7 @@ try {
     .find(entry => entry.event.type === 'agent/inbox/spliced'
       && entry.event.data.inserted?.some(message => message.source.rpcId === queuedPrompt.rpcId))
   assert.notEqual(queuedAdmission, undefined)
-  assert.equal(queuedAdmission.event.data.target, 'next-turn')
+  assert.equal(queuedAdmission.event.data.target, 'next-step')
   const steeredAdmission = activeAdmissionHistory.body.result.value.events
     .find(entry => entry.event.type === 'agent/inbox/spliced'
       && entry.event.data.inserted?.some(message => message.source.rpcId === steeredPrompt.rpcId))
@@ -1726,10 +1729,13 @@ async function turn(sessionId, message) {
 
 async function jsonRequest(path, init) {
   const response = await request(path, init)
-  return { response, body: await response.json() }
+  const source = await response.text()
+  assert.ok(source.length > 0, `Empty HTTP ${response.status} response at ${path}`)
+  return { response, body: JSON.parse(source) }
 }
 
 function request(path, init) {
+  if (process.env.DSH_EDGE_TEST_TRACE) console.log(init?.method ?? 'GET', path)
   if (worker === undefined) throw new Error('Worker is not running.')
   const headers = new Headers(init?.headers)
   if (ownerCookie !== undefined) headers.set('cookie', ownerCookie)

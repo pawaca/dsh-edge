@@ -1,5 +1,6 @@
 /** Upstream SessionPersistence implemented over Cloudflare Durable Object SQL. */
 
+import { initializeMainQueue, acknowledgeMainInputs } from './main-session-queue.ts'
 import { Context } from '@deepseek-ai/cordis'
 import {
   SESSION_FORMAT_VERSION,
@@ -203,6 +204,7 @@ export class DurableObjectSessionPersistence
   constructor(ctx: Context, config: DurableObjectSessionPersistenceConfig) {
     super(ctx)
     this.storage = config.storage
+    initializeMainQueue(this.storage)
     this.storeIdentity = this.initialize()
     this.coordinator = new PersistenceCoordinator(ctx, this, {
       preparedSessionCacheSize: config.preparedSessionCacheSize
@@ -229,7 +231,11 @@ export class DurableObjectSessionPersistence
     return (this.coordinator as never as { abandonUnmaterialized(s: Session): Promise<void> }).abandonUnmaterialized(session)
   }
 
-  override prepare(id: SessionId, signal?: AbortSignal): Promise<SessionPreparation> {
+  override async prepare(id: SessionId, signal?: AbortSignal): Promise<SessionPreparation> {
+    // Older releases retained blank identities without a canonical log row.
+    // Every cold consumer (including upstream follow/model selection) needs it.
+    signal?.throwIfAborted()
+    await this.materializeBlankSession(id)
     return this.coordinator.prepare(id, signal)
   }
 
@@ -476,6 +482,7 @@ export class DurableObjectSessionPersistence
         if (updated.rowsWritten !== 1) throw new Error(`session ${storage.meta.id} is not materialized`)
         this.storage.sql.exec('DELETE FROM dsh_edge_blank_sessions WHERE id = ?', storage.meta.id)
         this.updateSummaryFromBatch(storage.meta.id, events)
+        acknowledgeMainInputs(this.storage, storage.meta.id, events)
       })
     })
   }
