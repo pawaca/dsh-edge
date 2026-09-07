@@ -1195,7 +1195,8 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       await active.admissionReady
       if (this.activeTurns.get(input.sessionId) !== active || !active.accepting || active.admit === undefined) throw new EdgeSessionStoreError('BUSY', 'The target run has ended.')
       const queued = await this.enqueueMain(input.sessionId, input.content, input.rpcId, input.clientTimeZone, input.contentDigest, false)
-      if (this.mainQueue.state(queued.seq) !== 'steering') return
+      // Only the transaction that created this receipt may mutate the inbox.
+      if (!queued.created || this.mainQueue.state(queued.seq) !== 'steering') return
       if (this.activeTurns.get(input.sessionId) !== active || !active.accepting) {
         this.mainQueue.remove(input.sessionId, queued.inputId)
         throw new EdgeSessionStoreError('BUSY', 'The target run has ended.')

@@ -145,7 +145,10 @@ describe('main session queue', () => {
     const storage = new TestDurableObjectStorage()
     const queue = new MainSessionQueue(storage as never)
     const first = queue.enqueue('a', '1', 'digest', message('1'))
-    expect(queue.enqueue('a', '1', 'digest', message('1')).seq).toBe(first.seq)
+    const duplicate = queue.enqueue('a', '1', 'digest', message('1'))
+    expect(duplicate.seq).toBe(first.seq)
+    expect(first.created).toBe(true)
+    expect(duplicate.created).toBe(false)
     expect(() => queue.enqueue('a', '1', 'changed', message('1'))).toThrow('different content')
     queue.enqueue('a', '2', 'd2', message('2'))
     const claim = queue.claim()!

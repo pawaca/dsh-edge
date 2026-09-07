@@ -106,6 +106,16 @@ try {
 
   assert.equal((await prompt(a, 'probe-a', 'hold-A', 'a-first')).result.ok, true)
   await wait(() => requests.some(t => t.includes('hold-A')), 'A model start')
+  const steeringRetries = await Promise.all(Array.from({ length: 20 }, (_, i) => rpc(i % 2 ? a : b, 'session.prompt', {
+    sessionId: 'probe-a', mode: 'steer', requestId: 'concurrent-steer-retry', content: [{ type: 'text', text: 'steer once despite retries' }],
+  })))
+  for (const result of steeringRetries) assert.equal(result.result.ok, true, JSON.stringify(result))
+  const steeringHistory = await rpc(a, 'session.history', { sessionId: 'probe-a' })
+  const admittedSteers = steeringHistory.result.value.events.flatMap(entry => entry.event.type === 'agent/inbox/spliced' ? entry.event.data.inserted ?? [] : [])
+    .filter(message => message.source?.rpcId === 'concurrent-steer-retry')
+  assert.equal(admittedSteers.length, 1, 'overlapping steer retries must append exactly one canonical inbox occurrence')
+  console.log('PASS concurrent steer retries: 20 requests from two tabs admit exactly one inbox occurrence')
+
   assert.equal((await prompt(b, 'probe-b', 'B waits', 'b-first')).result.ok, true)
   assert.equal((await prompt(b, 'probe-b', 'B waits', 'b-first')).result.ok, true)
   await wait(() => b.evaluate(() => globalThis.probeFrames.some(f => f.type === 'session/queue' && f.sessionId === 'probe-b' && f.items.length === 1)), 'B queued once in second tab')
