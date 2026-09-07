@@ -76,6 +76,7 @@ try {
   const origin = `http://${worker.address}:${worker.port}`
   const login = await context.request.post(`${origin}/api/auth/login`, { form: { accessKey: 'runtime-probe-owner-key-32-bytes' } })
   assert.ok(login.ok())
+  const cookieHeader = (await context.cookies()).map(cookie => `${cookie.name}=${cookie.value}`).join('; ')
   const a = await context.newPage(), b = await context.newPage()
   await Promise.all([a.goto(origin), b.goto(origin)])
   const rpc = (page, method, payload, rpcId = crypto.randomUUID()) => page.evaluate(async ({ method, payload, rpcId }) => {
@@ -195,6 +196,27 @@ try {
   await wait(() => requests.some(t => t === 'B after restart'), 'alarm resumes queued B without tabs', 45000)
   assert.equal(requests.filter(t => t === 'hold-A crash').length, 1, 'interrupted A must not be replayed')
   console.log('PASS persisted alarm: restart with all tabs closed starts queued B; interrupted A is not replayed')
+  const headlessRpc = async (method, payload) => {
+    const response = await worker.fetch(`/api/session/${method}`, {
+      method: 'POST', headers: { 'content-type': 'application/json', cookie: cookieHeader },
+      body: JSON.stringify({ rpcId: crypto.randomUUID(), payload: { args: { request: payload } } }),
+    })
+    const result = await response.json()
+    assert.equal(result.result.ok, true, JSON.stringify(result))
+  }
+  await headlessRpc('create', { sessionId: 'probe-explicit-resume' })
+  await headlessRpc('prompt', { sessionId: 'probe-explicit-resume', mode: 'queue', content: [{ type: 'text', text: 'hold-A explicit-resume' }] })
+  await wait(() => requests.includes('hold-A explicit-resume'), 'explicit resume fixture owns slot')
+  await headlessRpc('prompt', { sessionId: 'probe-explicit-resume', mode: 'queue', content: [{ type: 'text', text: 'old pending before resume' }] })
+  await worker.stop()
+  worker = await startWorker()
+  assert.equal(requests.includes('old pending before resume'), false)
+  // First DO request after this restart is the user's explicit new submission.
+  await headlessRpc('prompt', { sessionId: 'probe-explicit-resume', mode: 'queue', content: [{ type: 'text', text: 'new message resumes once' }] })
+  await wait(() => requests.includes('new message resumes once'), 'first post-restart message resumes pending work')
+  assert.ok(requests.indexOf('old pending before resume') < requests.indexOf('new message resumes once'))
+  assert.equal(requests.filter(text => text === 'hold-A explicit-resume').length, 1)
+  console.log('PASS explicit resume: first post-restart submission survives stale cleanup; no extra message or replay')
   console.log(`PASS runtime queues probe (${mode})`)
 } finally {
   for (const resolve of delays.splice(0)) resolve()

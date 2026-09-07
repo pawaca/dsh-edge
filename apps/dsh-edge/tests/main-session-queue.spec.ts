@@ -80,6 +80,37 @@ function cursor<T extends TestRow>(
 
 const message = (id: string) => freezeMessage({ ...createUserMessage({ content: [{ type: 'text', text: id }], source: { kind: 'user' } }), id: MessageId(id) })
 describe('main session queue', () => {
+  it('preserves explicit post-restart admission across stale cleanup and another restart', () => {
+    const storage = new TestDurableObjectStorage()
+    const queue = new MainSessionQueue(storage as never)
+    queue.enqueue('a', 'running', 'd1', message('running'))
+    const claim = queue.claim()!
+    queue.enqueue('a', 'old-pending', 'd2', message('old-pending'))
+    const restarted = new MainSessionQueue(storage as never)
+    restarted.enqueue('a', 'resume-message', 'd3', message('resume-message'))
+    const restartedAgain = new MainSessionQueue(storage as never)
+    restartedAgain.finish(claim.input.seq, claim.epoch, true)
+    expect(restartedAgain.state(claim.input.seq)).toBe('interrupted')
+    const next = restartedAgain.claim()!
+    expect(next.input.inputId).toBe('old-pending')
+    restartedAgain.finish(next.input.seq, next.epoch, false)
+    expect(restartedAgain.claim()!.input.inputId).toBe('resume-message')
+    storage.close()
+  })
+
+  it('does not treat an ordinary pre-crash queued input or duplicate retry as resume', () => {
+    const storage = new TestDurableObjectStorage()
+    const queue = new MainSessionQueue(storage as never)
+    queue.enqueue('a', 'running', 'd1', message('running'))
+    const claim = queue.claim()!
+    queue.enqueue('a', 'pending', 'd2', message('pending'))
+    const restarted = new MainSessionQueue(storage as never)
+    restarted.enqueue('a', 'pending', 'd2', message('pending'))
+    restarted.finish(claim.input.seq, claim.epoch, true)
+    expect(restarted.claim()).toBeUndefined()
+    storage.close()
+  })
+
   it('never schedules an uncommitted steer as an ordinary turn after the target ends', () => {
     const storage = new TestDurableObjectStorage()
     const queue = new MainSessionQueue(storage as never)

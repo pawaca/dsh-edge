@@ -517,7 +517,6 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       kind: 'user', ...rpcId === undefined ? {} : { rpcId }, ...clientTimeZone === undefined ? {} : { clientTimeZone },
     } }), id: MessageId(inputId) })
     const input = this.mainQueue.enqueue(sessionId, inputId, digest, message, !announce)
-    if (input.created) this.mainQueue.resume(sessionId)
     await this.scheduleMainWake()
     if (announce) this.publishSessionQueue(sessionId)
     return input

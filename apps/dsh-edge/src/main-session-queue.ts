@@ -61,8 +61,10 @@ export function acknowledgeMainInputs(storage: DurableObjectStorage, sessionId: 
 
 /** SQLite is authoritative; no waiting request Promise owns a queued input. */
 export class MainSessionQueue {
+  private readonly startupClaim: ReturnType<MainSessionQueue['current']>
   constructor(private readonly storage: DurableObjectStorage) {
     initializeMainQueue(storage)
+    this.startupClaim = this.current()
     // An uncommitted steer belongs to a dead run, never to a future ordinary turn.
     storage.transactionSync(() => {
       for (const row of this.rows("SELECT * FROM dsh_runtime_inputs WHERE state = 'steering' LIMIT ?", MAIN_QUEUE_LIMIT)) this.settle(row, 'interrupted')
@@ -90,7 +92,10 @@ export class MainSessionQueue {
       if (total.pending >= MAIN_QUEUE_LIMIT || total.bytes + bytes > MAIN_QUEUE_BYTES) throw new Error('Main session queue is full; retry later.')
       this.storage.sql.exec(`INSERT INTO dsh_runtime_inputs(session_id,input_id,digest,message,bytes,state) VALUES (?,?,?,?,?,?)`, sessionId, inputId, digest, encoded, bytes, steering ? 'steering' : 'queued')
       this.storage.sql.exec('UPDATE dsh_runtime_slot SET pending = pending + 1, bytes = bytes + ? WHERE id = 1', bytes)
-      if (!steering) this.ready(sessionId)
+      if (!steering) {
+        this.ready(sessionId)
+        this.resume(sessionId)
+      }
       return this.decode(this.rows('SELECT * FROM dsh_runtime_inputs WHERE session_id = ? AND input_id = ?', sessionId, inputId)[0]!, true)
     })
   }
@@ -127,17 +132,25 @@ export class MainSessionQueue {
       const current = this.current()
       if (current?.seq !== seq || current.epoch !== epoch) return
       const row = this.rows('SELECT * FROM dsh_runtime_inputs WHERE seq = ?', seq)[0]!
+      const explicitlyResumed = this.storage.sql.exec<{ paused: number }>('SELECT paused FROM dsh_runtime_ready WHERE session_id = ?', row.session_id).toArray()[0]?.paused === -1
       this.settle(row, interrupted ? 'interrupted' : 'settled')
       this.storage.sql.exec('UPDATE dsh_runtime_slot SET input_seq = NULL, epoch = NULL, deadline = NULL WHERE id = 1')
       this.storage.sql.exec('DELETE FROM dsh_runtime_ready WHERE session_id = ?', row.session_id)
       if (this.pending(row.session_id).length > 0) {
         this.ready(row.session_id)
-        if (interrupted) this.storage.sql.exec('UPDATE dsh_runtime_ready SET paused = 1 WHERE session_id = ?', row.session_id)
+        if (interrupted && !explicitlyResumed) this.storage.sql.exec('UPDATE dsh_runtime_ready SET paused = 1 WHERE session_id = ?', row.session_id)
       }
     })
   }
   /** Explicit new user submission resumes a paused session; old work is never replayed. */
-  resume(sessionId: string): void { this.storage.sql.exec('UPDATE dsh_runtime_ready SET paused = 0 WHERE session_id = ?', sessionId) }
+  resume(sessionId: string): void {
+    const current = this.current()
+    const staleOwner = current !== undefined && current.epoch === this.startupClaim?.epoch
+      && this.get(current.seq)?.sessionId === sessionId
+    // -1 durably remembers explicit post-restart intent until stale cleanup
+    // rotates this session. Admission and this marker share one transaction.
+    this.storage.sql.exec('UPDATE dsh_runtime_ready SET paused = ? WHERE session_id = ?', staleOwner ? -1 : 0, sessionId)
+  }
   pending(sessionId: string): MainInput[] {
     return this.rows("SELECT * FROM dsh_runtime_inputs WHERE session_id = ? AND state = 'queued' ORDER BY seq LIMIT ?", sessionId, MAIN_QUEUE_LIMIT).map(row => this.decode(row))
   }
