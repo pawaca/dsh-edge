@@ -2,7 +2,7 @@
 import { DatabaseSync, type SQLInputValue, type SQLOutputValue } from 'node:sqlite'
 import { createUserMessage, freezeMessage, MessageId } from '@deepseek-ai/dsh-llm'
 import { describe, expect, it } from 'vitest'
-import { MainSessionQueue, SteeringAdmissions } from '../src/main-session-queue.ts'
+import { MainQueueFullError, MAIN_QUEUE_BYTES, MAIN_QUEUE_LIMIT, MainSessionQueue, SteeringAdmissions } from '../src/main-session-queue.ts'
 /** Minimal Node-backed implementation of the DO synchronous SQL surface. */
 export class TestDurableObjectStorage {
   private readonly db = new DatabaseSync(':memory:')
@@ -80,6 +80,36 @@ function cursor<T extends TestRow>(
 
 const message = (id: string) => freezeMessage({ ...createUserMessage({ content: [{ type: 'text', text: id }], source: { kind: 'user' } }), id: MessageId(id) })
 describe('main session queue', () => {
+  it('rejects count and byte saturation atomically and accepts retries after capacity is freed', () => {
+    const storage = new TestDurableObjectStorage()
+    const queue = new MainSessionQueue(storage as never)
+    for (let i = 0; i < MAIN_QUEUE_LIMIT; i++) queue.enqueue('a', `${i}`, `${i}`, message(`${i}`))
+    expect(() => queue.enqueue('a', 'overflow', 'd', message('overflow'))).toThrow(MainQueueFullError)
+    expect(queue.hasReceipt('a', 'overflow', 'd')).toBe(false)
+    expect(queue.pending('a')).toHaveLength(MAIN_QUEUE_LIMIT)
+    queue.remove('a', '0')
+    expect(queue.enqueue('a', 'overflow', 'd', message('overflow')).created).toBe(true)
+    const oversized = message('x'.repeat(MAIN_QUEUE_BYTES))
+    expect(() => queue.edit('a', 'overflow', oversized)).toThrow(MainQueueFullError)
+    expect(queue.pending('a').find(input => input.inputId === 'overflow')?.message.id).toBe('overflow')
+    for (const input of queue.pending('a')) queue.remove('a', input.inputId)
+    expect(() => queue.enqueue('a', 'bytes', 'b', oversized)).toThrow(MainQueueFullError)
+    expect(queue.hasReceipt('a', 'bytes', 'b')).toBe(false)
+    expect(queue.enqueue('a', 'bytes', 'b', message('small')).created).toBe(true)
+    storage.close()
+  })
+
+  it('reports bounded steering admission overload and releases capacity after completion', async () => {
+    const admissions = new SteeringAdmissions()
+    const gate = Promise.withResolvers<void>()
+    const pending = Array.from({ length: MAIN_QUEUE_LIMIT }, (_, i) => admissions.run(`${i}`, 'd', () => gate.promise))
+    await expect(admissions.run('overflow', 'd', () => Promise.resolve())).rejects.toThrow(MainQueueFullError)
+    expect(admissions.run('0', 'd', () => Promise.resolve())).toBe(pending[0])
+    gate.resolve()
+    await Promise.all(pending)
+    await expect(admissions.run('overflow', 'd', () => Promise.resolve())).resolves.toBeUndefined()
+  })
+
   it('shares steering success and failure across overlapping retries without replacing the owner', async () => {
     const admissions = new SteeringAdmissions()
     for (const fail of [false, true]) {

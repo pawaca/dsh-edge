@@ -116,6 +116,26 @@ try {
   assert.equal(admittedSteers.length, 1, 'overlapping steer retries must append exactly one canonical inbox occurrence')
   console.log('PASS concurrent steer retries: 20 requests from two tabs admit exactly one inbox occurrence')
 
+  // One claimed input plus 127 waiting inputs reaches the owner's durable cap.
+  for (let i = 0; i < 127; i++) assert.equal((await prompt(b, 'probe-b', `capacity-${i}`, `capacity-${i}`)).result.ok, true)
+  const overloaded = await prompt(b, 'probe-b', 'capacity-retry', 'capacity-retry')
+  assert.equal(overloaded.result.error.code, 'agent-busy')
+  const rawOverload = await a.evaluate(async () => {
+    const response = await fetch('/api/sessions/probe-b/turn', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ message: 'raw-capacity' }),
+    })
+    return { status: response.status, body: await response.json() }
+  })
+  assert.equal(rawOverload.status, 429)
+  assert.equal(rawOverload.body.code, 'QUEUE_FULL')
+  assert.equal((await rpc(b, 'session.updateQueue', { sessionId: 'probe-b', itemId: 'edge:capacity-0', action: { kind: 'remove' } })).result.ok, true)
+  assert.equal((await prompt(b, 'probe-b', 'capacity-retry', 'capacity-retry')).result.ok, true)
+  for (const id of [...Array.from({ length: 126 }, (_, i) => `capacity-${i + 1}`), 'capacity-retry']) {
+    assert.equal((await rpc(b, 'session.updateQueue', { sessionId: 'probe-b', itemId: `edge:${id}`, action: { kind: 'remove' } })).result.ok, true)
+  }
+  assert.equal(requests.some(text => text.startsWith('capacity-')), false)
+  console.log('PASS durable capacity: 128 inputs; RPC busy and HTTP 429; same-identity retry succeeds after removal')
+
   assert.equal((await prompt(b, 'probe-b', 'B waits', 'b-first')).result.ok, true)
   assert.equal((await prompt(b, 'probe-b', 'B waits', 'b-first')).result.ok, true)
   await wait(() => b.evaluate(() => globalThis.probeFrames.some(f => f.type === 'session/queue' && f.sessionId === 'probe-b' && f.items.length === 1)), 'B queued once in second tab')

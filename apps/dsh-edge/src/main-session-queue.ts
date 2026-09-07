@@ -2,6 +2,8 @@
 import type { UserMessage } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 
+export class MainQueueFullError extends Error {}
+
 export const MAIN_QUEUE_LIMIT = 128
 export const MAIN_QUEUE_BYTES = 2 * 1024 * 1024
 export const MAIN_RUN_TIMEOUT_MS = 10 * 60_000
@@ -91,7 +93,7 @@ export class MainSessionQueue {
       const encoded = JSON.stringify(message)
       const bytes = new TextEncoder().encode(encoded).byteLength
       const total = this.storage.sql.exec<{ pending: number; bytes: number }>('SELECT pending, bytes FROM dsh_runtime_slot WHERE id = 1').toArray()[0]!
-      if (total.pending >= MAIN_QUEUE_LIMIT || total.bytes + bytes > MAIN_QUEUE_BYTES) throw new Error('Main session queue is full; retry later.')
+      if (total.pending >= MAIN_QUEUE_LIMIT || total.bytes + bytes > MAIN_QUEUE_BYTES) throw new MainQueueFullError('Main session queue is full; retry later.')
       this.storage.sql.exec(`INSERT INTO dsh_runtime_inputs(session_id,input_id,digest,message,bytes,state) VALUES (?,?,?,?,?,?)`, sessionId, inputId, digest, encoded, bytes, steering ? 'steering' : 'queued')
       this.storage.sql.exec('UPDATE dsh_runtime_slot SET pending = pending + 1, bytes = bytes + ? WHERE id = 1', bytes)
       if (!steering) {
@@ -185,7 +187,7 @@ export class MainSessionQueue {
       const encoded = JSON.stringify(message)
       const bytes = new TextEncoder().encode(encoded).byteLength
       const total = this.storage.sql.exec<{ bytes: number }>('SELECT bytes FROM dsh_runtime_slot WHERE id = 1').toArray()[0]!.bytes
-      if (total + bytes - row.bytes > MAIN_QUEUE_BYTES) throw new Error('Main queue byte limit exceeded.')
+      if (total + bytes - row.bytes > MAIN_QUEUE_BYTES) throw new MainQueueFullError('Main queue byte limit exceeded; retry later.')
       this.storage.sql.exec('UPDATE dsh_runtime_inputs SET message = ?, bytes = ? WHERE seq = ?', encoded, bytes, row.seq)
       this.storage.sql.exec('UPDATE dsh_runtime_slot SET bytes = bytes + ? WHERE id = 1', bytes - row.bytes)
     })
@@ -206,7 +208,7 @@ export class SteeringAdmissions {
       if (previous.digest !== digest) return Promise.reject(new Error('Input identity was reused with different content.'))
       return previous.promise
     }
-    if (this.pending.size >= MAIN_QUEUE_LIMIT) return Promise.reject(new Error('Steering admission queue is full.'))
+    if (this.pending.size >= MAIN_QUEUE_LIMIT) return Promise.reject(new MainQueueFullError('Steering admission queue is full; retry later.'))
     const promise = Promise.resolve().then(operation).finally(() => {
       if (this.pending.get(key)?.promise === promise) this.pending.delete(key)
     })

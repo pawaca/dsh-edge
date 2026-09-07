@@ -1,5 +1,6 @@
 /** Edge API implementation over one Cloudflare DSH instance. */
 
+import { MainQueueFullError } from './main-session-queue.ts'
 import {
   AttachmentError,
   admitEncodedImages,
@@ -510,7 +511,12 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
             details: { reason: 'QUEUE_EDIT_TEXT_TOO_LARGE' },
           }))
         }
-        const outcome = await runtime.updateQueue(sessionId, itemId, action)
+        let outcome: Awaited<ReturnType<EdgeApiRuntime['updateQueue']>>
+        try {
+          outcome = await runtime.updateQueue(sessionId, itemId, action)
+        } catch (error) {
+          return sessionFailure(request, error, sessionId)
+        }
         if (outcome === 'queue-item-not-found') {
           return Promise.resolve(fail(request, {
             code: 'queue-item-not-found',
@@ -1115,6 +1121,9 @@ function sessionFailure<T>(
   error: unknown,
   sessionId: SessionId | undefined,
 ): RpcResponse<T> {
+  if (error instanceof MainQueueFullError) {
+    return fail(request, { code: 'agent-busy', message: error.message, details: { reason: 'queue-full' } })
+  }
   if (error instanceof EdgeSessionStoreError) {
     if (error.code === 'NOT_FOUND' && sessionId !== undefined) {
       return fail(request, {

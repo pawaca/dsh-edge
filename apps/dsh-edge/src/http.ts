@@ -1,5 +1,6 @@
 /** Shared HTTP parsing, response, and error translation for dsh-edge routes. */
 
+import { MainQueueFullError } from './main-session-queue.ts'
 import { assertUsableApiKey, LlmError } from '@deepseek-ai/dsh-llm'
 import { EdgeSessionStoreError } from './session-store.ts'
 import { EdgeWorkspaceRequestError } from './workspace.ts'
@@ -183,6 +184,9 @@ export function corsHeaders(): Record<string, string> {
 
 /** Translate known runtime failures without exposing stacks or credentials. */
 export function errorResponse(error: unknown): Response {
+  if (error instanceof MainQueueFullError) {
+    return jsonResponse({ ok: false, error: error.message, code: 'QUEUE_FULL' }, 429)
+  }
   if (error instanceof EdgeHttpError || error instanceof EdgeWorkspaceRequestError) {
     return jsonResponse({ ok: false, error: error.message }, error.status)
   }
