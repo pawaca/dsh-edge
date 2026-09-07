@@ -466,11 +466,13 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         const sessionId = SessionId(input.sessionId)
         let failure: unknown
         let interrupted = false
+        let turnClaimed = false
         let timer: ReturnType<typeof setTimeout> | undefined
         await this.scheduleMainWake()
         try {
           const { commandTimeoutPolicy } = resolveEdgeDeploymentConfig(this.env)
           const claimed = await this.claimTurn(sessionId)
+          turnClaimed = true
           this.publishSessionQueue(sessionId)
           timer = setTimeout(() => {
             interrupted = true
@@ -491,7 +493,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
             this.mainQueue.finish(input.seq, epoch, interrupted)
             this.liveQueues.delete(sessionId)
             this.publishSessionQueue(sessionId)
-            if (failure !== undefined) {
+            if (failure !== undefined && !turnClaimed) {
               const turnError = failure instanceof Error ? failure : new Error('Main queue turn failed with a non-Error value.')
               console.error('dsh-edge main queue turn failed before completion.', turnError)
               this.publishAgentError(sessionId, turnError)
