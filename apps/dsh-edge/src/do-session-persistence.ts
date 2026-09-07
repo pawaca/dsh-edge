@@ -1,5 +1,6 @@
 /** Upstream SessionPersistence implemented over Cloudflare Durable Object SQL. */
 
+import { initializeMainQueue, acknowledgeMainInputs } from './main-session-queue.ts'
 import { Context } from '@deepseek-ai/cordis'
 import {
   SESSION_FORMAT_VERSION,
@@ -203,6 +204,7 @@ export class DurableObjectSessionPersistence
   constructor(ctx: Context, config: DurableObjectSessionPersistenceConfig) {
     super(ctx)
     this.storage = config.storage
+    initializeMainQueue(this.storage)
     this.storeIdentity = this.initialize()
     this.coordinator = new PersistenceCoordinator(ctx, this, {
       preparedSessionCacheSize: config.preparedSessionCacheSize
@@ -476,6 +478,7 @@ export class DurableObjectSessionPersistence
         if (updated.rowsWritten !== 1) throw new Error(`session ${storage.meta.id} is not materialized`)
         this.storage.sql.exec('DELETE FROM dsh_edge_blank_sessions WHERE id = ?', storage.meta.id)
         this.updateSummaryFromBatch(storage.meta.id, events)
+        acknowledgeMainInputs(this.storage, storage.meta.id, events)
       })
     })
   }

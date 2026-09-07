@@ -87,7 +87,7 @@ describe('dsh-edge assembled runtime snapshot', () => {
         .replaceAll(sessionId, '{{sessionId}}')
         .replaceAll(mock.url, '{{mock-deepseek}}')
         .replace(/"time":\d+/g, '"time":0')
-        .replace(/"id":"[0-9a-f-]{36}"/g, '"id":"{{messageId}}"'))
+        .replace(/"id":"(?:edge:)?[0-9a-f-]{36}"/g, '"id":"{{messageId}}"'))
       const snapshot = {
         requests: normalize(mock.requests),
         liveEvents: normalize(liveEvents),

@@ -1,8 +1,8 @@
 [
   {
     "package": "@deepseek-ai/dsh-api-session-controller",
-    "rationale": "Remove node:fs/promises mkdir/stat calls that are incompatible with Cloudflare Workers. The Edge Computer workspace guarantees /workspace exists, and the DO persistence backend exposes no file location for the cold-blank probe.",
-    "removeWhen": "The published session controller routes directory creation through the ctx.fs seam (or gates it behind a platform check) and the cold-blank probe no longer requires node:fs stat."
+    "rationale": "Remove node:fs/promises mkdir/stat calls that are incompatible with Cloudflare Workers. The Edge Computer workspace guarantees /workspace exists, and the DO persistence backend exposes no file location for the cold-blank probe. Disable implicit cold-history Agent activation through an optional deployment seam so the Edge single main slot owns activation.",
+    "removeWhen": "The published session controller routes directory creation through the ctx.fs seam (or gates it behind a platform check) and the cold-blank probe no longer requires node:fs stat. Upstream offers a public way to follow cold history without promoting a resident Agent."
   },
   {
     "package": "@deepseek-ai/dsh-llm",

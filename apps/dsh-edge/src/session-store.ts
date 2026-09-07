@@ -1,6 +1,7 @@
 /** Canonical DSH sessions backed by the upstream persistence service. */
 
 import { Context, Service as CordisService } from '@deepseek-ai/cordis'
+import { installShortToolPool } from './short-tool-pool.ts'
 import Storage from '@deepseek-ai/dsh-storage'
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
 import WorkspaceRegistry from '@deepseek-ai/dsh-workspace'
@@ -34,6 +35,7 @@ import type { QueuedInboxItem, RpcId } from './edge-rpc-types.ts'
 import SessionStore, {
   SessionId,
   SessionLogOffset,
+  SESSION_FORMAT_VERSION,
   isAppendSurfaceEvent,
   type SessionEvent,
   type SessionEventMap,
@@ -185,6 +187,7 @@ export interface EdgeMuxBaseline {
 }
 
 export interface EdgeAgentPromptAdmission {
+  message?: UserMessage
   mode: 'queue' | 'steer'
   content: ContentBlock[]
   rpcId?: RpcId
@@ -218,7 +221,6 @@ export class EdgeSessionCwdConflictError extends Error {
 export class EdgeSessionStore {
   private readonly context = new Context()
   private readonly shells = new EdgeShellBindings()
-  private readonly blankHandles = new Map<SessionId, AgentHandle>()
   private readonly modelSelections: EdgeModelSelectionBridge
   private readonly turnPublishedAgents = new WeakSet<Agent>()
   private readonly ready: Promise<void>
@@ -326,7 +328,7 @@ export class EdgeSessionStore {
     this.context.typert.register(COMMANDS_TYPERT as never)
     // SessionPersistence + WorkspaceRegistry before SessionController so it
     // finds ctx.workspaceRegistry on first tick.
-    await this.context.plugin(DurableObjectSessionPersistence, { storage })
+    await this.context.plugin(DurableObjectSessionPersistence, { storage, preparedSessionCacheSize: 1 })
     await this.context.plugin(MessageFeedbackService, {
       maxNoteBytes: MAX_MESSAGE_FEEDBACK_NOTE_BYTES,
       store: new DurableObjectMessageFeedbackStore(storage),
@@ -445,6 +447,7 @@ export class EdgeSessionStore {
     class EdgeSessionController extends SessionController {
       constructor(ctx: Context, config: ConstructorParameters<typeof SessionController>[1]) {
         super(ctx, config, {
+          activateOnFollow: false,
           openPath: () => Promise.reject(new Error(EDGE_NATIVE_OPEN_UNAVAILABLE)),
           canOpenPath: () => false,
         })
@@ -486,6 +489,7 @@ export class EdgeSessionStore {
     await this.context.plugin(SpillPolicy, { maxInlineBytes: 32_768 })
     await installEdgeWebSearch(this.context, config.searchBaseURL)
     await this.context.plugin(AgentLoop, { agents: [] })
+    installShortToolPool(this.context)
     this.context.effect(
       () => this.context.tools.register(createEdgeBashTool(this.shells)),
       'dsh-edge: bash tool',
@@ -909,7 +913,7 @@ export class EdgeSessionStore {
     model: string
     cwd?: string
   }): Promise<{ sessionId: SessionId; agentPreset: string; created: boolean }> {
-    const { agents, sessions, persistence } = await this.services()
+    const { sessions, persistence } = await this.services()
     const id = input.sessionId ?? SessionId(`session-${crypto.randomUUID()}`)
     const sessionCwd = input.cwd ?? '/workspace'
     const attached = sessions.get(id)
@@ -942,23 +946,11 @@ export class EdgeSessionStore {
         created: false,
       }
     }
-    const handle = await agents.create({
-      sessionId: id,
-      meta: { cwd: sessionCwd, agentPreset: 'dsh-edge' },
-      agentOptions: { provider: EDGE_PROVIDER, model: input.model },
-      setup: agentCtx => this.installAgentModelSelection(agentCtx, input.model),
+    await persistence.retainBlankSession({
+      id, version: SESSION_FORMAT_VERSION, createdAt: Date.now(), isSeeded: false,
+      cwd: sessionCwd, agentPreset: 'dsh-edge',
     })
-    try {
-      await persistence.retainBlankSession(handle.agent.session.header)
-      this.blankHandles.set(id, handle)
-      return { sessionId: id, agentPreset: 'dsh-edge', created: true }
-    } catch (error) {
-      await persistence.abandonUnmaterializedSession(handle.agent.session)
-      await handle.dispose().catch((disposeError: unknown) => {
-        console.error('dsh-edge failed to roll back blank session creation.', disposeError)
-      })
-      throw error
-    }
+    return { sessionId: id, agentPreset: 'dsh-edge', created: true }
   }
 
   async listSessions(
@@ -1246,7 +1238,7 @@ export class EdgeSessionStore {
     // Retained blanks still belong to this store: claim and retire their
     // handle below. Every other registered agent may be running; metadata
     // appends are valid while its turn owns the process-local handle.
-    if (live !== undefined && !this.blankHandles.has(id)) {
+    if (live !== undefined) {
       const publishRequired = !this.turnPublishedAgents.has(live)
       return { title: normalized, event: appendUserTitle(live, normalized), publishRequired }
     }
@@ -1275,17 +1267,8 @@ export class EdgeSessionStore {
   async openAgentForTurn(id: SessionId, model: string): Promise<AgentHandle> {
     const { agents, persistence } = await this.services()
     await this.loadModelSelection(id)
-    const blank = this.blankHandles.get(id)
-    if (blank !== undefined) {
-      this.blankHandles.delete(id)
-      return blank
-    }
-    const live = agents.get(id)
-    if (live !== undefined) {
-      // Sessions created through the upstream SessionController stay live in the
-      // shared registry; the Edge turn enqueues into that agent and leaves
-      // ownership with the controller.
-      return { agent: live, dispose: async () => {} }
+    if (agents.get(id) !== undefined) {
+      throw new EdgeSessionStoreError('BUSY', 'Session already has a live agent owner.')
     }
     if (!(persistence instanceof DurableObjectSessionPersistence)) {
       throw new EdgeSessionStoreError('INVALID_DATA', 'Edge persistence backend is unavailable.')
@@ -1380,6 +1363,7 @@ export class EdgeSessionStore {
 
   /** Drive one turn through ReactLoopAgent and publish only durable events. */
   async runAgentTurn(input: {
+    message?: UserMessage
     agent: Agent
     mode: 'queue' | 'steer'
     content: ContentBlock[]
@@ -1430,6 +1414,7 @@ export class EdgeSessionStore {
 
     try {
       const admitted = admission.admit({
+        ...input.message === undefined ? {} : { message: input.message },
         mode: input.mode,
         content: input.content,
         ...input.rpcId === undefined ? {} : { rpcId: input.rpcId },
@@ -1727,7 +1712,7 @@ export function createDurablePromptAdmitter(
     return next()
   })
   const admit: EdgeAgentPromptAdmitter = async (prompt) => {
-    const message = createUserMessage({
+    const message = prompt.message ?? createUserMessage({
       content: prompt.content,
       source: prompt.rpcId === undefined
         ? { kind: 'user' }

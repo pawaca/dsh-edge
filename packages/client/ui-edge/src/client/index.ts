@@ -1,3 +1,4 @@
+import { installRunGuards } from './run-guards.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import { writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
@@ -58,6 +59,10 @@ export function apply(ctx: Context): void {
   // streams the file through the owner-authenticated `/api/workspace/file`
   // route as a browser download instead, so the chat sees a settled open.
   ctx.inject(['remote.session'], (scope) => {
+    scope.effect(() => {
+      const session = (scope as never as { get(key: string): object | undefined }).get('remote.session')
+      return session === undefined ? () => {} : installRunGuards(session)
+    }, 'ui-edge: observed run controls')
     scope.effect(() => {
       const session = (scope as never as { get(key: string): RemoteSessionNamespace | undefined }).get('remote.session')
       const descriptor = session === undefined ? undefined : Object.getOwnPropertyDescriptor(session, 'openWorkspacePath')

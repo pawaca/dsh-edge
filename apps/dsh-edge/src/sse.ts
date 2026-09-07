@@ -38,20 +38,24 @@ export interface LiveSessionEventStream {
 
 /** Run an event producer whose escaped failures become client-visible stream errors. */
 export function createLiveSessionEventStream(
-  run: (publish: (event: SessionEvent) => void) => Promise<void>,
+  run: (publish: (event: SessionEvent) => void, signal: AbortSignal) => Promise<void>,
   onFailure: (error: unknown) => void,
+  initialComment?: string,
 ): LiveSessionEventStream {
   let connected = true
+  const disconnect = new AbortController()
   let settle!: () => void
   const completion = new Promise<void>((resolve) => { settle = resolve })
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
+      if (initialComment !== undefined) controller.enqueue(new TextEncoder().encode(`: ${initialComment}\n\n`))
       void Promise.resolve().then(async () => run((event) => {
         if (!connected) return
         try {
           const chunk = encodeSessionEvent(event)
           if (controller.desiredSize === null || controller.desiredSize < chunk.byteLength) {
             connected = false
+            disconnect.abort()
             controller.error(new Error('dsh-edge event stream client is too slow.'))
             return
           }
@@ -59,7 +63,7 @@ export function createLiveSessionEventStream(
         } catch {
           connected = false
         }
-      })).then(() => {
+      }, disconnect.signal)).then(() => {
         if (connected) {
           try {
             controller.close()
@@ -77,6 +81,7 @@ export function createLiveSessionEventStream(
     },
     cancel() {
       connected = false
+      disconnect.abort()
     },
   }, {
     highWaterMark: MAX_LIVE_STREAM_QUEUED_BYTES,
