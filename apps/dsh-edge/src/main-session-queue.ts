@@ -67,7 +67,7 @@ export class MainSessionQueue {
     this.startupClaim = this.current()
     // An uncommitted steer belongs to a dead run, never to a future ordinary turn.
     storage.transactionSync(() => {
-      for (const row of this.rows("SELECT * FROM dsh_runtime_inputs WHERE state = 'steering' LIMIT ?", MAIN_QUEUE_LIMIT)) this.settle(row, 'interrupted')
+      for (const row of this.rows("SELECT * FROM dsh_runtime_inputs WHERE state = 'steering' LIMIT ?", MAIN_QUEUE_LIMIT)) this.settle(row, 'rejected')
     })
   }
   private rows(query: string, ...bindings: SqlStorageValue[]): InputRow[] {
@@ -77,13 +77,15 @@ export class MainSessionQueue {
     const old = this.rows('SELECT * FROM dsh_runtime_inputs WHERE session_id = ? AND input_id = ?', sessionId, inputId)[0]
     if (old === undefined) return false
     if (old.digest !== digest) throw new Error('Input identity was reused with different content.')
-    return true
+    if (old.state === 'rejected') throw new Error('Steering submission was rejected; use a new request identity.')
+    return old.state !== 'steering'
   }
   enqueue(sessionId: string, inputId: string, digest: string, message: UserMessage, steering = false): MainInput {
     return this.storage.transactionSync(() => {
       const old = this.rows('SELECT * FROM dsh_runtime_inputs WHERE session_id = ? AND input_id = ?', sessionId, inputId)[0]
       if (old !== undefined) {
         if (old.digest !== digest) throw new Error('Input identity was reused with different content.')
+        if (old.state === 'rejected') throw new Error('Steering submission was rejected; use a new request identity.')
         return this.decode(old)
       }
       const encoded = JSON.stringify(message)
@@ -165,6 +167,14 @@ export class MainSessionQueue {
       return true
     })
   }
+  /** Persist the creator's admission outcome separately from later user removal. */
+  finishSteer(sessionId: string, inputId: string, accepted: boolean): void {
+    this.storage.transactionSync(() => {
+      const row = this.rows("SELECT * FROM dsh_runtime_inputs WHERE session_id = ? AND input_id = ? AND state = 'steering'", sessionId, inputId)[0]
+      if (row !== undefined) this.settle(row, accepted ? 'settled' : 'rejected')
+    })
+  }
+
   stageSteer(seq: number): void {
     this.storage.sql.exec("UPDATE dsh_runtime_inputs SET state = 'steering' WHERE seq = ? AND state = 'queued'", seq)
   }
@@ -185,4 +195,22 @@ export class MainSessionQueue {
     this.storage.sql.exec('UPDATE dsh_runtime_slot SET pending = pending - 1, bytes = bytes - ? WHERE id = 1', row.bytes)
   }
   private decode(row: InputRow, created = false): MainInput { return { created, seq: row.seq, sessionId: row.session_id, inputId: row.input_id, message: JSON.parse(row.message) as UserMessage } }
+}
+
+/** Concurrent steering retries share the creator's result, including rejection. */
+export class SteeringAdmissions {
+  private readonly pending = new Map<string, { digest: string; promise: Promise<void> }>()
+  run(key: string, digest: string, operation: () => Promise<void>): Promise<void> {
+    const previous = this.pending.get(key)
+    if (previous !== undefined) {
+      if (previous.digest !== digest) return Promise.reject(new Error('Input identity was reused with different content.'))
+      return previous.promise
+    }
+    if (this.pending.size >= MAIN_QUEUE_LIMIT) return Promise.reject(new Error('Steering admission queue is full.'))
+    const promise = Promise.resolve().then(operation).finally(() => {
+      if (this.pending.get(key)?.promise === promise) this.pending.delete(key)
+    })
+    this.pending.set(key, { digest, promise })
+    return promise
+  }
 }

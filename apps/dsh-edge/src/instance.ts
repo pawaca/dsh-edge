@@ -88,7 +88,7 @@ import {
   resolveEdgeAttachmentStorage,
 } from './edge-attachment-store.ts'
 
-import { MainSessionQueue, MAIN_WAKE_MS, MAIN_RUN_TIMEOUT_MS, type MainInput } from './main-session-queue.ts'
+import { MainSessionQueue, SteeringAdmissions, MAIN_WAKE_MS, MAIN_RUN_TIMEOUT_MS, type MainInput } from './main-session-queue.ts'
 
 const EDGE_WORKSPACE_PATH = '/workspace'
 const MAX_SESSION_TITLE_LENGTH = 160
@@ -281,6 +281,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
   )
   private readonly model = resolveEdgeModel(this.env.DEEPSEEK_MODEL)
   private readonly mainQueue = new MainSessionQueue(this.ctx.storage)
+  private readonly steeringAdmissions = new SteeringAdmissions()
   private mainDriving = false
   private mainStreamCount = 0
   private readonly controlTarget = new AsyncLocalStorage<EdgeTurnId>()
@@ -1190,20 +1191,30 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       throw new EdgeHttpError(413, 'Prompt exceeds the message limit.')
     }
     if (input.mode === 'steer') {
-      const active = this.activeTurns.get(input.sessionId)
-      if (active === undefined || (this.controlTarget.getStore() !== undefined && this.controlTarget.getStore() !== active.turnId)) throw new EdgeSessionStoreError('BUSY', 'The target run has ended; submit a queued message.')
-      await active.admissionReady
-      if (this.activeTurns.get(input.sessionId) !== active || !active.accepting || active.admit === undefined) throw new EdgeSessionStoreError('BUSY', 'The target run has ended.')
-      const queued = await this.enqueueMain(input.sessionId, input.content, input.rpcId, input.clientTimeZone, input.contentDigest, false)
-      // Only the transaction that created this receipt may mutate the inbox.
-      if (!queued.created || this.mainQueue.state(queued.seq) !== 'steering') return
-      if (this.activeTurns.get(input.sessionId) !== active || !active.accepting) {
-        this.mainQueue.remove(input.sessionId, queued.inputId)
-        throw new EdgeSessionStoreError('BUSY', 'The target run has ended.')
-      }
-      try { await active.admit({ ...input, message: queued.message }) }
-      catch (error) { this.mainQueue.remove(input.sessionId, queued.inputId); throw error }
-      return
+      const key = JSON.stringify([input.sessionId, input.rpcId])
+      const digest = input.contentDigest ?? JSON.stringify([input.content, input.clientTimeZone])
+      return this.steeringAdmissions.run(key, digest, async () => {
+        // The earlier API receipt check may have raced a completed admission.
+        if (input.contentDigest !== undefined && this.mainQueue.hasReceipt(input.sessionId, `edge:${input.rpcId}`, input.contentDigest)) return
+        const active = this.activeTurns.get(input.sessionId)
+        if (active === undefined || (this.controlTarget.getStore() !== undefined && this.controlTarget.getStore() !== active.turnId)) throw new EdgeSessionStoreError('BUSY', 'The target run has ended; submit a queued message.')
+        await active.admissionReady
+        if (this.activeTurns.get(input.sessionId) !== active || !active.accepting || active.admit === undefined) throw new EdgeSessionStoreError('BUSY', 'The target run has ended.')
+        const queued = await this.enqueueMain(input.sessionId, input.content, input.rpcId, input.clientTimeZone, input.contentDigest, false)
+        // Only the transaction that created this receipt may mutate the inbox.
+        if (!queued.created || this.mainQueue.state(queued.seq) !== 'steering') return
+        if (this.activeTurns.get(input.sessionId) !== active || !active.accepting) {
+          this.mainQueue.finishSteer(input.sessionId, queued.inputId, false)
+          throw new EdgeSessionStoreError('BUSY', 'The target run has ended.')
+        }
+        try {
+          await active.admit({ ...input, message: queued.message })
+          this.mainQueue.finishSteer(input.sessionId, queued.inputId, true)
+        } catch (error) {
+          this.mainQueue.finishSteer(input.sessionId, queued.inputId, false)
+          throw error
+        }
+      })
     }
     await this.enqueueMain(input.sessionId, input.content, input.rpcId, input.clientTimeZone, input.contentDigest)
     this.kickMain()

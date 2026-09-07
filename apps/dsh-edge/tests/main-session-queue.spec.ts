@@ -2,7 +2,7 @@
 import { DatabaseSync, type SQLInputValue, type SQLOutputValue } from 'node:sqlite'
 import { createUserMessage, freezeMessage, MessageId } from '@deepseek-ai/dsh-llm'
 import { describe, expect, it } from 'vitest'
-import { MainSessionQueue } from '../src/main-session-queue.ts'
+import { MainSessionQueue, SteeringAdmissions } from '../src/main-session-queue.ts'
 /** Minimal Node-backed implementation of the DO synchronous SQL surface. */
 export class TestDurableObjectStorage {
   private readonly db = new DatabaseSync(':memory:')
@@ -80,6 +80,41 @@ function cursor<T extends TestRow>(
 
 const message = (id: string) => freezeMessage({ ...createUserMessage({ content: [{ type: 'text', text: id }], source: { kind: 'user' } }), id: MessageId(id) })
 describe('main session queue', () => {
+  it('shares steering success and failure across overlapping retries without replacing the owner', async () => {
+    const admissions = new SteeringAdmissions()
+    for (const fail of [false, true]) {
+      const gate = Promise.withResolvers<void>()
+      let calls = 0
+      const first = admissions.run('same', 'digest', () => { calls++; return gate.promise })
+      const duplicate = admissions.run('same', 'digest', () => { calls++; return Promise.resolve() })
+      expect(duplicate).toBe(first)
+      await expect(admissions.run('same', 'changed', () => Promise.resolve())).rejects.toThrow('different content')
+      const results = Promise.allSettled([first, duplicate])
+      if (fail) gate.reject(new Error('inbox admission failed'))
+      else gate.resolve()
+      expect((await results).map(result => result.status)).toEqual([fail ? 'rejected' : 'fulfilled', fail ? 'rejected' : 'fulfilled'])
+      expect(calls).toBe(1)
+    }
+  })
+
+  it('does not acknowledge pending or rejected steering receipts, including after restart', () => {
+    const storage = new TestDurableObjectStorage()
+    const queue = new MainSessionQueue(storage as never)
+    queue.enqueue('a', 'failed', 'd1', message('failed'), true)
+    expect(queue.hasReceipt('a', 'failed', 'd1')).toBe(false)
+    queue.finishSteer('a', 'failed', false)
+    const restarted = new MainSessionQueue(storage as never)
+    expect(() => restarted.hasReceipt('a', 'failed', 'd1')).toThrow('rejected')
+    expect(() => restarted.enqueue('a', 'failed', 'd1', message('failed'), true)).toThrow('rejected')
+    restarted.enqueue('a', 'accepted', 'd2', message('accepted'), true)
+    restarted.finishSteer('a', 'accepted', true)
+    expect(restarted.hasReceipt('a', 'accepted', 'd2')).toBe(true)
+    restarted.enqueue('a', 'removed', 'd3', message('removed'))
+    restarted.remove('a', 'removed')
+    expect(restarted.hasReceipt('a', 'removed', 'd3')).toBe(true)
+    storage.close()
+  })
+
   it('preserves explicit post-restart admission across stale cleanup and another restart', () => {
     const storage = new TestDurableObjectStorage()
     const queue = new MainSessionQueue(storage as never)
@@ -118,7 +153,7 @@ describe('main session queue', () => {
     expect(queue.claim()).toBeUndefined()
     expect(queue.state(steer.seq)).toBe('steering')
     const restarted = new MainSessionQueue(storage as never)
-    expect(restarted.state(steer.seq)).toBe('interrupted')
+    expect(restarted.state(steer.seq)).toBe('rejected')
     expect(restarted.claim()).toBeUndefined()
     storage.close()
   })
