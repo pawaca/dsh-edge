@@ -169,6 +169,8 @@ try {
   assert.deepEqual(staleSlashStatuses, [409, 409, 409, 409, 409, 409])
 
   assert.equal(held.size, 2, 'stale tab cancellation cannot stop the current tools')
+  await prompt(b, 'probe-cancel', 'followup after explicit cancellation', 'cancel-followup')
+  assert.equal(requests.includes('followup after explicit cancellation'), false)
   const cancelHistory = await rpc(a, 'session.history', { sessionId: 'probe-cancel' })
   const observedTurn = cancelHistory.result.value.events.findLast(entry => entry.event.type === 'turn/start').event.seq
   const currentCancel = await a.evaluate(async seq => {
@@ -181,7 +183,8 @@ try {
   assert.equal(currentCancel.result.ok, true)
   await wait(() => held.size === 0, 'real provider HTTP abort cleanup')
   assert.equal(tools.length, 2, 'cancelled third tool must never reach provider')
-  console.log('PASS cancellation: provider connections close; waiting tool never starts')
+  await wait(() => requests.includes('followup after explicit cancellation'), 'queued followup runs after explicit cancellation without another message')
+  console.log('PASS cancellation: provider connections close; waiting tool never starts; queued followup resumes')
 
   await rpc(a, 'session.create', { sessionId: 'probe-crash-a' })
   await rpc(a, 'session.create', { sessionId: 'probe-crash-b' })

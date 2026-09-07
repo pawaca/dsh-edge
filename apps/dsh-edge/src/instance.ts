@@ -474,11 +474,11 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
             interrupted = true
             claimed.turn.cancelRequested = true
             claimed.handle.agent.cancel({ kind: 'user' })
-          }, Math.max(1, Math.min(claim.deadline, stopAt) - Date.now()))
+          }, Math.max(1, claim.deadline - Date.now()))
           await this.runClaimedTurn({ claimed, commandTimeoutPolicy, mode: 'queue',
             message: input.message, content: input.message.content,
             publish: event => {
-              if (event.type === 'turn/end' && event.data.reason.kind !== 'completed') interrupted = true
+              if (event.type === 'turn/end' && event.data.reason.kind !== 'completed' && !claimed.turn.cancelRequested) interrupted = true
               for (const observer of this.mainStreams.get(input.seq) ?? []) observer.publish(event)
             },
           })
