@@ -493,10 +493,12 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
             this.mainQueue.finish(input.seq, epoch, interrupted)
             this.liveQueues.delete(sessionId)
             this.publishSessionQueue(sessionId)
-            if (failure !== undefined && !turnClaimed) {
-              const turnError = failure instanceof Error ? failure : new Error('Main queue turn failed with a non-Error value.')
-              console.error('dsh-edge main queue turn failed before completion.', turnError)
-              this.publishAgentError(sessionId, turnError)
+            if (failure !== undefined) {
+              console.error('dsh-edge main queue turn failed.', failure)
+              if (!turnClaimed) {
+                const turnError = failure instanceof Error ? failure : new Error('Main queue turn failed with a non-Error value.')
+                this.publishAgentError(sessionId, turnError)
+              }
             }
             for (const observer of this.mainStreams.get(input.seq) ?? []) {
               if (failure === undefined) observer.resolve()
