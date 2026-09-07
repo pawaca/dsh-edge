@@ -240,7 +240,7 @@ describe('dsh-edge native agent runtime', () => {
       await expect(admission.admit({
         mode: 'queue',
         content: [{ type: 'text', text: 'do not spend model quota' }],
-      })).resolves.toBeUndefined()
+      })).resolves.toEqual({ durable: false })
       await runtime.agent.whenIdle()
 
       expect(runtime.adapter.requests).toHaveLength(0)

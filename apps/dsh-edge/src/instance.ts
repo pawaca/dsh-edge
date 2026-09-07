@@ -1208,13 +1208,8 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
           this.mainQueue.finishSteer(input.sessionId, queued.inputId, false)
           throw new EdgeSessionStoreError('BUSY', 'The target run has ended.')
         }
-        try {
-          await active.admit({ ...input, message: queued.message })
-          this.mainQueue.finishSteer(input.sessionId, queued.inputId, true)
-        } catch (error) {
-          this.mainQueue.finishSteer(input.sessionId, queued.inputId, false)
-          throw error
-        }
+        const admit = active.admit
+        await this.mainQueue.admitSteer(input.sessionId, queued.inputId, () => admit({ ...input, message: queued.message }))
       })
     }
     await this.enqueueMain(input.sessionId, input.content, input.rpcId, input.clientTimeZone, input.contentDigest)
@@ -1232,8 +1227,8 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         const active = this.activeTurns.get(sessionId)
         if (active?.agent?.status !== 'running' || (this.controlTarget.getStore() !== undefined && this.controlTarget.getStore() !== active.turnId) || !active.accepting || active.admit === undefined) return 'steer-unavailable'
         this.mainQueue.stageSteer(pending.seq)
-        try { await active.admit({ mode: 'steer', content: pending.message.content, message: pending.message }) }
-        catch (error) { this.mainQueue.remove(sessionId, pending.inputId); throw error }
+        const admit = active.admit
+        await this.mainQueue.admitSteer(sessionId, pending.inputId, () => admit({ mode: 'steer', content: pending.message.content, message: pending.message }))
         return 'accepted'
       }
       if (action.kind === 'edit') {

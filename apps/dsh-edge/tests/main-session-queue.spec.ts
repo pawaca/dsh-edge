@@ -2,7 +2,7 @@
 import { DatabaseSync, type SQLInputValue, type SQLOutputValue } from 'node:sqlite'
 import { createUserMessage, freezeMessage, MessageId } from '@deepseek-ai/dsh-llm'
 import { describe, expect, it } from 'vitest'
-import { MainQueueFullError, MAIN_QUEUE_BYTES, MAIN_QUEUE_LIMIT, MainSessionQueue, SteeringAdmissions } from '../src/main-session-queue.ts'
+import { acknowledgeMainInputs, MainQueueFullError, MAIN_QUEUE_BYTES, MAIN_QUEUE_LIMIT, MainSessionQueue, SteeringAdmissions } from '../src/main-session-queue.ts'
 /** Minimal Node-backed implementation of the DO synchronous SQL surface. */
 export class TestDurableObjectStorage {
   private readonly db = new DatabaseSync(':memory:')
@@ -80,6 +80,43 @@ function cursor<T extends TestRow>(
 
 const message = (id: string) => freezeMessage({ ...createUserMessage({ content: [{ type: 'text', text: id }], source: { kind: 'user' } }), id: MessageId(id) })
 describe('main session queue', () => {
+  it('settles every steering entry path across durable success, blocked delivery, rejection and restart', async () => {
+    for (const promoted of [false, true]) {
+      for (const outcome of ['durable', 'blocked', 'rejected', 'crash'] as const) {
+        const storage = new TestDurableObjectStorage()
+        const queue = new MainSessionQueue(storage as never)
+        const input = queue.enqueue('a', 'input', 'digest', message('input'), !promoted)
+        if (promoted) queue.stageSteer(input.seq)
+        const gate = Promise.withResolvers<{ durable: boolean }>()
+        if (outcome !== 'crash') {
+          const completing = queue.admitSteer('a', 'input', () => gate.promise)
+          expect(queue.pending('a')).toEqual([])
+          expect(storage.sql.exec('SELECT pending FROM dsh_runtime_slot').toArray()[0]?.pending).toBe(1)
+          if (outcome === 'rejected') {
+            const rejection = expect(completing).rejects.toThrow('inbox rejected')
+            gate.reject(new Error('inbox rejected'))
+            await rejection
+          } else {
+            if (outcome === 'durable') acknowledgeMainInputs(storage as never, 'a', [{ type: 'agent/inbox/spliced', data: { inserted: [input.message] } } as never])
+            gate.resolve({ durable: outcome === 'durable' })
+            await completing
+          }
+        }
+        const restarted = new MainSessionQueue(storage as never)
+        expect(storage.sql.exec('SELECT pending, bytes FROM dsh_runtime_slot').toArray()[0]).toMatchObject({ pending: 0, bytes: 0 })
+        expect(restarted.pending('a')).toEqual([])
+        expect(restarted.claim()).toBeUndefined()
+        if (!promoted && (outcome === 'rejected' || outcome === 'crash')) {
+          expect(() => restarted.hasReceipt('a', 'input', 'digest')).toThrow('rejected')
+        } else {
+          expect(restarted.hasReceipt('a', 'input', 'digest')).toBe(true)
+          expect(restarted.enqueue('a', 'input', 'digest', message('input')).created).toBe(false)
+        }
+        storage.close()
+      }
+    }
+  })
+
   it('rejects count and byte saturation atomically and accepts retries after capacity is freed', () => {
     const storage = new TestDurableObjectStorage()
     const queue = new MainSessionQueue(storage as never)

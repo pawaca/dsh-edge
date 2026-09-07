@@ -49,7 +49,7 @@ export function acknowledgeMainInputs(storage: DurableObjectStorage, sessionId: 
     if (event.type !== 'agent/inbox/spliced') continue
     for (const message of event.data.inserted) {
       const queued = storage.sql.exec<{ seq: number; bytes: number }>(
-        "SELECT seq, bytes FROM dsh_runtime_inputs WHERE session_id = ? AND input_id = ? AND state IN ('queued', 'steering')", sessionId, message.id,
+        "SELECT seq, bytes FROM dsh_runtime_inputs WHERE session_id = ? AND input_id = ? AND state IN ('queued', 'steering', 'promoting')", sessionId, message.id,
       ).toArray()[0]
       if (queued !== undefined) {
         storage.sql.exec("UPDATE dsh_runtime_inputs SET state = 'settled', message = '{}', bytes = 0 WHERE seq = ?", queued.seq)
@@ -69,7 +69,7 @@ export class MainSessionQueue {
     this.startupClaim = this.current()
     // An uncommitted steer belongs to a dead run, never to a future ordinary turn.
     storage.transactionSync(() => {
-      for (const row of this.rows("SELECT * FROM dsh_runtime_inputs WHERE state = 'steering' LIMIT ?", MAIN_QUEUE_LIMIT)) this.settle(row, 'rejected')
+      for (const row of this.rows("SELECT * FROM dsh_runtime_inputs WHERE state IN ('steering', 'promoting') LIMIT ?", MAIN_QUEUE_LIMIT)) this.settle(row, row.state === 'promoting' ? 'interrupted' : 'rejected')
     })
   }
   private rows(query: string, ...bindings: SqlStorageValue[]): InputRow[] {
@@ -162,7 +162,7 @@ export class MainSessionQueue {
   hasWork(): boolean { return this.current() !== undefined || this.storage.sql.exec('SELECT session_id FROM dsh_runtime_ready WHERE paused = 0 ORDER BY position LIMIT 1').toArray().length > 0 }
   remove(sessionId: string, inputId: string): boolean {
     return this.storage.transactionSync(() => {
-      const row = this.rows("SELECT * FROM dsh_runtime_inputs WHERE session_id = ? AND input_id = ? AND state IN ('queued', 'steering')", sessionId, inputId)[0]
+      const row = this.rows("SELECT * FROM dsh_runtime_inputs WHERE session_id = ? AND input_id = ? AND state IN ('queued', 'steering', 'promoting')", sessionId, inputId)[0]
       if (row === undefined) return false
       this.settle(row, 'cancelled')
       if (this.pending(sessionId).length === 0) this.storage.sql.exec('DELETE FROM dsh_runtime_ready WHERE session_id = ?', sessionId)
@@ -170,15 +170,23 @@ export class MainSessionQueue {
     })
   }
   /** Persist the creator's admission outcome separately from later user removal. */
-  finishSteer(sessionId: string, inputId: string, accepted: boolean): void {
+  finishSteer(sessionId: string, inputId: string, accepted: boolean, durable = accepted): void {
     this.storage.transactionSync(() => {
-      const row = this.rows("SELECT * FROM dsh_runtime_inputs WHERE session_id = ? AND input_id = ? AND state = 'steering'", sessionId, inputId)[0]
-      if (row !== undefined) this.settle(row, accepted ? 'settled' : 'rejected')
+      const row = this.rows("SELECT * FROM dsh_runtime_inputs WHERE session_id = ? AND input_id = ? AND state IN ('steering', 'promoting')", sessionId, inputId)[0]
+      if (row !== undefined) this.settle(row, durable ? 'settled' : accepted || row.state === 'promoting' ? 'interrupted' : 'rejected')
     })
   }
 
+  /** Both direct steering and promotion settle the explicit delivery outcome. */
+  async admitSteer(sessionId: string, inputId: string, admit: () => Promise<{ durable: boolean }>): Promise<void> {
+    let outcome: { durable: boolean }
+    try { outcome = await admit() }
+    catch (error) { this.finishSteer(sessionId, inputId, false); throw error }
+    this.finishSteer(sessionId, inputId, true, outcome.durable)
+  }
+
   stageSteer(seq: number): void {
-    this.storage.sql.exec("UPDATE dsh_runtime_inputs SET state = 'steering' WHERE seq = ? AND state = 'queued'", seq)
+    this.storage.sql.exec("UPDATE dsh_runtime_inputs SET state = 'promoting' WHERE seq = ? AND state = 'queued'", seq)
   }
   edit(sessionId: string, inputId: string, message: UserMessage): void {
     this.storage.transactionSync(() => {

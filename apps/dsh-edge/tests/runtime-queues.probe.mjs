@@ -116,6 +116,14 @@ try {
   assert.equal(admittedSteers.length, 1, 'overlapping steer retries must append exactly one canonical inbox occurrence')
   console.log('PASS concurrent steer retries: 20 requests from two tabs admit exactly one inbox occurrence')
 
+  assert.equal((await prompt(a, 'probe-a', 'promoted steer', 'promoted-steer')).result.ok, true)
+  assert.equal((await rpc(b, 'session.updateQueue', { sessionId: 'probe-a', itemId: 'edge:promoted-steer', action: { kind: 'steer' } })).result.ok, true)
+  assert.equal((await prompt(b, 'probe-a', 'promoted steer', 'promoted-steer')).result.ok, true)
+  const promotedHistory = await rpc(a, 'session.history', { sessionId: 'probe-a' })
+  assert.equal(promotedHistory.result.value.events.flatMap(entry => entry.event.type === 'agent/inbox/spliced' ? entry.event.data.inserted ?? [] : [])
+    .filter(message => message.source?.rpcId === 'promoted-steer').length, 1)
+  console.log('PASS queue promotion: one canonical steer, original receipt remains accepted, capacity released')
+
   // One claimed input plus 127 waiting inputs reaches the owner's durable cap.
   for (let i = 0; i < 127; i++) assert.equal((await prompt(b, 'probe-b', `capacity-${i}`, `capacity-${i}`)).result.ok, true)
   const overloaded = await prompt(b, 'probe-b', 'capacity-retry', 'capacity-retry')

@@ -194,7 +194,7 @@ export interface EdgeAgentPromptAdmission {
   clientTimeZone?: string
 }
 
-export type EdgeAgentPromptAdmitter = (input: EdgeAgentPromptAdmission) => Promise<void>
+export type EdgeAgentPromptAdmitter = (input: EdgeAgentPromptAdmission) => Promise<{ durable: boolean }>
 
 export class EdgeSessionStoreError extends Error {
   constructor(
@@ -1753,11 +1753,13 @@ export function createDurablePromptAdmitter(
     try {
       await flush()
       gate.resolve(true)
+      return { durable: true }
     } catch {
       // The inbox mutation already woke the driver, so this prompt remains
       // accepted. Reject model-visible consumption; the turn's delivery
       // barrier reports the persistence failure through host/agent-error.
       gate.resolve(false)
+      return { durable: false }
     }
   }
   return {
