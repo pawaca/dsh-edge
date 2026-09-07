@@ -354,9 +354,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         if (expected !== null && ['/api/session.cancel', '/api/session.prompt', '/api/session.updateQueue'].includes(url.pathname)) {
           const body = await readJsonObject(request.clone() as Request, MAX_TURN_BODY_BYTES)
           const payload = body.payload as { sessionId?: string } | undefined
-          const active = payload?.sessionId === undefined ? undefined : this.activeTurns.get(SessionId(payload.sessionId))
-          if (active === undefined || active.turnStartSeq === undefined || String(active.turnStartSeq) !== expected) throw new EdgeHttpError(409, 'The observed run has ended.')
-          return await this.controlTarget.run(active.turnId, () => this.apiFetch(request))
+          return await this.withObservedTurn(expected, payload?.sessionId, () => this.apiFetch(request))
         }
         return await this.apiFetch(request)
       }
@@ -861,7 +859,15 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     // assumes resident agents it can resume and keep. Prompt admission and
     // cancellation stay on the Edge implementation until that lifecycle
     // reconciliation lands.
-    if (ns === 'session' && ['list', 'create', 'prompt', 'cancel', 'updateQueue', 'selectModel', 'rename', 'fork'].includes(method)) return edgeDispatch()
+    if (ns === 'session' && ['list', 'create', 'prompt', 'cancel', 'updateQueue', 'selectModel', 'rename', 'fork'].includes(method)) {
+      const expected = request.headers.get('x-dsh-edge-turn-seq')
+      if (expected !== null && ['prompt', 'cancel', 'updateQueue'].includes(method)) {
+        const flatArgs = Object.keys(args).length === 1 && 'request' in args
+          ? args.request as { sessionId?: string } : args as { sessionId?: string }
+        return this.withObservedTurn(expected, flatArgs?.sessionId, edgeDispatch)
+      }
+      return edgeDispatch()
+    }
     const gateway = this.sessions.typertGateway()
     if (gateway === undefined) return edgeDispatch()
     try {
@@ -884,6 +890,13 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         error: remoteFailureOf(error),
       } })
     }
+  }
+
+  /** Both HTTP spellings bind controls to the same observed run before dispatch. */
+  private withObservedTurn<T>(expected: string, sessionId: string | undefined, dispatch: () => Promise<T>): Promise<T> {
+    const active = sessionId === undefined ? undefined : this.activeTurns.get(SessionId(sessionId))
+    if (active === undefined || active.turnStartSeq === undefined || String(active.turnStartSeq) !== expected) throw new EdgeHttpError(409, 'The observed run has ended.')
+    return this.controlTarget.run(active.turnId, dispatch)
   }
 
   private async withAgentControl<T>(sessionId: SessionId, invoke: () => Promise<T>): Promise<T> {

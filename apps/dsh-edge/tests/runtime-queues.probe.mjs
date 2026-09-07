@@ -151,8 +151,33 @@ try {
     return response.status
   })
   assert.equal(staleCancelStatus, 409)
+  const staleSlashStatuses = await a.evaluate(async () => {
+    const statuses = []
+    for (const method of ['cancel', 'prompt', 'updateQueue']) {
+      const payload = { sessionId: 'probe-cancel', mode: 'steer', content: [{ type: 'text', text: 'stale' }], itemId: 'missing', action: { kind: 'steer' } }
+      for (const args of [{ request: payload }, payload]) {
+        const response = await fetch(`/api/session/${method}`, {
+          method: 'POST', headers: { 'content-type': 'application/json', 'x-dsh-edge-turn-seq': '-1' },
+          body: JSON.stringify({ rpcId: crypto.randomUUID(), payload: { args } }),
+        })
+        statuses.push(response.status)
+      }
+    }
+    return statuses
+  })
+  assert.deepEqual(staleSlashStatuses, [409, 409, 409, 409, 409, 409])
+
   assert.equal(held.size, 2, 'stale tab cancellation cannot stop the current tools')
-  assert.equal((await rpc(a, 'session.cancel', { sessionId: 'probe-cancel' })).result.ok, true)
+  const cancelHistory = await rpc(a, 'session.history', { sessionId: 'probe-cancel' })
+  const observedTurn = cancelHistory.result.value.events.findLast(entry => entry.event.type === 'turn/start').event.seq
+  const currentCancel = await a.evaluate(async seq => {
+    const response = await fetch('/api/session/cancel', {
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-dsh-edge-turn-seq': String(seq) },
+      body: JSON.stringify({ rpcId: crypto.randomUUID(), payload: { args: { request: { sessionId: 'probe-cancel' } } } }),
+    })
+    return response.json()
+  }, observedTurn)
+  assert.equal(currentCancel.result.ok, true)
   await wait(() => held.size === 0, 'real provider HTTP abort cleanup')
   assert.equal(tools.length, 2, 'cancelled third tool must never reach provider')
   console.log('PASS cancellation: provider connections close; waiting tool never starts')
