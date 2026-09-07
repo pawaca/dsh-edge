@@ -231,7 +231,11 @@ export class DurableObjectSessionPersistence
     return (this.coordinator as never as { abandonUnmaterialized(s: Session): Promise<void> }).abandonUnmaterialized(session)
   }
 
-  override prepare(id: SessionId, signal?: AbortSignal): Promise<SessionPreparation> {
+  override async prepare(id: SessionId, signal?: AbortSignal): Promise<SessionPreparation> {
+    // Older releases retained blank identities without a canonical log row.
+    // Every cold consumer (including upstream follow/model selection) needs it.
+    signal?.throwIfAborted()
+    await this.materializeBlankSession(id)
     return this.coordinator.prepare(id, signal)
   }
 

@@ -55,6 +55,7 @@ import {
   EdgeSessionStoreError,
   type EdgeAgentPromptAdmitter,
   type EdgeMuxBaseline,
+  disposeAgentHandle,
 } from './session-store.ts'
 import {
   EdgeTurnId,
@@ -486,7 +487,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         } catch (error) { failure = error; interrupted = true }
         finally {
           clearTimeout(timer)
-          // A failed disposal deliberately retains the live owner and slot.
+          // Settle only after upstream teardown has released the live owner.
           if (!this.activeTurns.has(sessionId)) {
             this.mainQueue.finish(input.seq, epoch, interrupted)
             this.liveQueues.delete(sessionId)
@@ -1345,11 +1346,12 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     } finally {
       turn.accepting = false
       turn.resolveAdmissionReady()
-      await handle.dispose()
-      const active = this.activeTurns.get(sessionId)
-      if (active?.turnId === turn.turnId) this.activeTurns.delete(sessionId)
-      turn.resolveReleaseComplete()
-      this.publishRunning(sessionId, false)
+      await disposeAgentHandle(handle, () => {
+        const active = this.activeTurns.get(sessionId)
+        if (active?.turnId === turn.turnId) this.activeTurns.delete(sessionId)
+        turn.resolveReleaseComplete()
+        this.publishRunning(sessionId, false)
+      })
     }
   }
 

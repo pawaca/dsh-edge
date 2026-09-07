@@ -1995,3 +1995,9 @@ function rejectCwdConflict(requested: string | undefined, existing: string | und
     throw new EdgeSessionCwdConflictError(requested, existing)
   }
 }
+
+/** The pinned upstream teardown detaches Agent/Session even when it rejects. */
+export async function disposeAgentHandle(handle: AgentHandle, released: () => void): Promise<void> {
+  try { await handle.dispose() }
+  finally { released() }
+}

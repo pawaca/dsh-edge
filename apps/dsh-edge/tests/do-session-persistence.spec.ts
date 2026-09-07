@@ -489,12 +489,19 @@ describe('durable-object bounded event pages', () => {
       expect(persistence.readBlankSession(id)).toEqual(header)
       expect(persistence.readAllBlankSessions()).toEqual([header])
 
-      await expect(persistence.materializeBlankSession(id)).resolves.toBe(true)
+      // Exercise the same cold prepare used by model selection/upstream follow.
+      const prepared = await persistence.prepare(id)
+      const detach = ctx.sessions.enter(prepared.session)
+      ctx.sessions.announce(prepared.session)
+      prepared.session.append('model/selection', { provider: 'deepseek-official', model: 'deepseek-v4-flash' })
+      await ctx.sessions.flush(prepared.session)
+      detach()
+      prepared[Symbol.dispose]()
       expect(persistence.readBlankSession(id)).toBeUndefined()
       expect(persistence.hasSession(id)).toBe(true)
       await expect(persistence.inspect(id)).resolves.toMatchObject({
         meta: header,
-        events: [],
+        events: [expect.objectContaining({ type: 'session/end-seed' }), expect.objectContaining({ type: 'model/selection' })],
       })
     } finally {
       await fiber.dispose()
