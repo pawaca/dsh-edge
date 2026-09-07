@@ -861,11 +861,16 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     // assumes resident agents it can resume and keep. Prompt admission and
     // cancellation stay on the Edge implementation until that lifecycle
     // reconciliation lands.
-    if (ns === 'session' && ['create', 'prompt', 'cancel', 'updateQueue', 'selectModel', 'rename', 'fork'].includes(method)) return edgeDispatch()
+    if (ns === 'session' && ['list', 'create', 'prompt', 'cancel', 'updateQueue', 'selectModel', 'rename', 'fork'].includes(method)) return edgeDispatch()
     const gateway = this.sessions.typertGateway()
     if (gateway === undefined) return edgeDispatch()
     try {
-      const value = await gateway.invoke({ namespace: ns, method, args, signal: AbortSignal.timeout(30_000) })
+      const invoke = () => gateway.invoke({ namespace: ns, method, args, signal: AbortSignal.timeout(30_000) })
+      // Agent-scoped commands (including /plan) use the same residency budget.
+      // Their upstream lookup may otherwise leave a cold Agent permanently live.
+      const value = typeof args.agentId === 'string'
+        ? await this.withAgentControl(SessionId(args.agentId), invoke)
+        : await invoke()
       return Response.json({ type: 'server-response', rpcId, result: { ok: true, value } })
     } catch (error) {
       // Only endpoints no registered controller serves fall back to the Edge
@@ -878,6 +883,21 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         ok: false,
         error: remoteFailureOf(error),
       } })
+    }
+  }
+
+  private async withAgentControl<T>(sessionId: SessionId, invoke: () => Promise<T>): Promise<T> {
+    if (this.activeTurns.get(sessionId)?.agent !== undefined) return invoke()
+    if (this.mainDriving || this.activeTurns.size > 0) throw new EdgeSessionStoreError('BUSY', 'The main slot is occupied; retry this command after the current turn.')
+    this.mainDriving = true
+    try {
+      const model = resolveEdgeDeploymentConfig(this.env).model
+      const handle = await this.sessions.openAgentForTurn(sessionId, model)
+      try { return await invoke() }
+      finally { await handle.dispose() }
+    } finally {
+      this.mainDriving = false
+      this.kickMain()
     }
   }
 

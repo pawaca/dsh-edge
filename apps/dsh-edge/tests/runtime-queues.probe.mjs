@@ -91,19 +91,36 @@ try {
     globalThis.probeMux.onmessage = event => globalThis.probeFrames.push(JSON.parse(event.data).payload)
   })
   await b.waitForFunction(() => globalThis.probeMux.readyState === WebSocket.OPEN)
+  // The current browser follows cold history through Typert. This must not
+  // promote idle Agents outside the main slot (fails without activateOnFollow).
+  for (const page of [a, b]) await page.evaluate(async () => {
+    globalThis.remoteFrames = []
+    const socket = globalThis.runtimeRemote = new WebSocket(`${location.origin.replace('http', 'ws')}/api/remote.mux`)
+    socket.onmessage = event => globalThis.remoteFrames.push(JSON.parse(event.data))
+    await new Promise(resolve => socket.onopen = resolve)
+    socket.send(JSON.stringify({ type: 'open', streamId: 'control', endpoint: 'session/control', payload: { args: {} } }))
+    socket.send(JSON.stringify({ type: 'open', streamId: 'follow-a', endpoint: 'session/follow', payload: { args: { request: { address: { kind: 'session', sessionId: 'probe-a' }, afterSeq: -1 } } } }))
+  })
+  await wait(() => b.evaluate(() => globalThis.remoteFrames.some(f => f.streamId === 'follow-a' && f.value?.type === 'snapshot')), 'cold Remote follow snapshot')
+
   assert.equal((await prompt(a, 'probe-a', 'hold-A', 'a-first')).result.ok, true)
   await wait(() => requests.some(t => t.includes('hold-A')), 'A model start')
   assert.equal((await prompt(b, 'probe-b', 'B waits', 'b-first')).result.ok, true)
   assert.equal((await prompt(b, 'probe-b', 'B waits', 'b-first')).result.ok, true)
   await wait(() => b.evaluate(() => globalThis.probeFrames.some(f => f.type === 'session/queue' && f.sessionId === 'probe-b' && f.items.length === 1)), 'B queued once in second tab')
+  await wait(() => b.evaluate(() => globalThis.remoteFrames.some(f => f.streamId === 'control' && f.value?.type === 'queue' && f.value.sessionId === 'probe-b' && f.value.items.length === 1)), 'current browser Remote queue update')
   await new Promise(resolve => setTimeout(resolve, 200))
   assert.equal(requests.some(t => t === 'B waits'), false, 'B must not start while A owns slot')
+  assert.equal((await prompt(b, 'probe-a', 'A followup from second tab', 'a-second')).result.ok, true)
   console.log('PASS two browser tabs: B durably queued once; no B LLM while A active')
   for (const resolve of delays.splice(0)) resolve()
   await wait(() => requests.some(t => t === 'B waits'), 'B starts after A releases')
   const history = await rpc(b, 'session.history', { sessionId: 'probe-b' })
   assert.equal(history.result.value.events.filter(e => e.event.type === 'user/message').length, 1)
   console.log('PASS duplicate receipt: one canonical B user message')
+  await wait(() => requests.includes('A followup from second tab'), 'second-tab input resumes the same session')
+  assert.ok(requests.indexOf('B waits') < requests.indexOf('A followup from second tab'), 'the busy session rotates behind B')
+  console.log('PASS same-session multi-tab queue: followup waits and session rotation remains fair')
   await wait(() => b.evaluate(() => globalThis.probeFrames.some(f => f.type === 'session/queue' && f.sessionId === 'probe-b' && f.items.length === 0)), 'B dequeued')
   assert.equal((await prompt(a, 'probe-pool', 'pool-probe', 'pool-first')).result.ok, true)
   try { await wait(() => tools.length === 2, 'first two tool requests') }

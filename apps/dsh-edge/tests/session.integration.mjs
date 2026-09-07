@@ -917,7 +917,7 @@ try {
     .find(item => item.sessionId === protocolSessionId)
   assert.equal(protocolSummary.blank, true)
   assert.equal(protocolSummary.cwd, '/workspace')
-  assert.equal(protocolSummary.projections.asOfSeq, -1)
+  assert.equal(protocolSummary.projections.asOfSeq, (await rpc('session.history', { sessionId: protocolSessionId })).body.result.value.events.at(-1)?.event.seq ?? -1)
   assert.deepEqual(protocolSummary.projections.values.imageLimits.mediaTypes, [
     'image/png',
     'image/jpeg',
@@ -943,7 +943,7 @@ try {
   const restoredBlank = restoredBlankList.body.result.value.items
     .find(item => item.sessionId === protocolSessionId)
   assert.equal(restoredBlank.blank, true)
-  assert.equal(restoredBlank.projections.asOfSeq, -1)
+  assert.equal(restoredBlank.projections.asOfSeq, protocolSummary.projections.asOfSeq)
   const restoredSessionModels = await rpc('session.models', { sessionId: protocolSessionId })
   assert.deepEqual(restoredSessionModels.body.result.value.current, {
     provider: 'deepseek-official',

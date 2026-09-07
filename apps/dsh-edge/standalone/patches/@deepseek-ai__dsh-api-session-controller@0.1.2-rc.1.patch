@@ -21,7 +21,16 @@ diff --git a/lib/index.js b/lib/index.js
  		}
  		const composition = await this.composeAgent(presetId);
  		return (await this.ctx.agents.create({
-@@ -1771,7 +1765,7 @@
+@@ -1302,6 +1296,8 @@
+ 						throw error;
+ 					}
+ 				}
++				// Snapshot is detached; following must not pin a prepared Agent residency.
++				source[Symbol.dispose]();
+ 				let nextOffset = SessionLogOffset(cursor + 1);
+ 				while (!follower.closed && !signal.aborted) {
+ 					const item = buffered.popFront();
+@@ -1771,7 +1767,7 @@
  		if (location === void 0) return void 0;
  		signal?.throwIfAborted();
  		try {
@@ -30,7 +39,7 @@ diff --git a/lib/index.js b/lib/index.js
  		} catch {
  			signal?.throwIfAborted();
  			return;
-@@ -2604,7 +2598,8 @@
+@@ -2604,7 +2600,8 @@
  				await Promise.allSettled([...this.promotions]);
  			}, "session-controller.promotions");
  			this.history = new SessionHistoryController(ctx, (observation) => {
@@ -40,6 +49,15 @@ diff --git a/lib/index.js b/lib/index.js
  			});
  			this.listState = new ApiSessionList(ctx, config.coldBlankProbeMaxBytes ?? 1024);
  			this.openPath = internals.openPath ?? openNativePath;
+@@ -2615,7 +2612,7 @@
+ 				ctx.emit("api-session/added", this.listState.summaryFor(session));
+ 			});
+ 			ctx.on("session/disposed", (session) => {
+-				ctx.emit("api-session/removed", session.id);
++				if (internals.activateOnFollow !== false) ctx.emit("api-session/removed", session.id);
+ 			});
+ 			ctx.on("agent/status", ({ agent, status }) => {
+ 				ctx.emit("api-session/status", agent.id, status === "running");
 diff --git a/lib/types/index.d.ts b/lib/types/index.d.ts
 --- a/lib/types/index.d.ts
 +++ b/lib/types/index.d.ts

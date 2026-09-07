@@ -828,6 +828,21 @@ export class EdgeSessionStore {
         : { reasoningEffort: resolved.reasoningEffort },
     }
     await this.modelSelections.save(id, selected)
+    // Publish the upstream durable projection even when no Agent is resident.
+    const { sessions, persistence } = await this.services()
+    const live = sessions.get(id)
+    if (live !== undefined) {
+      live.append('model/selection', selected)
+      await sessions.flush(live)
+    } else {
+      const prepared = await persistence.prepare(id)
+      const detach = sessions.enter(prepared.session)
+      try {
+        sessions.announce(prepared.session)
+        prepared.session.append('model/selection', selected)
+        await sessions.flush(prepared.session)
+      } finally { detach(); prepared[Symbol.dispose]() }
+    }
     return selected
   }
 
@@ -950,6 +965,7 @@ export class EdgeSessionStore {
       id, version: SESSION_FORMAT_VERSION, createdAt: Date.now(), isSeeded: false,
       cwd: sessionCwd, agentPreset: 'dsh-edge',
     })
+    await persistence.materializeBlankSession(id)
     return { sessionId: id, agentPreset: 'dsh-edge', created: true }
   }
 
