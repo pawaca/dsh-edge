@@ -480,7 +480,6 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
           await this.runClaimedTurn({ claimed, commandTimeoutPolicy, mode: 'queue',
             message: input.message, content: input.message.content,
             publish: event => {
-              if (event.type === 'turn/end' && event.data.reason.kind !== 'completed' && !claimed.turn.cancelRequested) interrupted = true
               for (const observer of this.mainStreams.get(input.seq) ?? []) observer.publish(event)
             },
           })
@@ -492,6 +491,11 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
             this.mainQueue.finish(input.seq, epoch, interrupted)
             this.liveQueues.delete(sessionId)
             this.publishSessionQueue(sessionId)
+            if (failure !== undefined) {
+              const turnError = failure instanceof Error ? failure : new Error('Main queue turn failed with a non-Error value.')
+              console.error('dsh-edge main queue turn failed before completion.', turnError)
+              this.publishAgentError(sessionId, turnError)
+            }
             for (const observer of this.mainStreams.get(input.seq) ?? []) {
               if (failure === undefined) observer.resolve()
               else observer.reject(failure)
