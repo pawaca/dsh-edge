@@ -2,5 +2,5 @@
 # last confirmed-consistent state. Both languages carry equal authority.
 # After editing either side, update both and re-record every pair with:
 #   pnpm run doc-pairs -- --write
-README.md: feddcd2fa57c477a4c7555dc5dffb8d98050bd88
-README.zh.md: 0ed98425efa228249ae1ef810fac8604de45eb5b
+README.md: 6f74df2cfdfd296bd3160bc0c66113c3c8a2147f
+README.zh.md: 6bf1ac6ab667a46d25ce5baa516b0cbe26f2585d

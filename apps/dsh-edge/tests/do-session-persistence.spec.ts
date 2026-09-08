@@ -15,7 +15,7 @@ import SessionStore, {
 } from '@deepseek-ai/dsh-session'
 import { describe, expect, it } from 'vitest'
 import { createAfterScheduleRecord, createEveryScheduleRecord, ScheduleId } from '@deepseek-ai/dsh-schedule'
-import { nextSchedule, dueScheduleChanges, reserveScheduleAdmission, scheduleWakeTime } from '../src/schedule-store.ts'
+import { nextSchedule, dueScheduleChanges, reserveScheduleAdmission, scheduleWakeTime, setScheduleRetry, initializeSchedules } from '../src/schedule-store.ts'
 import { MainSessionQueue } from '../src/main-session-queue.ts'
 import DurableObjectSessionPersistence from '../src/do-session-persistence.ts'
 
@@ -189,6 +189,40 @@ describe('durable-object bounded event pages', () => {
     } finally { await fiber.dispose(); storage.close() }
   })
 
+  it('isolates durable reminder retry deadlines across sessions and prunes them on deletion', async () => {
+    const storage = new TestDurableObjectStorage()
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(DurableObjectSessionPersistence, { storage: storage as never })
+    const persistence = ctx.sessionPersistence as DurableObjectSessionPersistence
+    new MainSessionQueue(storage as never)
+    const now = Date.now()
+    const metadata = (id: string) => ({ meta: { id: SessionId(id), version: SESSION_FORMAT_VERSION, createdAt: 1, isSeeded: false }, inheritedEventCount: SessionLogOffset(0) })
+    try {
+      for (const [id, age] of [['broken', 5000], ['healthy', 4000], ['other-broken', 3000]] as const) {
+        const schedule = createAfterScheduleRecord(ScheduleId('schedule-1'), id, 1, now - age)
+        await persistence.appendBatch(metadata(id), [{ type: 'schedule/change', seq: SessionSeq(0), time: now, data: { version: 1, operation: 'create', schedule } }], false)
+      }
+      expect(nextSchedule(storage as never)?.sessionId).toBe('broken')
+      setScheduleRetry(storage as never, 'broken', now + 30_000)
+      setScheduleRetry(storage as never, 'other-broken', now + 60_000)
+      expect(nextSchedule(storage as never)?.sessionId).toBe('healthy')
+      // Reinitializing host schemas must not lose the deadlines on a cold start.
+      initializeSchedules(storage as never)
+      new MainSessionQueue(storage as never)
+      expect(nextSchedule(storage as never)?.sessionId).toBe('healthy')
+      await persistence.appendBatch(metadata('healthy'), [{ type: 'schedule/change', seq: SessionSeq(1), time: now, data: { version: 1, operation: 'dispatch', id: ScheduleId('schedule-1') } }], true)
+      expect(nextSchedule(storage as never)).toEqual({ sessionId: 'broken', due: now + 30_000 })
+      setScheduleRetry(storage as never, 'broken', now + 90_000)
+      expect(nextSchedule(storage as never)).toEqual({ sessionId: 'other-broken', due: now + 60_000 })
+      setScheduleRetry(storage as never, 'other-broken', 0)
+      expect(nextSchedule(storage as never)?.due).toBeLessThan(now)
+      await persistence.appendBatch(metadata('broken'), [{ type: 'schedule/change', seq: SessionSeq(1), time: now, data: { version: 1, operation: 'delete', id: ScheduleId('schedule-1') } }], true)
+      setScheduleRetry(storage as never, 'missing-session', now + 30_000)
+      expect(storage.sql.exec('SELECT * FROM dsh_schedule_retry').toArray()).toEqual([])
+    } finally { await fiber.dispose(); storage.close() }
+  })
+
   it('backs off an overdue reminder blocked by crash-paused byte capacity', async () => {
     const storage = new TestDurableObjectStorage()
     const ctx = new Context()
@@ -208,8 +242,9 @@ describe('durable-object bounded event pages', () => {
       storage.sql.exec('UPDATE dsh_runtime_ready SET paused = 1')
       expect(reserveScheduleAdmission(storage as never, id, dueScheduleChanges(storage as never, id, now))).toBe(false)
       expect(queue.claim()).toBeUndefined()
-      expect(scheduleWakeTime(nextSchedule(storage as never)?.due, now + 30_000, false, now)).toBe(now + 30_000)
-      expect(scheduleWakeTime(nextSchedule(storage as never)?.due, now + 30_000, false, now + 100)).toBe(now + 30_000)
+      setScheduleRetry(storage as never, id, now + 30_000)
+      expect(scheduleWakeTime(nextSchedule(storage as never)?.due, false, now)).toBe(now + 30_000)
+      expect(scheduleWakeTime(nextSchedule(storage as never)?.due, false, now + 100)).toBe(now + 30_000)
     } finally { await fiber.dispose(); storage.close() }
   })
 

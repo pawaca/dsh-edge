@@ -67,6 +67,7 @@ export function initializeSchedules(storage: DurableObjectStorage): void {
     session_id TEXT NOT NULL, schedule_id TEXT NOT NULL, record TEXT NOT NULL,
     due INTEGER NOT NULL, created_seq INTEGER NOT NULL, PRIMARY KEY(session_id,schedule_id))`)
   storage.sql.exec('CREATE INDEX IF NOT EXISTS dsh_schedule_due ON dsh_schedule_active(due,session_id,created_seq)')
+  storage.sql.exec('CREATE TABLE IF NOT EXISTS dsh_schedule_retry (session_id TEXT PRIMARY KEY, retry_at INTEGER NOT NULL)')
 }
 
 function recordOf(row: ScheduleRow): ScheduleRecord {
@@ -77,15 +78,30 @@ function recordOf(row: ScheduleRow): ScheduleRecord {
 
 /** No history replay on wake or request paths. Paused sessions require explicit user recovery. */
 export function nextSchedule(storage: DurableObjectStorage): { sessionId: string; due: number } | undefined {
-  const row = storage.sql.exec<{ session_id: string; due: number }>(`SELECT s.session_id, s.due
+  const row = storage.sql.exec<{ session_id: string; due: number }>(`SELECT s.session_id, max(s.due,coalesce(b.retry_at,0)) AS due
     FROM dsh_schedule_active s LEFT JOIN dsh_runtime_ready r ON r.session_id = s.session_id
-    WHERE coalesce(r.paused,0) != 1 ORDER BY s.due,s.session_id,s.created_seq LIMIT 1`).toArray()[0]
+    LEFT JOIN dsh_schedule_retry b ON b.session_id = s.session_id
+    WHERE coalesce(r.paused,0) != 1 ORDER BY max(s.due,coalesce(b.retry_at,0)),s.session_id,s.created_seq LIMIT 1`).toArray()[0]
   return row === undefined ? undefined : { sessionId: row.session_id, due: row.due }
 }
 
 /** Failed admission retains a bounded wake time even when only paused inputs occupy capacity. */
-export function scheduleWakeTime(due: number | undefined, retryAt: number, busy: boolean, now = Date.now()): number | undefined {
-  return due === undefined ? undefined : Math.max(due, retryAt, now + (busy ? MAIN_WAKE_MS : 1))
+export function scheduleWakeTime(due: number | undefined, busy: boolean, now = Date.now()): number | undefined {
+  return due === undefined ? undefined : Math.max(due, now + (busy ? MAIN_WAKE_MS : 1))
+}
+
+/** One failed session defers only its own reminders; the deadline survives a DO restart. */
+export function setScheduleRetry(storage: DurableObjectStorage, sessionId: string, retryAt: number): void {
+  if (retryAt === 0) storage.sql.exec('DELETE FROM dsh_schedule_retry WHERE session_id = ?', sessionId)
+  else storage.sql.exec(`INSERT INTO dsh_schedule_retry (session_id,retry_at)
+    SELECT ?,? WHERE EXISTS (SELECT 1 FROM dsh_schedule_active WHERE session_id = ?)
+    ON CONFLICT(session_id) DO UPDATE SET retry_at = excluded.retry_at`, sessionId, retryAt, sessionId)
+}
+
+/** Keep retry storage bounded by sessions with active reminders, including deletion and repair. */
+function pruneScheduleRetry(storage: DurableObjectStorage, sessionId: string): void {
+  storage.sql.exec(`DELETE FROM dsh_schedule_retry WHERE session_id = ?
+    AND NOT EXISTS (SELECT 1 FROM dsh_schedule_active WHERE session_id = ?)`, sessionId, sessionId)
 }
 
 /** Match upstream: one-shot first; otherwise batch the latest occurrence of each due Every. */
@@ -134,6 +150,7 @@ export function persistScheduleChanges(storage: DurableObjectStorage, sessionId:
     }
   }
   if (batchSeq !== undefined) enqueue(renderEveryReminderBatchFraming(every), batchSeq)
+  pruneScheduleRetry(storage, sessionId)
 }
 
 /** Every member of a periodic dispatch batch shares one input; never infer safety from its seq alone. */
@@ -160,6 +177,7 @@ export function rebuildSchedules(storage: DurableObjectStorage, sessionId: strin
   const remaining = storage.sql.exec<{ count: number }>('SELECT count(*) AS count FROM dsh_schedule_active').toArray()[0]!.count
   if (remaining + folded.active.length > MAX_ACTIVE_SCHEDULES) throw new Error('Schedule repair would exceed the active reminder budget.')
   for (const record of folded.active) storage.sql.exec('INSERT INTO dsh_schedule_active VALUES (?,?,?,?,?)', sessionId, record.id, JSON.stringify(record), Date.parse(record.scheduledAt), created.get(record.id)!)
+  pruneScheduleRetry(storage, sessionId)
 }
 
 /** Only advance the alarm here; the owner merges/removes all wake sources after driving. */

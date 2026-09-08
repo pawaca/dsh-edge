@@ -1,6 +1,6 @@
 /** Workspace Durable Object with persistent sessions and streamed agent turns. */
 
-import { initializeSchedules, nextSchedule, scheduleWakeTime } from './schedule-store.ts'
+import { initializeSchedules, nextSchedule, scheduleWakeTime, setScheduleRetry } from './schedule-store.ts'
 import { AsyncLocalStorage } from 'node:async_hooks'
 
 import {
@@ -282,7 +282,6 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     },
   )
   private readonly model = resolveEdgeModel(this.env.DEEPSEEK_MODEL)
-  private scheduleRetryAt = 0
   private readonly mainQueue = new MainSessionQueue(this.ctx.storage)
   private readonly steeringAdmissions = new SteeringAdmissions()
   private mainDriving = false
@@ -442,7 +441,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       ? Date.now() + (this.mainDriving || this.mainQueue.current() !== undefined ? MAIN_WAKE_MS : 1)
       : undefined
     const schedule = nextSchedule(this.ctx.storage)
-    const due = scheduleWakeTime(schedule?.due, this.scheduleRetryAt, this.mainDriving)
+    const due = scheduleWakeTime(schedule?.due, this.mainDriving)
     const times = [expiry, work, due].filter((time): time is number => time !== undefined)
     const next = times.length === 0 ? undefined : Math.min(...times)
     if (next === undefined) await this.ctx.storage.deleteAlarm()
@@ -474,11 +473,11 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       }
       do {
         const due = nextSchedule(this.ctx.storage)
-        if (due !== undefined && due.due <= Date.now() && this.scheduleRetryAt <= Date.now()) {
+        if (due !== undefined && due.due <= Date.now()) {
           // No progress (including a preparation error) must not create a hot alarm loop.
-          this.scheduleRetryAt = Date.now() + MAIN_WAKE_MS
+          setScheduleRetry(this.ctx.storage, due.sessionId, Date.now() + MAIN_WAKE_MS)
           try {
-            if (await this.sessions.dispatchDueSchedules(SessionId(due.sessionId), this.model, this.ctx.storage)) this.scheduleRetryAt = 0
+            if (await this.sessions.dispatchDueSchedules(SessionId(due.sessionId), this.model, this.ctx.storage)) setScheduleRetry(this.ctx.storage, due.sessionId, 0)
           } catch (error) {
             // A broken reminder must not prevent healthy queued sessions from claiming the slot.
             console.error('dsh-edge reminder preparation failed; retry is deferred.', error)
