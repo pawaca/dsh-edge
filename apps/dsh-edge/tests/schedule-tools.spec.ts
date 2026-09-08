@@ -14,8 +14,10 @@ it('retains upstream exclusive classification for native and nested schedule cal
   try {
     for (const name of ['schedule_create', 'schedule_list', 'schedule_delete']) {
       expect(tools.get(name, agent)).toBeDefined()
-      expect(tools.executionMode({ name, callId: ToolCallId(name), arguments: {}, signal: new AbortController().signal, agent })).toEqual({ kind: 'exclusive' })
-      expect(tools.executionMode({ name, callId: ToolCallId(name), arguments: {}, signal: new AbortController().signal, agent, parent: {} as never })).toEqual({ kind: 'exclusive' })
+      expect(typeof tools.get(name, agent)?.isConcurrencySafe).toBe('undefined')
+      const args = name === 'schedule_create' ? { prompt: 'reminder', after_seconds: 60 } : name === 'schedule_delete' ? { id: 'schedule-1' } : {}
+      expect(tools.executionMode({ name, callId: ToolCallId(name), arguments: args, signal: new AbortController().signal, agent })).toEqual({ kind: 'exclusive' })
+      expect(tools.executionMode({ name, callId: ToolCallId(name), arguments: args, signal: new AbortController().signal, agent, parent: {} as never })).toEqual({ kind: 'exclusive' })
     }
   } finally { dispose(); await ctx.fiber.dispose() }
 })
