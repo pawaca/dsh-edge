@@ -1,5 +1,6 @@
 /** Workspace Durable Object with persistent sessions and streamed agent turns. */
 
+import { initializeSchedules, nextSchedule } from './schedule-store.ts'
 import { AsyncLocalStorage } from 'node:async_hooks'
 
 import {
@@ -338,6 +339,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
 
   constructor(ctx: DurableObjectState, env: EdgeEnv) {
     super(ctx, env)
+    initializeSchedules(ctx.storage)
     // HTTP/alarm wakes must also reconnect hibernation-restored Remote carriers.
     // Otherwise an open socket can outlive all its process-local stream pumps.
     this.closeExpiredDownlinks()
@@ -438,7 +440,10 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     const work = this.mainQueue.hasWork()
       ? Date.now() + (this.mainDriving || this.mainQueue.current() !== undefined ? MAIN_WAKE_MS : 1)
       : undefined
-    const next = expiry === undefined ? work : work === undefined ? expiry : Math.min(expiry, work)
+    const schedule = nextSchedule(this.ctx.storage)
+    const due = schedule === undefined ? undefined : Math.max(schedule.due, Date.now() + (this.mainDriving ? MAIN_WAKE_MS : 1))
+    const times = [expiry, work, due].filter((time): time is number => time !== undefined)
+    const next = times.length === 0 ? undefined : Math.min(...times)
     if (next === undefined) await this.ctx.storage.deleteAlarm()
     else await this.ctx.storage.setAlarm(next)
   }
@@ -467,6 +472,10 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         }
       }
       do {
+        const due = nextSchedule(this.ctx.storage)
+        if (due !== undefined && due.due <= Date.now()) {
+          await this.sessions.dispatchDueSchedules(SessionId(due.sessionId), this.model, this.ctx.storage)
+        }
         const claim = this.mainQueue.claim()
         if (claim === undefined) break
         const { input, epoch } = claim

@@ -1,5 +1,6 @@
 /** Upstream SessionPersistence implemented over Cloudflare Durable Object SQL. */
 
+import { initializeSchedules, persistScheduleChanges, armScheduleWake } from './schedule-store.ts'
 import { initializeMainQueue, acknowledgeMainInputs } from './main-session-queue.ts'
 import { Context } from '@deepseek-ai/cordis'
 import {
@@ -205,6 +206,7 @@ export class DurableObjectSessionPersistence
     super(ctx)
     this.storage = config.storage
     initializeMainQueue(this.storage)
+    initializeSchedules(this.storage)
     this.storeIdentity = this.initialize()
     this.coordinator = new PersistenceCoordinator(ctx, this, {
       preparedSessionCacheSize: config.preparedSessionCacheSize
@@ -470,20 +472,26 @@ export class DurableObjectSessionPersistence
     events: readonly SessionEvent[],
     isMaterialized: boolean,
   ): Promise<void> {
-    return promiseFromSync(() => {
-      this.storage.transactionSync(() => {
-        if (!isMaterialized) this.writeRow(storage.meta, storage.inheritedEventCount)
-        const packed = packChunkRuns(events as SessionEvent[])
-        for (const record of packed) this.insertStorageRecord(storage.meta.id, record)
-        const updated = this.storage.sql.exec(
-          'UPDATE dsh_sessions SET revision = revision + 1 WHERE id = ?',
-          storage.meta.id,
-        )
-        if (updated.rowsWritten !== 1) throw new Error(`session ${storage.meta.id} is not materialized`)
-        this.storage.sql.exec('DELETE FROM dsh_edge_blank_sessions WHERE id = ?', storage.meta.id)
-        this.updateSummaryFromBatch(storage.meta.id, events)
-        acknowledgeMainInputs(this.storage, storage.meta.id, events)
-      })
+    const write = () => {
+      if (!isMaterialized) this.writeRow(storage.meta, storage.inheritedEventCount)
+      const packed = packChunkRuns(events as SessionEvent[])
+      for (const record of packed) this.insertStorageRecord(storage.meta.id, record)
+      const updated = this.storage.sql.exec(
+        'UPDATE dsh_sessions SET revision = revision + 1 WHERE id = ?',
+        storage.meta.id,
+      )
+      if (updated.rowsWritten !== 1) throw new Error(`session ${storage.meta.id} is not materialized`)
+      this.storage.sql.exec('DELETE FROM dsh_edge_blank_sessions WHERE id = ?', storage.meta.id)
+      this.updateSummaryFromBatch(storage.meta.id, events)
+      acknowledgeMainInputs(this.storage, storage.meta.id, events)
+      persistScheduleChanges(this.storage, storage.meta.id, events, storage.inheritedEventCount)
+    }
+    if (!events.some(event => event.type === 'schedule/change')) {
+      return promiseFromSync(() => this.storage.transactionSync(write))
+    }
+    return this.storage.transaction(async () => {
+      write()
+      await armScheduleWake(this.storage)
     })
   }
 

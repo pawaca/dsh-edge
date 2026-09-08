@@ -14,6 +14,8 @@ import SessionStore, {
   type SessionHeader,
 } from '@deepseek-ai/dsh-session'
 import { describe, expect, it } from 'vitest'
+import { createAfterScheduleRecord, createEveryScheduleRecord, ScheduleId } from '@deepseek-ai/dsh-schedule'
+import { nextSchedule, dueScheduleChanges, reserveScheduleAdmission } from '../src/schedule-store.ts'
 import { MainSessionQueue } from '../src/main-session-queue.ts'
 import DurableObjectSessionPersistence from '../src/do-session-persistence.ts'
 
@@ -21,6 +23,26 @@ import DurableObjectSessionPersistence from '../src/do-session-persistence.ts'
 class TestDurableObjectStorage {
   private readonly db = new DatabaseSync(':memory:')
   private eventInsertFailures = 0
+  alarm: number | null = null
+  failAlarm = false
+  async getAlarm() { return this.alarm }
+  async setAlarm(time: number) {
+    if (this.failAlarm) throw new Error('injected alarm failure')
+    this.alarm = time
+  }
+  async transaction<T>(callback: () => Promise<T>): Promise<T> {
+    this.db.exec('BEGIN')
+    const alarm = this.alarm
+    try {
+      const result = await callback()
+      this.db.exec('COMMIT')
+      return result
+    } catch (error) {
+      this.db.exec('ROLLBACK')
+      this.alarm = alarm
+      throw error
+    }
+  }
   readonly queries: string[] = []
 
   sql = {
@@ -92,6 +114,88 @@ function cursor<T extends TestRow>(
 }
 
 describe('durable-object bounded event pages', () => {
+  it('commits schedule, alarm, dispatch and reminder admission atomically across restarts', async () => {
+    const storage = new TestDurableObjectStorage()
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(DurableObjectSessionPersistence, { storage: storage as never })
+    const persistence = ctx.sessionPersistence as DurableObjectSessionPersistence
+    const queue = new MainSessionQueue(storage as never)
+    const id = SessionId('schedule-atomic')
+    const meta: SessionHeader = { id, version: SESSION_FORMAT_VERSION, createdAt: 1, isSeeded: false }
+    const record = createAfterScheduleRecord(ScheduleId('schedule-1'), 'remind me', 1, Date.now())
+    const event: SessionEvent<'schedule/change'> = { type: 'schedule/change', seq: SessionSeq(0), time: Date.now(), data: { version: 1, operation: 'create', schedule: record } }
+    const dispatch: SessionEvent<'schedule/change'> = { ...event, seq: SessionSeq(1), data: { version: 1, operation: 'dispatch', id: record.id } }
+    const metadata = { meta, inheritedEventCount: SessionLogOffset(0) }
+    try {
+      storage.failAlarm = true
+      await expect(persistence.appendBatch(metadata, [event], false)).rejects.toThrow('alarm failure')
+      expect(nextSchedule(storage as never)).toBeUndefined()
+      storage.failAlarm = false
+      await persistence.appendBatch(metadata, [event], false)
+      expect(nextSchedule(storage as never)?.due).toBe(Date.parse(record.scheduledAt))
+      expect(storage.alarm).toBe(Date.parse(record.scheduledAt))
+      storage.failNextEventInsert()
+      await expect(persistence.appendBatch(metadata, [dispatch], true)).rejects.toThrow('injected')
+      expect(queue.pending(id)).toHaveLength(0)
+      expect(nextSchedule(storage as never)).toBeDefined()
+      expect(reserveScheduleAdmission(storage as never, id, [dispatch.data])).toBe(true)
+      // Another tab cannot consume bytes reserved for the pending reminder flush.
+      const empty = createUserMessage({ content: [{ type: 'text', text: '' }], source: { kind: 'user' } })
+      const large = { ...empty, content: [{ type: 'text' as const, text: 'x'.repeat(2 * 1024 * 1024 - new TextEncoder().encode(JSON.stringify(empty)).byteLength - 1) }] }
+      expect(new TextEncoder().encode(JSON.stringify(large)).byteLength).toBeLessThan(2 * 1024 * 1024)
+      expect(() => queue.enqueue('other-session', large.id, 'large', large)).toThrow('queue is full')
+      const small = createUserMessage({ content: [{ type: 'text', text: 'small' }], source: { kind: 'user' } })
+      queue.enqueue('other-session', small.id, 'small', small)
+      expect(() => queue.edit('other-session', small.id, { ...large, id: small.id })).toThrow('byte limit')
+      queue.remove('other-session', small.id)
+
+      await persistence.appendBatch(metadata, [dispatch], true)
+      expect(storage.sql.exec('SELECT * FROM dsh_runtime_schedule_reservation').toArray()).toHaveLength(0)
+      expect(nextSchedule(storage as never)).toBeUndefined()
+      const restored = new MainSessionQueue(storage as never)
+      expect(restored.pending(id)).toHaveLength(1)
+      expect(restored.pending(id)[0]!.message.source).toEqual({ kind: 'plugin', plugin: 'schedule' })
+      await expect(persistence.appendBatch(metadata, [dispatch], true)).rejects.toThrow()
+      expect(restored.pending(id)).toHaveLength(1)
+    } finally { await fiber.dispose(); storage.close() }
+  })
+
+  it('batches missed periodic reminders once and excludes inherited schedules', async () => {
+    const storage = new TestDurableObjectStorage()
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(DurableObjectSessionPersistence, { storage: storage as never })
+    const persistence = ctx.sessionPersistence as DurableObjectSessionPersistence
+    const queue = new MainSessionQueue(storage as never)
+    const id = SessionId('schedule-every')
+    const meta: SessionHeader = { id, version: SESSION_FORMAT_VERSION, createdAt: 1, isSeeded: false }
+    const now = Date.now()
+    const records = [1, 2].map(n => createEveryScheduleRecord(ScheduleId(`schedule-${n}`), `reminder ${n}`, 300, now))
+    const events = records.map((schedule, seq): SessionEvent<'schedule/change'> => ({ type: 'schedule/change', seq: SessionSeq(seq), time: now, data: { version: 1, operation: 'create', schedule } }))
+    const metadata = { meta, inheritedEventCount: SessionLogOffset(0) }
+    try {
+      await persistence.appendBatch(metadata, events, false)
+      const changes = dueScheduleChanges(storage as never, id, now + 950_000)
+      expect(changes).toHaveLength(2)
+      await persistence.appendBatch(metadata, changes.map((data, n) => ({ type: 'schedule/change', seq: SessionSeq(n + 2), time: now + 950_000, data })), true)
+      expect(queue.pending(id)).toHaveLength(1)
+      expect(nextSchedule(storage as never)?.due).toBe(now + 1_200_000)
+      expect(JSON.stringify(queue.pending(id)[0]!.message)).toContain('SCHEDULE REMINDER BATCH')
+      storage.sql.exec('UPDATE dsh_runtime_ready SET paused = 1 WHERE session_id = ?', id)
+      expect(nextSchedule(storage as never)).toBeUndefined()
+      const recovery = createUserMessage({ content: [{ type: 'text', text: 'continue' }], source: { kind: 'user' } })
+      queue.enqueue(id, recovery.id, 'recovery', recovery)
+      expect(nextSchedule(storage as never)?.sessionId).toBe(id)
+      await persistence.appendBatch(metadata, records.map((record, n) => ({ type: 'schedule/change', seq: SessionSeq(n + 4), time: now + 950_000, data: { version: 1, operation: 'delete', id: record.id } })), true)
+      expect(nextSchedule(storage as never)).toBeUndefined()
+
+      const child = { ...meta, id: SessionId('schedule-child'), isSeeded: true as const, parentSession: id }
+      await persistence.appendBatch({ meta: child, inheritedEventCount: SessionLogOffset(2) }, events, false)
+      expect(dueScheduleChanges(storage as never, child.id, now + 950_000)).toHaveLength(0)
+    } finally { await fiber.dispose(); storage.close() }
+  })
+
   it('commits the admission receipt atomically with the canonical inbox append', async () => {
     const storage = new TestDurableObjectStorage()
     const ctx = new Context()
