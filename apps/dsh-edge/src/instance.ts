@@ -336,6 +336,13 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
   })
   private readonly apiFetch = (request: Request) => dispatchEdgeApi(this.api, request)
 
+  constructor(ctx: DurableObjectState, env: EdgeEnv) {
+    super(ctx, env)
+    // HTTP/alarm wakes must also reconnect hibernation-restored Remote carriers.
+    // Otherwise an open socket can outlive all its process-local stream pumps.
+    this.closeExpiredDownlinks()
+  }
+
   /** Serve session routes forwarded by the entry Worker. */
   override async fetch(request: Request): Promise<Response> {
     try {
@@ -1017,6 +1024,10 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       const attachment = readDownlinkAttachment(socket)
       if (attachment === undefined || attachment.expiresAt * 1_000 <= now) {
         socket.close(OWNER_SESSION_EXPIRED_CLOSE_CODE, OWNER_SESSION_EXPIRED_CLOSE_REASON)
+        continue
+      }
+      if (attachment.channel === 'remote.mux' && !remoteStreams.has(socket)) {
+        socket.close(1011, 'Remote stream state was lost; reconnect')
         continue
       }
       const expiresAt = attachment.expiresAt * 1_000
