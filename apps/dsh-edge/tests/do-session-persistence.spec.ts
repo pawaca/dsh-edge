@@ -15,7 +15,7 @@ import SessionStore, {
 } from '@deepseek-ai/dsh-session'
 import { describe, expect, it } from 'vitest'
 import { createAfterScheduleRecord, createEveryScheduleRecord, ScheduleId } from '@deepseek-ai/dsh-schedule'
-import { nextSchedule, dueScheduleChanges, reserveScheduleAdmission } from '../src/schedule-store.ts'
+import { nextSchedule, dueScheduleChanges, reserveScheduleAdmission, scheduleWakeTime } from '../src/schedule-store.ts'
 import { MainSessionQueue } from '../src/main-session-queue.ts'
 import DurableObjectSessionPersistence from '../src/do-session-persistence.ts'
 
@@ -114,6 +114,105 @@ function cursor<T extends TestRow>(
 }
 
 describe('durable-object bounded event pages', () => {
+  it('preserves flushed schedules when repairing a normally interrupted turn', async () => {
+    const storage = new TestDurableObjectStorage()
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(DurableObjectSessionPersistence, { storage: storage as never })
+    const persistence = ctx.sessionPersistence as DurableObjectSessionPersistence
+    const id = SessionId('interrupted-schedule')
+    const meta: SessionHeader = { id, version: SESSION_FORMAT_VERSION, createdAt: 1, isSeeded: false }
+    const record = createAfterScheduleRecord(ScheduleId('schedule-1'), 'keep this reminder', 300, Date.now())
+    try {
+      await persistence.appendBatch({ meta, inheritedEventCount: SessionLogOffset(0) }, [
+        { type: 'turn/start', seq: SessionSeq(0), time: 1, data: { turn: 1 } },
+        { type: 'schedule/change', seq: SessionSeq(1), time: 2, data: { version: 1, operation: 'create', schedule: record } },
+      ], false)
+      expect((await persistence.loadStored(id))?.tornMarker).toBeUndefined()
+      const restored = await persistence.load(id)
+      expect(restored.events.some(event => event.type === 'schedule/change')).toBe(true)
+      expect(restored.events.some(event => event.type === 'turn/end')).toBe(true)
+      expect(nextSchedule(storage as never)?.sessionId).toBe(id)
+    } finally { await fiber.dispose(); storage.close() }
+  })
+
+  it('rebuilds torn creates/deletes atomically and refuses to replay a torn dispatch', async () => {
+    const storage = new TestDurableObjectStorage()
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(DurableObjectSessionPersistence, { storage: storage as never })
+    const persistence = ctx.sessionPersistence as DurableObjectSessionPersistence
+    const queue = new MainSessionQueue(storage as never)
+    const now = Date.now()
+    const record = createAfterScheduleRecord(ScheduleId('schedule-1'), 'repair reminder', 300, now)
+    const metadata = (id: string) => ({ meta: { id: SessionId(id), version: SESSION_FORMAT_VERSION, createdAt: 1, isSeeded: false as const }, inheritedEventCount: SessionLogOffset(0) })
+    const create = (seq: number): SessionEvent<'schedule/change'> => ({ type: 'schedule/change', seq: SessionSeq(seq), time: now, data: { version: 1, operation: 'create', schedule: record } })
+    try {
+      await persistence.appendBatch(metadata('torn-create'), [
+        { type: 'turn/start', seq: SessionSeq(0), time: now, data: { turn: 1 } }, create(1),
+      ], false)
+      storage.sql.exec("UPDATE dsh_session_events SET data = '{' WHERE session_id = 'torn-create' AND seq = 0")
+      expect((await persistence.loadStored(SessionId('torn-create')))?.tornMarker).toBe(0)
+      await persistence.load(SessionId('torn-create'))
+      expect(nextSchedule(storage as never)).toBeUndefined()
+
+      await persistence.appendBatch(metadata('torn-delete'), [create(0),
+        { type: 'turn/start', seq: SessionSeq(1), time: now, data: { turn: 1 } },
+        { type: 'schedule/change', seq: SessionSeq(2), time: now, data: { version: 1, operation: 'delete', id: record.id } },
+      ], false)
+      storage.sql.exec("UPDATE dsh_session_events SET data = '{' WHERE session_id = 'torn-delete' AND seq = 1")
+      storage.alarm = null
+      storage.failAlarm = true
+      await expect(persistence.load(SessionId('torn-delete'))).rejects.toThrow('alarm failure')
+      expect(nextSchedule(storage as never)).toBeUndefined()
+      expect((await persistence.loadStored(SessionId('torn-delete')))?.tornMarker).toBe(1)
+      storage.failAlarm = false
+      await persistence.load(SessionId('torn-delete'))
+      expect(nextSchedule(storage as never)?.sessionId).toBe('torn-delete')
+      expect(storage.alarm).toBe(Date.parse(record.scheduledAt))
+
+      await persistence.appendBatch(metadata('torn-dispatch'), [create(0)], false)
+      await persistence.appendBatch(metadata('torn-dispatch'), [
+        { type: 'schedule/change', seq: SessionSeq(1), time: now, data: { version: 1, operation: 'dispatch', id: record.id } },
+      ], true)
+      storage.sql.exec("UPDATE dsh_session_events SET data = '{' WHERE session_id = 'torn-dispatch' AND seq = 1")
+      await expect(persistence.load(SessionId('torn-dispatch'))).rejects.toThrow('Cannot automatically repair')
+      expect(queue.pending('torn-dispatch')).toHaveLength(1)
+      const periodic = [1, 2].map(n => createEveryScheduleRecord(ScheduleId(`schedule-${n}`), `batch ${n}`, 300, now))
+      await persistence.appendBatch(metadata('torn-batch'), periodic.map((schedule, seq) => ({ type: 'schedule/change', seq: SessionSeq(seq), time: now, data: { version: 1, operation: 'create', schedule } })), false)
+      await persistence.appendBatch(metadata('torn-batch'), periodic.map((schedule, seq) => ({ type: 'schedule/change', seq: SessionSeq(seq + 2), time: now + 300_000, data: { version: 1, operation: 'dispatch', id: schedule.id, acceptedAt: new Date(now + 300_000).toISOString() } })), true)
+      // The last dispatch shares the FIRST dispatch's input identity.
+      storage.sql.exec("UPDATE dsh_session_events SET data = '{' WHERE session_id = 'torn-batch' AND seq = 3")
+      await expect(persistence.load(SessionId('torn-batch'))).rejects.toThrow('Cannot automatically repair')
+      expect(queue.pending('torn-batch')).toHaveLength(1)
+
+    } finally { await fiber.dispose(); storage.close() }
+  })
+
+  it('backs off an overdue reminder blocked by crash-paused byte capacity', async () => {
+    const storage = new TestDurableObjectStorage()
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(DurableObjectSessionPersistence, { storage: storage as never })
+    const persistence = ctx.sessionPersistence as DurableObjectSessionPersistence
+    const queue = new MainSessionQueue(storage as never)
+    const id = SessionId('blocked-reminder')
+    const now = Date.now()
+    const record = createAfterScheduleRecord(ScheduleId('schedule-1'), 'blocked reminder', 1, now - 2000)
+    try {
+      await persistence.appendBatch({ meta: { id, version: SESSION_FORMAT_VERSION, createdAt: 1, isSeeded: false }, inheritedEventCount: SessionLogOffset(0) }, [
+        { type: 'schedule/change', seq: SessionSeq(0), time: now, data: { version: 1, operation: 'create', schedule: record } },
+      ], false)
+      const message = createUserMessage({ content: [{ type: 'text', text: 'x'.repeat(2 * 1024 * 1024 - 700) }], source: { kind: 'user' } })
+      queue.enqueue('paused-session', message.id, 'paused', message)
+      storage.sql.exec('UPDATE dsh_runtime_ready SET paused = 1')
+      expect(reserveScheduleAdmission(storage as never, id, dueScheduleChanges(storage as never, id, now))).toBe(false)
+      expect(queue.claim()).toBeUndefined()
+      expect(scheduleWakeTime(nextSchedule(storage as never)?.due, now + 30_000, false, now)).toBe(now + 30_000)
+      expect(scheduleWakeTime(nextSchedule(storage as never)?.due, now + 30_000, false, now + 100)).toBe(now + 30_000)
+    } finally { await fiber.dispose(); storage.close() }
+  })
+
   it('commits schedule, alarm, dispatch and reminder admission atomically across restarts', async () => {
     const storage = new TestDurableObjectStorage()
     const ctx = new Context()

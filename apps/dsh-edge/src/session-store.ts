@@ -1285,13 +1285,14 @@ export class EdgeSessionStore {
   }
 
   /** The caller owns the main slot while preparing and durably admitting due reminders. */
-  async dispatchDueSchedules(id: SessionId, model: string, storage: DurableObjectStorage): Promise<void> {
+  async dispatchDueSchedules(id: SessionId, model: string, storage: DurableObjectStorage): Promise<boolean> {
     const handle = await this.openAgentForTurn(id, model)
     try {
       const changes = dueScheduleChanges(storage, id, Date.now())
-      if (changes.length === 0 || !reserveScheduleAdmission(storage, id, changes)) return
+      if (changes.length === 0 || !reserveScheduleAdmission(storage, id, changes)) return false
       for (const change of changes) handle.agent.session.append('schedule/change', change)
       await this.context.sessions.flush(handle.agent.session)
+      return true
     } finally {
       try { await handle.dispose() }
       finally { storage.sql.exec('DELETE FROM dsh_runtime_schedule_reservation WHERE id = 1') }

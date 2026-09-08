@@ -1,10 +1,10 @@
 /** Materialized upstream Schedule records and atomic reminder admission. */
 import { createUserMessage, freezeMessage, MessageId } from '@deepseek-ai/dsh-llm'
 import {
-  registerScheduleTools, decodeScheduleChange, renderReminderFraming, renderEveryReminderBatchFraming,
+  registerScheduleTools, foldScheduleEvents, decodeScheduleChange, renderReminderFraming, renderEveryReminderBatchFraming,
   resolveEveryOccurrence, type ScheduleRecord, type ScheduleChange, type EveryScheduleRecord,
 } from '@deepseek-ai/dsh-schedule'
-import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, SessionLogOffset } from '@deepseek-ai/dsh-session'
 import { insertMainInput, MAIN_WAKE_MS, MAIN_QUEUE_BYTES, MAIN_QUEUE_LIMIT } from './main-session-queue.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -83,6 +83,11 @@ export function nextSchedule(storage: DurableObjectStorage): { sessionId: string
   return row === undefined ? undefined : { sessionId: row.session_id, due: row.due }
 }
 
+/** Failed admission retains a bounded wake time even when only paused inputs occupy capacity. */
+export function scheduleWakeTime(due: number | undefined, retryAt: number, busy: boolean, now = Date.now()): number | undefined {
+  return due === undefined ? undefined : Math.max(due, retryAt, now + (busy ? MAIN_WAKE_MS : 1))
+}
+
 /** Match upstream: one-shot first; otherwise batch the latest occurrence of each due Every. */
 export function dueScheduleChanges(storage: DurableObjectStorage, sessionId: string, now: number): ScheduleChange[] {
   const rows = storage.sql.exec<ScheduleRow>(`SELECT * FROM dsh_schedule_active
@@ -129,6 +134,32 @@ export function persistScheduleChanges(storage: DurableObjectStorage, sessionId:
     }
   }
   if (batchSeq !== undefined) enqueue(renderEveryReminderBatchFraming(every), batchSeq)
+}
+
+/** Every member of a periodic dispatch batch shares one input; never infer safety from its seq alone. */
+export function assertScheduleTailRepairable(rows: readonly { type: string; data: string }[]): void {
+  for (const row of rows) {
+    if (row.type !== 'schedule/change') continue
+    let change: ScheduleChange
+    try { change = decodeScheduleChange(JSON.parse(row.data) as unknown) }
+    catch { throw new Error('Cannot automatically repair a malformed reminder event; delivery state is unknown.') }
+    if (change.operation === 'dispatch') throw new Error('Cannot automatically repair a torn dispatched reminder; delivery may already have occurred.')
+  }
+}
+
+/** Rare repair write: rebuild from the retained canonical prefix, never replay dispatch side effects. */
+export function rebuildSchedules(storage: DurableObjectStorage, sessionId: string, events: readonly SessionEvent[], inheritedEventCount: SessionLogOffset): void {
+  const folded = foldScheduleEvents(events, inheritedEventCount)
+  const created = new Map<string, number>()
+  for (const event of events) {
+    if (event.seq < inheritedEventCount || event.type !== 'schedule/change') continue
+    const change = decodeScheduleChange(event.data)
+    if (change.operation === 'create') created.set(change.schedule.id, event.seq)
+  }
+  storage.sql.exec('DELETE FROM dsh_schedule_active WHERE session_id = ?', sessionId)
+  const remaining = storage.sql.exec<{ count: number }>('SELECT count(*) AS count FROM dsh_schedule_active').toArray()[0]!.count
+  if (remaining + folded.active.length > MAX_ACTIVE_SCHEDULES) throw new Error('Schedule repair would exceed the active reminder budget.')
+  for (const record of folded.active) storage.sql.exec('INSERT INTO dsh_schedule_active VALUES (?,?,?,?,?)', sessionId, record.id, JSON.stringify(record), Date.parse(record.scheduledAt), created.get(record.id)!)
 }
 
 /** Only advance the alarm here; the owner merges/removes all wake sources after driving. */

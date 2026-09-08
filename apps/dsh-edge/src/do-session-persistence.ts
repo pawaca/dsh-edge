@@ -1,6 +1,6 @@
 /** Upstream SessionPersistence implemented over Cloudflare Durable Object SQL. */
 
-import { initializeSchedules, persistScheduleChanges, armScheduleWake } from './schedule-store.ts'
+import { initializeSchedules, persistScheduleChanges, assertScheduleTailRepairable, rebuildSchedules, armScheduleWake } from './schedule-store.ts'
 import { initializeMainQueue, acknowledgeMainInputs } from './main-session-queue.ts'
 import { Context } from '@deepseek-ai/cordis'
 import {
@@ -500,25 +500,25 @@ export class DurableObjectSessionPersistence
     tornMarker: number | undefined,
     closers: readonly SessionEvent[],
   ): Promise<void> {
-    return promiseFromSync(() => {
-      this.storage.transactionSync(() => {
-        if (tornMarker !== undefined) {
-          this.storage.sql.exec(
-            'DELETE FROM dsh_session_events WHERE session_id = ? AND seq >= ?',
-            storage.meta.id,
-            tornMarker,
-          )
-        }
-        for (const event of closers) this.insertEvent(storage.meta.id, event)
-        if (tornMarker !== undefined || closers.length > 0) {
-          this.storage.sql.exec(
-            'UPDATE dsh_sessions SET revision = revision + 1 WHERE id = ?',
-            storage.meta.id,
-          )
-          this.recomputeSummary(storage.meta.id)
-        }
-      })
-    })
+    const write = () => {
+      if (tornMarker !== undefined) {
+        // A corrupted dispatch may already have escaped to the model. Do not
+        // restore its active record and silently submit that occurrence again.
+        assertScheduleTailRepairable(this.eventRows(storage.meta.id, tornMarker))
+        this.storage.sql.exec('DELETE FROM dsh_session_events WHERE session_id = ? AND seq >= ?', storage.meta.id, tornMarker)
+      }
+      for (const event of closers) this.insertEvent(storage.meta.id, event)
+      if (tornMarker !== undefined || closers.length > 0) {
+        this.storage.sql.exec('UPDATE dsh_sessions SET revision = revision + 1 WHERE id = ?', storage.meta.id)
+        this.recomputeSummary(storage.meta.id)
+      }
+      if (tornMarker !== undefined) {
+        const { preserved } = scanRows(this.eventRows(storage.meta.id, 0))
+        rebuildSchedules(this.storage, storage.meta.id, preserved, storage.inheritedEventCount)
+      }
+    }
+    if (tornMarker === undefined) return promiseFromSync(() => this.storage.transactionSync(write))
+    return this.storage.transaction(async () => { write(); await armScheduleWake(this.storage) })
   }
 
   list(signal?: AbortSignal): Promise<SessionHeader[]> {
