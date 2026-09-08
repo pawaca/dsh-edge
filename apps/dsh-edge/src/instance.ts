@@ -477,7 +477,12 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         if (due !== undefined && due.due <= Date.now() && this.scheduleRetryAt <= Date.now()) {
           // No progress (including a preparation error) must not create a hot alarm loop.
           this.scheduleRetryAt = Date.now() + MAIN_WAKE_MS
-          if (await this.sessions.dispatchDueSchedules(SessionId(due.sessionId), this.model, this.ctx.storage)) this.scheduleRetryAt = 0
+          try {
+            if (await this.sessions.dispatchDueSchedules(SessionId(due.sessionId), this.model, this.ctx.storage)) this.scheduleRetryAt = 0
+          } catch (error) {
+            // A broken reminder must not prevent healthy queued sessions from claiming the slot.
+            console.error('dsh-edge reminder preparation failed; retry is deferred.', error)
+          }
         }
         const claim = this.mainQueue.claim()
         if (claim === undefined) break
