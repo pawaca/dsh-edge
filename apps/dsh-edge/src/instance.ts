@@ -1,5 +1,6 @@
 /** Workspace Durable Object with persistent sessions and streamed agent turns. */
 
+import { initializeSchedules, nextSchedule, scheduleWakeTime, setScheduleRetry } from './schedule-store.ts'
 import { AsyncLocalStorage } from 'node:async_hooks'
 
 import {
@@ -336,6 +337,14 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
   })
   private readonly apiFetch = (request: Request) => dispatchEdgeApi(this.api, request)
 
+  constructor(ctx: DurableObjectState, env: EdgeEnv) {
+    super(ctx, env)
+    initializeSchedules(ctx.storage)
+    // HTTP/alarm wakes must also reconnect hibernation-restored Remote carriers.
+    // Otherwise an open socket can outlive all its process-local stream pumps.
+    this.closeExpiredDownlinks()
+  }
+
   /** Serve session routes forwarded by the entry Worker. */
   override async fetch(request: Request): Promise<Response> {
     try {
@@ -431,7 +440,10 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     const work = this.mainQueue.hasWork()
       ? Date.now() + (this.mainDriving || this.mainQueue.current() !== undefined ? MAIN_WAKE_MS : 1)
       : undefined
-    const next = expiry === undefined ? work : work === undefined ? expiry : Math.min(expiry, work)
+    const schedule = nextSchedule(this.ctx.storage)
+    const due = scheduleWakeTime(schedule?.due, this.mainDriving)
+    const times = [expiry, work, due].filter((time): time is number => time !== undefined)
+    const next = times.length === 0 ? undefined : Math.min(...times)
     if (next === undefined) await this.ctx.storage.deleteAlarm()
     else await this.ctx.storage.setAlarm(next)
   }
@@ -460,6 +472,17 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         }
       }
       do {
+        const due = nextSchedule(this.ctx.storage)
+        if (due !== undefined && due.due <= Date.now()) {
+          // No progress (including a preparation error) must not create a hot alarm loop.
+          setScheduleRetry(this.ctx.storage, due.sessionId, Date.now() + MAIN_WAKE_MS)
+          try {
+            if (await this.sessions.dispatchDueSchedules(SessionId(due.sessionId), this.model, this.ctx.storage)) setScheduleRetry(this.ctx.storage, due.sessionId, 0)
+          } catch (error) {
+            // A broken reminder must not prevent healthy queued sessions from claiming the slot.
+            console.error('dsh-edge reminder preparation failed; retry is deferred.', error)
+          }
+        }
         const claim = this.mainQueue.claim()
         if (claim === undefined) break
         const { input, epoch } = claim
@@ -1017,6 +1040,10 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       const attachment = readDownlinkAttachment(socket)
       if (attachment === undefined || attachment.expiresAt * 1_000 <= now) {
         socket.close(OWNER_SESSION_EXPIRED_CLOSE_CODE, OWNER_SESSION_EXPIRED_CLOSE_REASON)
+        continue
+      }
+      if (attachment.channel === 'remote.mux' && !remoteStreams.has(socket)) {
+        socket.close(1011, 'Remote stream state was lost; reconnect')
         continue
       }
       const expiresAt = attachment.expiresAt * 1_000

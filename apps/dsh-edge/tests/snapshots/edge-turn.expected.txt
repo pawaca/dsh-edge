@@ -309,6 +309,82 @@ Use goal tools for one long-running completion objective in the current session.
               },
             },
             {
+              "description": "Create one reminder in the current session. Supply a non-empty prompt and exactly one selector: a positive safe-integer after_seconds delay, at as a strict offset date-time or local date/time object, or safe-integer every_seconds of at least 300. Fixed-rate reminders stay creation-aligned, skip missed occurrences, and batch one latest occurrence per overdue rule. Delivery is session-local: Cloudflare wakes this session when due; delivery waits for the shared execution slot without interrupting running work. No external notification is sent.",
+              "name": "schedule_create",
+              "parameters": {
+                "properties": {
+                  "after_seconds": {
+                    "description": "Positive safe-integer delay in seconds.",
+                    "type": "number",
+                  },
+                  "at": {
+                    "description": "Absolute target as strict offset RFC 3339 or local date/time with an explicit IANA zone.",
+                    "oneOf": [
+                      {
+                        "type": "string",
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "date": {
+                            "type": "string",
+                          },
+                          "time": {
+                            "type": "string",
+                          },
+                          "time_zone": {
+                            "type": "string",
+                          },
+                        },
+                        "required": [
+                          "date",
+                          "time",
+                          "time_zone",
+                        ],
+                        "type": "object",
+                      },
+                    ],
+                  },
+                  "every_seconds": {
+                    "description": "Fixed-rate safe-integer interval in seconds, at least 300.",
+                    "type": "number",
+                  },
+                  "prompt": {
+                    "description": "Reminder content to present when the target becomes due.",
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "prompt",
+                ],
+                "type": "object",
+              },
+            },
+            {
+              "description": "Delete one active reminder in the current session by the exact id returned by schedule_create or schedule_list. Unknown or already-finished ids return deleted false.",
+              "name": "schedule_delete",
+              "parameters": {
+                "properties": {
+                  "id": {
+                    "description": "Exact session-local schedule id.",
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "id",
+                ],
+                "type": "object",
+              },
+            },
+            {
+              "description": "List every active reminder in the current session in creation order, including its exact id, UTC target, scheduled or overdue state, and session-local delivery mode.",
+              "name": "schedule_list",
+              "parameters": {
+                "properties": {},
+                "type": "object",
+              },
+            },
+            {
               "description": "Load the full instructions for an available skill. Call this with the exact skill name from the session skill catalog before acting on a task that names or clearly matches that skill.",
               "name": "skill",
               "parameters": {
@@ -860,6 +936,82 @@ Use goal tools for one long-running completion objective in the current session.
                 "required": [
                   "file_path",
                 ],
+                "type": "object",
+              },
+            },
+            {
+              "description": "Create one reminder in the current session. Supply a non-empty prompt and exactly one selector: a positive safe-integer after_seconds delay, at as a strict offset date-time or local date/time object, or safe-integer every_seconds of at least 300. Fixed-rate reminders stay creation-aligned, skip missed occurrences, and batch one latest occurrence per overdue rule. Delivery is session-local: Cloudflare wakes this session when due; delivery waits for the shared execution slot without interrupting running work. No external notification is sent.",
+              "name": "schedule_create",
+              "parameters": {
+                "properties": {
+                  "after_seconds": {
+                    "description": "Positive safe-integer delay in seconds.",
+                    "type": "number",
+                  },
+                  "at": {
+                    "description": "Absolute target as strict offset RFC 3339 or local date/time with an explicit IANA zone.",
+                    "oneOf": [
+                      {
+                        "type": "string",
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "date": {
+                            "type": "string",
+                          },
+                          "time": {
+                            "type": "string",
+                          },
+                          "time_zone": {
+                            "type": "string",
+                          },
+                        },
+                        "required": [
+                          "date",
+                          "time",
+                          "time_zone",
+                        ],
+                        "type": "object",
+                      },
+                    ],
+                  },
+                  "every_seconds": {
+                    "description": "Fixed-rate safe-integer interval in seconds, at least 300.",
+                    "type": "number",
+                  },
+                  "prompt": {
+                    "description": "Reminder content to present when the target becomes due.",
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "prompt",
+                ],
+                "type": "object",
+              },
+            },
+            {
+              "description": "Delete one active reminder in the current session by the exact id returned by schedule_create or schedule_list. Unknown or already-finished ids return deleted false.",
+              "name": "schedule_delete",
+              "parameters": {
+                "properties": {
+                  "id": {
+                    "description": "Exact session-local schedule id.",
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "id",
+                ],
+                "type": "object",
+              },
+            },
+            {
+              "description": "List every active reminder in the current session in creation order, including its exact id, UTC target, scheduled or overdue state, and session-local delivery mode.",
+              "name": "schedule_list",
+              "parameters": {
+                "properties": {},
                 "type": "object",
               },
             },
@@ -1451,6 +1603,82 @@ Use goal tools for one long-running completion objective in the current session.
               },
             },
             {
+              "description": "Create one reminder in the current session. Supply a non-empty prompt and exactly one selector: a positive safe-integer after_seconds delay, at as a strict offset date-time or local date/time object, or safe-integer every_seconds of at least 300. Fixed-rate reminders stay creation-aligned, skip missed occurrences, and batch one latest occurrence per overdue rule. Delivery is session-local: Cloudflare wakes this session when due; delivery waits for the shared execution slot without interrupting running work. No external notification is sent.",
+              "name": "schedule_create",
+              "parameters": {
+                "properties": {
+                  "after_seconds": {
+                    "description": "Positive safe-integer delay in seconds.",
+                    "type": "number",
+                  },
+                  "at": {
+                    "description": "Absolute target as strict offset RFC 3339 or local date/time with an explicit IANA zone.",
+                    "oneOf": [
+                      {
+                        "type": "string",
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "date": {
+                            "type": "string",
+                          },
+                          "time": {
+                            "type": "string",
+                          },
+                          "time_zone": {
+                            "type": "string",
+                          },
+                        },
+                        "required": [
+                          "date",
+                          "time",
+                          "time_zone",
+                        ],
+                        "type": "object",
+                      },
+                    ],
+                  },
+                  "every_seconds": {
+                    "description": "Fixed-rate safe-integer interval in seconds, at least 300.",
+                    "type": "number",
+                  },
+                  "prompt": {
+                    "description": "Reminder content to present when the target becomes due.",
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "prompt",
+                ],
+                "type": "object",
+              },
+            },
+            {
+              "description": "Delete one active reminder in the current session by the exact id returned by schedule_create or schedule_list. Unknown or already-finished ids return deleted false.",
+              "name": "schedule_delete",
+              "parameters": {
+                "properties": {
+                  "id": {
+                    "description": "Exact session-local schedule id.",
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "id",
+                ],
+                "type": "object",
+              },
+            },
+            {
+              "description": "List every active reminder in the current session in creation order, including its exact id, UTC target, scheduled or overdue state, and session-local delivery mode.",
+              "name": "schedule_list",
+              "parameters": {
+                "properties": {},
+                "type": "object",
+              },
+            },
+            {
               "description": "Load the full instructions for an available skill. Call this with the exact skill name from the session skill catalog before acting on a task that names or clearly matches that skill.",
               "name": "skill",
               "parameters": {
@@ -2006,6 +2234,82 @@ Use goal tools for one long-running completion objective in the current session.
               },
             },
             {
+              "description": "Create one reminder in the current session. Supply a non-empty prompt and exactly one selector: a positive safe-integer after_seconds delay, at as a strict offset date-time or local date/time object, or safe-integer every_seconds of at least 300. Fixed-rate reminders stay creation-aligned, skip missed occurrences, and batch one latest occurrence per overdue rule. Delivery is session-local: Cloudflare wakes this session when due; delivery waits for the shared execution slot without interrupting running work. No external notification is sent.",
+              "name": "schedule_create",
+              "parameters": {
+                "properties": {
+                  "after_seconds": {
+                    "description": "Positive safe-integer delay in seconds.",
+                    "type": "number",
+                  },
+                  "at": {
+                    "description": "Absolute target as strict offset RFC 3339 or local date/time with an explicit IANA zone.",
+                    "oneOf": [
+                      {
+                        "type": "string",
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "date": {
+                            "type": "string",
+                          },
+                          "time": {
+                            "type": "string",
+                          },
+                          "time_zone": {
+                            "type": "string",
+                          },
+                        },
+                        "required": [
+                          "date",
+                          "time",
+                          "time_zone",
+                        ],
+                        "type": "object",
+                      },
+                    ],
+                  },
+                  "every_seconds": {
+                    "description": "Fixed-rate safe-integer interval in seconds, at least 300.",
+                    "type": "number",
+                  },
+                  "prompt": {
+                    "description": "Reminder content to present when the target becomes due.",
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "prompt",
+                ],
+                "type": "object",
+              },
+            },
+            {
+              "description": "Delete one active reminder in the current session by the exact id returned by schedule_create or schedule_list. Unknown or already-finished ids return deleted false.",
+              "name": "schedule_delete",
+              "parameters": {
+                "properties": {
+                  "id": {
+                    "description": "Exact session-local schedule id.",
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "id",
+                ],
+                "type": "object",
+              },
+            },
+            {
+              "description": "List every active reminder in the current session in creation order, including its exact id, UTC target, scheduled or overdue state, and session-local delivery mode.",
+              "name": "schedule_list",
+              "parameters": {
+                "properties": {},
+                "type": "object",
+              },
+            },
+            {
               "description": "Load the full instructions for an available skill. Call this with the exact skill name from the session skill catalog before acting on a task that names or clearly matches that skill.",
               "name": "skill",
               "parameters": {
@@ -2536,6 +2840,91 @@ Use goal tools for one long-running completion objective in the current session.
         },
         {
           "function": {
+            "description": "Create one reminder in the current session. Supply a non-empty prompt and exactly one selector: a positive safe-integer after_seconds delay, at as a strict offset date-time or local date/time object, or safe-integer every_seconds of at least 300. Fixed-rate reminders stay creation-aligned, skip missed occurrences, and batch one latest occurrence per overdue rule. Delivery is session-local: Cloudflare wakes this session when due; delivery waits for the shared execution slot without interrupting running work. No external notification is sent.",
+            "name": "schedule_create",
+            "parameters": {
+              "properties": {
+                "after_seconds": {
+                  "description": "Positive safe-integer delay in seconds.",
+                  "type": "number",
+                },
+                "at": {
+                  "description": "Absolute target as strict offset RFC 3339 or local date/time with an explicit IANA zone.",
+                  "oneOf": [
+                    {
+                      "type": "string",
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "date": {
+                          "type": "string",
+                        },
+                        "time": {
+                          "type": "string",
+                        },
+                        "time_zone": {
+                          "type": "string",
+                        },
+                      },
+                      "required": [
+                        "date",
+                        "time",
+                        "time_zone",
+                      ],
+                      "type": "object",
+                    },
+                  ],
+                },
+                "every_seconds": {
+                  "description": "Fixed-rate safe-integer interval in seconds, at least 300.",
+                  "type": "number",
+                },
+                "prompt": {
+                  "description": "Reminder content to present when the target becomes due.",
+                  "type": "string",
+                },
+              },
+              "required": [
+                "prompt",
+              ],
+              "type": "object",
+            },
+          },
+          "type": "function",
+        },
+        {
+          "function": {
+            "description": "Delete one active reminder in the current session by the exact id returned by schedule_create or schedule_list. Unknown or already-finished ids return deleted false.",
+            "name": "schedule_delete",
+            "parameters": {
+              "properties": {
+                "id": {
+                  "description": "Exact session-local schedule id.",
+                  "type": "string",
+                },
+              },
+              "required": [
+                "id",
+              ],
+              "type": "object",
+            },
+          },
+          "type": "function",
+        },
+        {
+          "function": {
+            "description": "List every active reminder in the current session in creation order, including its exact id, UTC target, scheduled or overdue state, and session-local delivery mode.",
+            "name": "schedule_list",
+            "parameters": {
+              "properties": {},
+              "type": "object",
+            },
+          },
+          "type": "function",
+        },
+        {
+          "function": {
             "description": "Load the full instructions for an available skill. Call this with the exact skill name from the session skill catalog before acting on a task that names or clearly matches that skill.",
             "name": "skill",
             "parameters": {
@@ -2950,6 +3339,91 @@ Use goal tools for one long-running completion objective in the current session.
               "required": [
                 "file_path",
               ],
+              "type": "object",
+            },
+          },
+          "type": "function",
+        },
+        {
+          "function": {
+            "description": "Create one reminder in the current session. Supply a non-empty prompt and exactly one selector: a positive safe-integer after_seconds delay, at as a strict offset date-time or local date/time object, or safe-integer every_seconds of at least 300. Fixed-rate reminders stay creation-aligned, skip missed occurrences, and batch one latest occurrence per overdue rule. Delivery is session-local: Cloudflare wakes this session when due; delivery waits for the shared execution slot without interrupting running work. No external notification is sent.",
+            "name": "schedule_create",
+            "parameters": {
+              "properties": {
+                "after_seconds": {
+                  "description": "Positive safe-integer delay in seconds.",
+                  "type": "number",
+                },
+                "at": {
+                  "description": "Absolute target as strict offset RFC 3339 or local date/time with an explicit IANA zone.",
+                  "oneOf": [
+                    {
+                      "type": "string",
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "date": {
+                          "type": "string",
+                        },
+                        "time": {
+                          "type": "string",
+                        },
+                        "time_zone": {
+                          "type": "string",
+                        },
+                      },
+                      "required": [
+                        "date",
+                        "time",
+                        "time_zone",
+                      ],
+                      "type": "object",
+                    },
+                  ],
+                },
+                "every_seconds": {
+                  "description": "Fixed-rate safe-integer interval in seconds, at least 300.",
+                  "type": "number",
+                },
+                "prompt": {
+                  "description": "Reminder content to present when the target becomes due.",
+                  "type": "string",
+                },
+              },
+              "required": [
+                "prompt",
+              ],
+              "type": "object",
+            },
+          },
+          "type": "function",
+        },
+        {
+          "function": {
+            "description": "Delete one active reminder in the current session by the exact id returned by schedule_create or schedule_list. Unknown or already-finished ids return deleted false.",
+            "name": "schedule_delete",
+            "parameters": {
+              "properties": {
+                "id": {
+                  "description": "Exact session-local schedule id.",
+                  "type": "string",
+                },
+              },
+              "required": [
+                "id",
+              ],
+              "type": "object",
+            },
+          },
+          "type": "function",
+        },
+        {
+          "function": {
+            "description": "List every active reminder in the current session in creation order, including its exact id, UTC target, scheduled or overdue state, and session-local delivery mode.",
+            "name": "schedule_list",
+            "parameters": {
+              "properties": {},
               "type": "object",
             },
           },

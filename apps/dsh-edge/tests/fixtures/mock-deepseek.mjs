@@ -110,6 +110,36 @@ export async function startMockDeepSeek(port = 0) {
         .filter(message => message.role === 'tool')
       const hasToolResult = toolResults.length > 0
 
+      if (prompt.startsWith('[SCHEDULE REMINDER')) {
+        sendEvents(response, [
+          { choices: [{ delta: { role: 'assistant', content: 'schedule-delivered' } }] },
+          { choices: [{ delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 8, completion_tokens: 3 } },
+        ])
+        return
+      }
+
+      if (prompt.startsWith('schedule delete ') && !hasToolResult) {
+        sendEvents(response, [
+          { choices: [{ delta: { role: 'assistant', content: null, reasoning_content: '' } }] },
+          { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_delete_schedule', type: 'function', function: {
+            name: 'schedule_delete', arguments: JSON.stringify({ id: prompt.slice('schedule delete '.length) }),
+          } }] } }] },
+          { choices: [{ delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 8, completion_tokens: 3 } },
+        ])
+        return
+      }
+
+      if (prompt.startsWith('schedule once ') && !hasToolResult) {
+        sendEvents(response, [
+          { choices: [{ delta: { role: 'assistant', content: null, reasoning_content: '' } }] },
+          { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_schedule', type: 'function', function: {
+            name: 'schedule_create', arguments: JSON.stringify({ prompt: 'schedule-fixture-reminder', after_seconds: Number(prompt.slice('schedule once '.length)) }),
+          } }] } }] },
+          { choices: [{ delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 8, completion_tokens: 3 } },
+        ])
+        return
+      }
+
       if (prompt.includes('slow')) {
         const continueAfterFirstEvent = new Promise(resolve => {
           slowResponseReleases.push(resolve)

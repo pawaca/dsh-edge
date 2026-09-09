@@ -1,5 +1,6 @@
 /** Canonical DSH sessions backed by the upstream persistence service. */
 
+import { installScheduleTools, dueScheduleChanges, reserveScheduleAdmission } from './schedule-store.ts'
 import { Context, Service as CordisService } from '@deepseek-ai/cordis'
 import { installShortToolPool } from './short-tool-pool.ts'
 import Storage from '@deepseek-ai/dsh-storage'
@@ -490,6 +491,10 @@ export class EdgeSessionStore {
     await installEdgeWebSearch(this.context, config.searchBaseURL)
     await this.context.plugin(AgentLoop, { agents: [] })
     installShortToolPool(this.context)
+    this.context.on('agent/created', ({ agent }) => {
+      if (!this.context.agents.roots().includes(agent)) return
+      agent.ctx.effect(() => installScheduleTools(this.context, agent, storage), 'dsh-edge: schedule tools')
+    })
     this.context.effect(
       () => this.context.tools.register(createEdgeBashTool(this.shells)),
       'dsh-edge: bash tool',
@@ -1277,6 +1282,21 @@ export class EdgeSessionStore {
   async attachedSessionCount(): Promise<number> {
     const { agents } = await this.services()
     return agents.list().length
+  }
+
+  /** The caller owns the main slot while preparing and durably admitting due reminders. */
+  async dispatchDueSchedules(id: SessionId, model: string, storage: DurableObjectStorage): Promise<boolean> {
+    const handle = await this.openAgentForTurn(id, model)
+    try {
+      const changes = dueScheduleChanges(storage, id, Date.now())
+      if (changes.length === 0 || !reserveScheduleAdmission(storage, id, changes)) return false
+      for (const change of changes) handle.agent.session.append('schedule/change', change)
+      await this.context.sessions.flush(handle.agent.session)
+      return true
+    } finally {
+      try { await handle.dispose() }
+      finally { storage.sql.exec('DELETE FROM dsh_runtime_schedule_reservation WHERE id = 1') }
+    }
   }
 
   /** Resolve a live native agent, or cold-resume it through upstream persistence. */

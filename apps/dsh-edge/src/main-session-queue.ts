@@ -25,8 +25,25 @@ export interface MainInput {
   message: UserMessage
 }
 
+/** Caller owns the transaction. System inputs must not resume a crash-paused session. */
+export function insertMainInput(storage: DurableObjectStorage, sessionId: string, inputId: string, digest: string, message: UserMessage, state: 'queued' | 'steering' = 'queued', scheduled = false): void {
+  const encoded = JSON.stringify(message)
+  const bytes = new TextEncoder().encode(encoded).byteLength
+  const total = storage.sql.exec<{ pending: number; bytes: number }>('SELECT pending, bytes FROM dsh_runtime_slot WHERE id = 1').toArray()[0]!
+  const reservation = scheduled ? undefined : storage.sql.exec<{ bytes: number }>('SELECT bytes FROM dsh_runtime_schedule_reservation WHERE id = 1').toArray()[0]
+  if (total.pending + (reservation === undefined ? 0 : 1) >= MAIN_QUEUE_LIMIT || total.bytes + bytes + (reservation?.bytes ?? 0) > MAIN_QUEUE_BYTES) throw new MainQueueFullError('Main session queue is full; retry later.')
+  storage.sql.exec(`INSERT INTO dsh_runtime_inputs(session_id,input_id,digest,message,bytes,state) VALUES (?,?,?,?,?,?)`, sessionId, inputId, digest, encoded, bytes, state)
+  storage.sql.exec('UPDATE dsh_runtime_slot SET pending = pending + 1, bytes = bytes + ? WHERE id = 1', bytes)
+  if (scheduled) storage.sql.exec('DELETE FROM dsh_runtime_schedule_reservation WHERE id = 1')
+  if (state === 'queued') {
+    storage.sql.exec('UPDATE dsh_runtime_slot SET serial = serial + 1 WHERE id = 1')
+    storage.sql.exec(`INSERT OR IGNORE INTO dsh_runtime_ready(session_id,position) SELECT ?, serial FROM dsh_runtime_slot WHERE id = 1`, sessionId)
+  }
+}
+
 /** Shared schema initializer also used by the canonical persistence adapter. */
 export function initializeMainQueue(storage: DurableObjectStorage): void {
+  storage.sql.exec('CREATE TABLE IF NOT EXISTS dsh_runtime_schedule_reservation (id INTEGER PRIMARY KEY CHECK(id = 1), bytes INTEGER NOT NULL)')
   storage.sql.exec(`CREATE TABLE IF NOT EXISTS dsh_runtime_inputs (
     seq INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, input_id TEXT NOT NULL,
     digest TEXT NOT NULL, message TEXT NOT NULL, bytes INTEGER NOT NULL,
@@ -66,6 +83,8 @@ export class MainSessionQueue {
   private readonly startupClaim: ReturnType<MainSessionQueue['current']>
   constructor(private readonly storage: DurableObjectStorage) {
     initializeMainQueue(storage)
+    // A reservation belongs to one process-local preparation, never to a restarted owner.
+    storage.sql.exec('DELETE FROM dsh_runtime_schedule_reservation WHERE id = 1')
     this.startupClaim = this.current()
     // An uncommitted steer belongs to a dead run, never to a future ordinary turn.
     storage.transactionSync(() => {
@@ -90,16 +109,8 @@ export class MainSessionQueue {
         if (old.state === 'rejected') throw new Error('Steering submission was rejected; use a new request identity.')
         return this.decode(old)
       }
-      const encoded = JSON.stringify(message)
-      const bytes = new TextEncoder().encode(encoded).byteLength
-      const total = this.storage.sql.exec<{ pending: number; bytes: number }>('SELECT pending, bytes FROM dsh_runtime_slot WHERE id = 1').toArray()[0]!
-      if (total.pending >= MAIN_QUEUE_LIMIT || total.bytes + bytes > MAIN_QUEUE_BYTES) throw new MainQueueFullError('Main session queue is full; retry later.')
-      this.storage.sql.exec(`INSERT INTO dsh_runtime_inputs(session_id,input_id,digest,message,bytes,state) VALUES (?,?,?,?,?,?)`, sessionId, inputId, digest, encoded, bytes, steering ? 'steering' : 'queued')
-      this.storage.sql.exec('UPDATE dsh_runtime_slot SET pending = pending + 1, bytes = bytes + ? WHERE id = 1', bytes)
-      if (!steering) {
-        this.ready(sessionId)
-        this.resume(sessionId)
-      }
+      insertMainInput(this.storage, sessionId, inputId, digest, message, steering ? 'steering' : 'queued')
+      if (!steering) this.resume(sessionId)
       return this.decode(this.rows('SELECT * FROM dsh_runtime_inputs WHERE session_id = ? AND input_id = ?', sessionId, inputId)[0]!, true)
     })
   }
@@ -195,7 +206,8 @@ export class MainSessionQueue {
       const encoded = JSON.stringify(message)
       const bytes = new TextEncoder().encode(encoded).byteLength
       const total = this.storage.sql.exec<{ bytes: number }>('SELECT bytes FROM dsh_runtime_slot WHERE id = 1').toArray()[0]!.bytes
-      if (total + bytes - row.bytes > MAIN_QUEUE_BYTES) throw new MainQueueFullError('Main queue byte limit exceeded; retry later.')
+      const reserved = this.storage.sql.exec<{ bytes: number }>('SELECT bytes FROM dsh_runtime_schedule_reservation WHERE id = 1').toArray()[0]?.bytes ?? 0
+      if (total + bytes - row.bytes + reserved > MAIN_QUEUE_BYTES) throw new MainQueueFullError('Main queue byte limit exceeded; retry later.')
       this.storage.sql.exec('UPDATE dsh_runtime_inputs SET message = ?, bytes = ? WHERE seq = ?', encoded, bytes, row.seq)
       this.storage.sql.exec('UPDATE dsh_runtime_slot SET bytes = bytes + ? WHERE id = 1', bytes - row.bytes)
     })

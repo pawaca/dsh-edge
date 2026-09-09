@@ -35,7 +35,7 @@ SOFTWARE.
 
 ## Bundled component inventory
 
-The following 507 package versions form the conservative, platform-neutral production closure used to assemble the Web and Worker artifacts in this distribution. Platform-specific build binaries that are not distributed in those artifacts are excluded; tree shaking can omit additional code. The inventory and legal texts are generated during packaging rather than referring recipients to a source checkout. License expressions are SPDX identifiers supplied by each package. Dependencies installed separately by npm remain declared in this package's `package.json`.
+The following 508 package versions form the conservative, platform-neutral production closure used to assemble the Web and Worker artifacts in this distribution. Platform-specific build binaries that are not distributed in those artifacts are excluded; tree shaking can omit additional code. The inventory and legal texts are generated during packaging rather than referring recipients to a source checkout. License expressions are SPDX identifiers supplied by each package. Dependencies installed separately by npm remain declared in this package's `package.json`.
 
 | Component | License |
 | --- | --- |
@@ -195,6 +195,7 @@ The following 507 package versions form the conservative, platform-neutral produ
 | `@deepseek-ai/dsh-sandbox-local@0.1.2-rc.1` | `MIT` |
 | `@deepseek-ai/dsh-sandbox-policy@0.1.2-rc.1` | `MIT` |
 | `@deepseek-ai/dsh-sandbox-windows-acl@0.1.2-rc.1` | `MIT` |
+| `@deepseek-ai/dsh-schedule@0.1.2-rc.1` | `MIT` |
 | `@deepseek-ai/dsh-scope@0.1.2-rc.1` | `MIT` |
 | `@deepseek-ai/dsh-session@0.1.2-rc.1` | `MIT` |
 | `@deepseek-ai/dsh-session-checkpoint-policy@0.1.2-rc.1` | `MIT` |
@@ -9461,6 +9462,7 @@ Applies to:
 - `@deepseek-ai/dsh-sandbox-local@0.1.2-rc.1` (`LICENSE`)
 - `@deepseek-ai/dsh-sandbox-policy@0.1.2-rc.1` (`LICENSE`)
 - `@deepseek-ai/dsh-sandbox-windows-acl@0.1.2-rc.1` (`LICENSE`)
+- `@deepseek-ai/dsh-schedule@0.1.2-rc.1` (`LICENSE`)
 - `@deepseek-ai/dsh-scope@0.1.2-rc.1` (`LICENSE`)
 - `@deepseek-ai/dsh-session@0.1.2-rc.1` (`LICENSE`)
 - `@deepseek-ai/dsh-session-checkpoint-policy@0.1.2-rc.1` (`LICENSE`)
