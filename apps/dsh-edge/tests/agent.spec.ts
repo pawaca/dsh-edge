@@ -298,6 +298,119 @@ describe('dsh-edge native agent runtime', () => {
   })
 })
 
+describe('dsh-edge subagent delegation', () => {
+  async function subagentHarness(replies: readonly (readonly StreamChunk[])[], shell: EdgeShell) {
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SystemPrompt, { persona: EDGE_SYSTEM_PROMPT })
+    await ctx.plugin(ToolRuntime)
+    await ctx.plugin(SessionProjectionRegistry)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(AgentLoop, { agents: [] })
+
+    const { default: SubagentRuntime } = await import('@deepseek-ai/dsh-subagent')
+    await ctx.plugin(SubagentRuntime)
+    const SpawnInProcess = await import('@deepseek-ai/dsh-subagent-spawn-in-process')
+    await ctx.plugin(SpawnInProcess, { providerName: 'spawn' })
+    const ToolSubagent = await import('@deepseek-ai/dsh-tool-subagent')
+    await ctx.plugin(ToolSubagent, {
+      provider: 'spawn',
+      maxDepth: 1,
+      enableRunInBackground: false,
+    })
+
+    const adapter = new ScriptedAdapter(replies)
+    const shells = new EdgeShellBindings()
+    ctx.llm.registerAdapter(['deepseek-official'], adapter)
+    ctx.tools.register(createEdgeBashTool(shells))
+
+    ctx.on('agent/created', ({ agent }) => {
+      const parentId = agent.session.header.parentSession
+      if (parentId === undefined) return
+      const parentShell = shells.get(parentId)
+      if (parentShell === undefined) return
+      const cwd = agent.session.header.cwd ?? parentShell.cwd
+      const release = shells.bind(agent.id, parentShell.shell, cwd)
+      agent.ctx.effect(() => release, 'test: subagent shell binding')
+    })
+
+    const sessionId = SessionId(crypto.randomUUID())
+    const handle = await ctx.agents.create({
+      sessionId,
+      meta: { cwd: '/workspace', agentPreset: 'dsh-edge' },
+      agentOptions: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+    })
+    const { agent } = handle
+    const events: SessionEvent[] = []
+    ctx.on('session/event', (_subject, event) => { events.push(event) })
+    const releaseShell = shells.bind(sessionId, shell, '/workspace')
+    return { ctx, agent, handle, adapter, shells, events, releaseShell }
+  }
+
+  it('registers the subagent tool alongside bash', async () => {
+    const runtime = await subagentHarness([], { exec: vi.fn<EdgeShell['exec']>() })
+    try {
+      expect(runtime.ctx.tools.get('subagent')).toBeDefined()
+      expect(runtime.ctx.tools.get('bash')).toBeDefined()
+    } finally {
+      runtime.releaseShell()
+      await runtime.ctx.fiber.dispose()
+    }
+  })
+
+  it('delegates a one-shot subagent call and returns the child output', async () => {
+    const subagentCallId = ToolCallId('call-subagent')
+    const childReply = textReply('child result: file created', 10, 8)
+    const parentFollowup = textReply('Done. The subagent created the file.', 20, 12)
+
+    const exec = vi.fn<EdgeShell['exec']>()
+    const runtime = await subagentHarness([
+      toolReply(subagentCallId, 'subagent', {
+        description: 'Create a file',
+        prompt: 'Create /workspace/test.txt with content hello',
+      }),
+      childReply,
+      parentFollowup,
+    ], { exec })
+    try {
+      await followup(runtime.agent, 'Create a test file using a subagent')
+      expect(runtime.adapter.requests.length).toBeGreaterThanOrEqual(2)
+      expect(runtime.events.some(e => e.type === 'turn/end')).toBe(true)
+    } finally {
+      runtime.releaseShell()
+      await runtime.ctx.fiber.dispose()
+    }
+  })
+
+  it('binds the parent shell to a child agent automatically', async () => {
+    const shell: EdgeShell = { exec: vi.fn<EdgeShell['exec']>() }
+    const runtime = await subagentHarness([], shell)
+    try {
+      const childId = SessionId('child-test')
+      const childShellRelease = runtime.shells.bind(childId, shell, '/workspace')
+      expect(runtime.shells.get(childId)).toBeDefined()
+      expect(runtime.shells.get(childId)?.shell).toBe(shell)
+      childShellRelease()
+      expect(runtime.shells.get(childId)).toBeUndefined()
+    } finally {
+      runtime.releaseShell()
+      await runtime.ctx.fiber.dispose()
+    }
+  })
+
+  it('exposes EdgeShellBindings.get() for parent lookup', () => {
+    const shells = new EdgeShellBindings()
+    const id = SessionId('test-session')
+    expect(shells.get(id)).toBeUndefined()
+    const mockShell: EdgeShell = { exec: vi.fn<EdgeShell['exec']>() }
+    const release = shells.bind(id, mockShell, '/workspace')
+    expect(shells.get(id)).toEqual({ shell: mockShell, cwd: '/workspace' })
+    release()
+    expect(shells.get(id)).toBeUndefined()
+  })
+})
+
 function textReply(text: string, inputTokens: number, outputTokens: number): StreamChunk[] {
   return [
     { type: 'block-start', index: 0, blockType: 'text' },

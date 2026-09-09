@@ -401,6 +401,27 @@ Use goal tools for one long-running completion objective in the current session.
               },
             },
             {
+              "description": "Delegate a self-contained task to a subagent (a separate agent that works in its own context) to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent returns its result, not its intermediate steps. Give it a complete, standalone prompt: it does not see this conversation. This call waits for the subagent and returns its result.",
+              "name": "subagent",
+              "parameters": {
+                "properties": {
+                  "description": {
+                    "description": "A short (3-5 word) description of the delegated task, for display.",
+                    "type": "string",
+                  },
+                  "prompt": {
+                    "description": "The complete, self-contained task for the subagent. It does not share this conversation's context, so include everything it needs.",
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "description",
+                  "prompt",
+                ],
+                "type": "object",
+              },
+            },
+            {
               "description": "Update the exact current goal revision. edit, pause, and resume require a direct top-level human request. During an automatic continuation of the current goal, complete and blocked are also allowed. blocked is rejected before the configured minimum round count; the model remains responsible for judging that the same condition persisted across those rounds and must explain it in blocked_reason.",
               "name": "update_goal",
               "parameters": {
@@ -1027,6 +1048,27 @@ Use goal tools for one long-running completion objective in the current session.
                 },
                 "required": [
                   "name",
+                ],
+                "type": "object",
+              },
+            },
+            {
+              "description": "Delegate a self-contained task to a subagent (a separate agent that works in its own context) to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent returns its result, not its intermediate steps. Give it a complete, standalone prompt: it does not see this conversation. This call waits for the subagent and returns its result.",
+              "name": "subagent",
+              "parameters": {
+                "properties": {
+                  "description": {
+                    "description": "A short (3-5 word) description of the delegated task, for display.",
+                    "type": "string",
+                  },
+                  "prompt": {
+                    "description": "The complete, self-contained task for the subagent. It does not share this conversation's context, so include everything it needs.",
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "description",
+                  "prompt",
                 ],
                 "type": "object",
               },
@@ -1695,6 +1737,27 @@ Use goal tools for one long-running completion objective in the current session.
               },
             },
             {
+              "description": "Delegate a self-contained task to a subagent (a separate agent that works in its own context) to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent returns its result, not its intermediate steps. Give it a complete, standalone prompt: it does not see this conversation. This call waits for the subagent and returns its result.",
+              "name": "subagent",
+              "parameters": {
+                "properties": {
+                  "description": {
+                    "description": "A short (3-5 word) description of the delegated task, for display.",
+                    "type": "string",
+                  },
+                  "prompt": {
+                    "description": "The complete, self-contained task for the subagent. It does not share this conversation's context, so include everything it needs.",
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "description",
+                  "prompt",
+                ],
+                "type": "object",
+              },
+            },
+            {
               "description": "Update the exact current goal revision. edit, pause, and resume require a direct top-level human request. During an automatic continuation of the current goal, complete and blocked are also allowed. blocked is rejected before the configured minimum round count; the model remains responsible for judging that the same condition persisted across those rounds and must explain it in blocked_reason.",
               "name": "update_goal",
               "parameters": {
@@ -2326,6 +2389,27 @@ Use goal tools for one long-running completion objective in the current session.
               },
             },
             {
+              "description": "Delegate a self-contained task to a subagent (a separate agent that works in its own context) to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent returns its result, not its intermediate steps. Give it a complete, standalone prompt: it does not see this conversation. This call waits for the subagent and returns its result.",
+              "name": "subagent",
+              "parameters": {
+                "properties": {
+                  "description": {
+                    "description": "A short (3-5 word) description of the delegated task, for display.",
+                    "type": "string",
+                  },
+                  "prompt": {
+                    "description": "The complete, self-contained task for the subagent. It does not share this conversation's context, so include everything it needs.",
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "description",
+                  "prompt",
+                ],
+                "type": "object",
+              },
+            },
+            {
               "description": "Update the exact current goal revision. edit, pause, and resume require a direct top-level human request. During an automatic continuation of the current goal, complete and blocked are also allowed. blocked is rejected before the configured minimum round count; the model remains responsible for judging that the same condition persisted across those rounds and must explain it in blocked_reason.",
               "name": "update_goal",
               "parameters": {
@@ -2944,6 +3028,30 @@ Use goal tools for one long-running completion objective in the current session.
         },
         {
           "function": {
+            "description": "Delegate a self-contained task to a subagent (a separate agent that works in its own context) to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent returns its result, not its intermediate steps. Give it a complete, standalone prompt: it does not see this conversation. This call waits for the subagent and returns its result.",
+            "name": "subagent",
+            "parameters": {
+              "properties": {
+                "description": {
+                  "description": "A short (3-5 word) description of the delegated task, for display.",
+                  "type": "string",
+                },
+                "prompt": {
+                  "description": "The complete, self-contained task for the subagent. It does not share this conversation's context, so include everything it needs.",
+                  "type": "string",
+                },
+              },
+              "required": [
+                "description",
+                "prompt",
+              ],
+              "type": "object",
+            },
+          },
+          "type": "function",
+        },
+        {
+          "function": {
             "description": "Update the exact current goal revision. edit, pause, and resume require a direct top-level human request. During an automatic continuation of the current goal, complete and blocked are also allowed. blocked is rejected before the configured minimum round count; the model remains responsible for judging that the same condition persisted across those rounds and must explain it in blocked_reason.",
             "name": "update_goal",
             "parameters": {
@@ -3442,6 +3550,30 @@ Use goal tools for one long-running completion objective in the current session.
               },
               "required": [
                 "name",
+              ],
+              "type": "object",
+            },
+          },
+          "type": "function",
+        },
+        {
+          "function": {
+            "description": "Delegate a self-contained task to a subagent (a separate agent that works in its own context) to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent returns its result, not its intermediate steps. Give it a complete, standalone prompt: it does not see this conversation. This call waits for the subagent and returns its result.",
+            "name": "subagent",
+            "parameters": {
+              "properties": {
+                "description": {
+                  "description": "A short (3-5 word) description of the delegated task, for display.",
+                  "type": "string",
+                },
+                "prompt": {
+                  "description": "The complete, self-contained task for the subagent. It does not share this conversation's context, so include everything it needs.",
+                  "type": "string",
+                },
+              },
+              "required": [
+                "description",
+                "prompt",
               ],
               "type": "object",
             },
