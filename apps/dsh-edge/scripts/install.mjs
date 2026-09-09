@@ -552,7 +552,7 @@ export async function installEdge({
       } finally {
         await runWrangler(
           ['auth', 'deactivate', profileDir],
-          { environment: profileEnvironment, signal },
+          { environment: profileEnvironment },
         ).catch(() => {})
         await removePath(profileDir, { recursive: true, force: true }).catch(() => {})
       }
