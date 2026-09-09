@@ -43,7 +43,7 @@ it('restores live browser subscriptions after an idle DO wakes for a prompt', as
     await page.waitForTimeout(150_000)
     await input.fill('hello after idle')
     await page.getByRole('button', { name: 'Send message', exact: true }).click()
-    await page.getByText('remembered-alpha', { exact: true }).waitFor({ timeout: 30_000 })
+    await page.getByRole('paragraph').filter({ hasText: 'remembered-alpha' }).waitFor({ timeout: 30_000 })
     expect(carrierCloses).toBeGreaterThan(beforeIdle)
     expect(mock.requests.some(request => request.messages.some(message => message.content === 'hello after idle'))).toBe(true)
   } finally {
