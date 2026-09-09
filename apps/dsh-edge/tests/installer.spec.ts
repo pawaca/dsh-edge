@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events'
-import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { Writable } from 'node:stream'
@@ -1002,7 +1002,11 @@ describe('dsh-edge guided installation', () => {
   })
 
   it('signs in, filters out temporary accounts, and installs the isolated runtime', async () => {
+    const rawProfileDir = await mkdtemp(join(tmpdir(), 'dsh-edge-profile-test-'))
+    const canonicalProfileDir = await realpath(rawProfileDir)
     const directory = await mkdtemp(join(tmpdir(), 'dsh-edge-installer-test-'))
+    const dirs = [rawProfileDir, directory]
+    let dirIndex = 0
     const { ui, selectAccount } = createUi({
       mode: 'isolated',
       accountSelections: ['login', 'account:account-1'],
@@ -1013,7 +1017,7 @@ describe('dsh-edge guided installation', () => {
       options: RunOptions = {},
     ): Promise<CommandResult> => {
       calls.push(args)
-      if (args[0] === 'whoami' && !args.includes('--profile')) {
+      if (args[0] === 'whoami' && !args.includes('--cwd')) {
         return commandResult(0, '{"loggedIn":false}')
       }
       if (args[0] === 'auth') {
@@ -1021,6 +1025,8 @@ describe('dsh-edge guided installation', () => {
         return commandResult(0)
       }
       if (args[0] === 'whoami') {
+        expect(args).toContain('--cwd')
+        expect(args).toContain(canonicalProfileDir)
         return commandResult(0, JSON.stringify({ loggedIn: true, accounts: [ACCOUNT] }))
       }
       if (args[0] === 'deployments') return commandResult(1, '', '[code: 10007]')
@@ -1043,7 +1049,7 @@ describe('dsh-edge guided installation', () => {
       ui,
       runWrangler,
       environment: { CLOUDFLARE_API_TOKEN: 'must-not-override-profile' },
-      createTemporaryDirectory: async () => directory,
+      createTemporaryDirectory: async () => dirs[dirIndex++] ?? directory,
     })
 
     expect(selectAccount).toHaveBeenNthCalledWith(
@@ -1051,6 +1057,8 @@ describe('dsh-edge guided installation', () => {
       expect.not.arrayContaining([expect.objectContaining({ value: 'temporary' })]),
     )
     expect(calls).toContainEqual(['auth', 'create', 'dsh-edge-install'])
+    expect(calls).toContainEqual(['auth', 'activate', 'dsh-edge-install', canonicalProfileDir])
+    expect(calls).toContainEqual(['auth', 'deactivate', canonicalProfileDir])
     expect(calls).toContainEqual([
       'deployments', 'list', '--name', 'dsh-edge', '--json',
       '--env', 'isolated', '--profile', 'dsh-edge-install',

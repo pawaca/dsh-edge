@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { execFile } from 'node:child_process'
-import { chmod, mkdtemp, open, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdtemp, open, realpath, rm, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -531,13 +531,31 @@ export async function installEdge({
       })
       requireSuccess(auth, 'Cloudflare sign-in failed')
       profile = LOGIN_PROFILE
-      const signedIn = await requireAccounts({
-        runWrangler,
-        environment: profileEnvironment,
-        profile,
-        signal,
-      })
-      accounts = signedIn.accounts
+      // wrangler whoami rejects --profile; bind the profile to a throwaway
+      // directory and read accounts through --cwd instead.  Canonicalize the
+      // path so the stored binding key matches process.cwd() after --cwd
+      // chdir (macOS resolves /var → /private/var on chdir).
+      const profileDir = await realpath(await createTemporaryDirectory())
+      try {
+        const activate = await runWrangler(
+          ['auth', 'activate', LOGIN_PROFILE, profileDir],
+          { environment: profileEnvironment, signal },
+        )
+        requireSuccess(activate, 'Could not activate the Cloudflare profile')
+        const signedIn = await requireAccounts({
+          runWrangler,
+          environment: profileEnvironment,
+          cwd: profileDir,
+          signal,
+        })
+        accounts = signedIn.accounts
+      } finally {
+        await runWrangler(
+          ['auth', 'deactivate', profileDir],
+          { environment: profileEnvironment },
+        ).catch(() => {})
+        await removePath(profileDir, { recursive: true, force: true }).catch(() => {})
+      }
       accountSelection = await ui.selectAccount(accountChoices(mode, accounts, command)
         .filter(choice => choice.value.startsWith('account:')))
     }
@@ -1192,8 +1210,11 @@ async function detectAccounts(options) {
   return parseWhoami(result.stdout)
 }
 
-async function requireAccounts({ runWrangler, environment, profile, signal }) {
-  const result = await runWrangler(['whoami', '--json', ...profileArgs(profile)], {
+async function requireAccounts({ runWrangler, environment, cwd, signal }) {
+  const result = await runWrangler([
+    'whoami', '--json',
+    ...(cwd !== undefined ? ['--cwd', cwd] : []),
+  ], {
     environment,
     signal,
   })
