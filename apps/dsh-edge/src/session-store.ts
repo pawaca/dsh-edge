@@ -539,7 +539,6 @@ export class EdgeSessionStore {
         const agent = this.context.agents.get(session.id)
         if (agent?.session === session && this.turnPublishedAgents.has(agent)) return
         if (event.type === 'session/title' && event.data.source.kind === 'user') return
-        if (agent === undefined && session.header.origin !== 'subagent') return
         void this.context.sessions.flush(session).then(() => {
           callback(session.id, event)
         }).catch((error: unknown) => {
