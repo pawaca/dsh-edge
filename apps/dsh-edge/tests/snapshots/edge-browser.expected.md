@@ -1,6 +1,10 @@
 - banner:
   - navigation "Session hierarchy":
     - button "Browser snapshot (1)" [disabled]
+    - text: /
+    - button "0 subagents":
+      - text: 0 subagents
+      - img
   - img
   - text: DSH Edge
   - tablist:
