@@ -491,9 +491,43 @@ export class EdgeSessionStore {
     await installEdgeWebSearch(this.context, config.searchBaseURL)
     await this.context.plugin(AgentLoop, { agents: [] })
     installShortToolPool(this.context)
+    {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+      const { default: SubagentRuntime } = await import(
+        '@deepseek-ai/dsh-subagent' as string
+      )
+      await this.context.plugin(SubagentRuntime)
+    }
+    {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+      const SpawnInProcess = await import(
+        '@deepseek-ai/dsh-subagent-spawn-in-process' as string
+      )
+      await this.context.plugin(SpawnInProcess, { providerName: 'spawn' })
+    }
+    {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+      const ToolSubagent = await import(
+        '@deepseek-ai/dsh-tool-subagent' as string
+      )
+      await this.context.plugin(ToolSubagent, {
+        provider: 'spawn',
+        maxDepth: 1,
+        enableRunInBackground: false,
+      })
+    }
     this.context.on('agent/created', ({ agent }) => {
-      if (!this.context.agents.roots().includes(agent)) return
-      agent.ctx.effect(() => installScheduleTools(this.context, agent, storage), 'dsh-edge: schedule tools')
+      if (this.context.agents.roots().includes(agent)) {
+        agent.ctx.effect(() => installScheduleTools(this.context, agent, storage), 'dsh-edge: schedule tools')
+        return
+      }
+      const parentId = agent.session.header.parentSession
+      if (parentId === undefined) return
+      const parentShell = this.shells.get(parentId)
+      if (parentShell === undefined) return
+      const cwd = agent.session.header.cwd ?? parentShell.cwd
+      const release = this.shells.bind(agent.id, parentShell.shell, cwd)
+      agent.ctx.effect(() => release, 'dsh-edge: subagent shell binding')
     })
     this.context.effect(
       () => this.context.tools.register(createEdgeBashTool(this.shells)),
@@ -505,8 +539,7 @@ export class EdgeSessionStore {
         const agent = this.context.agents.get(session.id)
         if (agent?.session === session && this.turnPublishedAgents.has(agent)) return
         if (event.type === 'session/title' && event.data.source.kind === 'user') return
-        // The flush promise is pending work, which keeps the Durable Object
-        // active by itself; DurableObjectState.waitUntil would be a no-op.
+        if (agent === undefined && session.header.origin !== 'subagent') return
         void this.context.sessions.flush(session).then(() => {
           callback(session.id, event)
         }).catch((error: unknown) => {

@@ -186,6 +186,15 @@ importers:
       '@deepseek-ai/dsh-storage-domain':
         specifier: 0.1.2-rc.1
         version: 0.1.2-rc.1(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.2-rc.1(@deepseek-ai/cordis@4.0.2))(@deepseek-ai/dsh-storage@0.1.2-rc.1(@deepseek-ai/cordis@4.0.2))
+      '@deepseek-ai/dsh-subagent':
+        specifier: 0.1.2-rc.1
+        version: 0.1.2-rc.1(82e547a91f7cff3960720a4b13641b56)
+      '@deepseek-ai/dsh-subagent-in-process-driver':
+        specifier: 0.1.2-rc.1
+        version: 0.1.2-rc.1(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-agent@0.1.2-rc.1(717cb1113bc0278a9ba75fdbe6b85d08))(@deepseek-ai/dsh-llm@0.1.2-rc.1(patch_hash=332e469d0d07af2797fb62bb73c3ea3ea356582bac3714c22dce93369fcc96da)(@deepseek-ai/cordis@4.0.2))(@deepseek-ai/dsh-session@0.1.2-rc.1(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-scope@0.1.2-rc.1(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.2-rc.1(@deepseek-ai/cordis@4.0.2))))(@deepseek-ai/dsh-subagent@0.1.2-rc.1(82e547a91f7cff3960720a4b13641b56))(@deepseek-ai/dsh-system-prompt@0.1.2-rc.1(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.2-rc.1(@deepseek-ai/cordis@4.0.2))(@deepseek-ai/dsh-llm@0.1.2-rc.1(patch_hash=332e469d0d07af2797fb62bb73c3ea3ea356582bac3714c22dce93369fcc96da)(@deepseek-ai/cordis@4.0.2))(@deepseek-ai/dsh-scope@0.1.2-rc.1(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.2-rc.1(@deepseek-ai/cordis@4.0.2))))(@deepseek-ai/dsh-tools@0.1.2-rc.1(2a5e0246b21016b009ddd38edde133f9))
+      '@deepseek-ai/dsh-subagent-spawn-in-process':
+        specifier: 0.1.2-rc.1
+        version: 0.1.2-rc.1(70c511efd1619055f2e632daf27de078)
       '@deepseek-ai/dsh-system-prompt':
         specifier: 0.1.2-rc.1
         version: 0.1.2-rc.1(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.2-rc.1(@deepseek-ai/cordis@4.0.2))(@deepseek-ai/dsh-llm@0.1.2-rc.1(patch_hash=332e469d0d07af2797fb62bb73c3ea3ea356582bac3714c22dce93369fcc96da)(@deepseek-ai/cordis@4.0.2))(@deepseek-ai/dsh-scope@0.1.2-rc.1(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.2-rc.1(@deepseek-ai/cordis@4.0.2)))

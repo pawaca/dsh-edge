@@ -55,6 +55,10 @@ export class EdgeShellBindings {
     }
   }
 
+  get(sessionId: SessionId): { shell: EdgeShell; cwd: string } | undefined {
+    return this.shells.get(sessionId)
+  }
+
   require(sessionId: SessionId): { shell: EdgeShell; cwd: string } {
     const entry = this.shells.get(sessionId)
     if (entry === undefined) {
