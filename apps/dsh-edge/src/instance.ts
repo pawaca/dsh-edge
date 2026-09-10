@@ -72,6 +72,7 @@ import {
   requireCommand,
   requireWorkspacePath,
   type EdgeCommandTimeoutPolicy,
+  type EdgeWorkspace,
 } from './workspace.ts'
 import {
   MAX_MESSAGE_TEXT_BYTES,
@@ -290,6 +291,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
   private readonly liveQueues = new Map<SessionId, QueuedInboxItem[]>()
   private readonly mainStreams = new Map<number, Set<{ publish(event: SessionEvent): void; resolve(): void; reject(error: unknown): void }>>()
   private readonly activeTurns = new Map<SessionId, ActiveTurn>()
+  private residentWorkspace: EdgeWorkspace | undefined
   private readonly sessionListMetadata = new Map<SessionId, SessionListMetadata>()
   private readonly pendingProjections = new Map<SessionId, { key: string; value: unknown; seq: number }[]>()
   private readonly api = createEdgeApi({
@@ -1393,7 +1395,10 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     onAdmitted?: (admit: EdgeAgentPromptAdmitter) => void
     onClosing?: () => void
   }): Promise<void> {
-    using workspace = await getWorkspace(this)
+    if (this.residentWorkspace === undefined) {
+      this.residentWorkspace = await getWorkspace(this)
+    }
+    const workspace = this.residentWorkspace
     const spill = this.sessions.spillStore()
     spill?.bind(workspace.fs)
     const edgeFs = this.sessions.filesystem()
