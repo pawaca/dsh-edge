@@ -56,7 +56,6 @@ import {
   EdgeSessionStoreError,
   type EdgeAgentPromptAdmitter,
   type EdgeMuxBaseline,
-  disposeAgentHandle,
 } from './session-store.ts'
 import {
   EdgeTurnId,
@@ -73,6 +72,7 @@ import {
   requireCommand,
   requireWorkspacePath,
   type EdgeCommandTimeoutPolicy,
+  type EdgeWorkspace,
 } from './workspace.ts'
 import {
   MAX_MESSAGE_TEXT_BYTES,
@@ -291,6 +291,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
   private readonly liveQueues = new Map<SessionId, QueuedInboxItem[]>()
   private readonly mainStreams = new Map<number, Set<{ publish(event: SessionEvent): void; resolve(): void; reject(error: unknown): void }>>()
   private readonly activeTurns = new Map<SessionId, ActiveTurn>()
+  private residentWorkspace: EdgeWorkspace | undefined
   private readonly sessionListMetadata = new Map<SessionId, SessionListMetadata>()
   private readonly pendingProjections = new Map<SessionId, { key: string; value: unknown; seq: number }[]>()
   private readonly api = createEdgeApi({
@@ -463,10 +464,8 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       if (stale !== undefined) {
         const input = this.mainQueue.get(stale.seq)
         if (input !== undefined) {
-          // The constructor has no old JS owner. Prepare and close its canonical suffix.
-          const handle = await this.sessions.openAgentForTurn(SessionId(input.sessionId), this.model)
+          const handle = await this.sessions.getOrResumeAgent(SessionId(input.sessionId), this.model)
           handle.agent.inbox.clear()
-          await handle.dispose()
           this.mainQueue.finish(stale.seq, stale.epoch, true)
           this.publishAgentError(SessionId(input.sessionId), new Error('Execution interrupted. Send a new message to continue; pending inputs are paused.'))
         }
@@ -937,9 +936,8 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     this.mainDriving = true
     try {
       const model = resolveEdgeDeploymentConfig(this.env).model
-      const handle = await this.sessions.openAgentForTurn(sessionId, model)
-      try { return await invoke() }
-      finally { await handle.dispose() }
+      await this.sessions.getOrResumeAgent(sessionId, model)
+      return await invoke()
     } finally {
       this.mainDriving = false
       this.kickMain()
@@ -1324,7 +1322,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     // Claim before opening the Agent so interleaved DO requests cannot own the same session.
     this.activeTurns.set(sessionId, turn)
     try {
-      const handle = await this.sessions.openAgentForTurn(sessionId, this.model)
+      const handle = await this.sessions.getOrResumeAgent(sessionId, this.model)
       turn.agent = handle.agent
       return { sessionId, turn, handle }
     } catch (error) {
@@ -1376,12 +1374,10 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     } finally {
       turn.accepting = false
       turn.resolveAdmissionReady()
-      await disposeAgentHandle(handle, () => {
-        const active = this.activeTurns.get(sessionId)
-        if (active?.turnId === turn.turnId) this.activeTurns.delete(sessionId)
-        turn.resolveReleaseComplete()
-        this.publishRunning(sessionId, false)
-      })
+      const active = this.activeTurns.get(sessionId)
+      if (active?.turnId === turn.turnId) this.activeTurns.delete(sessionId)
+      turn.resolveReleaseComplete()
+      this.publishRunning(sessionId, false)
     }
   }
 
@@ -1399,9 +1395,11 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     onAdmitted?: (admit: EdgeAgentPromptAdmitter) => void
     onClosing?: () => void
   }): Promise<void> {
-    using workspace = await getWorkspace(this)
-    const spill = this.sessions.spillStore()
-    spill?.bind(workspace.fs)
+    if (this.residentWorkspace === undefined) {
+      this.residentWorkspace = await getWorkspace(this)
+      this.sessions.spillStore()?.bind(this.residentWorkspace.fs)
+    }
+    const workspace = this.residentWorkspace
     const edgeFs = this.sessions.filesystem()
     const runTurn = async () => {
     await this.sessions.runAgentTurn({
@@ -1432,18 +1430,14 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       publishQueue: input.publishQueue,
     })
     }
-    try {
-      if (edgeFs !== undefined) {
-        await edgeFs.runInScope(
-          workspace.fs as never,
-          input.agent.session.header.cwd ?? '/workspace',
-          runTurn,
-        )
-      } else {
-        await runTurn()
-      }
-    } finally {
-      spill?.unbind()
+    if (edgeFs !== undefined) {
+      await edgeFs.runInScope(
+        workspace.fs as never,
+        input.agent.session.header.cwd ?? '/workspace',
+        runTurn,
+      )
+    } else {
+      await runTurn()
     }
   }
 

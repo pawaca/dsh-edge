@@ -258,6 +258,7 @@ export class EdgeSessionStore {
   private readonly shells = new EdgeShellBindings()
   private readonly modelSelections: EdgeModelSelectionBridge
   private readonly turnPublishedAgents = new WeakSet<Agent>()
+  private readonly residentAgents = new Map<SessionId, AgentHandle>()
   private readonly ready: Promise<void>
 
   constructor(
@@ -1329,17 +1330,11 @@ export class EdgeSessionStore {
       return { title: normalized, event: appendUserTitle(live, normalized), publishRequired }
     }
 
-    const handle = await this.openAgentForTurn(id, model)
-    try {
-      return {
-        title: normalized,
-        event: appendUserTitle(handle.agent, normalized),
-        publishRequired: true,
-      }
-    } finally {
-      await handle.dispose().catch((disposeError: unknown) => {
-        console.error('dsh-edge failed to release the renamed session.', disposeError)
-      })
+    const handle = await this.getOrResumeAgent(id, model)
+    return {
+      title: normalized,
+      event: appendUserTitle(handle.agent, normalized),
+      publishRequired: true,
     }
   }
 
@@ -1351,7 +1346,7 @@ export class EdgeSessionStore {
 
   /** The caller owns the main slot while preparing and durably admitting due reminders. */
   async dispatchDueSchedules(id: SessionId, model: string, storage: DurableObjectStorage): Promise<boolean> {
-    const handle = await this.openAgentForTurn(id, model)
+    const handle = await this.getOrResumeAgent(id, model)
     try {
       const changes = dueScheduleChanges(storage, id, Date.now())
       if (changes.length === 0 || !reserveScheduleAdmission(storage, id, changes)) return false
@@ -1359,13 +1354,21 @@ export class EdgeSessionStore {
       await this.context.sessions.flush(handle.agent.session)
       return true
     } finally {
-      try { await handle.dispose() }
-      finally { storage.sql.exec('DELETE FROM dsh_runtime_schedule_reservation WHERE id = 1') }
+      storage.sql.exec('DELETE FROM dsh_runtime_schedule_reservation WHERE id = 1')
     }
   }
 
-  /** Resolve a live native agent, or cold-resume it through upstream persistence. */
-  async openAgentForTurn(id: SessionId, model: string): Promise<AgentHandle> {
+  /**
+   * Return a resident agent for the session, resuming from persistence on
+   * first access within this DO activation. The agent stays alive across
+   * turns in idle phase; only session deletion or DO shutdown disposes it.
+   */
+  async getOrResumeAgent(id: SessionId, model: string): Promise<AgentHandle> {
+    const cached = this.residentAgents.get(id)
+    if (cached !== undefined) {
+      await this.loadModelSelection(id)
+      return cached
+    }
     const { agents, persistence } = await this.services()
     await this.loadModelSelection(id)
     if (agents.get(id) !== undefined) {
@@ -1388,6 +1391,7 @@ export class EdgeSessionStore {
     })
     try {
       await this.context.sessions.flush(handle.agent.session)
+      this.residentAgents.set(id, handle)
       return handle
     } catch (error) {
       await handle.dispose().catch((disposeError: unknown) => {
@@ -1395,6 +1399,19 @@ export class EdgeSessionStore {
       })
       throw error
     }
+  }
+
+  /** Dispose a resident agent and remove it from the cache. */
+  async disposeResidentAgent(id: SessionId): Promise<void> {
+    const handle = this.residentAgents.get(id)
+    if (handle === undefined) return
+    this.residentAgents.delete(id)
+    await handle.dispose()
+  }
+
+  /** @deprecated Use getOrResumeAgent for resident lifecycle. */
+  async openAgentForTurn(id: SessionId, model: string): Promise<AgentHandle> {
+    return this.getOrResumeAgent(id, model)
   }
 
   /** Mount the upstream per-agent selection seam before the Agent is published. */
@@ -1483,11 +1500,9 @@ export class EdgeSessionStore {
       throw new EdgeSessionStoreError('INVALID_DATA', 'Agent is not the live persistence owner.')
     }
 
-    const releaseShell = this.shells.bind(
-      agent.id,
-      input.shell,
-      agent.session.header.cwd ?? '/workspace',
-    )
+    if (this.shells.get(agent.id) === undefined) {
+      this.shells.bind(agent.id, input.shell, agent.session.header.cwd ?? '/workspace')
+    }
     let delivery = Promise.resolve()
     let deliveryError: unknown
     const stopObserving = this.context.on('session/event', (subject, event) => {
@@ -1544,7 +1559,6 @@ export class EdgeSessionStore {
       admission.dispose()
       stopObserving()
       this.turnPublishedAgents.delete(agent)
-      releaseShell()
     }
   }
 
