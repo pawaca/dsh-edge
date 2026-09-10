@@ -1,6 +1,5 @@
 import { Context } from '@deepseek-ai/cordis'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
-import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { describe, expect, it } from 'vitest'
 import { ShortToolPool, installShortToolPool } from '../src/short-tool-pool.ts'
 const tick = () => new Promise(resolve => setTimeout(resolve, 0))
@@ -54,15 +53,9 @@ describe('short tool pool', () => {
 })
 
 describe('installShortToolPool middleware', () => {
-  it('exempts the subagent tool from the pool while ordinary tools enter it', async () => {
+  function poolHarness() {
     const ctx = new Context()
-    await ctx.plugin(ToolRuntime)
     const pool = installShortToolPool(ctx)
-    const signals: Record<string, AbortSignal> = {}
-    ctx.on('tools/execute', async (exec, next) => {
-      signals[exec.name] = exec.signal
-      return next()
-    })
     const dispatch = (ctx as { waterfall(...args: unknown[]): unknown }).waterfall.bind(ctx) as
       (thisArg: unknown, name: string, exec: unknown, next: () => Promise<unknown>) => Promise<unknown>
     const mockExec = (name: string) => ({
@@ -70,14 +63,31 @@ describe('installShortToolPool middleware', () => {
       name, arguments: {}, signal: new AbortController().signal,
       token: Symbol(name),
     })
-    const done = () => Promise.resolve({ content: [], isError: false })
+    return { ctx, pool, dispatch, mockExec }
+  }
+
+  it('ordinary root tool acquires a pool permit during execution', async () => {
+    const { ctx, pool, dispatch, mockExec } = poolHarness()
+    const gate = Promise.withResolvers<void>()
     try {
-      await Promise.all([
-        dispatch(ctx, 'tools/execute', mockExec('bash'), done),
-        dispatch(ctx, 'tools/execute', mockExec('subagent'), done),
-      ])
+      const running = dispatch(ctx, 'tools/execute', mockExec('bash'), () => gate.promise)
+      await tick()
+      expect(pool.snapshot.active).toBe(1)
+      gate.resolve()
+      await running
       expect(pool.snapshot.active).toBe(0)
-      expect(signals.bash).not.toBe(signals.subagent)
+    } finally { await ctx.fiber.dispose() }
+  })
+
+  it('subagent tool does not acquire a pool permit', async () => {
+    const { ctx, pool, dispatch, mockExec } = poolHarness()
+    const gate = Promise.withResolvers<void>()
+    try {
+      const running = dispatch(ctx, 'tools/execute', mockExec('subagent'), () => gate.promise)
+      await tick()
+      expect(pool.snapshot.active).toBe(0)
+      gate.resolve()
+      await running
     } finally { await ctx.fiber.dispose() }
   })
 })
