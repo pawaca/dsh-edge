@@ -511,6 +511,11 @@ export class EdgeSessionStore {
         '@deepseek-ai/dsh-subagent' as string
       )
       await this.context.plugin(SubagentRuntime)
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+      const { TYPERT: SUBAGENT_TYPERT } = await import(
+        '@deepseek-ai/dsh-subagent/typert' as string
+      )
+      this.context.typert.register(SUBAGENT_TYPERT as never)
     }
     {
       // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment

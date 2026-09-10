@@ -500,7 +500,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
           timer = setTimeout(() => {
             interrupted = true
             claimed.turn.cancelRequested = true
-            claimed.handle.agent.cancel({ kind: 'user' })
+            claimed.handle.agent.cancel({ kind: 'user', message: 'cancelled by the user' } as { kind: 'user' })
           }, Math.max(1, claim.deadline - Date.now()))
           await this.runClaimedTurn({ claimed, commandTimeoutPolicy, mode: 'queue',
             message: input.message, content: input.message.content,
@@ -1424,7 +1424,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         ),
       },
       afterFollowup: () => {
-        if (input.turn.cancelRequested) input.agent.cancel({ kind: 'user' })
+        if (input.turn.cancelRequested) input.agent.cancel({ kind: 'user', message: 'cancelled by the user' } as { kind: 'user' })
       },
       ...input.onAdmitted === undefined ? {} : { onAdmitted: input.onAdmitted },
       ...input.onClosing === undefined ? {} : { onClosing: input.onClosing },
@@ -1466,7 +1466,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     const active = this.activeTurns.get(sessionId)
     if (active === undefined || (this.controlTarget.getStore() !== undefined && this.controlTarget.getStore() !== active.turnId)) return false
     active.cancelRequested = true
-    active.agent?.cancel({ kind: 'user' })
+    active.agent?.cancel({ kind: 'user', message: 'cancelled by the user' } as { kind: 'user' })
     return true
   }
 
