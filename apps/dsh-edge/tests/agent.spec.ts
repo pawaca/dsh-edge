@@ -33,7 +33,7 @@ import {
   resolveEdgeStreamIdleTimeoutMs,
 } from '../src/deepseek.ts'
 import { EdgeExecutionId } from '../src/protocol.ts'
-import { createDurablePromptAdmitter, disposeAgentHandle } from '../src/session-store.ts'
+import { createDurablePromptAdmitter, disposeAgentHandle, EdgeAgentPresets } from '../src/session-store.ts'
 
 class ScriptedAdapter extends LlmAdapter {
   readonly requests: GenerateOptions[] = []
@@ -308,6 +308,7 @@ describe('dsh-edge subagent delegation', () => {
     await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentLoop, { agents: [] })
+    await ctx.plugin(EdgeAgentPresets)
 
     const { default: SubagentRuntime } = await import('@deepseek-ai/dsh-subagent')
     await ctx.plugin(SubagentRuntime)
@@ -325,9 +326,15 @@ describe('dsh-edge subagent delegation', () => {
     ctx.llm.registerAdapter(['deepseek-official'], adapter)
     ctx.tools.register(createEdgeBashTool(shells))
 
+    const childHeaders: { id: string; parentSession: string; agentPreset: string | undefined }[] = []
     ctx.on('agent/created', ({ agent }) => {
       const parentId = agent.session.header.parentSession
       if (parentId === undefined) return
+      childHeaders.push({
+        id: agent.session.header.id as string,
+        parentSession: parentId as string,
+        agentPreset: agent.session.header.agentPreset,
+      })
       const parentShell = shells.get(parentId)
       if (parentShell === undefined) return
       const cwd = agent.session.header.cwd ?? parentShell.cwd
@@ -345,7 +352,7 @@ describe('dsh-edge subagent delegation', () => {
     const events: SessionEvent[] = []
     ctx.on('session/event', (_subject, event) => { events.push(event) })
     const releaseShell = shells.bind(sessionId, shell, '/workspace')
-    return { ctx, agent, handle, adapter, shells, events, releaseShell }
+    return { ctx, agent, handle, adapter, shells, events, childHeaders, releaseShell }
   }
 
   it('registers the subagent tool alongside bash', async () => {
@@ -376,7 +383,30 @@ describe('dsh-edge subagent delegation', () => {
     try {
       await followup(runtime.agent, 'Create a test file using a subagent')
       expect(runtime.adapter.requests.length).toBeGreaterThanOrEqual(2)
-      expect(runtime.events.some(e => e.type === 'turn/end')).toBe(true)
+      const toolCall = runtime.events.find(
+        e => e.type === 'tool/call' && (e.data as { name?: string }).name === 'subagent',
+      )
+      expect(toolCall).toBeDefined()
+      const callId = (toolCall!.data as { callId: string }).callId
+      const toolResult = runtime.events.find(
+        e => e.type === 'tool/result'
+          && ((e.data as { message?: { source?: { callId?: string } } }).message?.source?.callId === callId),
+      )
+      expect(toolResult).toBeDefined()
+      const resultContent = (toolResult!.data as {
+        message: { content: { isError: boolean }[] }
+      }).message.content[0]!
+      expect(resultContent.isError).toBe(false)
+      expect(runtime.childHeaders.length).toBeGreaterThanOrEqual(1)
+      expect(runtime.childHeaders[0]).toMatchObject({
+        parentSession: runtime.agent.session.header.id,
+        agentPreset: 'dsh-edge',
+      })
+      const childRequest = runtime.adapter.requests[1]!
+      expect(childRequest.sessionId).not.toBe(runtime.agent.id)
+      expect(childRequest.tools).toEqual(
+        expect.arrayContaining([expect.objectContaining({ name: 'bash' })]),
+      )
     } finally {
       runtime.releaseShell()
       await runtime.ctx.fiber.dispose()
