@@ -216,6 +216,40 @@ export class EdgeSessionCwdConflictError extends Error {
 }
 
 /**
+ * The Edge ships exactly one system preset; the controller stamps its id
+ * into every created session's metadata so the banner chip and preset
+ * roster stay consistent with the Edge API's agentPresets namespace.
+ *
+ * The subagent runtime calls `composedPreset` to stamp a child session's
+ * durable header and `composeFrom` to join a child's scope to the parent's
+ * composition. Because the Edge mounts tools and prompt sections on the
+ * root context, `composeFrom` is a no-op — the child's scope chain
+ * already inherits everything.
+ */
+export class EdgeAgentPresets extends CordisService {
+  constructor(ctx: Context) { super(ctx, 'agentPresets') }
+  async resolve(presetId?: string): Promise<{ id: string; trust: 'system'; isDefault: true }> {
+    if (presetId !== undefined && presetId !== 'dsh-edge') {
+      throw new Error(`Agent preset "${presetId}" is not available.`)
+    }
+    return { id: 'dsh-edge', trust: 'system', isDefault: true }
+  }
+  async mount(): Promise<void> {
+    // The Edge system prompt and tool composition are mounted globally.
+  }
+  async compositionInventory(): Promise<readonly never[]> {
+    // No per-preset composition rows: the plugin inventory lists the
+    // global composition and the browser boot graph instead.
+    return []
+  }
+  composedPreset(_ctx: Context): string { return 'dsh-edge' }
+  composeFrom(_childCtx: Context, _parentCtx: Context): void {
+    // Edge composition is mounted on the root context, so the child's
+    // scope chain already inherits every tool and prompt section.
+  }
+}
+
+/**
  * Edge-facing facade over the same SessionStore + SessionPersistence services
  * used by upstream. Durable Object SQL is visible only to the backend plugin.
  */
@@ -386,26 +420,6 @@ export class EdgeSessionStore {
     await this.context.plugin(EdgeFileReferenceService, {
       withFiles: read => config.withWorkspaceFiles(read),
     })
-    // The Edge ships exactly one system preset; the controller stamps its id
-    // into every created session's metadata so the banner chip and preset
-    // roster stay consistent with the Edge API's agentPresets namespace.
-    const EdgeAgentPresets = class extends CordisService {
-      constructor(ctx: Context) { super(ctx, 'agentPresets') }
-      async resolve(presetId?: string): Promise<{ id: string; trust: 'system'; isDefault: true }> {
-        if (presetId !== undefined && presetId !== 'dsh-edge') {
-          throw new Error(`Agent preset "${presetId}" is not available.`)
-        }
-        return { id: 'dsh-edge', trust: 'system', isDefault: true }
-      }
-      async mount(): Promise<void> {
-        // The Edge system prompt and tool composition are mounted globally.
-      }
-      async compositionInventory(): Promise<readonly never[]> {
-        // No per-preset composition rows: the plugin inventory lists the
-        // global composition and the browser boot graph instead.
-        return []
-      }
-    }
     await this.context.plugin(EdgeAgentPresets)
     // Upstream plugin inventory injects the cordis Loader. The Edge composes
     // programmatically, so EdgeLoader answers its read-only entries() from the
