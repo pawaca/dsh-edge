@@ -507,6 +507,20 @@ export class EdgeSessionStore {
     installShortToolPool(this.context)
     {
       // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+      const { default: LocalJobRegistry } = await import(
+        '@deepseek-ai/dsh-jobs-local' as string
+      )
+      await this.context.plugin(LocalJobRegistry, { maxConcurrentJobsPerOwner: 3 })
+    }
+    {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+      const ToolJobs = await import(
+        '@deepseek-ai/dsh-tool-jobs' as string
+      )
+      await this.context.plugin(ToolJobs)
+    }
+    {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
       const { default: SubagentRuntime } = await import(
         '@deepseek-ai/dsh-subagent' as string
       )
@@ -532,7 +546,7 @@ export class EdgeSessionStore {
       await this.context.plugin(ToolSubagent, {
         provider: 'spawn',
         maxDepth: 1,
-        enableRunInBackground: false,
+        enableRunInBackground: true,
       })
     }
     this.context.on('agent/created', ({ agent }) => {
