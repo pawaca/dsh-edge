@@ -515,8 +515,6 @@ describe('dsh-edge background job registry', () => {
   it('dispatches a background subagent and collects the completion', async () => {
     const bgCallId = ToolCallId('call-bg-sub')
     const childReply = textReply('background result', 10, 8)
-    const jobOutputCallId = ToolCallId('call-job-output')
-    const parentDone = textReply('Done, collected the result.', 20, 12)
 
     const exec = vi.fn<EdgeShell['exec']>()
     const runtime = await bgHarness([
@@ -526,20 +524,27 @@ describe('dsh-edge background job registry', () => {
         run_in_background: true,
       }),
       childReply,
-      toolReply(jobOutputCallId, 'job_output', {
-        job_id: 'subagent-1',
-        wait: true,
-      }),
-      parentDone,
+      textReply('The background task is running.', 15, 8),
     ], { exec })
     try {
       await followup(runtime.agent, 'Run a background subagent')
-      const toolCall = runtime.events.find(
+      const subagentCall = runtime.events.find(
         e => e.type === 'tool/call' && (e.data as { name?: string }).name === 'subagent',
       )
-      expect(toolCall).toBeDefined()
-      const toolResult = runtime.events.filter(e => e.type === 'tool/result')
-      expect(toolResult.length).toBeGreaterThanOrEqual(1)
+      expect(subagentCall).toBeDefined()
+      const subagentCallId = (subagentCall!.data as { callId: string }).callId
+      const subagentResult = runtime.events.find(
+        e => e.type === 'tool/result'
+          && ((e.data as { message?: { source?: { callId?: string } } }).message?.source?.callId === subagentCallId),
+      )
+      expect(subagentResult).toBeDefined()
+      const resultText = (subagentResult!.data as {
+        message: { content: { content: { type: string; text: string }[] }[] }
+      }).message.content[0]!.content[0]!.text
+      expect(resultText).toMatch(/^started background subagent job subagent-/)
+      expect(runtime.adapter.requests.length).toBeGreaterThanOrEqual(2)
+      const childRequest = runtime.adapter.requests[1]!
+      expect(childRequest.sessionId).not.toBe(runtime.agent.id)
     } finally {
       runtime.releaseShell()
       await runtime.ctx.fiber.dispose()
