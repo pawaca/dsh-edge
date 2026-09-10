@@ -56,6 +56,10 @@ export class ShortToolPool {
 
 }
 
+// The subagent tool runs a child agent that owns its own turn budget;
+// applying the short-tool execution deadline would kill it at 60 s.
+const LONG_TOOLS = new Set(['subagent'])
+
 /** Own one root permit; nested dispatch inherits its deadline instead of deadlocking. */
 export function installShortToolPool(ctx: Context): ShortToolPool {
   const pool = new ShortToolPool()
@@ -73,9 +77,9 @@ export function installShortToolPool(ctx: Context): ShortToolPool {
       try { return await next() }
       finally { roots.delete(exec.token); exec.signal = original }
     }
-    return inherited === undefined
-      ? pool.run(original, invoke)
-      : invoke(AbortSignal.any([original, inherited]))
+    if (inherited !== undefined) return invoke(AbortSignal.any([original, inherited]))
+    if (LONG_TOOLS.has(exec.name)) return invoke(original)
+    return pool.run(original, invoke)
   }, { global: true, prepend: true })
   return pool
 }

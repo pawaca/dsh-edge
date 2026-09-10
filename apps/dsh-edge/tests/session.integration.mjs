@@ -437,7 +437,7 @@ try {
   assert.equal(cancelledEvents.at(-1).type, 'turn/end')
   assert.deepEqual(cancelledEvents.at(-1).data.reason, {
     kind: 'aborted',
-    reason: { kind: 'user' },
+    reason: { kind: 'user', message: 'cancelled by the user' },
   })
 
   const legacySelector = await jsonRequest('/api/sessions', {

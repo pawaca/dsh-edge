@@ -1,5 +1,7 @@
+import { Context } from '@deepseek-ai/cordis'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { describe, expect, it } from 'vitest'
-import { ShortToolPool } from '../src/short-tool-pool.ts'
+import { ShortToolPool, installShortToolPool } from '../src/short-tool-pool.ts'
 const tick = () => new Promise(resolve => setTimeout(resolve, 0))
 describe('short tool pool', () => {
   it('queues FIFO and keeps the permit through cancellation cleanup', async () => {
@@ -47,5 +49,45 @@ describe('short tool pool', () => {
     }))).rejects.toThrow('execution deadline')
     expect(stopped).toBe(true)
     expect(pool.snapshot.active).toBe(0)
+  })
+})
+
+describe('installShortToolPool middleware', () => {
+  function poolHarness() {
+    const ctx = new Context()
+    const pool = installShortToolPool(ctx)
+    const dispatch = (ctx as { waterfall(...args: unknown[]): unknown }).waterfall.bind(ctx) as
+      (thisArg: unknown, name: string, exec: unknown, next: () => Promise<unknown>) => Promise<unknown>
+    const mockExec = (name: string) => ({
+      callId: ToolCallId(`call-${name}`), rootCallId: ToolCallId(`call-${name}`),
+      name, arguments: {}, signal: new AbortController().signal,
+      token: Symbol(name),
+    })
+    return { ctx, pool, dispatch, mockExec }
+  }
+
+  it('ordinary root tool acquires a pool permit during execution', async () => {
+    const { ctx, pool, dispatch, mockExec } = poolHarness()
+    const gate = Promise.withResolvers<void>()
+    try {
+      const running = dispatch(ctx, 'tools/execute', mockExec('bash'), () => gate.promise)
+      await tick()
+      expect(pool.snapshot.active).toBe(1)
+      gate.resolve()
+      await running
+      expect(pool.snapshot.active).toBe(0)
+    } finally { await ctx.fiber.dispose() }
+  })
+
+  it('subagent tool does not acquire a pool permit', async () => {
+    const { ctx, pool, dispatch, mockExec } = poolHarness()
+    const gate = Promise.withResolvers<void>()
+    try {
+      const running = dispatch(ctx, 'tools/execute', mockExec('subagent'), () => gate.promise)
+      await tick()
+      expect(pool.snapshot.active).toBe(0)
+      gate.resolve()
+      await running
+    } finally { await ctx.fiber.dispose() }
   })
 })
