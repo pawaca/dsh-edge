@@ -1,5 +1,8 @@
+import { Context } from '@deepseek-ai/cordis'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
+import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { describe, expect, it } from 'vitest'
-import { ShortToolPool } from '../src/short-tool-pool.ts'
+import { ShortToolPool, installShortToolPool } from '../src/short-tool-pool.ts'
 const tick = () => new Promise(resolve => setTimeout(resolve, 0))
 describe('short tool pool', () => {
   it('queues FIFO and keeps the permit through cancellation cleanup', async () => {
@@ -47,5 +50,34 @@ describe('short tool pool', () => {
     }))).rejects.toThrow('execution deadline')
     expect(stopped).toBe(true)
     expect(pool.snapshot.active).toBe(0)
+  })
+})
+
+describe('installShortToolPool middleware', () => {
+  it('exempts the subagent tool from the pool while ordinary tools enter it', async () => {
+    const ctx = new Context()
+    await ctx.plugin(ToolRuntime)
+    const pool = installShortToolPool(ctx)
+    const signals: Record<string, AbortSignal> = {}
+    ctx.on('tools/execute', async (exec, next) => {
+      signals[exec.name] = exec.signal
+      return next()
+    })
+    const dispatch = (ctx as { waterfall(...args: unknown[]): unknown }).waterfall.bind(ctx) as
+      (thisArg: unknown, name: string, exec: unknown, next: () => Promise<unknown>) => Promise<unknown>
+    const mockExec = (name: string) => ({
+      callId: ToolCallId(`call-${name}`), rootCallId: ToolCallId(`call-${name}`),
+      name, arguments: {}, signal: new AbortController().signal,
+      token: Symbol(name),
+    })
+    const done = () => Promise.resolve({ content: [], isError: false })
+    try {
+      await Promise.all([
+        dispatch(ctx, 'tools/execute', mockExec('bash'), done),
+        dispatch(ctx, 'tools/execute', mockExec('subagent'), done),
+      ])
+      expect(pool.snapshot.active).toBe(0)
+      expect(signals.bash).not.toBe(signals.subagent)
+    } finally { await ctx.fiber.dispose() }
   })
 })
