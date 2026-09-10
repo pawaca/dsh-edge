@@ -405,6 +405,11 @@ export class EdgeSessionStore {
         // global composition and the browser boot graph instead.
         return []
       }
+      composedPreset(_ctx: Context): string { return 'dsh-edge' }
+      composeFrom(_childCtx: Context, _parentCtx: Context): void {
+        // Edge tools and prompt sections are globally registered, so the
+        // child's cordis scope chain already inherits them. No join needed.
+      }
     }
     await this.context.plugin(EdgeAgentPresets)
     // Upstream plugin inventory injects the cordis Loader. The Edge composes
