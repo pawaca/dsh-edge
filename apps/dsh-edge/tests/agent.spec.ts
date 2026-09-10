@@ -441,6 +441,112 @@ describe('dsh-edge subagent delegation', () => {
   })
 })
 
+describe('dsh-edge background job registry', () => {
+  async function bgHarness(replies: readonly (readonly StreamChunk[])[], shell: EdgeShell) {
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SystemPrompt, { persona: EDGE_SYSTEM_PROMPT })
+    await ctx.plugin(ToolRuntime)
+    await ctx.plugin(SessionProjectionRegistry)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(AgentLoop, { agents: [] })
+    await ctx.plugin(EdgeAgentPresets)
+
+    const { default: LocalJobRegistry } = await import('@deepseek-ai/dsh-jobs-local')
+    await ctx.plugin(LocalJobRegistry, { maxConcurrentJobsPerOwner: 3 })
+    const ToolJobs = await import('@deepseek-ai/dsh-tool-jobs')
+    await ctx.plugin(ToolJobs)
+
+    const { default: SubagentRuntime } = await import('@deepseek-ai/dsh-subagent')
+    await ctx.plugin(SubagentRuntime)
+    const SpawnInProcess = await import('@deepseek-ai/dsh-subagent-spawn-in-process')
+    await ctx.plugin(SpawnInProcess, { providerName: 'spawn' })
+    const ToolSubagent = await import('@deepseek-ai/dsh-tool-subagent')
+    await ctx.plugin(ToolSubagent, {
+      provider: 'spawn',
+      maxDepth: 1,
+      enableRunInBackground: true,
+    })
+
+    const adapter = new ScriptedAdapter(replies)
+    const shells = new EdgeShellBindings()
+    ctx.llm.registerAdapter(['deepseek-official'], adapter)
+    ctx.tools.register(createEdgeBashTool(shells))
+
+    ctx.on('agent/created', ({ agent }) => {
+      const parentId = agent.session.header.parentSession
+      if (parentId === undefined) return
+      const parentShell = shells.get(parentId)
+      if (parentShell === undefined) return
+      const cwd = agent.session.header.cwd ?? parentShell.cwd
+      const release = shells.bind(agent.id, parentShell.shell, cwd)
+      agent.ctx.effect(() => release, 'test: subagent shell binding')
+    })
+
+    const sessionId = SessionId(crypto.randomUUID())
+    const handle = await ctx.agents.create({
+      sessionId,
+      meta: { cwd: '/workspace', agentPreset: 'dsh-edge' },
+      agentOptions: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+    })
+    const { agent } = handle
+    const events: SessionEvent[] = []
+    ctx.on('session/event', (_subject, event) => { events.push(event) })
+    const releaseShell = shells.bind(sessionId, shell, '/workspace')
+    return { ctx, agent, handle, adapter, shells, events, releaseShell }
+  }
+
+  it('registers job tools alongside subagent and bash', async () => {
+    const runtime = await bgHarness([], { exec: vi.fn<EdgeShell['exec']>() })
+    try {
+      expect(runtime.ctx.tools.get('subagent')).toBeDefined()
+      expect(runtime.ctx.tools.get('bash')).toBeDefined()
+      expect(runtime.ctx.tools.get('job_output')).toBeDefined()
+      expect(runtime.ctx.tools.get('job_list')).toBeDefined()
+      expect(runtime.ctx.tools.get('job_kill')).toBeDefined()
+      expect(runtime.ctx.get('jobs')).toBeDefined()
+    } finally {
+      runtime.releaseShell()
+      await runtime.ctx.fiber.dispose()
+    }
+  })
+
+  it('dispatches a background subagent and collects the completion', async () => {
+    const bgCallId = ToolCallId('call-bg-sub')
+    const childReply = textReply('background result', 10, 8)
+    const jobOutputCallId = ToolCallId('call-job-output')
+    const parentDone = textReply('Done, collected the result.', 20, 12)
+
+    const exec = vi.fn<EdgeShell['exec']>()
+    const runtime = await bgHarness([
+      toolReply(bgCallId, 'subagent', {
+        description: 'Background task',
+        prompt: 'Do something in the background',
+        run_in_background: true,
+      }),
+      childReply,
+      toolReply(jobOutputCallId, 'job_output', {
+        job_id: 'subagent-1',
+        wait: true,
+      }),
+      parentDone,
+    ], { exec })
+    try {
+      await followup(runtime.agent, 'Run a background subagent')
+      const toolCall = runtime.events.find(
+        e => e.type === 'tool/call' && (e.data as { name?: string }).name === 'subagent',
+      )
+      expect(toolCall).toBeDefined()
+      const toolResult = runtime.events.filter(e => e.type === 'tool/result')
+      expect(toolResult.length).toBeGreaterThanOrEqual(1)
+    } finally {
+      runtime.releaseShell()
+      await runtime.ctx.fiber.dispose()
+    }
+  })
+})
+
 function textReply(text: string, inputTokens: number, outputTokens: number): StreamChunk[] {
   return [
     { type: 'block-start', index: 0, blockType: 'text' },
