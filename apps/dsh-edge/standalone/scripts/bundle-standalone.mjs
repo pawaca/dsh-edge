@@ -12,6 +12,14 @@ import { requireGzipBudget } from '../../scripts/bundle-size.mjs'
 import { renderParsedSourceModeWranglerConfig } from '../../scripts/wrangler-config-core.mjs'
 
 const DIRECT_GZIP_BUDGET_BYTES = 3 * 1024 * 1024
+// Additional npm scopes to recognize when building the published-package alias
+// table and the runtime-dependency lock guard below, for forks that bundle their
+// own plugin packages alongside dsh-edge's own. Comma-separated npm scopes, for
+// example "@acme,@example"; empty by default so upstream behavior is unchanged.
+const extraAliasScopes = (process.env.DSH_EDGE_EXTRA_ALIAS_SCOPES ?? '')
+  .split(',')
+  .map(scope => scope.trim())
+  .filter(scope => scope.length > 0)
 const standaloneDirectory = fileURLToPath(new URL('..', import.meta.url))
 const appDirectory = resolve(standaloneDirectory, '..')
 const standaloneRequire = createRequire(join(standaloneDirectory, 'package.json'))
@@ -78,11 +86,16 @@ if (mode !== 'direct' && mode !== 'isolated') {
 
 async function publishedPackageAliases() {
   const specifiers = new Set()
+  const scopePattern = ['@deepseek-ai', '@cloudflare', ...extraAliasScopes]
+    .map(escapeRegExpLiteral)
+    .join('|')
+  const specifierPattern = new RegExp(
+    `['"]((?:${scopePattern})\/[^'"]+|(?:just-bash|fast-png|jpeg-js)(?:\/[^'"]*)?)['"]`,
+    'g',
+  )
   for (const path of await sourceFiles(join(appDirectory, 'src'))) {
     const source = await readFile(path, 'utf8')
-    for (const match of source.matchAll(
-      /['"]((?:@deepseek-ai|@cloudflare)\/[^'"]+|(?:just-bash|fast-png|jpeg-js)(?:\/[^'"]*)?)['"]/g,
-    )) {
+    for (const match of source.matchAll(specifierPattern)) {
       specifiers.add(match[1])
     }
   }
@@ -172,6 +185,11 @@ async function sourceFiles(root) {
   return files
 }
 
+/** Escape a literal npm scope (e.g. "@acme") for interpolation into a RegExp. */
+function escapeRegExpLiteral(literal) {
+  return literal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 function packageName(specifier) {
   if (!specifier.startsWith('@')) return specifier.split('/')[0]
   return specifier.split('/').slice(0, 2).join('/')
@@ -215,6 +233,7 @@ async function requirePublishedDependencyInputs(metafilePath) {
     const isPinnedRuntimeDependency = path.includes('@deepseek-ai')
       || path.includes('@deepseek-ai+')
       || path.includes('@cloudflare+computer')
+      || extraAliasScopes.some(scope => path.includes(scope) || path.includes(`${scope}+`))
       || path.includes('just-bash')
       || path.includes('fast-png')
       || path.includes('jpeg-js')
