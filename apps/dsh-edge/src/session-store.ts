@@ -598,7 +598,6 @@ export class EdgeSessionStore {
               for (const durableEvent of events) callback(session.id, durableEvent)
             },
             onError: (error: unknown) => {
-              this.lateEventDeliveries.delete(session)
               console.error('dsh-edge: failed to flush late session events.', error)
             },
           })
@@ -1530,13 +1529,19 @@ export class EdgeSessionStore {
     if (this.shells.get(agent.id) === undefined) {
       this.shells.bind(agent.id, input.shell, agent.session.header.cwd ?? '/workspace')
     }
+    const priorDelivery = this.lateEventDeliveries.get(agent.session)?.drain()
+      ?? Promise.resolve()
+    void priorDelivery.catch(() => {})
     let deliveryError: unknown
     const delivery = new DurableEventDeliveryQueue<{
       event: SessionEvent
       queue: QueuedInboxItem[] | undefined
     }>({
       maxDelayMs: DEFAULT_WRITE_BATCH_MAX_DELAY_MS,
-      flush: () => sessions.flush(agent.session),
+      flush: async () => {
+        await priorDelivery
+        await sessions.flush(agent.session)
+      },
       deliver: async items => {
         for (const item of items) {
           if (deliveryError !== undefined) return
@@ -1589,6 +1594,7 @@ export class EdgeSessionStore {
         console.error('dsh-edge failed to retire a logged model selection.', error)
       })
     } finally {
+      await priorDelivery.catch(() => {})
       await delivery.drain().catch(() => {})
       await agent.whenIdle().catch(() => {})
       admission.dispose()

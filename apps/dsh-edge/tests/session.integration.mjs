@@ -1597,6 +1597,12 @@ try {
   assert.equal(selectionEvent.payload.event.type, 'model/selection')
   assert.equal(titleEvent.payload.event.type, 'session/title')
   assert.ok(titleEvent.payload.event.seq > selectionEvent.payload.event.seq)
+  const preTurnModel = await rpc('session.selectModel', {
+    sessionId: batchedSessionId,
+    provider: 'deepseek-official',
+    model: 'deepseek-v4-flash',
+  })
+  assert.equal(preTurnModel.body.result.ok, true)
   const batchedPrompt = await rpc('session.prompt', {
     sessionId: batchedSessionId,
     mode: 'queue',
@@ -1609,6 +1615,7 @@ try {
       && candidate.payload.sessionId === batchedSessionId)
     publishedBatchEvents.push(message.payload.event)
   }
+  assert.equal(publishedBatchEvents[0].type, 'model/selection')
   assert.deepEqual(
     publishedBatchEvents.map(event => event.seq),
     publishedBatchEvents.map(event => event.seq).toSorted((left, right) => left - right),

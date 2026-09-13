@@ -58,6 +58,10 @@ describe('durable event delivery queue', () => {
     await expect(queue.drain()).rejects.toBe(failure)
     expect(deliver).not.toHaveBeenCalled()
     expect(onError).toHaveBeenCalledWith(failure)
+
+    queue.enqueue('still-terminal')
+    await expect(queue.drain()).rejects.toBe(failure)
+    expect(deliver).not.toHaveBeenCalled()
   })
 
   it('drops an already-scheduled later batch when the active batch fails', async () => {
