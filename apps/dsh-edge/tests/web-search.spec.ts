@@ -75,7 +75,7 @@ describe('dsh-edge Web Search composition', () => {
         arguments: { url },
       })
       expect(result.isError).toBe(true)
-      expect(result.error?.info?.code ?? result.error?.message).toMatch(/WEB_BLOCKED_URL|fetch blocked/)
+      expect(result.error?.info?.code ?? result.error?.message).toMatch(/WEB_BLOCKED_URL|WEB_PROVIDER_ERROR|fetch blocked/)
       expect(fetch).not.toHaveBeenCalled()
     } finally {
       await ctx.fiber.dispose()

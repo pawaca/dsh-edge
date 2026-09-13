@@ -1,19 +1,18 @@
 diff --git a/lib/index.js b/lib/index.js
-index 881df45e4a86aa1a5d75ee74c19612f9244d6b5c..4e274f01f445f361c9b08611ee4df198501a2d4e 100644
+index 42486dc91be45bbda5a2d9103d6ba2472f5e3eed..36e16175e8ac14b697cf9964c16ae74f334ff5e7 100644
 --- a/lib/index.js
 +++ b/lib/index.js
 @@ -1,5 +1,4 @@
  import { randomUUID } from "node:crypto";
 -import { realpath, stat } from "node:fs/promises";
- import { basename } from "node:path";
  import { Service } from "@deepseek-ai/cordis";
+ import { posix, win32 } from "node:path";
  import { z } from "zod";
-@@ -23,7 +22,17 @@ import { defineDomain, domainTable } from "@deepseek-ai/dsh-storage-domain";
- * @returns the canonical absolute path.
+@@ -47,7 +46,16 @@ function defaultWorkspaceTitle(path, platform = process.platform) {
  */
  async function realpathNormalize(path) {
+ 	if (!fullyQualifiedWorkspacePath(path)) throw new TypeError(`Workspace path is not fully qualified: '${path}'`);
 -	return await realpath(path);
-+	if (!path.startsWith("/")) throw new Error(`workspace path '${path}' must be absolute`);
 +	const segments = [];
 +	for (const segment of path.split("/")) {
 +		if (segment === "" || segment === ".") continue;
@@ -27,17 +26,17 @@ index 881df45e4a86aa1a5d75ee74c19612f9244d6b5c..4e274f01f445f361c9b08611ee4df198
  }
  //#endregion
  //#region lib/types/entity.js
-@@ -94,7 +103,8 @@ var WorkspaceEntity = class {
+@@ -118,7 +126,8 @@ var WorkspaceEntity = class {
  			} catch (error) {
  				throw new Error(`cannot attach session '${sessionId}' to workspace '${this.record.path}': its cwd '${header.cwd}' does not resolve, so it cannot be validated`, { cause: error });
  			}
 -			if (!(await stat(cwd)).isDirectory()) throw new Error(`cannot attach session '${sessionId}' to workspace '${this.record.path}': its cwd '${header.cwd}' is not a directory`);
 +			// Edge VFS: stat check removed
-+				if (false) throw new Error(`cannot attach session '${sessionId}' to workspace '${this.record.path}': its cwd '${header.cwd}' is not a directory`);
++		if (false) throw new Error(`cannot attach session '${sessionId}' to workspace '${this.record.path}': its cwd '${header.cwd}' is not a directory`);
  			if (cwd !== this.record.path) throw new Error(`cannot attach session '${sessionId}' to workspace '${this.record.path}': its cwd resolves to '${cwd}'`);
  			this.host.rememberSessionPath(sessionId, cwd);
  		}
-@@ -129,7 +139,7 @@ var WorkspaceEntity = class {
+@@ -153,7 +162,7 @@ var WorkspaceEntity = class {
  	}
  	async status() {
  		try {
@@ -46,7 +45,7 @@ index 881df45e4a86aa1a5d75ee74c19612f9244d6b5c..4e274f01f445f361c9b08611ee4df198
  		} catch {
  			return "missing-dir";
  		}
-@@ -340,7 +350,8 @@ var WorkspaceRegistry = class extends Service {
+@@ -364,7 +373,8 @@ var WorkspaceRegistry = class extends Service {
  	*/
  	async create(path, title) {
  		const canonical = await realpathNormalize(path);
@@ -56,13 +55,13 @@ index 881df45e4a86aa1a5d75ee74c19612f9244d6b5c..4e274f01f445f361c9b08611ee4df198
  		return await this.enqueueOperation(() => this.createCanonical(canonical, title));
  	}
  	/**
-@@ -691,7 +702,8 @@ var WorkspaceRegistry = class extends Service {
+@@ -715,7 +725,8 @@ var WorkspaceRegistry = class extends Service {
  		}
  		try {
  			const path = await realpathNormalize(header.cwd);
 -			if (!(await stat(path)).isDirectory()) {
 +			// Edge VFS: stat check removed
-+			if (false) {
++		if (false) {
  				this.invalidSessionPaths.set(header.id, `cwd '${header.cwd}' is not a directory`);
  				return;
  			}
