@@ -74,6 +74,7 @@ import UserQuestionService from '@deepseek-ai/dsh-user-questions'
 import PlanModeController from '@deepseek-ai/dsh-plan-mode'
 import * as ToolAskUser from '@deepseek-ai/dsh-tool-ask-user'
 import { EdgeTypertConnection, type TypertRpcInterceptor } from './edge-typert-connection.ts'
+import EdgeFileUploadsStub from './edge-file-uploads-stub.ts'
 import SessionReferenceResolver from '@deepseek-ai/dsh-session-reference'
 import { EdgeFileSystem } from './edge-filesystem.ts'
 import { EdgeFileReferenceService, type EdgeReferenceFiles } from './edge-file-reference.ts'
@@ -387,7 +388,8 @@ export class EdgeSessionStore {
     if (this.context.workspaceRegistry.list().length === 0 && !workspaceWasInitialized) {
       await this.context.workspaceRegistry.create('/workspace')
     }
-    // All 9 SessionController inject deps now available: agentDefaultModel,
+    await this.context.plugin(EdgeFileUploadsStub)
+    // All SessionController inject deps now available: agentDefaultModel,
     // agents, attachments, llm, sessions, sessionProjections, sessionQuery,
     // typert, workspaceRegistry. Controllers activate synchronously.
     const defaultSelection: ModelSelection = {
