@@ -59,4 +59,24 @@ describe('durable event delivery queue', () => {
     expect(deliver).not.toHaveBeenCalled()
     expect(onError).toHaveBeenCalledWith(failure)
   })
+
+  it('drops an already-scheduled later batch when the active batch fails', async () => {
+    vi.useFakeTimers()
+    let rejectFlush!: (error: Error) => void
+    const failure = new Error('slow flush failure')
+    const flush = vi.fn(() => new Promise<void>((_resolve, reject) => { rejectFlush = reject }))
+    const deliver = vi.fn()
+    const queue = new DurableEventDeliveryQueue({ maxDelayMs: 200, flush, deliver })
+
+    queue.enqueue('first')
+    await vi.advanceTimersByTimeAsync(200)
+    queue.enqueue('second')
+    await vi.advanceTimersByTimeAsync(200)
+    expect(flush).toHaveBeenCalledTimes(1)
+
+    rejectFlush(failure)
+    await expect(queue.drain()).rejects.toBe(failure)
+    expect(flush).toHaveBeenCalledTimes(1)
+    expect(deliver).not.toHaveBeenCalled()
+  })
 })

@@ -48,6 +48,7 @@ export class DurableEventDeliveryQueue<T> {
     if (this.failed || this.pending.length === 0) return
     const batch = this.pending.splice(0)
     const work = this.running.then(async () => {
+      if (this.failed) return
       await this.config.flush()
       await this.config.deliver(batch)
     })
