@@ -146,6 +146,10 @@ interface StableDeliveryQueue {
   readonly revision: number
   drain(): Promise<void>
 }
+interface LateDeliveryState {
+  queue: DurableEventDeliveryQueue<SessionEvent>
+  tail: { seq: number }
+}
 /** The Computer VFS surface the Edge seams drive outside an agent turn. */
 export type EdgeWorkspaceFiles = EdgeReferenceFiles & EdgeDirectoryFiles
 const MAX_FORK_STORED_BYTES = 8 * 1_024 * 1_024
@@ -272,7 +276,7 @@ export class EdgeSessionStore {
   private readonly shells = new EdgeShellBindings()
   private readonly modelSelections: EdgeModelSelectionBridge
   private readonly turnPublishedAgents = new WeakSet<Agent>()
-  private readonly lateEventDeliveries = new WeakMap<Session, DurableEventDeliveryQueue<SessionEvent>>()
+  private readonly lateEventDeliveries = new Map<SessionId, LateDeliveryState>()
   private readonly activeEventDeliveries = new WeakMap<Session, DurableEventDeliveryQueue<TurnDeliveryItem>>()
   private readonly unsettledEventDeliveries = new Set<StableDeliveryQueue>()
   private readonly baselineOwnedSessions = new WeakSet<Session>()
@@ -593,33 +597,42 @@ export class EdgeSessionStore {
         const agent = this.context.agents.get(session.id)
         if (agent?.session === session && this.turnPublishedAgents.has(agent)) return
         if (this.baselineOwnedSessions.has(session)) return
-        let delivery = this.lateEventDeliveries.get(session)
-        if (delivery === undefined) {
+        let state = this.lateEventDeliveries.get(session.id)
+        if (state === undefined) {
+          const sessionId = session.id
+          const tail = { seq: session.seq }
           const createdDelivery: DurableEventDeliveryQueue<SessionEvent> = new DurableEventDeliveryQueue({
             maxDelayMs: DEFAULT_WRITE_BATCH_MAX_DELAY_MS,
             flush: async () => {
-              if (this.context.sessions.get(session.id) === session) {
-                await this.context.sessions.flush(session)
+              const live = this.context.sessions.get(sessionId)
+              if (live !== undefined) {
+                await this.context.sessions.flush(live)
                 return
               }
-              // A short-lived child may be detached before this timer fires.
-              // readFrom waits for the persistence coordinator's retirement
-              // drain, while seeking past the tail avoids a full-log read.
-              await this.context.sessionPersistence.readFrom(session.id, session.seq)
+              // A cold mutation or short-lived child may detach before this
+              // timer fires. readFrom waits for persistence retirement while
+              // seeking past the tail avoids a full-log read.
+              await this.context.sessionPersistence.readFrom(sessionId, tail.seq)
             },
             deliver: events => {
-              for (const durableEvent of events) callback(session.id, durableEvent)
+              for (const durableEvent of events) callback(sessionId, durableEvent)
             },
             onError: (error: unknown) => {
               console.error('dsh-edge: failed to flush late session events.', error)
             },
-            onIdle: () => { this.unsettledEventDeliveries.delete(createdDelivery) },
+            onIdle: () => {
+              this.unsettledEventDeliveries.delete(createdDelivery)
+              if (this.lateEventDeliveries.get(sessionId)?.queue === createdDelivery) {
+                this.lateEventDeliveries.delete(sessionId)
+              }
+            },
           })
-          delivery = createdDelivery
-          this.lateEventDeliveries.set(session, delivery)
+          state = { queue: createdDelivery, tail }
+          this.lateEventDeliveries.set(sessionId, state)
         }
-        this.unsettledEventDeliveries.add(delivery)
-        delivery.enqueue(event)
+        state.tail.seq = session.seq
+        this.unsettledEventDeliveries.add(state.queue)
+        state.queue.enqueue(event)
       })
     }
     if (config.onProjectionChanged !== undefined) {
@@ -1573,7 +1586,7 @@ export class EdgeSessionStore {
     if (this.shells.get(agent.id) === undefined) {
       this.shells.bind(agent.id, input.shell, agent.session.header.cwd ?? '/workspace')
     }
-    const priorDelivery = this.lateEventDeliveries.get(agent.session)?.drain()
+    const priorDelivery = this.lateEventDeliveries.get(agent.id)?.queue.drain()
       ?? Promise.resolve()
     void priorDelivery.catch(() => {})
     let deliveryError: unknown
