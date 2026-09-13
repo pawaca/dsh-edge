@@ -264,6 +264,7 @@ export class EdgeSessionStore {
   private readonly modelSelections: EdgeModelSelectionBridge
   private readonly turnPublishedAgents = new WeakSet<Agent>()
   private readonly lateEventDeliveries = new WeakMap<Session, DurableEventDeliveryQueue<SessionEvent>>()
+  private readonly publishesLateEvents: boolean
   private readonly residentAgents = new Map<SessionId, AgentHandle>()
   private readonly ready: Promise<void>
 
@@ -272,6 +273,7 @@ export class EdgeSessionStore {
     config: EdgeSessionStoreConfig,
   ) {
     this.modelSelections = new EdgeModelSelectionBridge(storage)
+    this.publishesLateEvents = config.onLateSessionEvent !== undefined
     this.ready = this.initialize(storage, config)
   }
 
@@ -578,7 +580,6 @@ export class EdgeSessionStore {
       this.context.on('session/event', (session, event) => {
         const agent = this.context.agents.get(session.id)
         if (agent?.session === session && this.turnPublishedAgents.has(agent)) return
-        if (event.type === 'session/title' && event.data.source.kind === 'user') return
         let delivery = this.lateEventDeliveries.get(session)
         if (delivery === undefined) {
           delivery = new DurableEventDeliveryQueue({
@@ -1352,7 +1353,7 @@ export class EdgeSessionStore {
     // handle below. Every other registered agent may be running; metadata
     // appends are valid while its turn owns the process-local handle.
     if (live !== undefined) {
-      const publishRequired = !this.turnPublishedAgents.has(live)
+      const publishRequired = !this.turnPublishedAgents.has(live) && !this.publishesLateEvents
       return { title: normalized, event: appendUserTitle(live, normalized), publishRequired }
     }
 
@@ -1360,7 +1361,7 @@ export class EdgeSessionStore {
     return {
       title: normalized,
       event: appendUserTitle(handle.agent, normalized),
-      publishRequired: true,
+      publishRequired: !this.publishesLateEvents,
     }
   }
 

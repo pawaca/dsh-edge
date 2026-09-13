@@ -1579,6 +1579,24 @@ try {
   const batchedSessionId = batchedCreated.body.result.value.sessionId
   await mux.next(message => message.payload.type === 'session/subscribed'
     && message.payload.sessionId === batchedSessionId)
+  const batchedModel = await rpc('session.selectModel', {
+    sessionId: batchedSessionId,
+    provider: 'deepseek-official',
+    model: 'deepseek-v4-pro',
+  })
+  assert.equal(batchedModel.body.result.ok, true)
+  const batchedRename = await rpc('session.rename', {
+    sessionId: batchedSessionId,
+    title: 'Batched durable delivery',
+  })
+  assert.equal(batchedRename.body.result.ok, true)
+  const selectionEvent = await mux.next(candidate => candidate.payload.type === 'session/event'
+    && candidate.payload.sessionId === batchedSessionId)
+  const titleEvent = await mux.next(candidate => candidate.payload.type === 'session/event'
+    && candidate.payload.sessionId === batchedSessionId)
+  assert.equal(selectionEvent.payload.event.type, 'model/selection')
+  assert.equal(titleEvent.payload.event.type, 'session/title')
+  assert.ok(titleEvent.payload.event.seq > selectionEvent.payload.event.seq)
   const batchedPrompt = await rpc('session.prompt', {
     sessionId: batchedSessionId,
     mode: 'queue',
