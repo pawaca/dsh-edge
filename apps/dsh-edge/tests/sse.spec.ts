@@ -21,7 +21,7 @@ describe('dsh-edge live event stream', () => {
       time: 2,
       data: { value: true },
       ignorable: true,
-    } as SessionEvent
+    } as unknown as SessionEvent
 
     const encoded = new TextDecoder().decode(encodeSessionEvent(unsafeEvent))
 

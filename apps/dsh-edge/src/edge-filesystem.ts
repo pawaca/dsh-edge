@@ -188,6 +188,11 @@ export class EdgeFileSystem extends FileSystem {
     return (async function* () { yield content })()
   }
 
+  async readByteRange(target: FsTarget, range: { offset: number; length: number }, signal?: AbortSignal): Promise<Uint8Array> {
+    const full = await this.readBytes(target, signal, range.offset + range.length)
+    return full.slice(range.offset, range.offset + range.length)
+  }
+
   async readBytes(target: FsTarget, signal: AbortSignal | undefined, maxBytes: number): Promise<Uint8Array> {
     if (signal?.aborted) throw new FsError('readBytes aborted', 'FS_ABORTED')
     const vfs = this.requireBinding().vfs

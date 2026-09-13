@@ -12,7 +12,7 @@ import {
 import { SESSION_SEARCH_SNIPPET_MAX_CODE_POINTS } from '@deepseek-ai/dsh-api-session-controller/types'
 import { RpcId } from '../src/edge-rpc-types.ts'
 import { createUserMessage, type MessageId } from '@deepseek-ai/dsh-llm'
-import { SessionId, SessionSeq, type SessionEvent } from '@deepseek-ai/dsh-session'
+import { SESSION_FORMAT_VERSION, SessionId, SessionSeq, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { describe, expect, it, vi } from 'vitest'
 import {
   MAX_MESSAGE_TEXT_BYTES,
@@ -797,7 +797,7 @@ describe('Edge upstream API invariants', () => {
       surfaceOp: 'append',
     }
     const page = (events: SessionEvent[], hasMore: boolean): EdgeEventPage => ({
-      meta: { id: parentId, version: 0, createdAt: 1, isSeeded: false },
+      meta: { id: parentId, version: SESSION_FORMAT_VERSION, createdAt: 1, isSeeded: false },
       events,
       hasMore,
     })
@@ -816,7 +816,7 @@ describe('Edge upstream API invariants', () => {
 
   it('finishes a bounded multi-page full-history predicate when no page matches', async () => {
     const page = (events: SessionEvent[], hasMore: boolean): EdgeEventPage => ({
-      meta: { id: parentId, version: 0, createdAt: 1, isSeeded: false },
+      meta: { id: parentId, version: SESSION_FORMAT_VERSION, createdAt: 1, isSeeded: false },
       events,
       hasMore,
     })
@@ -835,7 +835,7 @@ describe('Edge upstream API invariants', () => {
 
   it('rejects a cold-history page that cannot make bounded progress', async () => {
     const readPage = vi.fn(async (): Promise<EdgeEventPage> => ({
-      meta: { id: parentId, version: 0, createdAt: 1, isSeeded: false },
+      meta: { id: parentId, version: SESSION_FORMAT_VERSION, createdAt: 1, isSeeded: false },
       events: [],
       hasMore: true,
     }))
