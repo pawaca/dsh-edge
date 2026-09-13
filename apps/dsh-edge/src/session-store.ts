@@ -1197,18 +1197,49 @@ export class EdgeSessionStore {
     if (!(persistence instanceof DurableObjectSessionPersistence)) {
       throw new EdgeSessionStoreError('INVALID_DATA', 'Edge persistence backend is unavailable.')
     }
-    const liveSessions = sessions.list()
-    await Promise.all(liveSessions.flatMap(session => [
-      this.lateEventDeliveries.get(session)?.drain(),
-      this.activeEventDeliveries.get(session)?.drain(),
-    ].filter((delivery): delivery is Promise<void> => delivery !== undefined)))
-    const queues: EdgeMuxBaseline['queues'] = []
-    for (const session of liveSessions) {
-      const agent = agents.get(session.id)
-      if (agent?.session !== session || !agent.inbox.hasPending) continue
-      queues.push({ sessionId: session.id, items: queueItems(agent) })
+
+    while (true) {
+      const snapshot = () => {
+        const liveSessions = sessions.list()
+        const deliveries: Array<{
+          queue: { readonly revision: number; drain: () => Promise<void> }
+          revision: number
+        }> = []
+        for (const session of liveSessions) {
+          const queues = [
+            this.lateEventDeliveries.get(session),
+            this.activeEventDeliveries.get(session),
+          ]
+          for (const queue of queues) {
+            if (queue !== undefined) deliveries.push({ queue, revision: queue.revision })
+          }
+        }
+        return { liveSessions, deliveries }
+      }
+
+      const before = snapshot()
+      await Promise.all(before.deliveries.map(({ queue }) => queue.drain()))
+      const after = snapshot()
+      const stableSessions = before.liveSessions.length === after.liveSessions.length
+        && before.liveSessions.every((session, index) => session === after.liveSessions[index])
+      const stableDeliveries = before.deliveries.length === after.deliveries.length
+        && before.deliveries.every(({ queue, revision }, index) => {
+          const current = after.deliveries[index]
+          return current?.queue === queue && current.revision === revision
+        })
+      if (!stableSessions || !stableDeliveries) continue
+
+      // No await occurs between this stable snapshot and consume(), so a
+      // session/event cannot slip between the advertised baseline and socket
+      // registration on the Durable Object's JavaScript turn.
+      const queues: EdgeMuxBaseline['queues'] = []
+      for (const session of after.liveSessions) {
+        const agent = agents.get(session.id)
+        if (agent?.session !== session || !agent.inbox.hasPending) continue
+        queues.push({ sessionId: session.id, items: queueItems(agent) })
+      }
+      return consume({ sessions: collectApiSessions(sessions, persistence), queues })
     }
-    return consume({ sessions: collectApiSessions(sessions, persistence), queues })
   }
 
   /** Require one live, canonical, or retained-blank session using only point reads. */

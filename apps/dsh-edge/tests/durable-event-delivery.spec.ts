@@ -43,6 +43,24 @@ describe('durable event delivery queue', () => {
     expect(deliver).toHaveBeenCalledWith(['durable-first'])
   })
 
+  it('advances its revision when work is accepted during an earlier drain', async () => {
+    let resolveFirstFlush!: () => void
+    const flush = vi.fn()
+      .mockImplementationOnce(() => new Promise<void>(resolve => { resolveFirstFlush = resolve }))
+      .mockResolvedValue(undefined)
+    const queue = new DurableEventDeliveryQueue({ maxDelayMs: 200, flush, deliver: vi.fn() })
+
+    queue.enqueue('first')
+    const revisionBeforeDrain = queue.revision
+    const drained = queue.drain()
+    await Promise.resolve()
+    queue.enqueue('arrived-during-drain')
+
+    expect(queue.revision).toBe(revisionBeforeDrain + 1)
+    resolveFirstFlush()
+    await drained
+  })
+
   it('reports a failed durability barrier without delivering the batch', async () => {
     const failure = new Error('injected flush failure')
     const deliver = vi.fn()
@@ -60,6 +78,7 @@ describe('durable event delivery queue', () => {
     expect(onError).toHaveBeenCalledWith(failure)
 
     queue.enqueue('still-terminal')
+    expect(queue.revision).toBe(1)
     await expect(queue.drain()).rejects.toBe(failure)
     expect(deliver).not.toHaveBeenCalled()
   })

@@ -17,11 +17,18 @@ export class DurableEventDeliveryQueue<T> {
   private running = Promise.resolve()
   private failed = false
   private failure: unknown
+  private acceptedEnqueues = 0
 
   constructor(private readonly config: DurableEventDeliveryQueueConfig<T>) {}
 
+  /** Monotonic marker used to prove that a drained subscription snapshot stayed quiet. */
+  get revision(): number {
+    return this.acceptedEnqueues
+  }
+
   enqueue(item: T): void {
     if (this.failed) return
+    this.acceptedEnqueues += 1
     this.pending.push(item)
     if (this.timer !== undefined) return
     this.timer = setTimeout(() => {
