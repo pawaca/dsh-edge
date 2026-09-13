@@ -141,8 +141,7 @@ describe('dsh-edge native agent runtime', () => {
     )
   })
 
-  // TODO(upstream-0.1.5): deferred to PR C — model catalog changed upstream
-  it.skip('reuses the upstream DeepSeek catalog including the experimental vision model', async () => {
+  it('reuses the upstream DeepSeek catalog including the experimental vision model', async () => {
     const adapter = new DeepSeekAdapter({
       options: () => resolveAdapterOptions({}),
       resolveApiKey: async (_connection) => 'test-key',
@@ -152,6 +151,7 @@ describe('dsh-edge native agent runtime', () => {
     const models = await adapter.listModels('deepseek-official')
 
     expect(models.map(model => model.id)).toEqual([
+      'deepseek-flash',
       'deepseek-v4-flash',
       'deepseek-v4-pro',
       'deepseek-v4-flash-vision-exp',
@@ -195,8 +195,7 @@ describe('dsh-edge native agent runtime', () => {
     expect(() => resolveEdgeReasoningEffort('medium')).toThrow(/off, low, high, or max/)
   })
 
-  // TODO(upstream-0.1.5): deferred to PR C — session format V3 event changes
-  it.skip('drives a direct answer through upstream ReactLoopAgent events', async () => {
+  it('drives a direct answer through upstream ReactLoopAgent events', async () => {
     const exec = vi.fn<EdgeShell['exec']>()
     const runtime = await harness([textReply('hello from edge', 7, 4)], { exec })
     try {
@@ -212,10 +211,10 @@ describe('dsh-edge native agent runtime', () => {
       expect(runtime.events.map(event => event.type)).toEqual(expect.arrayContaining([
         'turn/start',
         'step/start',
+        'system/message',
         'user/message',
         'request/header',
         'request/context',
-        'assistant/chunk',
         'assistant/message',
         'step/end',
         'turn/end',
@@ -258,8 +257,7 @@ describe('dsh-edge native agent runtime', () => {
     }
   })
 
-  // TODO(upstream-0.1.5): deferred to PR C — session format V3 event changes
-  it.skip('executes a native tool call through the session-bound Computer shell', async () => {
+  it('executes a native tool call through the session-bound Computer shell', async () => {
     const callId = ToolCallId('call-read-file')
     const exec = vi.fn<EdgeShell['exec']>().mockResolvedValue({
       executionId: EdgeExecutionId('exec-1'),
@@ -286,7 +284,9 @@ describe('dsh-edge native agent runtime', () => {
       expect(options?.cwd).toBe('/workspace')
       expect(options?.signal).toBeInstanceOf(AbortSignal)
       expect(runtime.adapter.requests).toHaveLength(2)
-      expect(runtime.adapter.requests[1]?.messages).toMatchObject([
+      const secondRequest = runtime.adapter.requests[1]!.messages
+      const nonSystemMessages = secondRequest.filter(m => m.role !== 'system')
+      expect(nonSystemMessages).toMatchObject([
         { role: 'user' },
         { role: 'assistant', content: [{ type: 'tool-call', id: callId }] },
         { role: 'user', content: [{ type: 'tool-result', toolCallId: callId, isError: false }] },
@@ -515,8 +515,7 @@ describe('dsh-edge background job registry', () => {
     }
   })
 
-  // TODO(upstream-0.1.5): deferred to PR C — session format V3 event changes
-  it.skip('dispatches a background subagent and collects the completion', async () => {
+  it('dispatches a background subagent and collects the completion', async () => {
     const bgCallId = ToolCallId('call-bg-sub')
     const childReply = textReply('background result', 10, 8)
 
@@ -547,8 +546,8 @@ describe('dsh-edge background job registry', () => {
       }).message.content[0]!.content[0]!.text
       expect(resultText).toMatch(/^started background subagent job subagent-/)
       expect(runtime.adapter.requests.length).toBeGreaterThanOrEqual(2)
-      const childRequest = runtime.adapter.requests[1]!
-      expect(childRequest.sessionId).not.toBe(runtime.agent.id)
+      const childRequest = runtime.adapter.requests.find(r => r.sessionId !== runtime.agent.id)
+      expect(childRequest).toBeDefined()
     } finally {
       runtime.releaseShell()
       await runtime.ctx.fiber.dispose()

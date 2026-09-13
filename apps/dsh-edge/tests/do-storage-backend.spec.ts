@@ -311,14 +311,13 @@ describe('session_projcache over the Durable Object backend', () => {
     return { domain, errors, spec: projectionCacheDomainSpec }
   }
 
-  // TODO(upstream-0.1.5): deferred to PR C — projcache version bumped upstream
-  it.skip('boots a Harness 0.1.1-rc.2 (v3) cache medium and serves its records', async () => {
+  it('boots a Harness 0.1.1-rc.2 (v3) cache medium and serves its records', async () => {
     const storage = createMockStorage()
     storage.store.set('dsh-kv:session_projcache:__version__', 3)
     storage.store.set('dsh-kv:session_projcache:sessions:session-old', V3_RECORD)
     const { domain, errors, spec } = await openProjectionCache(storage)
-    expect(spec.version).toBe(5)
-    expect(spec.compatibleVersions).toEqual([3, 4])
+    expect(spec.version).toBe(7)
+    expect(spec.compatibleVersions).toContain(3)
     expect(domain.table('sessions').get(SessionId('session-old'))).toMatchObject({ identity: { createdAt: 1000 } })
     expect(errors).toEqual([])
     await domain.close()

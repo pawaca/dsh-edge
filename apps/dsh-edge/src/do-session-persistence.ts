@@ -10,6 +10,7 @@ import {
   SessionSeq,
 } from '@deepseek-ai/dsh-session'
 import type {
+  Session,
   SessionEvent,
   SessionId,
   SessionHeader,
@@ -191,6 +192,7 @@ export interface EdgeStoredHistoryPage {
 
 class DurableObjectSessionHandle implements SessionHandle {
   private closed = false
+  private readonly liveBuffer: SessionEvent[] = []
 
   constructor(
     readonly id: SessionId,
@@ -199,6 +201,27 @@ class DurableObjectSessionHandle implements SessionHandle {
     readonly access: SessionAccess,
     private readonly backend: DurableObjectSessionPersistence,
   ) {}
+
+  enqueueLive(event: SessionEvent): void {
+    if (this.closed || this.access !== 'write') return
+    this.liveBuffer.push(event)
+  }
+
+  async drainAndFlush(): Promise<void> {
+    if (this.closed) return
+    await this.drainLiveBuffer()
+    await this.flush()
+  }
+
+  private async drainLiveBuffer(): Promise<void> {
+    if (this.liveBuffer.length === 0) return
+    const events = this.liveBuffer.splice(0)
+    const storage: SessionStorageMetadata = {
+      meta: this.header,
+      inheritedEventCount: this.inheritedEventCount,
+    }
+    await this.backend.appendBatch(storage, events, this.backend.hasSession(this.id))
+  }
 
   async read(
     offset?: number,
@@ -235,6 +258,7 @@ class DurableObjectSessionHandle implements SessionHandle {
     if (this.closed) throw new SessionHandleClosedError(this.id, 'flush')
     if (this.access === 'read') throw new SessionReadOnlyError(this.id, 'flush')
     options?.signal?.throwIfAborted()
+    await this.drainLiveBuffer()
     await this.backend.materializeBlankSession(this.id)
   }
 
@@ -242,6 +266,7 @@ class DurableObjectSessionHandle implements SessionHandle {
     if (this.closed) return
     this.closed = true
     if (this.access === 'write') {
+      await this.drainLiveBuffer()
       this.backend.releaseWriteOwnership(this.id)
     }
   }
@@ -258,6 +283,7 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
   private readonly storage: DurableObjectStorage
   private readonly storeIdentity: string
   private readonly activeWriteOwners = new Set<SessionId>()
+  private readonly writeHandles = new Map<SessionId, DurableObjectSessionHandle>()
 
   constructor(ctx: Context, config: DurableObjectSessionPersistenceConfig) {
     super(ctx)
@@ -265,6 +291,20 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
     initializeMainQueue(this.storage)
     initializeSchedules(this.storage)
     this.storeIdentity = this.initialize()
+
+    ctx.on('session/event', (session: Session, event: SessionEvent) => {
+      this.writeHandles.get(session.id)?.enqueueLive(event)
+    })
+    ctx.on('session/flush', (session: Session) => {
+      const handle = this.writeHandles.get(session.id)
+      if (handle === undefined) return undefined
+      return handle.drainAndFlush()
+    })
+    ctx.on('session/disposed', (session: Session) => {
+      const handle = this.writeHandles.get(session.id)
+      if (handle === undefined) return
+      handle.close().catch(() => {})
+    })
   }
 
   async create(
@@ -279,13 +319,15 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
     this.writeRow(header, inheritedEventCount)
     this.insertEmptyLogSummary(header.id, header.createdAt)
     this.activeWriteOwners.add(header.id)
-    return new DurableObjectSessionHandle(
+    const handle = new DurableObjectSessionHandle(
       header.id,
       header,
       inheritedEventCount,
       'write',
       this,
     )
+    this.writeHandles.set(header.id, handle)
+    return handle
   }
 
   async open(
@@ -316,20 +358,22 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
     const inheritedEventCount = row !== undefined
       ? SessionLogOffset(row.seed_length ?? 0)
       : SessionLogOffset(0)
-    return new DurableObjectSessionHandle(
+    const handle = new DurableObjectSessionHandle(
       id,
       header,
       inheritedEventCount,
       access,
       this,
     )
+    if (access === 'write') this.writeHandles.set(id, handle)
+    return handle
   }
 
   async flush(): Promise<void> {
     const errors: unknown[] = []
-    for (const id of this.activeWriteOwners) {
+    for (const handle of this.writeHandles.values()) {
       try {
-        await this.materializeBlankSession(id)
+        await handle.drainAndFlush()
       } catch (error) {
         errors.push(error)
       }
@@ -344,7 +388,6 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
       id: row.id,
       createdAt: row.created_at,
       delegationDepth: row.delegation_depth ?? 0,
-      isSeeded: row.seed_length !== null,
       ...row.cwd === null ? {} : { cwd: row.cwd },
       ...row.parent_session === null ? {} : { parentSession: row.parent_session },
       ...row.seed_length === null ? {} : { seedLength: row.seed_length },
@@ -434,6 +477,7 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
 
   releaseWriteOwnership(id: SessionId): void {
     this.activeWriteOwners.delete(id)
+    this.writeHandles.delete(id)
   }
 
   /** Read and canonically validate one Edge-only replay page. */
