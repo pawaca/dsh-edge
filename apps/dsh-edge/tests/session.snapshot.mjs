@@ -87,6 +87,7 @@ describe('dsh-edge assembled runtime snapshot', () => {
         .replaceAll(sessionId, '{{sessionId}}')
         .replaceAll(mock.url, '{{mock-deepseek}}')
         .replace(/"time":\d+/g, '"time":0')
+        .replace(/"time0":\d+/g, '"time0":0')
         .replace(/"id":"(?:edge:)?[0-9a-f-]{36}"/g, '"id":"{{messageId}}"'))
       const snapshot = {
         requests: normalize(mock.requests),
@@ -112,7 +113,7 @@ describe('dsh-edge assembled runtime snapshot', () => {
         .find(event => event.type === 'assistant/message')
       await expect(normalize({
         toolNames: requestHeader.data.header.tools.map(tool => tool.name),
-        searchGuidance: requestHeader.data.header.system.split('\n\n').at(-1),
+        searchGuidance: (searchEvents.find(e => e.type === 'system/message')?.data?.message?.content?.[0]?.text ?? '').split('\n\n').at(-1),
         call: searchCall.data,
         providerRequest: providerRequest.data,
         result: {

@@ -659,7 +659,7 @@ Use goal tools for one long-running completion objective in the current session.
             "id": "call_mock_file",
             "index": 0,
             "name": "bash",
-            "time0": 1789341089801,
+            "time0": 0,
             "type": "tool-call-chunks",
           },
           {
@@ -1306,7 +1306,7 @@ Use goal tools for one long-running completion objective in the current session.
             "texts": [
               "tool-finished",
             ],
-            "time0": 1789341089819,
+            "time0": 0,
             "type": "text-chunks",
           },
           {
@@ -2055,7 +2055,7 @@ Use goal tools for one long-running completion objective in the current session.
             "id": "call_mock_file",
             "index": 0,
             "name": "bash",
-            "time0": 1789341089801,
+            "time0": 0,
             "type": "tool-call-chunks",
           },
           {
@@ -2702,7 +2702,7 @@ Use goal tools for one long-running completion objective in the current session.
             "texts": [
               "tool-finished",
             ],
-            "time0": 1789341089819,
+            "time0": 0,
             "type": "text-chunks",
           },
           {
