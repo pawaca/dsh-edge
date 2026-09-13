@@ -407,6 +407,7 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
       validation: 'transformed',
     })
     const eventRows = this.eventRows(id, 0)
+    if (row.version === 0) reorderV0SurfaceEvents(eventRows)
     for (const eventRow of eventRows) {
       const isPacked = PACKED_ROW_TYPES.has(eventRow.type)
       const record = {
@@ -1401,6 +1402,22 @@ function scanRows(
   return rowsConsumed < rows.length
     ? { preserved, tornFrom: base + preserved.length }
     : { preserved }
+}
+
+const V0_SURFACE_TYPES = new Set(['user/message', 'assistant/message', 'tool/result', 'system/message'])
+
+function reorderV0SurfaceEvents(rows: EventRow[]): void {
+  for (let index = 0; index < rows.length - 1; index += 1) {
+    const current = rows[index]!
+    const next = rows[index + 1]!
+    if (V0_SURFACE_TYPES.has(current.type) && next.type === 'step/start') {
+      const currentSeq = current.seq
+      current.seq = next.seq
+      next.seq = currentSeq
+      rows[index] = next
+      rows[index + 1] = current
+    }
+  }
 }
 
 export default DurableObjectSessionPersistence
