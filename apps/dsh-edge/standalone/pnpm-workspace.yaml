@@ -185,3 +185,12 @@ minimumReleaseAgeExclude:
   - '@deepseek-ai/dsh-workflow-worker-thread@0.1.5-rc.2'
   - '@deepseek-ai/dsh-workflow@0.1.5-rc.2'
   - '@deepseek-ai/dsh-workspace@0.1.5-rc.2'
+
+patchedDependencies:
+  '@deepseek-ai/dsh-api-gateway@0.1.5-rc.2': patches/@deepseek-ai__dsh-api-gateway@0.1.5-rc.2.patch
+  '@deepseek-ai/dsh-api-session-controller@0.1.5-rc.2': patches/@deepseek-ai__dsh-api-session-controller@0.1.5-rc.2.patch
+  '@deepseek-ai/dsh-llm@0.1.5-rc.2': patches/@deepseek-ai__dsh-llm@0.1.5-rc.2.patch
+  '@deepseek-ai/dsh-tool-web@0.1.5-rc.2': patches/@deepseek-ai__dsh-tool-web@0.1.5-rc.2.patch
+  '@deepseek-ai/dsh-web-fetch-http@0.1.5-rc.2': patches/@deepseek-ai__dsh-web-fetch-http@0.1.5-rc.2.patch
+  '@deepseek-ai/dsh-web-search-deepseek@0.1.5-rc.2': patches/@deepseek-ai__dsh-web-search-deepseek@0.1.5-rc.2.patch
+  '@deepseek-ai/dsh-workspace@0.1.5-rc.2': patches/@deepseek-ai__dsh-workspace@0.1.5-rc.2.patch
