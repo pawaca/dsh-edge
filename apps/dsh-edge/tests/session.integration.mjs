@@ -1603,6 +1603,14 @@ try {
     model: 'deepseek-v4-flash',
   })
   assert.equal(preTurnModel.body.result.ok, true)
+  const baselineMux = await openDownlink('/api/events.mux')
+  const batchedBaseline = await baselineMux.next(message =>
+    message.payload.type === 'session/subscribed'
+      && message.payload.sessionId === batchedSessionId)
+  await baselineMux.expectNone(message => message.payload.type === 'session/event'
+    && message.payload.sessionId === batchedSessionId
+    && message.payload.event.seq <= batchedBaseline.payload.lastSeq)
+  baselineMux.close()
   const batchedPrompt = await rpc('session.prompt', {
     sessionId: batchedSessionId,
     mode: 'queue',

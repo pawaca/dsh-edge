@@ -137,6 +137,11 @@ interface EdgeSessionStoreConfig {
   onLateSessionEvent?: (sessionId: SessionId, event: SessionEvent) => void
   onProjectionChanged?: (sessionId: SessionId, key: string, value: unknown, seq: number) => void
 }
+
+interface TurnDeliveryItem {
+  event: SessionEvent
+  queue: QueuedInboxItem[] | undefined
+}
 /** The Computer VFS surface the Edge seams drive outside an agent turn. */
 export type EdgeWorkspaceFiles = EdgeReferenceFiles & EdgeDirectoryFiles
 const MAX_FORK_STORED_BYTES = 8 * 1_024 * 1_024
@@ -264,6 +269,8 @@ export class EdgeSessionStore {
   private readonly modelSelections: EdgeModelSelectionBridge
   private readonly turnPublishedAgents = new WeakSet<Agent>()
   private readonly lateEventDeliveries = new WeakMap<Session, DurableEventDeliveryQueue<SessionEvent>>()
+  private readonly activeEventDeliveries = new WeakMap<Session, DurableEventDeliveryQueue<TurnDeliveryItem>>()
+  private readonly baselineOwnedSessions = new WeakSet<Session>()
   private readonly publishesLateEvents: boolean
   private readonly residentAgents = new Map<SessionId, AgentHandle>()
   private readonly ready: Promise<void>
@@ -580,6 +587,7 @@ export class EdgeSessionStore {
       this.context.on('session/event', (session, event) => {
         const agent = this.context.agents.get(session.id)
         if (agent?.session === session && this.turnPublishedAgents.has(agent)) return
+        if (this.baselineOwnedSessions.has(session)) return
         let delivery = this.lateEventDeliveries.get(session)
         if (delivery === undefined) {
           delivery = new DurableEventDeliveryQueue({
@@ -996,6 +1004,7 @@ export class EdgeSessionStore {
     })
     const { agent } = handle
     const { session } = agent
+    this.baselineOwnedSessions.add(session)
     try {
       session.append('session/title', {
         title,
@@ -1013,6 +1022,7 @@ export class EdgeSessionStore {
       await persistence.abandonUnmaterializedSession(session)
       throw error
     } finally {
+      this.baselineOwnedSessions.delete(session)
       await handle.dispose().catch((disposeError: unknown) => {
         console.error('dsh-edge failed to release the created session.', disposeError)
       })
@@ -1187,8 +1197,13 @@ export class EdgeSessionStore {
     if (!(persistence instanceof DurableObjectSessionPersistence)) {
       throw new EdgeSessionStoreError('INVALID_DATA', 'Edge persistence backend is unavailable.')
     }
+    const liveSessions = sessions.list()
+    await Promise.all(liveSessions.flatMap(session => [
+      this.lateEventDeliveries.get(session)?.drain(),
+      this.activeEventDeliveries.get(session)?.drain(),
+    ].filter((delivery): delivery is Promise<void> => delivery !== undefined)))
     const queues: EdgeMuxBaseline['queues'] = []
-    for (const session of sessions.list()) {
+    for (const session of liveSessions) {
       const agent = agents.get(session.id)
       if (agent?.session !== session || !agent.inbox.hasPending) continue
       queues.push({ sessionId: session.id, items: queueItems(agent) })
@@ -1533,10 +1548,7 @@ export class EdgeSessionStore {
       ?? Promise.resolve()
     void priorDelivery.catch(() => {})
     let deliveryError: unknown
-    const delivery = new DurableEventDeliveryQueue<{
-      event: SessionEvent
-      queue: QueuedInboxItem[] | undefined
-    }>({
+    const delivery = new DurableEventDeliveryQueue<TurnDeliveryItem>({
       maxDelayMs: DEFAULT_WRITE_BATCH_MAX_DELAY_MS,
       flush: async () => {
         await priorDelivery
@@ -1561,6 +1573,7 @@ export class EdgeSessionStore {
         : undefined
       delivery.enqueue({ event, queue })
     })
+    this.activeEventDeliveries.set(agent.session, delivery)
     this.turnPublishedAgents.add(agent)
     const admission = createDurablePromptAdmitter(
       this.context,
@@ -1599,6 +1612,9 @@ export class EdgeSessionStore {
       await agent.whenIdle().catch(() => {})
       admission.dispose()
       stopObserving()
+      if (this.activeEventDeliveries.get(agent.session) === delivery) {
+        this.activeEventDeliveries.delete(agent.session)
+      }
       this.turnPublishedAgents.delete(agent)
     }
   }
