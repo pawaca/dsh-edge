@@ -142,6 +142,10 @@ interface TurnDeliveryItem {
   event: SessionEvent
   queue: QueuedInboxItem[] | undefined
 }
+interface StableDeliveryQueue {
+  readonly revision: number
+  drain(): Promise<void>
+}
 /** The Computer VFS surface the Edge seams drive outside an agent turn. */
 export type EdgeWorkspaceFiles = EdgeReferenceFiles & EdgeDirectoryFiles
 const MAX_FORK_STORED_BYTES = 8 * 1_024 * 1_024
@@ -270,6 +274,7 @@ export class EdgeSessionStore {
   private readonly turnPublishedAgents = new WeakSet<Agent>()
   private readonly lateEventDeliveries = new WeakMap<Session, DurableEventDeliveryQueue<SessionEvent>>()
   private readonly activeEventDeliveries = new WeakMap<Session, DurableEventDeliveryQueue<TurnDeliveryItem>>()
+  private readonly unsettledEventDeliveries = new Set<StableDeliveryQueue>()
   private readonly baselineOwnedSessions = new WeakSet<Session>()
   private readonly publishesLateEvents: boolean
   private readonly residentAgents = new Map<SessionId, AgentHandle>()
@@ -590,7 +595,7 @@ export class EdgeSessionStore {
         if (this.baselineOwnedSessions.has(session)) return
         let delivery = this.lateEventDeliveries.get(session)
         if (delivery === undefined) {
-          delivery = new DurableEventDeliveryQueue({
+          const createdDelivery: DurableEventDeliveryQueue<SessionEvent> = new DurableEventDeliveryQueue({
             maxDelayMs: DEFAULT_WRITE_BATCH_MAX_DELAY_MS,
             flush: async () => {
               if (this.context.sessions.get(session.id) === session) {
@@ -608,9 +613,12 @@ export class EdgeSessionStore {
             onError: (error: unknown) => {
               console.error('dsh-edge: failed to flush late session events.', error)
             },
+            onIdle: () => { this.unsettledEventDeliveries.delete(createdDelivery) },
           })
+          delivery = createdDelivery
           this.lateEventDeliveries.set(session, delivery)
         }
+        this.unsettledEventDeliveries.add(delivery)
         delivery.enqueue(event)
       })
     }
@@ -1201,19 +1209,8 @@ export class EdgeSessionStore {
     while (true) {
       const snapshot = () => {
         const liveSessions = sessions.list()
-        const deliveries: Array<{
-          queue: { readonly revision: number; drain: () => Promise<void> }
-          revision: number
-        }> = []
-        for (const session of liveSessions) {
-          const queues = [
-            this.lateEventDeliveries.get(session),
-            this.activeEventDeliveries.get(session),
-          ]
-          for (const queue of queues) {
-            if (queue !== undefined) deliveries.push({ queue, revision: queue.revision })
-          }
-        }
+        const deliveries = [...this.unsettledEventDeliveries]
+          .map(queue => ({ queue, revision: queue.revision }))
         return { liveSessions, deliveries }
       }
 
@@ -1232,6 +1229,7 @@ export class EdgeSessionStore {
       // No await occurs between this stable snapshot and consume(), so a
       // session/event cannot slip between the advertised baseline and socket
       // registration on the Durable Object's JavaScript turn.
+      for (const { queue } of after.deliveries) this.unsettledEventDeliveries.delete(queue)
       const queues: EdgeMuxBaseline['queues'] = []
       for (const session of after.liveSessions) {
         const agent = agents.get(session.id)
@@ -1579,7 +1577,7 @@ export class EdgeSessionStore {
       ?? Promise.resolve()
     void priorDelivery.catch(() => {})
     let deliveryError: unknown
-    const delivery = new DurableEventDeliveryQueue<TurnDeliveryItem>({
+    const delivery: DurableEventDeliveryQueue<TurnDeliveryItem> = new DurableEventDeliveryQueue({
       maxDelayMs: DEFAULT_WRITE_BATCH_MAX_DELAY_MS,
       flush: async () => {
         await priorDelivery
@@ -1596,12 +1594,14 @@ export class EdgeSessionStore {
           }
         }
       },
+      onIdle: () => { this.unsettledEventDeliveries.delete(delivery) },
     })
     const stopObserving = this.context.on('session/event', (subject, event) => {
       if (subject !== agent.session) return
       const queue = event.type === 'agent/inbox/spliced'
         ? queueItems(agent, event.data)
         : undefined
+      this.unsettledEventDeliveries.add(delivery)
       delivery.enqueue({ event, queue })
     })
     this.activeEventDeliveries.set(agent.session, delivery)

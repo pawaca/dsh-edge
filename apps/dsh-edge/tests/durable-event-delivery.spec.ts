@@ -26,6 +26,20 @@ describe('durable event delivery queue', () => {
     expect(order).toEqual(['flush', 'deliver:1,2,3'])
   })
 
+  it('reports idle only after the durable batch has been delivered', async () => {
+    const order: string[] = []
+    const queue = new DurableEventDeliveryQueue({
+      maxDelayMs: 200,
+      flush: () => { order.push('flush') },
+      deliver: () => { order.push('deliver') },
+      onIdle: () => { order.push('idle') },
+    })
+
+    queue.enqueue('event')
+    await queue.drain()
+    expect(order).toEqual(['flush', 'deliver', 'idle'])
+  })
+
   it('does not expose a batch until its durability barrier resolves', async () => {
     let resolveFlush!: () => void
     const flush = vi.fn(() => new Promise<void>(resolve => { resolveFlush = resolve }))

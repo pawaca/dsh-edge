@@ -5,6 +5,7 @@ interface DurableEventDeliveryQueueConfig<T> {
   flush: () => unknown
   deliver: (items: readonly T[]) => void | Promise<void>
   onError?: (error: unknown) => void
+  onIdle?: () => void
 }
 
 /**
@@ -59,7 +60,7 @@ export class DurableEventDeliveryQueue<T> {
       await this.config.flush()
       await this.config.deliver(batch)
     })
-    this.running = work.catch((error: unknown) => {
+    const running = work.catch((error: unknown) => {
       this.failed = true
       this.failure = error
       this.pending.length = 0
@@ -67,6 +68,13 @@ export class DurableEventDeliveryQueue<T> {
         this.config.onError?.(error)
       } catch {
         // Delivery failures must remain observable through drain().
+      }
+    })
+    this.running = running
+    void running.then(() => {
+      if (!this.failed && this.running === running
+        && this.pending.length === 0 && this.timer === undefined) {
+        this.config.onIdle?.()
       }
     })
   }
