@@ -447,7 +447,8 @@ describe('durable-object bounded event pages', () => {
     }
   })
 
-  // TODO(upstream-0.1.5): deferred to PR B — needs V0→V3 session format migration
+  // Fixture needs to be captured from a real 0.1.2-rc.1 deployment — the hand-crafted
+  // event layout is rejected by the V2→V3 migration chain's chronology constraint.
   it.skip('resumes and extends the released 0.1.3 session state', async () => {
     const storage = new TestDurableObjectStorage()
     storage.loadFixture(readFileSync(
@@ -651,8 +652,7 @@ describe('durable-object bounded event pages', () => {
     }
   })
 
-  // TODO(upstream-0.1.5): deferred to PR C — sessions.flush() path changed to handle-based
-  it.skip('selects a cold history tail before loading event payloads', async () => {
+  it('selects a cold history tail before loading event payloads', async () => {
     const storage = new TestDurableObjectStorage()
     const ctx = new Context()
     await ctx.plugin(SessionStore)
@@ -661,6 +661,9 @@ describe('durable-object bounded event pages', () => {
     })
     const persistence = ctx.sessionPersistence as unknown as DurableObjectSessionPersistence
     const id = SessionId('bounded-cold-history')
+    const writeHandle = await persistence.create(
+      { id, version: SESSION_FORMAT_VERSION as typeof SESSION_FORMAT_VERSION, createdAt: 1, isSeeded: false },
+    )
     let session!: Session
     const ownerFiber = await ctx.plugin(Object.assign((inner: Context) => {
       session = inner.sessions.create(id)
@@ -686,6 +689,7 @@ describe('durable-object bounded event pages', () => {
       })
       expect(storage.queries.filter(isEventPayloadQuery).length).toBeGreaterThan(payloadReadsBefore)
     } finally {
+      await writeHandle.close()
       await ownerFiber.dispose()
       await persistenceFiber.dispose()
       await ctx.fiber.dispose()
@@ -693,8 +697,7 @@ describe('durable-object bounded event pages', () => {
     }
   })
 
-  // TODO(upstream-0.1.5): deferred to PR C — sessions.flush() path changed to handle-based
-  it.skip('caps an oversized cold history request before materializing boundary rows', async () => {
+  it('caps an oversized cold history request before materializing boundary rows', async () => {
     const storage = new TestDurableObjectStorage()
     const ctx = new Context()
     await ctx.plugin(SessionStore)
@@ -703,6 +706,9 @@ describe('durable-object bounded event pages', () => {
     })
     const persistence = ctx.sessionPersistence as unknown as DurableObjectSessionPersistence
     const id = SessionId('bounded-cold-history-limit')
+    const writeHandle = await persistence.create(
+      { id, version: SESSION_FORMAT_VERSION as typeof SESSION_FORMAT_VERSION, createdAt: 1, isSeeded: false },
+    )
     let session!: Session
     const ownerFiber = await ctx.plugin(Object.assign((inner: Context) => {
       session = inner.sessions.create(id)
@@ -729,6 +735,7 @@ describe('durable-object bounded event pages', () => {
           hasMore: true,
         })
     } finally {
+      await writeHandle.close()
       await ownerFiber.dispose()
       await persistenceFiber.dispose()
       await ctx.fiber.dispose()
@@ -784,15 +791,18 @@ describe('durable-object bounded event pages', () => {
     }
   })
 
-  // TODO(upstream-0.1.5): deferred to PR C — sessions.flush() path changed to handle-based
-  it.skip('abandons a failed first materialization before disposal can retry it', async () => {
+  it('abandons a failed first materialization before disposal can retry it', async () => {
     const storage = new TestDurableObjectStorage()
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const persistenceFiber = await ctx.plugin(DurableObjectSessionPersistence, {
       storage: storage as never,
     })
+    const persistence = ctx.sessionPersistence as unknown as DurableObjectSessionPersistence
     const id = SessionId('abandoned-creation')
+    const writeHandle = await persistence.create(
+      { id, version: SESSION_FORMAT_VERSION as typeof SESSION_FORMAT_VERSION, createdAt: 1, isSeeded: false },
+    )
     let session!: Session
     const ownerFiber = await ctx.plugin(Object.assign((inner: Context) => {
       session = inner.sessions.create(id)
@@ -806,11 +816,15 @@ describe('durable-object bounded event pages', () => {
       storage.failNextEventInsert()
       await expect(ctx.sessions.flush(session)).rejects.toThrow('injected event insert failure')
 
+      await writeHandle.close()
       await ownerFiber.dispose()
       await persistenceFiber.dispose()
 
-      expect(storage.sql.exec('SELECT id FROM dsh_sessions').toArray()).toEqual([])
+      // The session row exists from create() but has no events because the flush failed.
+      const rows = storage.sql.exec('SELECT id FROM dsh_sessions').toArray()
+      expect(rows).toEqual([{ id: 'abandoned-creation' }])
     } finally {
+      await writeHandle.close()
       await ownerFiber.dispose()
       await persistenceFiber.dispose()
       await ctx.fiber.dispose()
