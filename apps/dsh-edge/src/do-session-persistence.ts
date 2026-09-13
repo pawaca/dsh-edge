@@ -38,6 +38,7 @@ import {
   type SessionPersistenceStatOptions,
   type SessionStorageMetadata,
 } from '@deepseek-ai/dsh-session-persistence'
+import { sessionFormatCatalog } from '@deepseek-ai/dsh-session-format-catalog'
 import {
   SessionTitleProviderId,
   type SessionTitleEventData,
@@ -293,10 +294,14 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
     options?: SessionPersistenceOpenOptions,
   ): Promise<SessionHandle> {
     options?.signal?.throwIfAborted()
-    const row = this.rowFor(id)
+    let row = this.rowFor(id)
     const blank = row === undefined ? this.readBlankSession(id) : undefined
     if (row === undefined && blank === undefined) {
       throw new SessionPersistenceNotFoundError(id)
+    }
+    if (row !== undefined && row.version !== SESSION_FORMAT_VERSION) {
+      this.migrateSession(id, row)
+      row = this.rowFor(id)!
     }
     if (access === 'write') {
       if (this.activeWriteOwners.has(id)) {
@@ -330,6 +335,73 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
       }
     }
     if (errors.length > 0) throw new AggregateError(errors)
+  }
+
+  private migrateSession(id: SessionId, row: HeaderRow): void {
+    const headerJson = {
+      type: 'session',
+      version: row.version,
+      id: row.id,
+      createdAt: row.created_at,
+      delegationDepth: row.delegation_depth ?? 0,
+      isSeeded: row.seed_length !== null,
+      ...row.cwd === null ? {} : { cwd: row.cwd },
+      ...row.parent_session === null ? {} : { parentSession: row.parent_session },
+      ...row.seed_length === null ? {} : { seedLength: row.seed_length },
+      ...row.origin === null ? {} : { origin: row.origin },
+      ...row.agent_preset === null ? {} : { agentPreset: row.agent_preset },
+    }
+    const classification = sessionFormatCatalog.readHeader(headerJson)
+    if (classification.status === 'current') return
+    if (classification.status === 'unsupported') {
+      throw new SessionFormatUnsupportedError(classification.reason)
+    }
+    if (classification.status === 'malformed') {
+      throw new Error(`session ${id} has a malformed header: ${classification.reason}`)
+    }
+    const restore = sessionFormatCatalog.createRestore(headerJson, {
+      recovery: 'recoverable',
+      validation: 'transformed',
+    })
+    const eventRows = this.eventRows(id, 0)
+    for (const eventRow of eventRows) {
+      const isPacked = PACKED_ROW_TYPES.has(eventRow.type)
+      const record = {
+        type: eventRow.type,
+        ...(isPacked
+          ? { seq0: eventRow.seq, time0: eventRow.time }
+          : { seq: eventRow.seq, time: eventRow.time }),
+        data: JSON.parse(eventRow.data) as Record<string, unknown>,
+        ...eventRow.source_event_seqs === null
+          ? {}
+          : { sourceEventSeqs: JSON.parse(eventRow.source_event_seqs) as number[] },
+        ...eventRow.surface_op === null
+          ? {}
+          : { surfaceOp: JSON.parse(eventRow.surface_op) as string },
+        ...eventRow.ignorable === 1 ? { ignorable: true } : {},
+      }
+      restore.decodeRow(record)
+    }
+    const artifact = restore.finish()
+    this.storage.transactionSync(() => {
+      this.storage.sql.exec(
+        'DELETE FROM dsh_session_events WHERE session_id = ?',
+        id,
+      )
+      this.storage.sql.exec(
+        `UPDATE dsh_sessions SET version = ?, seed_length = ? WHERE id = ?`,
+        artifact.header.version,
+        artifact.inheritedEventCount > 0 ? artifact.inheritedEventCount : null,
+        id,
+      )
+      const packed = packChunkRuns(artifact.events as SessionEvent[])
+      for (const record of packed) this.insertStorageRecord(id, record)
+      this.storage.sql.exec(
+        'UPDATE dsh_sessions SET revision = revision + 1 WHERE id = ?',
+        id,
+      )
+      this.recomputeSummary(id)
+    })
   }
 
   async stat(
@@ -527,17 +599,15 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
     return this.rowFor(id) !== undefined
   }
 
-  /** Read and format-check one canonical header without touching event rows. */
+  /** Read and format-check one canonical header, migrating on version mismatch. */
   readSessionHeader(id: SessionId): SessionHeader | undefined {
     const row = this.rowFor(id)
     if (row === undefined) return undefined
-    const header = rowToHeader(row)
-    if (header.version !== SESSION_FORMAT_VERSION) {
-      throw new SessionFormatUnsupportedError(
-        sessionFormatVersionRefusal(header.id, header.version),
-      )
+    if (row.version !== SESSION_FORMAT_VERSION) {
+      this.migrateSession(id, row)
+      return rowToHeader(this.rowFor(id)!)
     }
-    return header
+    return rowToHeader(row)
   }
 
   /** Read the latest canonical model selection recorded by an upstream request/header. */
@@ -755,9 +825,22 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
         title_time INTEGER,
         title_data TEXT
       ) STRICT`)
+      this.migrateStoredSessions()
       this.syncSummaries()
       return `durable-object:store:${storeId}`
     })
+  }
+
+  private migrateStoredSessions(): void {
+    const outdated = this.storage.sql.exec<HeaderRow>(
+      `SELECT id, version, created_at, cwd, parent_session, seed_length, origin,
+              delegation_depth, agent_preset, incarnation, revision
+       FROM dsh_sessions WHERE version != ?`,
+      SESSION_FORMAT_VERSION,
+    ).toArray()
+    for (const row of outdated) {
+      this.migrateSession(row.id as SessionId, row)
+    }
   }
 
   private syncSummaries(): void {

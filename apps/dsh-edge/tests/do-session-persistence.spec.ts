@@ -893,11 +893,11 @@ describe('durable-object bounded event pages', () => {
       )
 
       expect(() => persistence.readSessionSummary(id))
-        .toThrow(/uses log format v99/u)
+        .toThrow(/format v99/u)
       expect(() => persistence.readSessionHeader(id))
-        .toThrow(/uses log format v99/u)
+        .toThrow(/format v99/u)
       expect(() => persistence.readSessionSummaryPage(undefined, 1))
-        .toThrow(/uses log format v99/u)
+        .toThrow(/format v99/u)
     } finally {
       await fiber.dispose()
       storage.close()
