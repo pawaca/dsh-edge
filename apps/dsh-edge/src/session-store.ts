@@ -38,12 +38,16 @@ import SessionStore, {
   SessionLogOffset,
   SESSION_FORMAT_VERSION,
   isAppendSurfaceEvent,
+  type Session,
   type SessionEvent,
   type SessionEventMap,
   type SessionHeader,
   type UserMessage,
 } from '@deepseek-ai/dsh-session'
-import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
+import {
+  DEFAULT_WRITE_BATCH_MAX_DELAY_MS,
+  type SessionPersistence,
+} from '@deepseek-ai/dsh-session-persistence'
 import { buildSessionEventSearchDocuments } from '@deepseek-ai/dsh-session-query'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SessionProjectionCache from '@deepseek-ai/dsh-session-projection-cache'
@@ -111,6 +115,7 @@ import { resolveEdgeModel } from './deepseek.ts'
 import type { CreateEdgeSessionInput, EdgeSession } from './protocol.ts'
 import { installEdgeWebSearch } from './web-search.ts'
 import { DurableObjectMessageFeedbackStore } from './do-message-feedback-store.ts'
+import { DurableEventDeliveryQueue } from './durable-event-delivery.ts'
 
 const MAX_TITLE_BYTES = 640
 const MAX_MESSAGE_FEEDBACK_NOTE_BYTES = 8_192
@@ -258,6 +263,7 @@ export class EdgeSessionStore {
   private readonly shells = new EdgeShellBindings()
   private readonly modelSelections: EdgeModelSelectionBridge
   private readonly turnPublishedAgents = new WeakSet<Agent>()
+  private readonly lateEventDeliveries = new WeakMap<Session, DurableEventDeliveryQueue<SessionEvent>>()
   private readonly residentAgents = new Map<SessionId, AgentHandle>()
   private readonly ready: Promise<void>
 
@@ -573,11 +579,31 @@ export class EdgeSessionStore {
         const agent = this.context.agents.get(session.id)
         if (agent?.session === session && this.turnPublishedAgents.has(agent)) return
         if (event.type === 'session/title' && event.data.source.kind === 'user') return
-        void this.context.sessions.flush(session).then(() => {
-          callback(session.id, event)
-        }).catch((error: unknown) => {
-          console.error('dsh-edge: failed to flush late session event.', error)
-        })
+        let delivery = this.lateEventDeliveries.get(session)
+        if (delivery === undefined) {
+          delivery = new DurableEventDeliveryQueue({
+            maxDelayMs: DEFAULT_WRITE_BATCH_MAX_DELAY_MS,
+            flush: async () => {
+              if (this.context.sessions.get(session.id) === session) {
+                await this.context.sessions.flush(session)
+                return
+              }
+              // A short-lived child may be detached before this timer fires.
+              // readFrom waits for the persistence coordinator's retirement
+              // drain, while seeking past the tail avoids a full-log read.
+              await this.context.sessionPersistence.readFrom(session.id, session.seq)
+            },
+            deliver: events => {
+              for (const durableEvent of events) callback(session.id, durableEvent)
+            },
+            onError: (error: unknown) => {
+              this.lateEventDeliveries.delete(session)
+              console.error('dsh-edge: failed to flush late session events.', error)
+            },
+          })
+          this.lateEventDeliveries.set(session, delivery)
+        }
+        delivery.enqueue(event)
       })
     }
     if (config.onProjectionChanged !== undefined) {
@@ -1503,23 +1529,31 @@ export class EdgeSessionStore {
     if (this.shells.get(agent.id) === undefined) {
       this.shells.bind(agent.id, input.shell, agent.session.header.cwd ?? '/workspace')
     }
-    let delivery = Promise.resolve()
     let deliveryError: unknown
+    const delivery = new DurableEventDeliveryQueue<{
+      event: SessionEvent
+      queue: QueuedInboxItem[] | undefined
+    }>({
+      maxDelayMs: DEFAULT_WRITE_BATCH_MAX_DELAY_MS,
+      flush: () => sessions.flush(agent.session),
+      deliver: async items => {
+        for (const item of items) {
+          if (deliveryError !== undefined) return
+          try {
+            await input.publish(item.event)
+            if (item.queue !== undefined) await input.publishQueue?.(item.queue)
+          } catch (error) {
+            deliveryError = error
+          }
+        }
+      },
+    })
     const stopObserving = this.context.on('session/event', (subject, event) => {
       if (subject !== agent.session) return
       const queue = event.type === 'agent/inbox/spliced'
         ? queueItems(agent, event.data)
         : undefined
-      delivery = delivery.then(async () => {
-        await sessions.flush(agent.session)
-        if (deliveryError !== undefined) return
-        try {
-          await input.publish(event)
-          if (queue !== undefined) await input.publishQueue?.(queue)
-        } catch (error) {
-          deliveryError = error
-        }
-      })
+      delivery.enqueue({ event, queue })
     })
     this.turnPublishedAgents.add(agent)
     const admission = createDurablePromptAdmitter(
@@ -1547,14 +1581,14 @@ export class EdgeSessionStore {
         input.onClosing?.()
         break
       }
-      await delivery
+      await delivery.drain()
       await sessions.flush(agent.session)
       await this.retireLoggedModelSelection(agent).catch((error: unknown) => {
         // A retained matching bridge is harmless and can be retried after the next turn.
         console.error('dsh-edge failed to retire a logged model selection.', error)
       })
     } finally {
-      await delivery.catch(() => {})
+      await delivery.drain().catch(() => {})
       await agent.whenIdle().catch(() => {})
       admission.dispose()
       stopObserving()
