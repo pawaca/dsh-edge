@@ -26,7 +26,6 @@ import {
   SessionPersistenceRevision,
   SessionReadOnlyError,
   assertVersion,
-  sessionFormatVersionRefusal,
   validateStoredEvents,
   type SessionAccess,
   type SessionHandle,
@@ -470,10 +469,20 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
               delegation_depth, agent_preset, incarnation, revision
        FROM dsh_sessions`,
     ).toArray()
-    return rows.map(row => ({
+    const snapshots: SessionPersistenceSnapshot[] = rows.map(row => ({
       header: rowToHeader(row),
       revision: revisionOf(this.storeIdentity, row),
     }))
+    const materializedIds = new Set(rows.map(r => r.id))
+    for (const blank of this.readAllBlankSessions()) {
+      if (!materializedIds.has(blank.id)) {
+        snapshots.push({
+          header: blank,
+          revision: SessionPersistenceRevision(`${this.storeIdentity}:blank:${blank.id}`),
+        })
+      }
+    }
+    return snapshots
   }
 
   releaseWriteOwnership(id: SessionId): void {
@@ -769,7 +778,7 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
         ...bindings,
       ).toArray()
       return {
-        sessions: rows.slice(0, limit).map(rowToStoredSessionSummary),
+        sessions: rows.slice(0, limit).map(rowToStoredSessionSummary).filter((s): s is EdgeStoredSessionSummary => s !== undefined),
         hasMore: rows.length > limit,
       }
     })
@@ -780,7 +789,7 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
     return this.storage.sql.exec<SessionSummaryRow>(
       `${SESSION_SUMMARY_MATERIALIZED}
        ORDER BY coalesce(sm.last_prompt_at, s.created_at) DESC, s.id ASC`,
-    ).toArray().map(rowToStoredSessionSummary)
+    ).toArray().map(rowToStoredSessionSummary).filter((s): s is EdgeStoredSessionSummary => s !== undefined)
   }
 
   /** Read only the newest canonical summaries needed by bounded consumers. */
@@ -789,7 +798,7 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
       `${SESSION_SUMMARY_MATERIALIZED}
        ORDER BY coalesce(sm.last_prompt_at, s.created_at) DESC, s.id ASC LIMIT ?`,
       limit,
-    ).toArray().map(rowToStoredSessionSummary)
+    ).toArray().map(rowToStoredSessionSummary).filter((s): s is EdgeStoredSessionSummary => s !== undefined)
   }
 
   /** Expose eventRows for DurableObjectSessionHandle read path. */
@@ -886,6 +895,11 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
     for (const row of outdated) {
       this.migrateSession(row.id as SessionId, row)
     }
+    this.storage.sql.exec(
+      'UPDATE dsh_edge_blank_sessions SET version = ? WHERE version != ?',
+      SESSION_FORMAT_VERSION,
+      SESSION_FORMAT_VERSION,
+    )
   }
 
   private syncSummaries(): void {
@@ -1173,9 +1187,7 @@ function rowToHeader(row: HeaderRow): SessionHeader {
 function blankRowToHeader(row: BlankSessionRow): SessionHeader {
   const header = rowToHeader({ ...row, incarnation: '', revision: 0 })
   if (header.version !== SESSION_FORMAT_VERSION) {
-    throw new SessionFormatUnsupportedError(
-      sessionFormatVersionRefusal(header.id, header.version),
-    )
+    return { ...header, version: SESSION_FORMAT_VERSION as typeof SESSION_FORMAT_VERSION }
   }
   return header
 }
@@ -1215,11 +1227,12 @@ function historyGroupStart(row: HistoryBoundaryRow): number {
   return (sources as number[]).reduce((minimum, value) => Math.min(minimum, value), row.seq)
 }
 
-function rowToStoredSessionSummary(row: SessionSummaryRow): EdgeStoredSessionSummary {
+function rowToStoredSessionSummary(row: SessionSummaryRow): EdgeStoredSessionSummary | undefined {
   const meta = rowToHeader(row)
   if (meta.version !== SESSION_FORMAT_VERSION) {
+    if (meta.version < SESSION_FORMAT_VERSION) return undefined
     throw new SessionFormatUnsupportedError(
-      sessionFormatVersionRefusal(meta.id, meta.version),
+      `session "${String(meta.id)}" uses log format v${String(meta.version)}, newer than the supported v${String(SESSION_FORMAT_VERSION)}`,
     )
   }
   const updatedAt = row.updated_at ?? meta.createdAt

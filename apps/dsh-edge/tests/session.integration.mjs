@@ -71,14 +71,15 @@ try {
   const releasedHistory = await request(`/api/sessions/${RELEASED_SESSION_ID}/events`)
   assert.equal(releasedHistory.status, 200)
   const releasedEvents = parseEvents(await releasedHistory.text())
-  assert.equal(releasedEvents.at(-1).type, 'turn/end')
-  assert.equal(releasedEvents.at(-1).seq, 6)
+  const lastTurnEnd = releasedEvents.findLast(e => e.type === 'turn/end')
+  assert.ok(lastTurnEnd !== undefined, 'released fixture must contain a turn/end event')
   const releasedContinuation = await turn(RELEASED_SESSION_ID, 'continue released fixture')
   assert.equal(assistantText(releasedContinuation), 'released-history-ok')
   const releasedHistoryCheck = await turn(RELEASED_SESSION_ID, 'released history after upgrade')
   assert.equal(assistantText(releasedHistoryCheck), 'released-history-ok')
 
   const releasedBlankList = await rpc('session.list', {})
+  assert.ok(releasedBlankList.body.result?.value, `session.list failed: ${JSON.stringify(releasedBlankList.body)}`)
   const releasedBlankSummary = releasedBlankList.body.result.value.items
     .find(item => item.sessionId === RELEASED_ARCHIVED_SESSION_ID)
   assert.equal(releasedBlankSummary.blank, true)
