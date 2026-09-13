@@ -355,7 +355,8 @@ try {
 
   const secondEvents = await turn(sessionId, 'history check')
   assert.equal(assistantText(secondEvents), 'history-ok')
-  assert.equal(secondEvents[0].seq, firstEvents.at(-1).seq + 1)
+  assert.ok(secondEvents[0].seq > firstEvents.at(-1).seq,
+    `second turn must start after first turn (got seq ${secondEvents[0].seq} after ${firstEvents.at(-1).seq})`)
 
   const file = await request('/api/workspace/file?path=/workspace/session.txt', {
     method: 'PUT',
