@@ -33,8 +33,7 @@ function lanIPv4Address() {
 }
 
 describe('dsh-edge assembled browser snapshot', () => {
-  // TODO(upstream-0.1.5): session.prompt Typert mux event routing needs investigation
-  it.skip('pins the transcript rendered through the upstream Web client and Edge protocol', async () => {
+  it('pins the transcript rendered through the upstream Web client and Edge protocol', async () => {
     const persistedState = mkdtempSync(join(tmpdir(), 'dsh-edge-browser-snapshot-'))
     const config = join(persistedState, 'wrangler.json')
     await writePrebuiltModeWranglerConfig('direct', config, {
@@ -310,7 +309,7 @@ describe('dsh-edge assembled browser snapshot', () => {
         }))
       })
       await expect.poll(
-        () => page.getByRole('group', { name: 'Pending images' }).count(),
+        () => page.getByRole('group', { name: 'Pending attachments' }).count(),
       ).toBe(1)
       await composer.fill('snapshot the browser edge path')
       await page.getByRole('button', { name: 'Send message', exact: true }).click()
@@ -323,6 +322,7 @@ describe('dsh-edge assembled browser snapshot', () => {
         response.request().method() === 'POST'
         && new URL(response.url()).pathname === '/api/messageFeedback/put')
       await page.getByRole('button', { name: 'Good response', exact: true }).click()
+      await page.getByRole('dialog').getByRole('button', { name: 'Submit', exact: true }).click()
       const feedbackWire = await (await feedbackResponse).json()
       expect(feedbackWire.result.ok).toBe(true)
       expect(feedbackWire.result.value.ok).toBe(true)
@@ -447,10 +447,8 @@ describe('dsh-edge assembled browser snapshot', () => {
       expect(pageErrors).toEqual([])
       expect(mock.requests.filter(r => r.max_tokens !== 32)).toHaveLength(1)
 
-      // A conversation file link goes through the upstream Session Remote,
-      // which the Edge Host refuses (no desktop opener on Workers); the Edge
-      // Web client then streams the file through /api/workspace/file as a
-      // browser download instead of surfacing the upstream open-failure dialog.
+      // V3 opens file links in the upstream right-sidebar preview. Its bounded
+      // reads must resolve against the same persistent Computer VFS as tools.
       const probePath = '/workspace/picked/download-probe.txt'
       const probeWrite = await page.evaluate(async (path) => {
         const response = await window.fetch(`/api/workspace/file?path=${encodeURIComponent(path)}`, {
@@ -475,15 +473,19 @@ describe('dsh-edge assembled browser snapshot', () => {
       await page.getByRole('button', { name: /^1 tool call/u }).last().click()
       const fileLink = page.getByRole('button', { name: /download-probe\.txt$/u }).last()
       await fileLink.waitFor({ timeout: 15_000 })
-      const downloadEvent = page.waitForEvent('download', { timeout: 15_000 })
       const fileResponse = page.waitForResponse(response =>
-        response.request().method() === 'GET'
-        && new URL(response.url()).pathname === '/api/workspace/file')
+        response.request().method() === 'POST'
+        && new URL(response.url()).pathname === '/api/workspaceFiles/read')
       await fileLink.click()
-      expect((await fileResponse).status()).toBe(200)
-      const download = await downloadEvent
-      expect(download.suggestedFilename()).toBe('download-probe.txt')
-      await expect.poll(() => page.getByRole('dialog').count()).toBe(0)
+      const previewWire = await (await fileResponse).json()
+      expect(previewWire.result.ok).toBe(true)
+      await expect.poll(() => page.getByText('download probe body', { exact: true }).count(), { timeout: 15_000 }).toBeGreaterThan(0)
+      // The owner download route remains available alongside the new preview.
+      const downloaded = await page.evaluate(async path => {
+        const response = await fetch(`/api/workspace/file?path=${encodeURIComponent(path)}`)
+        return { status: response.status, body: await response.text() }
+      }, probePath)
+      expect(downloaded).toEqual({ status: 200, body: 'download probe body' })
       expect(pageErrors).toEqual([])
 
       await page.waitForSelector('[class*="frame"]', { timeout: 15_000 })
@@ -516,8 +518,7 @@ describe('dsh-edge assembled browser snapshot', () => {
     }
   }, 120_000)
 
-  // TODO(upstream-0.1.5): depends on session.prompt mux flow
-  it.skip('enables upstream image intake through the temporary DO attachment backend', async () => {
+  it('enables upstream image intake through the temporary DO attachment backend', async () => {
     const persistedState = mkdtempSync(join(tmpdir(), 'dsh-edge-browser-temporary-'))
     const config = join(persistedState, 'wrangler.json')
     await writePrebuiltModeWranglerConfig('direct', config)
@@ -592,7 +593,7 @@ describe('dsh-edge assembled browser snapshot', () => {
           clipboardData: transfer,
         }))
       })
-      const pendingImages = page.getByRole('group', { name: 'Pending images' })
+      const pendingImages = page.getByRole('group', { name: 'Pending attachments' })
       // The frame precedes the React commit that enables intake; a paste in
       // that gap is dropped (never deferred), so retrying cannot double-add.
       for (let attempt = 0; attempt < 3 && await pendingImages.count() === 0; attempt++) {

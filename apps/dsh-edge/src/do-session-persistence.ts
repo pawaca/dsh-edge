@@ -1,6 +1,6 @@
 /** Upstream SessionPersistence implemented over Cloudflare Durable Object SQL. */
 
-import { initializeSchedules, persistScheduleChanges, armScheduleWake } from './schedule-store.ts'
+import { initializeSchedules, persistScheduleChanges, armScheduleWake, assertScheduleTailRepairable, rebuildSchedules } from './schedule-store.ts'
 import { initializeMainQueue, acknowledgeMainInputs } from './main-session-queue.ts'
 import { Context } from '@deepseek-ai/cordis'
 import { decodeStorageRecord, packChunkRuns } from './chunk-rows.ts'
@@ -252,7 +252,13 @@ class DurableObjectSessionHandle implements SessionHandle {
     options?.signal?.throwIfAborted()
     const fromSeq = offset ?? 0
     const rows = this.backend.eventRowsFrom(this.id, fromSeq)
-    const { preserved } = scanRows(rows, fromSeq)
+    const scanned = scanRows(rows, fromSeq)
+    let preserved = scanned.preserved
+    const tornFrom = scanned.tornFrom
+    if (this.access === 'write' && fromSeq === 0 && tornFrom !== undefined) {
+      preserved = await this.backend.repairTornTail(this.id, this.inheritedEventCount)
+    }
+    options?.signal?.throwIfAborted()
     const events = length === undefined
       ? preserved
       : preserved.slice(0, length)
@@ -711,6 +717,30 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
     })
   }
 
+  /** Repair only under write ownership, before the upstream loop appends resume closers. */
+  async repairTornTail(id: SessionId, inheritedEventCount: SessionLogOffset): Promise<SessionEvent[]> {
+    return this.storage.transaction(async () => {
+      const rows = this.eventRowsFrom(id, 0)
+      const { preserved, tornFrom } = scanRows(rows)
+      if (tornFrom === undefined) return preserved
+      const tail = rows.filter(row => row.seq >= tornFrom)
+      // Inbox appends atomically acknowledge durable input receipts. Their
+      // removal could lose accepted prompts, including when payloads are torn.
+      if (tail.some(row => row.type === 'agent/inbox/spliced')) {
+        throw new Error('Cannot automatically repair a torn inbox event; input receipt state may already be committed.')
+      }
+      assertScheduleTailRepairable(tail)
+      this.storage.sql.exec('DELETE FROM dsh_session_events WHERE session_id = ? AND seq >= ?', id, tornFrom)
+      rebuildSchedules(this.storage, id, preserved, inheritedEventCount)
+      this.storage.sql.exec('UPDATE dsh_sessions SET revision = revision + 1 WHERE id = ?', id)
+      const header = this.rowFor(id)
+      if (header === undefined) throw new Error(`session ${id} disappeared during repair`)
+      this.updateSummaryFromBatch(id, preserved, header)
+      await armScheduleWake(this.storage)
+      return preserved
+    })
+  }
+
   /** Test one materialized session identity without listing stored headers. */
   hasSession(id: SessionId): boolean {
     return this.rowFor(id) !== undefined
@@ -1011,10 +1041,10 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
     )
   }
 
-  private updateSummaryFromBatch(id: SessionId, events: readonly SessionEvent[]): void {
+  private updateSummaryFromBatch(id: SessionId, events: readonly SessionEvent[], reset?: HeaderRow): void {
     const lastEvent = events.at(-1)
-    if (lastEvent === undefined) return
-    const existing = this.storage.sql.exec<{
+    if (lastEvent === undefined && reset === undefined) return
+    const existing = reset === undefined ? this.storage.sql.exec<{
       blank: number
       last_prompt_at: number | null
       title_seq: number | null
@@ -1024,7 +1054,7 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
       `SELECT blank, last_prompt_at, title_seq, title_time, title_data
        FROM dsh_session_summaries WHERE session_id = ?`,
       id,
-    ).toArray()[0]
+    ).toArray()[0] : undefined
 
     let blank = existing?.blank ?? 1
     let lastPromptAt: number | null = existing?.last_prompt_at ?? null
@@ -1046,7 +1076,7 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
       }
     }
 
-    const rev = this.storage.sql.exec<{ revision: number }>(
+    const rev = reset?.revision ?? this.storage.sql.exec<{ revision: number }>(
       'SELECT revision FROM dsh_sessions WHERE id = ?',
       id,
     ).toArray()[0]?.revision ?? 0
@@ -1067,9 +1097,9 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
          title_data = excluded.title_data`,
       id,
       rev,
-      lastEvent.time,
+      lastEvent?.time ?? reset!.created_at,
       lastPromptAt,
-      lastEvent.seq,
+      lastEvent?.seq ?? -1,
       blank,
       titleSeq,
       titleTime,

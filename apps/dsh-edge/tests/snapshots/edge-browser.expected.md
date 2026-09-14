@@ -3,6 +3,8 @@
     - button "Browser snapshot (1)" [disabled]
   - img
   - text: DSH Edge
+  - button "Open right sidebar":
+    - img
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
@@ -31,11 +33,18 @@
   - img
   - text: Ran for {{metric}}
 - text: {{clock}}
-- textbox "Message or run a task... / commands, @ files or sessions"
+- textbox "Message or run a task, / commands, @ files or sessions"
 - button "Commands":
+  - img
+- button "Add attachment":
   - img
 - button "Select model, current DeepSeek-V4-Flash-Vision-Exp, reasoning effort High":
   - text: DeepSeek-V4-Flash-Vision-Exp High
   - img
 - button "Send message" [disabled]
-- text: 1 turns · 1 steps LLM {{metric}} TTFT avg {{metric}} · {{metric}}
+- button "1 turns 1 steps":
+  - img
+  - text: 1 turns 1 steps
+- button "14 tok · Cache hit 0%":
+  - img
+  - text: 14 tokCache hit 0%

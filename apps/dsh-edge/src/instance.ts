@@ -669,7 +669,21 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       }))
     }
     try {
-      const source = await gateway.wireStream.open(endpoint, payload, abort.signal)
+      let source = await gateway.wireStream.open(endpoint, payload, abort.signal)
+      if (endpoint === 'workspaceFiles/changes') {
+        const iterator = source[Symbol.asyncIterator]()
+        let first = true
+        source = { [Symbol.asyncIterator]: () => ({
+          next: () => {
+            if (!first) return iterator.next()
+            first = false
+            // Only the initial ready frame resolves the VFS root. Release the
+            // workspace before waiting for later metadata observations.
+            return this.withWorkspaceFileScope(() => iterator.next())
+          },
+          return: () => iterator.return?.() ?? Promise.resolve({ done: true as const, value: undefined }),
+        }) }
+      }
       for await (const value of source) {
         if (socket.readyState !== WebSocket.OPEN) break
         let outgoing = value
@@ -746,6 +760,12 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
   private async withWorkspaceFiles<T>(read: (files: EdgeWorkspaceFiles) => Promise<T>): Promise<T> {
     using workspace = await getWorkspace(this)
     return await read(workspace.fs as unknown as EdgeWorkspaceFiles)
+  }
+
+  private async withWorkspaceFileScope<T>(run: () => Promise<T>): Promise<T> {
+    const fs = this.sessions.filesystem()
+    if (fs === undefined) throw new Error('Workspace filesystem is unavailable.')
+    return this.withWorkspaceFiles(files => fs.runInScope(files as never, '/workspace', run))
   }
 
   private async workspaceForSession(sessionId: SessionId): Promise<WorkspaceId | undefined> {
@@ -905,9 +925,11 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       const invoke = () => gateway.invoke({ namespace: ns, method, args, signal: AbortSignal.timeout(30_000) })
       // Agent-scoped commands (including /plan) use the same residency budget.
       // Their upstream lookup may otherwise leave a cold Agent permanently live.
-      const value = typeof args.agentId === 'string'
-        ? await this.withAgentControl(SessionId(args.agentId), invoke)
-        : await invoke()
+      const value = ns === 'workspaceFiles'
+        ? await this.withWorkspaceFileScope(invoke)
+        : typeof args.agentId === 'string'
+          ? await this.withAgentControl(SessionId(args.agentId), invoke)
+          : await invoke()
       return Response.json({ type: 'server-response', rpcId, result: { ok: true, value } })
     } catch (error) {
       // Only endpoints no registered controller serves fall back to the Edge

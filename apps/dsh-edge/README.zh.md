@@ -14,7 +14,7 @@
 
 - `ReactLoopAgent`、`AgentRegistry`、`LlmRuntime`、`ToolRuntime`、`SystemPrompt`、`SessionStore` 和 `SessionPersistence` 通过上游 Cordis 组合运行。
 - 上游 `dsh-llm-deepseek` cordis 插件直接安装，自动注册 Settings 命名空间和可配置 Provider 条目。Edge 把原生 DSH `bash` 工具映射到 Cloudflare Computer。
-- Durable Object SQLite 实现上游持久化后端约定；write-behind、revision、恢复准备与崩溃恢复仍由 `PersistenceCoordinator` 负责。
+- Durable Object SQLite 实现上游 `SessionHandle` 持久化约定。Edge 缓冲实时事件并在发布前完成落盘；初始化事件（包括冷会话切换模型时的 `session/end-seed`）先于后续变更持久化。上游 agent loop 在恢复时补齐中断 turn 的结束事件。Edge 在持有写入所有权时先截断损坏的物理尾部，并原子重建摘要和提醒状态；对于含有 inbox 事件、格式损坏提醒或已派发提醒的尾部，拒绝自动修复，避免重复投递。
 - 模型历史从 canonical 事件投影，不在 Edge 中建立第二套 schema。
 - `GoalService` 和 `ToolGoal` 作为上游 cordis 插件直接组合。浏览器 GoalBar mutation 经由 `TypertGatewayService` 路由。
 - `SessionProjectionCache` 通过 KV 缓存在 Durable Object 重启后持久化 goal、title 和 model 状态。
@@ -150,7 +150,7 @@ curl -b /tmp/dsh-edge-cookie -N -X POST -H 'content-type: application/json' \
 | DSH transport | Typed HTTP RPC 加 mux/host WebSocket downlink | 复用并提供 Edge 服务端实现 | 对 unary method 使用上游 fetch carrier，并保留其 envelope、schema、projection、lazy blank-session 行为、有界内容搜索、prompt 与 queue mutation、workspace mutation、queue snapshot 和 event frame。两条 downlink 都由 Durable Object WebSocket 休眠机制持有；mux 重连会重放 live inbox 的待处理状态，REST/SSE 路由则保留为诊断兼容路径。 |
 | Workspace registry | Storage-domain global state 加 `WorkspaceRecord` rows | 原生 backend 适配 | 保持上游 global 和 record value shape，包括手动 session 顺序与 archive membership；仅把物理 key 和原子写入映射到 Durable Object storage。Edge 把 registry 限制为一个原生 `/workspace` VFS；rename、delete、recreate 与 session reorder 保持上游 RPC 和 Host-frame 语义。 |
 | Directory picker | `ctx.directoryPicker` seam，由 `dsh-host-directory-picker-auto` 在启动时选择 `-native` OS 选择器或 `-browse` 文件系统 backend，加 Web browse 对话框 | 复用并提供 Edge browse backend | 安装上游 seam，并把上游 `dsh-client-ui-directory-picker-browse` 对话框固定进 Web roster；Edge 从 `/workspace` Computer VFS 按每次一层回答 `browse` capability，以 `/workspace` 为根并沿用上游的 hidden、bound 与失败词汇，因此上游 `DirectoryPickerController` 提供 `directoryPicker/list` 与 `createDirectory`，并拒绝原生 `pick`。 |
-| 对话文件链接 | `session/openWorkspacePath` 经 `dsh-native-command` 把点击的路径交给宿主桌面打开器；`session/canOpenWorkspacePath` 决定是否展示该入口 | 在上游 `SessionControllerInternals` seam 适配，加 Web 端下载回退 | 用 Edge internals 组合 `SessionController`，让原生探测返回 false、打开尝试以可读原因失败而不是 `child_process` 错误。Edge Web 插件保留上游 `ctx.remote.session.openWorkspacePath` 调用，宿主拒绝时经 owner 鉴权的 `GET /api/workspace/file` 路由把文件作为浏览器下载流出，因此点击 `read`、`write`、`edit` 行会保存文件而不是弹出上游的打开失败对话框。 |
+| 对话文件链接 | `session/openWorkspacePath` 经 `dsh-native-command` 把点击的路径交给宿主桌面打开器；`session/canOpenWorkspacePath` 决定是否展示该入口 | 在上游 `SessionControllerInternals` seam 适配，加 Web 端下载回退 | 用 Edge internals 组合 `SessionController`，让原生探测返回 false、打开尝试以可读原因失败而不是 `child_process` 错误。V3 Web 客户端在右侧栏预览文件链接。Edge 将上游 `workspaceFiles` 控制器接入请求作用域内的 VFS 读取，支持有界文本/字节分页和元数据订阅。旧版 `ctx.remote.session.openWorkspacePath` 回退以及经 owner 鉴权的 `GET /api/workspace/file` 下载仍然可用。 |
 | Existing Web UI | 运行时加载的 shell 和 `dsh.client` 插件 graph | 复用并采用通用 composition fallback | 把上游 shell 和受支持的上游客户端包组装成 Worker 静态资源；共享的 slot occupancy 规则会隐藏缺少 provider 的 action。Cloudflare 直接提供普通资源，`/`、`/login` 与 `/api/*` 则进入 Worker 执行 owner access control。组装后的 asset policy 会阻止所有直接或 SPA-fallback shell alias 被嵌入 frame。 |
 | Other tools | Web Search、filesystem editor tools、MCP、skills、workflows、jobs 和 subagents | Search、文件、goal 和 skill 工具已移植；MCP、workflows 和 subagents 尚未移植 | 复用上游 DeepSeek Web Search 及其 30 秒 tool-call timeout。文件工具（read/write/edit/read_image）通过 `EdgeFileSystem` 适配 Computer VFS。Goal 工具（`ToolGoal`）作为上游 cordis 插件直接与 `GoalService` 组合。Skill 工具通过 `SkillRegistry` + `EdgeSkillProvider`（DO KV 存储）；owner CRUD 接口 `GET/PUT/DELETE /api/skills`。MCP client（`dsh-mcp-client`）尚未安装；Streamable HTTP transport 在免费 plan 上可行。逐个针对 Worker-compatible capabilities 增加其余工具，不宣称不可用的 host 行为。 |
 | Attachments | 本地 attachment storage、上游 image reference、composer、gallery、lightbox 与 provider conversion | 在原生 storage seam 上适配 | 原样复用上游 `AttachmentStore`、admission、协议、授权、UI 与 DeepSeek conversion。PNG/JPEG 不可变字节按 SHA-256 identity 存入新永久部署的私有 R2，或存入临时部署以及升级旧版 Worker 时由 owner 选择的 64 MiB、按 512 KiB 分块的 DO backend；session event 只保留上游 ref。每个 owner instance 首次选择的 backend 会被固定，认领或升级不会让既有引用失联。 |
@@ -188,7 +188,7 @@ Cloudflare static assets -> upstream Web shell + client plugin graph
      (or optional Computer Worker Shell when LOADER is bound)
   -> Durable Object /workspace VFS
   -> upstream tool/result and next model step
-  -> ReactLoopAgent appends canonical inbox, chunk, message, tool and boundary events
+  -> ReactLoopAgent appends canonical inbox, message, tool and boundary events (V3 embeds compact streams in assistant events)
   -> sessions.flush durable barrier -> Durable Object SQLite backend
   -> session/event, projection, and status frames over Durable Object WebSockets
   -> upstream Web runtime reconciles and renders the canonical events

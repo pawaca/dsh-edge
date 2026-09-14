@@ -98,7 +98,9 @@ export async function startMockDeepSeek(port = 0) {
       const body = JSON.parse(source)
       requests.push(body)
       const messages = Array.isArray(body.messages) ? body.messages : []
-      const latestUserIndex = messages.findLastIndex(message => message.role === 'user')
+      // Model transitions are synthetic user notes in Format V3, not a new prompt.
+      const latestUserIndex = messages.findLastIndex(message => message.role === 'user'
+        && !(typeof message.content === 'string' && message.content.startsWith('[model changed: ')))
       const latestUser = messages[latestUserIndex]
       const rawContent = latestUser?.content
       const prompt = typeof rawContent === 'string'

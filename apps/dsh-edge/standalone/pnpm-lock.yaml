@@ -49,6 +49,9 @@ importers:
       '@deepseek-ai/dsh-api-workspace-controller':
         specifier: 0.1.5-rc.2
         version: 0.1.5-rc.2(4482d41974961e4cfc52f1de8f817651)
+      '@deepseek-ai/dsh-api-workspace-files':
+        specifier: 0.1.5-rc.2
+        version: 0.1.5-rc.2(@deepseek-ai/cordis@4.0.2)
       '@deepseek-ai/dsh-attachment':
         specifier: 0.1.5-rc.2
         version: 0.1.5-rc.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-brand@0.1.5-rc.2(@deepseek-ai/cordis@4.0.2))
