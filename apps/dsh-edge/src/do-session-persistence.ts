@@ -193,6 +193,7 @@ class DurableObjectSessionHandle implements SessionHandle {
   private closed = false
   private materialized = false
   private readonly liveBuffer: SessionEvent[] = []
+  private appendedThrough = -1
 
   constructor(
     readonly id: SessionId,
@@ -207,6 +208,7 @@ class DurableObjectSessionHandle implements SessionHandle {
 
   enqueueLive(event: SessionEvent): void {
     if (this.closed || this.access !== 'write') return
+    if (event.seq <= this.appendedThrough) return
     this.liveBuffer.push(event)
   }
 
@@ -258,6 +260,10 @@ class DurableObjectSessionHandle implements SessionHandle {
     }
     await this.backend.appendBatch(storage, events, this.backend.hasSession(this.id))
     this.materialized = true
+    const lastEvent = events.at(-1)
+    if (lastEvent !== undefined && lastEvent.seq > this.appendedThrough) {
+      this.appendedThrough = lastEvent.seq
+    }
   }
 
   async flush(options?: { readonly signal?: AbortSignal }): Promise<void> {
