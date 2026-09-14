@@ -21,7 +21,7 @@ function agentAt(cwd: string | undefined): Agent {
 
 async function provider(tree: Record<string, EdgeReferenceEntry[]>, maxResults?: number) {
   const ctx = new Context()
-  await ctx.plugin(SystemPrompt, { persona: 'test persona' })
+  await ctx.plugin(SystemPrompt, { personaPrefix: 'test persona' })
   const reads: string[] = []
   await ctx.plugin(EdgeFileReferenceService, {
     ...(maxResults === undefined ? {} : { maxResults }),

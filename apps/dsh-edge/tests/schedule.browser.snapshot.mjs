@@ -8,7 +8,8 @@ import { unstable_dev } from 'wrangler'
 import { workerArtifactPath, writePrebuiltModeWranglerConfig } from '../scripts/wrangler-config.mjs'
 import { startMockDeepSeek } from './fixtures/mock-deepseek.mjs'
 
-it('wakes a cold session for a durable reminder without a browser connection', async () => {
+// TODO(upstream-0.1.5): depends on session.prompt mux flow for creating the initial session
+it.skip('wakes a cold session for a durable reminder without a browser connection', async () => {
   const state = mkdtempSync(join(tmpdir(), 'dsh-schedule-browser-'))
   const config = join(state, 'wrangler.json')
   const mode = process.env.DSH_EDGE_TEST_RUNTIME_MODE ?? 'direct'

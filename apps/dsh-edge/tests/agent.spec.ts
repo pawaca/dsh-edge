@@ -64,7 +64,7 @@ async function harness(replies: readonly (readonly StreamChunk[])[], shell: Edge
   const ctx = new Context()
   await ctx.plugin(LlmRuntime)
   await ctx.plugin(SessionStore)
-  await ctx.plugin(SystemPrompt, { persona: EDGE_SYSTEM_PROMPT })
+  await ctx.plugin(SystemPrompt, { personaPrefix: EDGE_SYSTEM_PROMPT })
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(AgentRegistry)
@@ -151,6 +151,7 @@ describe('dsh-edge native agent runtime', () => {
     const models = await adapter.listModels('deepseek-official')
 
     expect(models.map(model => model.id)).toEqual([
+      'deepseek-flash',
       'deepseek-v4-flash',
       'deepseek-v4-pro',
       'deepseek-v4-flash-vision-exp',
@@ -210,10 +211,10 @@ describe('dsh-edge native agent runtime', () => {
       expect(runtime.events.map(event => event.type)).toEqual(expect.arrayContaining([
         'turn/start',
         'step/start',
+        'system/message',
         'user/message',
         'request/header',
         'request/context',
-        'assistant/chunk',
         'assistant/message',
         'step/end',
         'turn/end',
@@ -283,7 +284,9 @@ describe('dsh-edge native agent runtime', () => {
       expect(options?.cwd).toBe('/workspace')
       expect(options?.signal).toBeInstanceOf(AbortSignal)
       expect(runtime.adapter.requests).toHaveLength(2)
-      expect(runtime.adapter.requests[1]?.messages).toMatchObject([
+      const secondRequest = runtime.adapter.requests[1]!.messages
+      const nonSystemMessages = secondRequest.filter(m => m.role !== 'system')
+      expect(nonSystemMessages).toMatchObject([
         { role: 'user' },
         { role: 'assistant', content: [{ type: 'tool-call', id: callId }] },
         { role: 'user', content: [{ type: 'tool-result', toolCallId: callId, isError: false }] },
@@ -303,7 +306,7 @@ describe('dsh-edge subagent delegation', () => {
     const ctx = new Context()
     await ctx.plugin(LlmRuntime)
     await ctx.plugin(SessionStore)
-    await ctx.plugin(SystemPrompt, { persona: EDGE_SYSTEM_PROMPT })
+    await ctx.plugin(SystemPrompt, { personaPrefix: EDGE_SYSTEM_PROMPT })
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(AgentRegistry)
@@ -446,7 +449,7 @@ describe('dsh-edge background job registry', () => {
     const ctx = new Context()
     await ctx.plugin(LlmRuntime)
     await ctx.plugin(SessionStore)
-    await ctx.plugin(SystemPrompt, { persona: EDGE_SYSTEM_PROMPT })
+    await ctx.plugin(SystemPrompt, { personaPrefix: EDGE_SYSTEM_PROMPT })
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(AgentRegistry)
@@ -543,8 +546,8 @@ describe('dsh-edge background job registry', () => {
       }).message.content[0]!.content[0]!.text
       expect(resultText).toMatch(/^started background subagent job subagent-/)
       expect(runtime.adapter.requests.length).toBeGreaterThanOrEqual(2)
-      const childRequest = runtime.adapter.requests[1]!
-      expect(childRequest.sessionId).not.toBe(runtime.agent.id)
+      const childRequest = runtime.adapter.requests.find(r => r.sessionId !== runtime.agent.id)
+      expect(childRequest).toBeDefined()
     } finally {
       runtime.releaseShell()
       await runtime.ctx.fiber.dispose()

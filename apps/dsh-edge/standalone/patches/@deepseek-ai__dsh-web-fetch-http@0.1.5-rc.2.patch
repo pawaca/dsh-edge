@@ -1,11 +1,12 @@
 diff --git a/lib/index.js b/lib/index.js
-index 9c99aab33ee450d30768b8ee56e5779876b4fcf6..b7f7179f4e41e266ccb82cb86ed6e286246ff272 100644
+index 65f0af604c03e08c3afc9938d57733595e57dfdd..458b57903b89f865b3ec287f0af384c442f5f6d4 100644
 --- a/lib/index.js
 +++ b/lib/index.js
-@@ -1,9 +1,26 @@
+@@ -1,10 +1,26 @@
  import z from "@deepseek-ai/schemastery";
  import { WebError } from "@deepseek-ai/dsh-web";
  import { deadline, timeoutOf } from "@deepseek-ai/dsh-timeout";
+-import { proxyRouteFor } from "@deepseek-ai/dsh-http-proxy";
 -import { lookup } from "node:dns/promises";
  import { isIP } from "node:net";
  import ipaddr from "ipaddr.js";
@@ -30,7 +31,7 @@ index 9c99aab33ee450d30768b8ee56e5779876b4fcf6..b7f7179f4e41e266ccb82cb86ed6e286
  //#region lib/types/network.js
  /**
  * Public-network resolution and address-pinned HTTP transport for `web-fetch-http`.
-@@ -51,30 +68,17 @@ function isPublicIpAddress(input) {
+@@ -52,30 +68,17 @@ function isPublicIpAddress(input) {
  * @param resolver - lookup implementation, overridden only by focused tests.
  * @returns the validated, non-empty address set.
  */
@@ -67,8 +68,8 @@ index 9c99aab33ee450d30768b8ee56e5779876b4fcf6..b7f7179f4e41e266ccb82cb86ed6e286
  }
  /** Discover the active DNS64 prefix set using RFC 7050's reserved hostname. */
  async function discoverNat64Prefixes(signal, resolver) {
-@@ -131,28 +135,16 @@ function embeddedIpv4Address(bytes, prefixLength) {
- * @returns a response plus the dispatcher disposer its consumer must call.
+@@ -151,28 +154,16 @@ function isNonPublicIpLiteral(hostname) {
+ * @returns a response plus the disposer its consumer must call.
  */
  async function requestPinned(url, addresses, headers, signal) {
 -	const { Agent, fetch } = await import("undici");
@@ -104,13 +105,30 @@ index 9c99aab33ee450d30768b8ee56e5779876b4fcf6..b7f7179f4e41e266ccb82cb86ed6e286
 +		close: async () => {}
 +	};
  }
- /** Production network operations kept as an object so provider tests can replace resolution only. */
- const publicHttpNetwork = {
-@@ -444,6 +436,7 @@ var HttpFetchProvider = class {
+ /**
+ * Fetch through the dispatcher the proxy policy already installed, letting the proxy resolve the
+@@ -190,14 +181,13 @@ async function requestPinned(url, addresses, headers, signal) {
+ * @returns a response plus a disposer that releases nothing, so both paths close alike.
+ */
+ async function requestVia(dispatcher, url, headers, signal) {
+-	const { fetch } = await import("undici");
++	void dispatcher;
+ 	return {
+ 		response: await fetch(url, {
+ 			method: "GET",
+ 			redirect: "manual",
+ 			headers,
+-			signal,
+-			dispatcher
++			signal
+ 		}),
+ 		close: () => Promise.resolve()
+ 	};
+@@ -493,6 +483,7 @@ var HttpFetchProvider = class {
  		}
  	}
  	async requestOnce(url, signal) {
 +		assertPublicFetchTarget(url);
- 		try {
- 			const addresses = await this.resolveAddresses(url.hostname, signal);
- 			return await publicHttpNetwork.request(url, addresses, {
+ 		const headers = {
+ 			"user-agent": this.limits.userAgent,
+ 			"accept": "text/html,application/xhtml+xml,text/*;q=0.9,application/json;q=0.8"

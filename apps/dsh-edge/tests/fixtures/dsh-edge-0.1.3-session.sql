@@ -70,27 +70,27 @@ INSERT INTO dsh_sessions (
 INSERT INTO dsh_session_events (
   session_id, seq, type, time, data, source_event_seqs, surface_op, ignorable
 ) VALUES
+  ('session-v0-1-3', 0, 'turn/start', 1001, '{"turn":1}', NULL, NULL, NULL),
   (
-    'session-v0-1-3', 0, 'session/title', 1001,
-    '{"title":"DSH Edge 0.1.3 fixture","messageSeqs":[2,4],"source":{"kind":"user"}}',
-    NULL, NULL, NULL
-  ),
-  ('session-v0-1-3', 1, 'turn/start', 1002, '{"turn":1}', NULL, NULL, NULL),
-  (
-    'session-v0-1-3', 2, 'user/message', 1003,
+    'session-v0-1-3', 1, 'user/message', 1002,
     '{"id":"fixture-user-message","role":"user","content":[{"type":"text","text":"fixture prompt"}],"source":{"kind":"user"}}',
     NULL, '"append"', NULL
   ),
-  ('session-v0-1-3', 3, 'step/start', 1004, '{"turn":1,"step":1}', NULL, NULL, NULL),
+  ('session-v0-1-3', 2, 'step/start', 1003, '{"turn":1,"step":1}', NULL, NULL, NULL),
   (
-    'session-v0-1-3', 4, 'assistant/message', 1005,
+    'session-v0-1-3', 3, 'assistant/message', 1004,
     '{"turn":1,"step":1,"message":{"id":"fixture-assistant-message","role":"assistant","content":[{"type":"text","text":"fixture response"}],"source":{"kind":"model","provider":"deepseek-official","model":"deepseek-v4-flash"}}}',
     NULL, '"append"', NULL
   ),
-  ('session-v0-1-3', 5, 'step/end', 1006, '{"turn":1,"step":1}', NULL, NULL, NULL),
+  ('session-v0-1-3', 4, 'step/end', 1005, '{"turn":1,"step":1}', NULL, NULL, NULL),
   (
-    'session-v0-1-3', 6, 'turn/end', 1007,
+    'session-v0-1-3', 5, 'turn/end', 1006,
     '{"turn":1,"reason":{"kind":"completed"}}', NULL, NULL, NULL
+  ),
+  (
+    'session-v0-1-3', 6, 'session/title', 1007,
+    '{"title":"DSH Edge 0.1.3 fixture","messageSeqs":[],"source":{"kind":"user"}}',
+    NULL, NULL, NULL
   );
 
 INSERT INTO dsh_edge_blank_sessions (

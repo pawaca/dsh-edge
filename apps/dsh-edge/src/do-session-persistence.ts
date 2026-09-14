@@ -1,42 +1,44 @@
 /** Upstream SessionPersistence implemented over Cloudflare Durable Object SQL. */
 
-import { initializeSchedules, persistScheduleChanges, assertScheduleTailRepairable, rebuildSchedules, armScheduleWake } from './schedule-store.ts'
+import { initializeSchedules, persistScheduleChanges, armScheduleWake } from './schedule-store.ts'
 import { initializeMainQueue, acknowledgeMainInputs } from './main-session-queue.ts'
 import { Context } from '@deepseek-ai/cordis'
+import { decodeStorageRecord, packChunkRuns } from './chunk-rows.ts'
 import {
   SESSION_FORMAT_VERSION,
   SessionLogOffset,
   SessionSeq,
-  decodeStorageRecord,
-  packChunkRuns,
 } from '@deepseek-ai/dsh-session'
 import type {
   Session,
   SessionEvent,
   SessionId,
   SessionHeader,
-  SessionPreparation,
   SurfaceOp,
 } from '@deepseek-ai/dsh-session'
 import {
-  DEFAULT_PREPARED_SESSION_CACHE_SIZE,
-  DEFAULT_WRITE_BATCH_MAX_DELAY_MS,
-  PersistenceCoordinator,
+  SessionAlreadyExistsError,
+  SessionAlreadyOwnedError,
   SessionFormatUnsupportedError,
+  SessionHandleClosedError,
   SessionPersistence,
+  SessionPersistenceNotFoundError,
   SessionPersistenceRevision,
-  sessionFormatVersionRefusal,
-  type BorrowedSessionSource,
-  type PersistenceBackend,
-  type SessionEventSuffix,
-  type SessionInspection,
-  type SessionLocation,
+  SessionReadOnlyError,
+  assertVersion,
+  validateStoredEvents,
+  type SessionAccess,
+  type SessionHandle,
+  type SessionHandleReadResult,
+  type SessionPersistenceCreateOptions,
+  type SessionPersistenceListOptions,
+  type SessionPersistenceOpenOptions,
   type SessionPersistenceRevision as PersistenceRevision,
   type SessionPersistenceSnapshot,
+  type SessionPersistenceStatOptions,
   type SessionStorageMetadata,
-  type StoredPrefix,
-  type StoredSuffix,
 } from '@deepseek-ai/dsh-session-persistence'
+import { sessionFormatCatalog } from '@deepseek-ai/dsh-session-format-catalog'
 import {
   SessionTitleProviderId,
   type SessionTitleEventData,
@@ -48,8 +50,6 @@ const DO_SESSION_SCHEMA_VERSION = 2
 
 interface DurableObjectSessionPersistenceConfig {
   storage: DurableObjectStorage
-  preparedSessionCacheSize?: number
-  writeBatchMaxDelayMs?: number
 }
 
 interface StateRow extends Record<string, SqlStorageValue> {
@@ -189,18 +189,132 @@ export interface EdgeStoredHistoryPage {
   hasMore: boolean
 }
 
-/** Cordis service + backend primitives; coordinator owns all session orchestration. */
-export class DurableObjectSessionPersistence
-  extends SessionPersistence
-  implements PersistenceBackend<number> {
-  static inject = ['sessions']
+class DurableObjectSessionHandle implements SessionHandle {
+  private closed = false
+  private materialized = false
+  private readonly liveBuffer: SessionEvent[] = []
+  private appendedThrough = -1
+  private draining: Promise<void> | undefined
 
-  override readonly name = 'session-persistence-durable-object'
-  override readonly supportsRawArtifacts = false
+  constructor(
+    readonly id: SessionId,
+    readonly header: SessionHeader,
+    readonly inheritedEventCount: SessionLogOffset,
+    readonly access: SessionAccess,
+    private readonly backend: DurableObjectSessionPersistence,
+    materialized = false,
+  ) {
+    this.materialized = materialized
+  }
+
+  enqueueLive(event: SessionEvent): void {
+    if (this.closed || this.access !== 'write') return
+    if (event.seq <= this.appendedThrough) return
+    this.liveBuffer.push(event)
+  }
+
+  async drainAndFlush(): Promise<void> {
+    if (this.closed) return
+    await this.drainLiveBuffer()
+    await this.flush()
+  }
+
+  private drainLiveBuffer(): Promise<void> {
+    if (this.draining !== undefined) return this.draining
+    if (this.liveBuffer.length === 0) return Promise.resolve()
+    this.draining = this.drainLiveBufferOnce().finally(() => { this.draining = undefined })
+    return this.draining
+  }
+
+  private async drainLiveBufferOnce(): Promise<void> {
+    while (this.liveBuffer.length > 0) {
+      const batch = this.liveBuffer.splice(0, this.liveBuffer.length)
+      const storage: SessionStorageMetadata = {
+        meta: this.header,
+        inheritedEventCount: this.inheritedEventCount,
+      }
+      try {
+        await this.backend.appendBatch(storage, batch, this.backend.hasSession(this.id))
+        this.materialized = true
+      } catch (error) {
+        this.liveBuffer.unshift(...batch)
+        throw error
+      }
+    }
+  }
+
+  async read(
+    offset?: number,
+    length?: number,
+    options?: { readonly signal?: AbortSignal },
+  ): Promise<SessionHandleReadResult> {
+    if (this.closed) throw new SessionHandleClosedError(this.id, 'read')
+    options?.signal?.throwIfAborted()
+    const fromSeq = offset ?? 0
+    const rows = this.backend.eventRowsFrom(this.id, fromSeq)
+    const { preserved } = scanRows(rows, fromSeq)
+    const events = length === undefined
+      ? preserved
+      : preserved.slice(0, length)
+    return { eventState: 'detached', events }
+  }
+
+  async append(
+    events: readonly SessionEvent[],
+    options?: { readonly signal?: AbortSignal },
+  ): Promise<void> {
+    if (this.closed) throw new SessionHandleClosedError(this.id, 'append')
+    if (this.access === 'read') throw new SessionReadOnlyError(this.id, 'append')
+    options?.signal?.throwIfAborted()
+    if (events.length === 0) return
+    const storage: SessionStorageMetadata = {
+      meta: this.header,
+      inheritedEventCount: this.inheritedEventCount,
+    }
+    await this.backend.appendBatch(storage, events, this.backend.hasSession(this.id))
+    this.materialized = true
+    const lastEvent = events.at(-1)
+    if (lastEvent !== undefined && lastEvent.seq > this.appendedThrough) {
+      this.appendedThrough = lastEvent.seq
+    }
+  }
+
+  async flush(options?: { readonly signal?: AbortSignal }): Promise<void> {
+    if (this.closed) throw new SessionHandleClosedError(this.id, 'flush')
+    if (this.access === 'read') throw new SessionReadOnlyError(this.id, 'flush')
+    options?.signal?.throwIfAborted()
+    await this.drainLiveBuffer()
+    await this.backend.materializeBlankSession(this.id)
+  }
+
+  async close(): Promise<void> {
+    if (this.closed) return
+    this.closed = true
+    if (this.access === 'write') {
+      try {
+        await this.drainLiveBuffer()
+      } finally {
+        if (!this.materialized) {
+          this.backend.abandonUnmaterialized(this.id)
+        }
+        this.backend.releaseWriteOwnership(this.id)
+      }
+    }
+  }
+
+  async [Symbol.asyncDispose](): Promise<void> {
+    await this.close()
+  }
+}
+
+/** SessionHandle-based session persistence over Cloudflare Durable Object SQL. */
+export class DurableObjectSessionPersistence extends SessionPersistence {
+  static inject = ['sessions']
 
   private readonly storage: DurableObjectStorage
   private readonly storeIdentity: string
-  private readonly coordinator: PersistenceCoordinator<number>
+  private readonly activeWriteOwners = new Set<SessionId>()
+  private readonly writeHandles = new Map<SessionId, DurableObjectSessionHandle>()
 
   constructor(ctx: Context, config: DurableObjectSessionPersistenceConfig) {
     super(ctx)
@@ -208,61 +322,237 @@ export class DurableObjectSessionPersistence
     initializeMainQueue(this.storage)
     initializeSchedules(this.storage)
     this.storeIdentity = this.initialize()
-    this.coordinator = new PersistenceCoordinator(ctx, this, {
-      preparedSessionCacheSize: config.preparedSessionCacheSize
-        ?? DEFAULT_PREPARED_SESSION_CACHE_SIZE,
-      writeBatchMaxDelayMs: config.writeBatchMaxDelayMs
-        ?? DEFAULT_WRITE_BATCH_MAX_DELAY_MS,
+    this.postInitialize()
+
+    ctx.on('session/event', (session: Session, event: SessionEvent) => {
+      this.writeHandles.get(session.id)?.enqueueLive(event)
+    })
+    ctx.on('session/flush', (session: Session) => {
+      const handle = this.writeHandles.get(session.id)
+      if (handle === undefined) return undefined
+      return handle.drainAndFlush()
+    })
+    ctx.on('session/disposed', (session: Session) => {
+      const handle = this.writeHandles.get(session.id)
+      if (handle === undefined) return
+      handle.close().catch(() => {})
     })
   }
 
-  locate(_meta: SessionHeader): SessionLocation | undefined {
+  async create(
+    header: SessionHeader,
+    options?: SessionPersistenceCreateOptions,
+  ): Promise<SessionHandle> {
+    options?.signal?.throwIfAborted()
+    if (this.rowFor(header.id) !== undefined) {
+      throw new SessionAlreadyExistsError(header.id)
+    }
+    const inheritedEventCount = options?.inheritedEventCount ?? SessionLogOffset(0)
+    this.writeRow(header, inheritedEventCount)
+    this.insertEmptyLogSummary(header.id, header.createdAt)
+    this.activeWriteOwners.add(header.id)
+    const handle = new DurableObjectSessionHandle(
+      header.id,
+      header,
+      inheritedEventCount,
+      'write',
+      this,
+    )
+    this.writeHandles.set(header.id, handle)
+    return handle
+  }
+
+  async open(
+    id: SessionId,
+    access: SessionAccess,
+    options?: SessionPersistenceOpenOptions,
+  ): Promise<SessionHandle> {
+    options?.signal?.throwIfAborted()
+    let row = this.rowFor(id)
+    const blank = row === undefined ? this.readBlankSession(id) : undefined
+    if (row === undefined && blank === undefined) {
+      throw new SessionPersistenceNotFoundError(id)
+    }
+    if (row !== undefined && row.version !== SESSION_FORMAT_VERSION) {
+      this.migrateSession(id, row)
+      row = this.rowFor(id)!
+    }
+    if (access === 'write') {
+      if (this.activeWriteOwners.has(id)) {
+        throw new SessionAlreadyOwnedError(id)
+      }
+      this.activeWriteOwners.add(id)
+      if (blank !== undefined) {
+        try {
+          await this.materializeBlankSession(id)
+        } catch (error) {
+          this.activeWriteOwners.delete(id)
+          throw error
+        }
+      }
+    }
+    const header = row !== undefined ? rowToHeader(row) : blank!
+    const inheritedEventCount = row !== undefined
+      ? SessionLogOffset(row.seed_length ?? 0)
+      : SessionLogOffset(0)
+    const handle = new DurableObjectSessionHandle(
+      id,
+      header,
+      inheritedEventCount,
+      access,
+      this,
+      row !== undefined,
+    )
+    if (access === 'write') this.writeHandles.set(id, handle)
+    return handle
+  }
+
+  async flush(): Promise<void> {
+    const errors: unknown[] = []
+    for (const handle of this.writeHandles.values()) {
+      try {
+        await handle.drainAndFlush()
+      } catch (error) {
+        errors.push(error)
+      }
+    }
+    if (errors.length > 0) throw new AggregateError(errors)
+  }
+
+  private migrateSession(id: SessionId, row: HeaderRow): void {
+    const headerJson = {
+      type: 'session',
+      version: row.version,
+      id: row.id,
+      createdAt: row.created_at,
+      delegationDepth: row.delegation_depth ?? 0,
+      ...row.cwd === null ? {} : { cwd: row.cwd },
+      ...row.parent_session === null ? {} : { parentSession: row.parent_session },
+      ...row.seed_length === null ? {} : { seedLength: row.seed_length },
+      ...row.origin === null ? {} : { origin: row.origin },
+      ...row.agent_preset === null ? {} : { agentPreset: row.agent_preset },
+    }
+    const classification = sessionFormatCatalog.readHeader(headerJson)
+    if (classification.status === 'current') return
+    if (classification.status === 'unsupported') {
+      throw new SessionFormatUnsupportedError(classification.reason)
+    }
+    if (classification.status === 'malformed') {
+      throw new Error(`session ${id} has a malformed header: ${classification.reason}`)
+    }
+    const restore = sessionFormatCatalog.createRestore(headerJson, {
+      recovery: 'recoverable',
+      validation: 'transformed',
+    })
+    const eventRows = this.eventRows(id, 0)
+    if (row.version === 0) reorderV0SurfaceEvents(eventRows)
+    for (const eventRow of eventRows) {
+      const isPacked = PACKED_ROW_TYPES.has(eventRow.type)
+      const record = {
+        type: eventRow.type,
+        ...(isPacked
+          ? { seq0: eventRow.seq, time0: eventRow.time }
+          : { seq: eventRow.seq, time: eventRow.time }),
+        data: JSON.parse(eventRow.data) as Record<string, unknown>,
+        ...eventRow.source_event_seqs === null
+          ? {}
+          : { sourceEventSeqs: JSON.parse(eventRow.source_event_seqs) as number[] },
+        ...eventRow.surface_op === null
+          ? {}
+          : { surfaceOp: JSON.parse(eventRow.surface_op) as string },
+        ...eventRow.ignorable === 1 ? { ignorable: true } : {},
+      }
+      restore.decodeRow(record)
+    }
+    const artifact = restore.finish()
+    this.storage.transactionSync(() => {
+      this.storage.sql.exec(
+        'DELETE FROM dsh_session_events WHERE session_id = ?',
+        id,
+      )
+      this.storage.sql.exec(
+        `UPDATE dsh_sessions SET version = ?, seed_length = ? WHERE id = ?`,
+        artifact.header.version,
+        artifact.inheritedEventCount > 0 ? artifact.inheritedEventCount : null,
+        id,
+      )
+      const packed = packChunkRuns(artifact.events as SessionEvent[])
+      for (const record of packed) this.insertStorageRecord(id, record)
+      this.storage.sql.exec(
+        'UPDATE dsh_sessions SET revision = revision + 1 WHERE id = ?',
+        id,
+      )
+      this.recomputeSummary(id)
+    })
+  }
+
+  async stat(
+    id: SessionId,
+    options?: SessionPersistenceStatOptions,
+  ): Promise<SessionPersistenceSnapshot | undefined> {
+    options?.signal?.throwIfAborted()
+    const row = this.rowFor(id)
+    if (row !== undefined) {
+      return {
+        header: rowToHeader(row),
+        revision: revisionOf(this.storeIdentity, row),
+      }
+    }
+    const blank = this.readBlankSession(id)
+    if (blank !== undefined) {
+      return {
+        header: blank,
+        revision: SessionPersistenceRevision(`${this.storeIdentity}:blank:${id}`),
+      }
+    }
     return undefined
   }
 
-  create(meta: SessionHeader, inheritedEventCount?: SessionLogOffset): Promise<void> {
-    return this.coordinator.create(meta, inheritedEventCount)
+  async list(
+    options?: SessionPersistenceListOptions,
+  ): Promise<readonly SessionPersistenceSnapshot[]> {
+    options?.signal?.throwIfAborted()
+    const rows = this.storage.sql.exec<HeaderRow>(
+      `SELECT id, version, created_at, cwd, parent_session, seed_length, origin,
+              delegation_depth, agent_preset, incarnation, revision
+       FROM dsh_sessions`,
+    ).toArray()
+    const snapshots: SessionPersistenceSnapshot[] = rows.map(row => ({
+      header: rowToHeader(row),
+      revision: revisionOf(this.storeIdentity, row),
+    }))
+    const materializedIds = new Set(rows.map(r => r.id))
+    for (const blank of this.readAllBlankSessions()) {
+      if (!materializedIds.has(blank.id)) {
+        snapshots.push({
+          header: blank,
+          revision: SessionPersistenceRevision(`${this.storeIdentity}:blank:${blank.id}`),
+        })
+      }
+    }
+    return snapshots
   }
 
-  append(id: SessionId, events: readonly SessionEvent[]): Promise<void> {
-    return this.coordinator.append(id, events)
+  releaseWriteOwnership(id: SessionId): void {
+    this.activeWriteOwners.delete(id)
+    this.writeHandles.delete(id)
   }
 
-  /** Prevent disposal from retrying a failed first materialization. */
-  abandonUnmaterializedSession(session: Session): Promise<void> {
-    return (this.coordinator as never as { abandonUnmaterialized(s: Session): Promise<void> }).abandonUnmaterialized(session)
-  }
-
-  override async prepare(id: SessionId, signal?: AbortSignal): Promise<SessionPreparation> {
-    // Older releases retained blank identities without a canonical log row.
-    // Every cold consumer (including upstream follow/model selection) needs it.
-    signal?.throwIfAborted()
-    await this.materializeBlankSession(id)
-    return this.coordinator.prepare(id, signal)
-  }
-
-  load(id: SessionId): Promise<SessionInspection> {
-    return this.coordinator.load(id)
-  }
-
-  inspect(id: SessionId, signal?: AbortSignal): Promise<SessionInspection> {
-    return this.coordinator.inspect(id, signal)
-  }
-
-  borrowSession(id: SessionId, signal?: AbortSignal): Promise<BorrowedSessionSource> {
-    return this.coordinator.borrowSession(id, signal)
-  }
-
-  readFrom(
-    id: SessionId,
-    fromSeq: SessionLogOffset,
-    signal?: AbortSignal,
-  ): Promise<SessionEventSuffix> {
-    return this.coordinator.readFrom(id, fromSeq, signal)
+  abandonUnmaterialized(id: SessionId): void {
+    this.storage.transactionSync(() => {
+      const hasEvents = this.storage.sql.exec<{ c: number }>(
+        'SELECT count(*) AS c FROM dsh_session_events WHERE session_id = ? LIMIT 1',
+        id,
+      ).toArray()[0]?.c ?? 0
+      if (hasEvents === 0) {
+        this.storage.sql.exec('DELETE FROM dsh_session_summaries WHERE session_id = ?', id)
+        this.storage.sql.exec('DELETE FROM dsh_sessions WHERE id = ?', id)
+      }
+    })
   }
 
   /** Read and canonically validate one Edge-only replay page. */
-  readEventPage(
+  async readEventPage(
     id: SessionId,
     fromSeq: number,
     limit: number,
@@ -270,23 +560,17 @@ export class DurableObjectSessionPersistence
     signal?: AbortSignal,
   ): Promise<EdgeEventPage> {
     if (!Number.isSafeInteger(maxStoredBytes) || maxStoredBytes <= 0) {
-      return Promise.reject(new TypeError(
+      throw new TypeError(
         `readEventPage maxStoredBytes must be a positive safe integer, got ${String(maxStoredBytes)}`,
-      ))
+      )
     }
-    return (this.coordinator as never as { readValidatedPage: (...args: unknown[]) => Promise<EdgeEventPage> }).readValidatedPage(
-      id,
-      fromSeq,
-      limit,
-      (pageId: SessionId, pageFromSeq: number, pageLimit: number, pageSignal: AbortSignal | undefined) => this.loadStoredPage(
-        pageId,
-        pageFromSeq,
-        pageLimit,
-        maxStoredBytes,
-        pageSignal,
-      ),
-      signal,
-    )
+    const page = await this.loadStoredPage(id, fromSeq, limit, maxStoredBytes, signal)
+    if (page === undefined) {
+      throw new SessionPersistenceNotFoundError(id)
+    }
+    assertVersion(page.meta)
+    validateStoredEvents(page.meta, page.events as SessionEvent[])
+    return page
   }
 
   /** Select a cold history boundary in SQL, then decode only that raw event window. */
@@ -316,92 +600,24 @@ export class DurableObjectSessionPersistence
       ? 0
       : historyGroupStart(oldestBoundary)
     if (boundary >= upperExclusive) return { summary, events: [], hasMore: boundary > 0 }
-    const page = await (this.coordinator as never as { readValidatedPage: (...args: unknown[]) => Promise<EdgeEventPage> }).readValidatedPage(
+    signal?.throwIfAborted()
+    const page = await this.loadStoredPage(
       id,
       boundary,
       EDGE_HISTORY_PAGE_LIMITS.maxEvents,
-      (pageId: SessionId, pageFromSeq: number, pageLimit: number, pageSignal: AbortSignal | undefined) => {
-        if (pageFromSeq !== boundary) {
-          return Promise.reject(new Error(
-            `stored session ${id} history contains a legacy event that requires an unbounded prefix`,
-          ))
-        }
-        return this.loadStoredPage(
-          pageId,
-          pageFromSeq,
-          pageLimit,
-          EDGE_HISTORY_PAGE_LIMITS.maxStoredBytes,
-          pageSignal,
-          upperExclusive,
-        )
-      },
+      EDGE_HISTORY_PAGE_LIMITS.maxStoredBytes,
       signal,
+      upperExclusive,
     )
+    if (page === undefined) return { summary, events: [], hasMore: false }
     if (page.hasMore) {
       throw new Error(
         `stored session ${id} history page exceeds the Edge limit of ${EDGE_HISTORY_PAGE_LIMITS.maxEvents} events or ${EDGE_HISTORY_PAGE_LIMITS.maxStoredBytes} stored bytes`,
       )
     }
+    assertVersion(page.meta)
+    validateStoredEvents(page.meta, page.events as SessionEvent[])
     return { summary, events: page.events, hasMore: boundary > 0 }
-  }
-
-  loadStored(
-    id: SessionId,
-    signal?: AbortSignal,
-  ): Promise<StoredPrefix<number> | undefined> {
-    return promiseFromSync(() => {
-      signal?.throwIfAborted()
-      const snapshot = this.storage.transactionSync(() => {
-        const row = this.rowFor(id)
-        if (row === undefined) return undefined
-        return { row, eventRows: this.eventRows(id, 0) }
-      })
-      signal?.throwIfAborted()
-      if (snapshot === undefined) return undefined
-      const { preserved, tornFrom } = scanRows(snapshot.eventRows)
-      const meta = rowToHeader(snapshot.row)
-      return {
-        meta,
-        inheritedEventCount: SessionLogOffset(snapshot.row.seed_length ?? 0),
-        events: preserved,
-        revision: revisionOf(this.storeIdentity, snapshot.row),
-        ...tornFrom === undefined ? {} : { tornMarker: tornFrom },
-      }
-    })
-  }
-
-  readStoredRevision(
-    id: SessionId,
-    signal?: AbortSignal,
-  ): Promise<PersistenceRevision | undefined> {
-    return promiseFromSync(() => {
-      signal?.throwIfAborted()
-      const row = this.rowFor(id)
-      signal?.throwIfAborted()
-      return row === undefined ? undefined : revisionOf(this.storeIdentity, row)
-    })
-  }
-
-  loadStoredFrom(
-    id: SessionId,
-    fromSeq: SessionLogOffset,
-    signal?: AbortSignal,
-  ): Promise<StoredSuffix | undefined> {
-    return promiseFromSync(() => {
-      signal?.throwIfAborted()
-      const snapshot = this.storage.transactionSync(() => {
-        const row = this.rowFor(id)
-        if (row === undefined) return undefined
-        return { row, eventRows: this.eventRows(id, fromSeq) }
-      })
-      signal?.throwIfAborted()
-      if (snapshot === undefined) return undefined
-      return {
-        meta: rowToHeader(snapshot.row),
-        inheritedEventCount: SessionLogOffset(snapshot.row.seed_length ?? 0),
-        events: scanRows(snapshot.eventRows, fromSeq).preserved,
-      }
-    })
   }
 
   private loadStoredPage(
@@ -495,86 +711,20 @@ export class DurableObjectSessionPersistence
     })
   }
 
-  commitRepair(
-    storage: SessionStorageMetadata,
-    tornMarker: number | undefined,
-    closers: readonly SessionEvent[],
-  ): Promise<void> {
-    const write = () => {
-      if (tornMarker !== undefined) {
-        // A corrupted dispatch may already have escaped to the model. Do not
-        // restore its active record and silently submit that occurrence again.
-        assertScheduleTailRepairable(this.eventRows(storage.meta.id, tornMarker))
-        this.storage.sql.exec('DELETE FROM dsh_session_events WHERE session_id = ? AND seq >= ?', storage.meta.id, tornMarker)
-      }
-      for (const event of closers) this.insertEvent(storage.meta.id, event)
-      if (tornMarker !== undefined || closers.length > 0) {
-        this.storage.sql.exec('UPDATE dsh_sessions SET revision = revision + 1 WHERE id = ?', storage.meta.id)
-        this.recomputeSummary(storage.meta.id)
-      }
-      if (tornMarker !== undefined) {
-        const { preserved } = scanRows(this.eventRows(storage.meta.id, 0))
-        rebuildSchedules(this.storage, storage.meta.id, preserved, storage.inheritedEventCount)
-      }
-    }
-    if (tornMarker === undefined) return promiseFromSync(() => this.storage.transactionSync(write))
-    return this.storage.transaction(async () => { write(); await armScheduleWake(this.storage) })
-  }
-
-  list(signal?: AbortSignal): Promise<SessionHeader[]> {
-    return promiseFromSync(() => {
-      signal?.throwIfAborted()
-      const rows = this.storage.sql.exec<HeaderRow>(
-        `SELECT id, version, created_at, cwd, parent_session, seed_length, origin,
-                delegation_depth, agent_preset, incarnation, revision
-         FROM dsh_sessions`,
-      ).toArray()
-      signal?.throwIfAborted()
-      const headers = rows.map(rowToHeader)
-      const blankRows = this.storage.sql.exec<BlankSessionRow>(
-        `SELECT id, version, created_at, cwd, parent_session, seed_length, origin,
-                delegation_depth, agent_preset
-         FROM dsh_edge_blank_sessions`,
-      ).toArray()
-      for (const row of blankRows) {
-        headers.push(rowToHeader(row as unknown as HeaderRow))
-      }
-      return headers
-    })
-  }
-
-  listSnapshots(signal?: AbortSignal): Promise<SessionPersistenceSnapshot[]> {
-    return promiseFromSync(() => {
-      signal?.throwIfAborted()
-      const rows = this.storage.sql.exec<HeaderRow>(
-        `SELECT id, version, created_at, cwd, parent_session, seed_length, origin,
-                delegation_depth, agent_preset, incarnation, revision
-         FROM dsh_sessions`,
-      ).toArray()
-      signal?.throwIfAborted()
-      return rows.map(row => ({
-        header: rowToHeader(row),
-        revision: revisionOf(this.storeIdentity, row),
-      }))
-    })
-  }
-
   /** Test one materialized session identity without listing stored headers. */
   hasSession(id: SessionId): boolean {
     return this.rowFor(id) !== undefined
   }
 
-  /** Read and format-check one canonical header without touching event rows. */
+  /** Read and format-check one canonical header, migrating on version mismatch. */
   readSessionHeader(id: SessionId): SessionHeader | undefined {
     const row = this.rowFor(id)
     if (row === undefined) return undefined
-    const header = rowToHeader(row)
-    if (header.version !== SESSION_FORMAT_VERSION) {
-      throw new SessionFormatUnsupportedError(
-        sessionFormatVersionRefusal(header.id, header.version),
-      )
+    if (row.version !== SESSION_FORMAT_VERSION) {
+      this.migrateSession(id, row)
+      return rowToHeader(this.rowFor(id)!)
     }
-    return header
+    return rowToHeader(row)
   }
 
   /** Read the latest canonical model selection recorded by an upstream request/header. */
@@ -691,7 +841,7 @@ export class DurableObjectSessionPersistence
         ...bindings,
       ).toArray()
       return {
-        sessions: rows.slice(0, limit).map(rowToStoredSessionSummary),
+        sessions: rows.slice(0, limit).map(rowToStoredSessionSummary).filter((s): s is EdgeStoredSessionSummary => s !== undefined),
         hasMore: rows.length > limit,
       }
     })
@@ -702,7 +852,7 @@ export class DurableObjectSessionPersistence
     return this.storage.sql.exec<SessionSummaryRow>(
       `${SESSION_SUMMARY_MATERIALIZED}
        ORDER BY coalesce(sm.last_prompt_at, s.created_at) DESC, s.id ASC`,
-    ).toArray().map(rowToStoredSessionSummary)
+    ).toArray().map(rowToStoredSessionSummary).filter((s): s is EdgeStoredSessionSummary => s !== undefined)
   }
 
   /** Read only the newest canonical summaries needed by bounded consumers. */
@@ -711,7 +861,12 @@ export class DurableObjectSessionPersistence
       `${SESSION_SUMMARY_MATERIALIZED}
        ORDER BY coalesce(sm.last_prompt_at, s.created_at) DESC, s.id ASC LIMIT ?`,
       limit,
-    ).toArray().map(rowToStoredSessionSummary)
+    ).toArray().map(rowToStoredSessionSummary).filter((s): s is EdgeStoredSessionSummary => s !== undefined)
+  }
+
+  /** Expose eventRows for DurableObjectSessionHandle read path. */
+  eventRowsFrom(id: SessionId, fromSeq: number): EventRow[] {
+    return this.eventRows(id, fromSeq)
   }
 
   private initialize(): string {
@@ -787,9 +942,30 @@ export class DurableObjectSessionPersistence
         title_time INTEGER,
         title_data TEXT
       ) STRICT`)
-      this.syncSummaries()
       return `durable-object:store:${storeId}`
     })
+  }
+
+  private postInitialize(): void {
+    this.migrateStoredSessions()
+    this.syncSummaries()
+  }
+
+  private migrateStoredSessions(): void {
+    const outdated = this.storage.sql.exec<HeaderRow>(
+      `SELECT id, version, created_at, cwd, parent_session, seed_length, origin,
+              delegation_depth, agent_preset, incarnation, revision
+       FROM dsh_sessions WHERE version != ?`,
+      SESSION_FORMAT_VERSION,
+    ).toArray()
+    for (const row of outdated) {
+      this.migrateSession(row.id as SessionId, row)
+    }
+    this.storage.sql.exec(
+      'UPDATE dsh_edge_blank_sessions SET version = ? WHERE version < ?',
+      SESSION_FORMAT_VERSION,
+      SESSION_FORMAT_VERSION,
+    )
   }
 
   private syncSummaries(): void {
@@ -1019,26 +1195,6 @@ export class DurableObjectSessionPersistence
     )
   }
 
-  private insertEvent(id: SessionId, event: SessionEvent): void {
-    const envelope = event as SessionEvent & {
-      sourceEventSeqs?: number[]
-      surfaceOp?: SurfaceOp
-    }
-    this.storage.sql.exec(
-      `INSERT INTO dsh_session_events
-        (session_id, seq, type, time, data, source_event_seqs, surface_op, ignorable)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      id,
-      event.seq,
-      event.type,
-      event.time,
-      JSON.stringify(event.data),
-      envelope.sourceEventSeqs === undefined ? null : JSON.stringify(envelope.sourceEventSeqs),
-      envelope.surfaceOp === undefined ? null : JSON.stringify(envelope.surfaceOp),
-      event.ignorable === true ? 1 : null,
-    )
-  }
-
   private insertStorageRecord(id: SessionId, record: Record<string, unknown>): void {
     const seq = (record.seq ?? record.seq0) as number
     const time = (record.time ?? record.time0) as number
@@ -1071,7 +1227,6 @@ function promiseFromSync<T>(operation: () => T): Promise<T> {
   try {
     return Promise.resolve(operation())
   } catch (error) {
-    // Preserve the exact synchronous rejection value, including AbortSignal.reason.
     const deferred = Promise.withResolvers<T>()
     deferred.reject(error)
     return deferred.promise
@@ -1084,7 +1239,7 @@ function rowToHeader(row: HeaderRow): SessionHeader {
   }
   return {
     id: row.id as SessionId,
-    version: row.version,
+    version: row.version as typeof SESSION_FORMAT_VERSION,
     createdAt: row.created_at,
     isSeeded: row.seed_length !== null,
     ...row.cwd === null ? {} : { cwd: row.cwd },
@@ -1098,9 +1253,12 @@ function rowToHeader(row: HeaderRow): SessionHeader {
 function blankRowToHeader(row: BlankSessionRow): SessionHeader {
   const header = rowToHeader({ ...row, incarnation: '', revision: 0 })
   if (header.version !== SESSION_FORMAT_VERSION) {
-    throw new SessionFormatUnsupportedError(
-      sessionFormatVersionRefusal(header.id, header.version),
-    )
+    if (header.version > SESSION_FORMAT_VERSION) {
+      throw new SessionFormatUnsupportedError(
+        `blank session "${String(header.id)}" uses format v${String(header.version)}, newer than v${String(SESSION_FORMAT_VERSION)}`,
+      )
+    }
+    return { ...header, version: SESSION_FORMAT_VERSION as typeof SESSION_FORMAT_VERSION }
   }
   return header
 }
@@ -1140,11 +1298,12 @@ function historyGroupStart(row: HistoryBoundaryRow): number {
   return (sources as number[]).reduce((minimum, value) => Math.min(minimum, value), row.seq)
 }
 
-function rowToStoredSessionSummary(row: SessionSummaryRow): EdgeStoredSessionSummary {
+function rowToStoredSessionSummary(row: SessionSummaryRow): EdgeStoredSessionSummary | undefined {
   const meta = rowToHeader(row)
   if (meta.version !== SESSION_FORMAT_VERSION) {
+    if (meta.version < SESSION_FORMAT_VERSION) return undefined
     throw new SessionFormatUnsupportedError(
-      sessionFormatVersionRefusal(meta.id, meta.version),
+      `session "${String(meta.id)}" uses log format v${String(meta.version)}, newer than the supported v${String(SESSION_FORMAT_VERSION)}`,
     )
   }
   const updatedAt = row.updated_at ?? meta.createdAt
@@ -1327,6 +1486,22 @@ function scanRows(
   return rowsConsumed < rows.length
     ? { preserved, tornFrom: base + preserved.length }
     : { preserved }
+}
+
+const V0_SURFACE_TYPES = new Set(['user/message', 'assistant/message', 'tool/result', 'system/message'])
+
+function reorderV0SurfaceEvents(rows: EventRow[]): void {
+  for (let index = 0; index < rows.length - 1; index += 1) {
+    const current = rows[index]!
+    const next = rows[index + 1]!
+    if (V0_SURFACE_TYPES.has(current.type) && next.type === 'step/start') {
+      const currentSeq = current.seq
+      current.seq = next.seq
+      next.seq = currentSeq
+      rows[index] = next
+      rows[index + 1] = current
+    }
+  }
 }
 
 export default DurableObjectSessionPersistence

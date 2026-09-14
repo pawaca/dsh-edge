@@ -36,6 +36,7 @@ import type { QueuedInboxItem, RpcId } from './edge-rpc-types.ts'
 import SessionStore, {
   SessionId,
   SessionLogOffset,
+  SessionPreparation,
   SESSION_FORMAT_VERSION,
   isAppendSurfaceEvent,
   type Session,
@@ -44,10 +45,7 @@ import SessionStore, {
   type SessionHeader,
   type UserMessage,
 } from '@deepseek-ai/dsh-session'
-import {
-  DEFAULT_WRITE_BATCH_MAX_DELAY_MS,
-  type SessionPersistence,
-} from '@deepseek-ai/dsh-session-persistence'
+import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import { buildSessionEventSearchDocuments } from '@deepseek-ai/dsh-session-query'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SessionProjectionCache from '@deepseek-ai/dsh-session-projection-cache'
@@ -77,6 +75,7 @@ import UserQuestionService from '@deepseek-ai/dsh-user-questions'
 import PlanModeController from '@deepseek-ai/dsh-plan-mode'
 import * as ToolAskUser from '@deepseek-ai/dsh-tool-ask-user'
 import { EdgeTypertConnection, type TypertRpcInterceptor } from './edge-typert-connection.ts'
+import EdgeFileUploadsStub from './edge-file-uploads-stub.ts'
 import SessionReferenceResolver from '@deepseek-ai/dsh-session-reference'
 import { EdgeFileSystem } from './edge-filesystem.ts'
 import { EdgeFileReferenceService, type EdgeReferenceFiles } from './edge-file-reference.ts'
@@ -114,9 +113,9 @@ import EdgeSessionQuery from './edge-session-query.ts'
 import { resolveEdgeModel } from './deepseek.ts'
 import type { CreateEdgeSessionInput, EdgeSession } from './protocol.ts'
 import { installEdgeWebSearch } from './web-search.ts'
-import { DurableObjectMessageFeedbackStore } from './do-message-feedback-store.ts'
 import { DurableEventDeliveryQueue } from './durable-event-delivery.ts'
 
+const DEFAULT_WRITE_BATCH_MAX_DELAY_MS = 100
 const MAX_TITLE_BYTES = 640
 const MAX_MESSAGE_FEEDBACK_NOTE_BYTES = 8_192
 const MAX_FORK_EVENTS = 8_192
@@ -355,7 +354,7 @@ export class EdgeSessionStore {
       provider: EDGE_PROVIDER,
       model: DEFAULT_EDGE_MODEL,
     })
-    await this.context.plugin(SystemPrompt, { persona: EDGE_SYSTEM_PROMPT })
+    await this.context.plugin(SystemPrompt, { personaPrefix: EDGE_SYSTEM_PROMPT })
     await this.context.plugin(EdgeVfsSpillStore)
     await this.context.plugin(EdgeFileSystem)
     await this.context.plugin(ToolRuntime)
@@ -388,10 +387,9 @@ export class EdgeSessionStore {
     this.context.typert.register(COMMANDS_TYPERT as never)
     // SessionPersistence + WorkspaceRegistry before SessionController so it
     // finds ctx.workspaceRegistry on first tick.
-    await this.context.plugin(DurableObjectSessionPersistence, { storage, preparedSessionCacheSize: 1 })
+    await this.context.plugin(DurableObjectSessionPersistence, { storage })
     await this.context.plugin(MessageFeedbackService, {
       maxNoteBytes: MAX_MESSAGE_FEEDBACK_NOTE_BYTES,
-      store: new DurableObjectMessageFeedbackStore(storage),
     })
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
     const { TYPERT: MESSAGE_FEEDBACK_TYPERT } = await import(
@@ -413,7 +411,8 @@ export class EdgeSessionStore {
     if (this.context.workspaceRegistry.list().length === 0 && !workspaceWasInitialized) {
       await this.context.workspaceRegistry.create('/workspace')
     }
-    // All 9 SessionController inject deps now available: agentDefaultModel,
+    await this.context.plugin(EdgeFileUploadsStub)
+    // All SessionController inject deps now available: agentDefaultModel,
     // agents, attachments, llm, sessions, sessionProjections, sessionQuery,
     // typert, workspaceRegistry. Controllers activate synchronously.
     const defaultSelection: ModelSelection = {
@@ -486,11 +485,13 @@ export class EdgeSessionStore {
     // while the Edge Web client downloads the file through /api/workspace/file.
     class EdgeSessionController extends SessionController {
       constructor(ctx: Context, config: ConstructorParameters<typeof SessionController>[1]) {
-        super(ctx, config, {
+        // activateOnFollow is added by the Edge patch to dsh-api-session-controller
+        const internals = {
           activateOnFollow: false,
           openPath: () => Promise.reject(new Error(EDGE_NATIVE_OPEN_UNAVAILABLE)),
           canOpenPath: () => false,
-        })
+        }
+        super(ctx, config, internals as never)
       }
     }
     await this.context.plugin(EdgeSessionController, { nativeOpen: false })
@@ -612,7 +613,8 @@ export class EdgeSessionStore {
               // A cold mutation or short-lived child may detach before this
               // timer fires. readFrom waits for persistence retirement while
               // seeking past the tail avoids a full-log read.
-              await this.context.sessionPersistence.readFrom(sessionId, tail.seq)
+              const readHandle = await this.context.sessionPersistence.open(sessionId, 'read')
+              try { await readHandle.read(tail.seq) } finally { await readHandle.close() }
             },
             deliver: events => {
               for (const durableEvent of events) callback(sessionId, durableEvent)
@@ -961,13 +963,20 @@ export class EdgeSessionStore {
       live.append('model/selection', selected)
       await sessions.flush(live)
     } else {
-      const prepared = await persistence.prepare(id)
-      const detach = sessions.enter(prepared.session)
+      await using handle = await persistence.open(id, 'write')
+      const coldRead = await handle.read()
+      using preparation = SessionPreparation.create(sessions.prepare(id, {
+        seed: [...coldRead.events],
+        meta: structuredClone(handle.header),
+        inheritedEventCount: handle.inheritedEventCount,
+        eventState: coldRead.eventState,
+      }))
+      const detach = sessions.enter(preparation.session)
       try {
-        sessions.announce(prepared.session)
-        prepared.session.append('model/selection', selected)
-        await sessions.flush(prepared.session)
-      } finally { detach(); prepared[Symbol.dispose]() }
+        sessions.announce(preparation.session)
+        preparation.session.append('model/selection', selected)
+        await sessions.flush(preparation.session)
+      } finally { detach() }
     }
     return selected
   }
@@ -1008,7 +1017,7 @@ export class EdgeSessionStore {
   }
 
   async createSession(input: CreateEdgeSessionInput & { cwd?: string }): Promise<EdgeSession> {
-    const { agents, sessions, persistence } = await this.services()
+    const { agents, sessions } = await this.services()
     const title = normalizeSessionTitle(input.title, MAX_TITLE_BYTES)
     if (title.length === 0) {
       throw new EdgeSessionStoreError('INVALID_DATA', 'Session title must contain visible text.')
@@ -1021,7 +1030,7 @@ export class EdgeSessionStore {
         agentPreset: 'dsh-edge',
       },
       agentOptions: { provider: EDGE_PROVIDER, model: DEFAULT_EDGE_MODEL },
-      setup: agentCtx => this.installAgentModelSelection(agentCtx, DEFAULT_EDGE_MODEL),
+      setup: (agentCtx, agent) => this.installAgentModelSelection(agentCtx, agent, DEFAULT_EDGE_MODEL),
     })
     const { agent } = handle
     const { session } = agent
@@ -1032,16 +1041,8 @@ export class EdgeSessionStore {
         messageSeqs: [],
         source: { kind: 'user' },
       })
-      // Upstream session creation is intentionally lazy. The required title
-      // supplies the first canonical event before this HTTP API returns 201.
       await sessions.flush(session)
       return summarize(session.header, session.snapshotEvents())
-    } catch (error) {
-      if (!(persistence instanceof DurableObjectSessionPersistence)) {
-        throw new EdgeSessionStoreError('INVALID_DATA', 'Edge persistence backend is unavailable.')
-      }
-      await persistence.abandonUnmaterializedSession(session)
-      throw error
     } finally {
       this.baselineOwnedSessions.delete(session)
       await handle.dispose().catch((disposeError: unknown) => {
@@ -1239,14 +1240,11 @@ export class EdgeSessionStore {
         })
       if (!stableSessions || !stableDeliveries) continue
 
-      // No await occurs between this stable snapshot and consume(), so a
-      // session/event cannot slip between the advertised baseline and socket
-      // registration on the Durable Object's JavaScript turn.
       for (const { queue } of after.deliveries) this.unsettledEventDeliveries.delete(queue)
       const queues: EdgeMuxBaseline['queues'] = []
       for (const session of after.liveSessions) {
         const agent = agents.get(session.id)
-        if (agent?.session !== session || !agent.inbox.hasPending) continue
+        if (agent?.session !== session || (agent.inbox.nextTurn.length === 0 && agent.inbox.nextStep.length === 0)) continue
         queues.push({ sessionId: session.id, items: queueItems(agent) })
       }
       return consume({ sessions: collectApiSessions(sessions, persistence), queues })
@@ -1319,7 +1317,7 @@ export class EdgeSessionStore {
       if (blank !== undefined) {
         header = blank
         events = []
-        return await this.createForkedSession(agents, sessions, persistence, id, header, events, atSeq, model)
+        return await this.createForkedSession(agents, sessions, id, header, events, atSeq, model)
       }
       if (persistence.readSessionHeader(id) === undefined) {
         throw new EdgeSessionStoreError('NOT_FOUND', 'Session not found.')
@@ -1339,13 +1337,12 @@ export class EdgeSessionStore {
       header = page.meta
       events = page.events
     }
-    return await this.createForkedSession(agents, sessions, persistence, id, header, events, atSeq, model)
+    return await this.createForkedSession(agents, sessions, id, header, events, atSeq, model)
   }
 
   private async createForkedSession(
     agents: AgentRegistry,
     sessions: SessionStore,
-    persistence: DurableObjectSessionPersistence,
     id: SessionId,
     header: SessionHeader,
     events: readonly SessionEvent[],
@@ -1366,14 +1363,11 @@ export class EdgeSessionStore {
         agentPreset: header.agentPreset ?? 'dsh-edge',
       },
       agentOptions: { provider: EDGE_PROVIDER, model },
-      setup: agentCtx => this.installAgentModelSelection(agentCtx, model),
+      setup: (agentCtx, agent) => this.installAgentModelSelection(agentCtx, agent, model),
     })
     try {
       await sessions.flush(handle.agent.session)
       return summarizeApiLive(handle.agent.session.header, handle.agent.session.snapshotEvents())
-    } catch (error) {
-      await persistence.abandonUnmaterializedSession(handle.agent.session)
-      throw error
     } finally {
       await handle.dispose().catch((disposeError: unknown) => {
         console.error('dsh-edge failed to release the forked session.', disposeError)
@@ -1470,7 +1464,7 @@ export class EdgeSessionStore {
     const handle = await agents.resume({
       resumeSessionId: id,
       agentOptions: { provider: EDGE_PROVIDER, model },
-      setup: agentCtx => this.installAgentModelSelection(agentCtx, model),
+      setup: (agentCtx, agent) => this.installAgentModelSelection(agentCtx, agent, model),
     })
     try {
       await this.context.sessions.flush(handle.agent.session)
@@ -1498,11 +1492,7 @@ export class EdgeSessionStore {
   }
 
   /** Mount the upstream per-agent selection seam before the Agent is published. */
-  private installAgentModelSelection(agentCtx: Context, defaultModel: string): void {
-    const agent = agentCtx.agent
-    if (agent === undefined) {
-      throw new EdgeSessionStoreError('INVALID_DATA', 'Agent setup has no scoped Agent.')
-    }
+  private installAgentModelSelection(agentCtx: Context, agent: Agent, defaultModel: string): void {
     let assembled: ModelSelection | undefined
     const selections = this.modelSelections
     const selection: ModelSelectionRef = {
@@ -1725,7 +1715,7 @@ function referencedImage(
         if (inserted !== undefined) return inserted
       }
     }
-    if (event.type === 'assistant/chunk' && isRecord(data.chunk)
+    if ((event.type as string) === 'assistant/chunk' && isRecord(data.chunk)
       && data.chunk.type === 'block-end') {
       const chunk = imageBlockIn([data.chunk.block], attachmentId)
       if (chunk !== undefined) return chunk
@@ -2158,7 +2148,7 @@ export function paginateHistory(
     const sources = (event as SessionEvent & { sourceEventSeqs?: number[] }).sourceEventSeqs
     const groupStart = sources === undefined || sources.length === 0
       ? event.seq
-      : sources.reduce((minimum, value) => Math.min(minimum, value), event.seq)
+      : sources.reduce((minimum, value) => Math.min(minimum, value), event.seq as number)
     if (count >= boundedMaxMessages) {
       cut = groupStart
       break
