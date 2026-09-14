@@ -67,6 +67,28 @@ describe('public deployment activation', () => {
     expect(requests[4]?.init?.body).toBeUndefined()
   })
 
+  it.each([false, true])('retries a previous deployment key rejection (eventuallyReady=%s)', async eventuallyReady => {
+    let time = 0
+    let logins = 0
+    const ownerSecret = '密'.repeat(16) // 48 UTF-8 bytes, 16 UTF-16 code units.
+    const fetchImpl = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+      if (url.endsWith('/api/health')) return Response.json(READY_HEALTH)
+      if (url.endsWith('/api/auth/login')) {
+        expect(new URLSearchParams(init?.body as string).get('accessKey')).toBe(ownerSecret)
+        if (++logins === 1 || !eventuallyReady) return new Response(null, { status: 401 })
+        return new Response(null, { status: 303, headers: { 'set-cookie': '__Host-dsh_edge_owner=v1.9999999999.signature; Secure' } })
+      }
+      return Response.json({ ...READY_HEALTH, runtime: true })
+    }) as typeof fetch
+    const result = await observePublicActivation({
+      publicUrl: 'https://dsh-edge.owner.workers.dev/', mode: 'direct', ownerSecret, fetchImpl,
+      now: () => time, waitMs: 3, retryMs: 1, sleepImpl: async () => { time++ },
+    })
+    expect(result.status).toBe(eventuallyReady ? 'ready' : 'pending')
+    expect(logins).toBe(eventuallyReady ? 2 : 3)
+  })
+
   it('does not report ready when the release responds but the runtime failed', async () => {
     const responses = [Response.json(READY_HEALTH),
       new Response(null, { status: 303, headers: { 'set-cookie': '__Host-dsh_edge_owner=v1.9999999999.signature; Secure' } }),

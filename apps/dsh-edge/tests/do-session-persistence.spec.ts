@@ -222,7 +222,7 @@ describe('legacy Edge cancellation migration', () => {
     } finally { await ctx.fiber.dispose(); storage.close() }
   })
 
-  it.each([1, 100])('preserves current logs and chooses the cheaper migration with %i current rows', async count => {
+  it.each([1, 100, 100000])('preserves current logs and chooses the cheaper migration with %i current rows', async count => {
     const storage = cancelledStorage('cancelled by the user')
     for (let i = 6; i < 66; i++) storage.sql.exec(
       'INSERT INTO dsh_session_events (session_id,seq,type,time,data) VALUES (?,?,?,?,?)',
@@ -243,6 +243,8 @@ describe('legacy Edge cancellation migration', () => {
     try {
       const persistence = new DurableObjectSessionPersistence(ctx, { storage: storage as never })
       expect(storage.queries.includes('DROP TABLE dsh_session_events')).toBe(count === 1)
+      expect(storage.queries.some(q => q.includes('GROUP BY s.version'))).toBe(false)
+      expect(storage.queries.some(q => q.includes('SELECT seq FROM dsh_session_events WHERE session_id = ? LIMIT ?'))).toBe(true)
       expect(storage.sql.exec("SELECT * FROM dsh_session_events WHERE session_id = 'current' ORDER BY seq").toArray()).toEqual(before)
       expect((await readAll(persistence, SessionId('session-v0-1-3'))).meta.version).toBe(SESSION_FORMAT_VERSION)
       expect(storage.sql.exec("SELECT count(*) AS n FROM sqlite_master WHERE name = 'dsh_session_events_migrating'").toArray()).toEqual([{ n: 0 }])
@@ -280,7 +282,7 @@ describe('legacy Edge cancellation migration', () => {
     } finally { await ctx.fiber.dispose(); storage.close() }
   })
 
-  it('rolls back earlier session migrations when a later session is incompatible', async () => {
+  it('preflights all sessions without repeated migration writes when a later session is incompatible', async () => {
     const storage = cancelledStorage('cancelled by the user')
     storage.sql.exec(`INSERT INTO dsh_sessions
       SELECT 'later-incompatible', version, created_at, cwd, parent_session, seed_length, origin,
@@ -294,7 +296,12 @@ describe('legacy Edge cancellation migration', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     try {
-      expect(() => new DurableObjectSessionPersistence(ctx, { storage: storage as never })).toThrow()
+      storage.writtenRows = 0
+      for (let attempt = 0; attempt < 3; attempt++) {
+        expect(() => new DurableObjectSessionPersistence(ctx, { storage: storage as never })).toThrow()
+        // One initial store-identity insert; no migration writes on any attempt.
+        expect(storage.writtenRows).toBe(1)
+      }
       expect(tables.map(table => storage.sql.exec(`SELECT * FROM ${table}`).toArray())).toEqual(before)
     } finally { await ctx.fiber.dispose(); storage.close() }
   })

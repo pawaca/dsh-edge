@@ -427,6 +427,25 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
 
   private migrateSession(id: SessionId, row: HeaderRow, inTransaction = false,
     eventTable: EventTable = 'dsh_session_events'): void {
+    const prepared = this.prepareMigration(id, row)
+    if (prepared === undefined) return
+    const commit = () => {
+      if (eventTable === 'dsh_session_events') {
+        this.storage.sql.exec('DELETE FROM dsh_session_events WHERE session_id = ?', id)
+      }
+      this.storage.sql.exec(
+        `UPDATE dsh_sessions SET version = ?, seed_length = ?, revision = revision + 1 WHERE id = ?`,
+        prepared.version, prepared.seedLength, id,
+      )
+      for (const record of prepared.packed) this.insertStorageRecord(id, record, eventTable)
+      if (eventTable === 'dsh_session_events') this.recomputeSummary(id)
+    }
+    if (inTransaction) commit()
+    else this.storage.transactionSync(commit)
+  }
+
+  /** Decode without writes so a bad later log cannot repeatedly burn earlier writes. */
+  private prepareMigration(id: SessionId, row: HeaderRow) {
     const headerJson = {
       type: 'session',
       version: row.version,
@@ -475,22 +494,12 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
       restore.decodeRow(record)
     }
     const artifact = restore.finish()
-    const commit = () => {
-      if (eventTable === 'dsh_session_events') {
-        this.storage.sql.exec('DELETE FROM dsh_session_events WHERE session_id = ?', id)
-      }
-      this.storage.sql.exec(
-        `UPDATE dsh_sessions SET version = ?, seed_length = ?, revision = revision + 1 WHERE id = ?`,
-        artifact.header.version,
-        artifact.inheritedEventCount > 0 ? artifact.inheritedEventCount : null,
-        id,
-      )
-      const packed = packChunkRuns(artifact.events as SessionEvent[])
-      for (const record of packed) this.insertStorageRecord(id, record, eventTable)
-      if (eventTable === 'dsh_session_events') this.recomputeSummary(id)
+    return {
+      version: artifact.header.version,
+      seedLength: artifact.inheritedEventCount > 0 ? artifact.inheritedEventCount : null,
+      physicalRows: eventRows.length,
+      packed: packChunkRuns(artifact.events as SessionEvent[]),
     }
-    if (inTransaction) commit()
-    else this.storage.transactionSync(commit)
   }
 
   async stat(
@@ -998,18 +1007,12 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
       SESSION_FORMAT_VERSION,
     ).toArray()
     if (outdated.length > 0) {
-      // DELETE is billed per row, including legacy token deltas. Rebuild the
-      // event table when copying current rows costs less than deleting old rows.
-      // DROP TABLE itself does not incur per-row writes in workerd SQLite.
-      const counts = this.storage.sql.exec<{ version: number, count: number }>(
-        `SELECT s.version, COUNT(*) AS count FROM dsh_session_events e
-         JOIN dsh_sessions s ON s.id = e.session_id GROUP BY s.version`,
-      ).toArray()
-      const current = counts.find(row => row.version === SESSION_FORMAT_VERSION)?.count ?? 0
-      const legacy = counts.reduce((sum, row) => sum + (row.version === SESSION_FORMAT_VERSION ? 0 : row.count), 0)
-      // INSERT also writes the composite primary-key index; DELETE is counted
-      // once per row. Reserve a small margin for SQLite catalog updates.
-      const rebuild = legacy > current * 2 + 32
+      // Validate every old log before the first migration write. Discard each
+      // artifact after preflight to avoid retaining all decoded histories at once.
+      // The second decode runs synchronously in the same transaction/snapshot.
+      let legacy = 0
+      for (const row of outdated) legacy += this.prepareMigration(row.id as SessionId, row)?.physicalRows ?? 0
+      const rebuild = this.isEventTableRebuildCheaper(legacy)
       const target: EventTable = rebuild ? 'dsh_session_events_migrating' : 'dsh_session_events'
       if (rebuild) {
         this.createEventTable(target)
@@ -1032,6 +1035,27 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
       SESSION_FORMAT_VERSION,
       SESSION_FORMAT_VERSION,
     )
+  }
+
+  private isEventTableRebuildCheaper(legacy: number): boolean {
+    // INSERT includes the primary-key index; allow 32 catalog writes for a swap.
+    // Stop once copying is more expensive. Probe each session's covering index
+    // with LIMIT instead of scanning all current events just to count them.
+    let remaining = Math.floor((legacy - 33) / 2)
+    if (remaining < 0) return false
+    const current = this.storage.sql.exec<{ id: string }>(
+      'SELECT id FROM dsh_sessions WHERE version = ?', SESSION_FORMAT_VERSION,
+    ).toArray()
+    for (const row of current) {
+      const count = this.storage.sql.exec<{ count: number }>(
+        `SELECT COUNT(*) AS count FROM (
+          SELECT seq FROM dsh_session_events WHERE session_id = ? LIMIT ?
+        )`, row.id, remaining + 1,
+      ).toArray()[0]?.count ?? 0
+      if (count > remaining) return false
+      remaining -= count
+    }
+    return true
   }
 
   private syncSummaries(): void {

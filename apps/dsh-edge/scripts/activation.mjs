@@ -60,7 +60,7 @@ export async function observePublicActivation({
       if (response.ok) {
         const health = await readBoundedJson(response, MAX_HEALTH_BYTES)
         if (isExpectedHealth(health, expected)) {
-          if (typeof ownerSecret !== 'string' || ownerSecret.length < 32) {
+          if (typeof ownerSecret !== 'string' || Buffer.byteLength(ownerSecret, 'utf8') < 32 || Buffer.byteLength(ownerSecret, 'utf8') > 512) {
             throw new RuntimeActivationError('Runtime verification requires the owner access key.')
           }
           if (await verifyRuntime({ publicUrl, ownerSecret, fetchImpl, signal: requestSignal, expected })) {
@@ -152,7 +152,8 @@ async function verifyRuntime({ publicUrl, ownerSecret, fetchImpl, signal, expect
   })
   const cookie = login.headers.get('set-cookie')?.split(';', 1)[0]
   await login.body?.cancel()
-  if (login.status === 401) throw new RuntimeActivationError('Worker uploaded, but owner authentication failed. Application readiness was not verified.')
+  // A same-version deployment may still serve the previous owner key during propagation.
+  if (login.status === 401) return false
   if (login.status !== 303 || !/^__Host-dsh_edge_owner=v1\.[0-9]+\.[A-Za-z0-9_-]+$/u.test(cookie ?? '')) return false
   const response = await fetchImpl(new URL('/api/ready', publicUrl).href, {
     redirect: 'manual', signal,
