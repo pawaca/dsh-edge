@@ -733,7 +733,9 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
       this.storage.sql.exec('DELETE FROM dsh_session_events WHERE session_id = ? AND seq >= ?', id, tornFrom)
       rebuildSchedules(this.storage, id, preserved, inheritedEventCount)
       this.storage.sql.exec('UPDATE dsh_sessions SET revision = revision + 1 WHERE id = ?', id)
-      this.recomputeSummary(id)
+      const header = this.rowFor(id)
+      if (header === undefined) throw new Error(`session ${id} disappeared during repair`)
+      this.updateSummaryFromBatch(id, preserved, header)
       await armScheduleWake(this.storage)
       return preserved
     })
@@ -1039,10 +1041,10 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
     )
   }
 
-  private updateSummaryFromBatch(id: SessionId, events: readonly SessionEvent[]): void {
+  private updateSummaryFromBatch(id: SessionId, events: readonly SessionEvent[], reset?: HeaderRow): void {
     const lastEvent = events.at(-1)
-    if (lastEvent === undefined) return
-    const existing = this.storage.sql.exec<{
+    if (lastEvent === undefined && reset === undefined) return
+    const existing = reset === undefined ? this.storage.sql.exec<{
       blank: number
       last_prompt_at: number | null
       title_seq: number | null
@@ -1052,7 +1054,7 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
       `SELECT blank, last_prompt_at, title_seq, title_time, title_data
        FROM dsh_session_summaries WHERE session_id = ?`,
       id,
-    ).toArray()[0]
+    ).toArray()[0] : undefined
 
     let blank = existing?.blank ?? 1
     let lastPromptAt: number | null = existing?.last_prompt_at ?? null
@@ -1074,7 +1076,7 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
       }
     }
 
-    const rev = this.storage.sql.exec<{ revision: number }>(
+    const rev = reset?.revision ?? this.storage.sql.exec<{ revision: number }>(
       'SELECT revision FROM dsh_sessions WHERE id = ?',
       id,
     ).toArray()[0]?.revision ?? 0
@@ -1095,9 +1097,9 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
          title_data = excluded.title_data`,
       id,
       rev,
-      lastEvent.time,
+      lastEvent?.time ?? reset!.created_at,
       lastPromptAt,
-      lastEvent.seq,
+      lastEvent?.seq ?? -1,
       blank,
       titleSeq,
       titleTime,

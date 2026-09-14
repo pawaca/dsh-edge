@@ -193,7 +193,10 @@ describe('durable-object bounded event pages', () => {
       expect((await readAll(persistence, id)).events).toHaveLength(2)
       expect(await persistence.stat(id)).toEqual(before)
       expect(persistence.readSessionSummary(id)?.lastSeq).toBe(2)
+      const queryStart = storage.queries.length
       const restored = await resumeStored(persistence, id)
+      expect(storage.queries.slice(queryStart).some(query => /SELECT[\s\S]*SELECT/u.test(query))).toBe(false)
+      expect(persistence.readSessionSummary(id)?.titleEvent).toBeUndefined()
       expect(restored.events.map(event => event.type)).toEqual(['turn/start', 'step/start', 'step/end', 'turn/end'])
       expect((await readAll(persistence, id)).events).toEqual(restored.events)
       expect(persistence.readSessionSummary(id)?.lastSeq).toBe(3)
@@ -267,6 +270,7 @@ describe('durable-object bounded event pages', () => {
       ], false)
       storage.sql.exec("UPDATE dsh_session_events SET data = '{' WHERE session_id = 'torn-create' AND seq = 0")
       await resumeStored(persistence, SessionId('torn-create'))
+      expect(persistence.readSessionSummary(SessionId('torn-create'))).toMatchObject({ lastSeq: -1, blank: true, updatedAt: 1, lastPromptAt: null })
       expect(nextSchedule(storage as never)).toBeUndefined()
 
       await persistence.appendBatch(metadata('torn-delete'), [create(0),

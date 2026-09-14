@@ -183,22 +183,36 @@ export class EdgeFileSystem extends FileSystem {
     }
   }
 
-  private async openReadStream(target: FsTarget): Promise<ReadableStream<Uint8Array>> {
-    try {
-      return await this.requireBinding().vfs.readFile(this.processPath(target))
-    } catch (error) {
-      if (error instanceof FsError) throw error
+  private async openReadStream(target: FsTarget, signal?: AbortSignal) {
+    const classify = (error: unknown): never => {
+      if (error instanceof FsError || (signal?.aborted && error === signal.reason)
+        || (error instanceof Error && error.name === 'AbortError')) throw error
       throw new FsError(`cannot read "${target.displayPath}": ${error instanceof Error ? error.message : String(error)}`, 'FS_IO_ERROR', { cause: error })
+    }
+    let reader: ReadableStreamDefaultReader<Uint8Array>
+    try {
+      reader = (await this.requireBinding().vfs.readFile(this.processPath(target))).getReader()
+    } catch (error) { return classify(error) }
+    return {
+      async read() {
+        signal?.throwIfAborted()
+        try { return await reader.read() } catch (error) { return classify(error) }
+      },
+      async close(preserveError: boolean) {
+        try { await reader.cancel() }
+        catch (error) { if (!preserveError) classify(error) }
+        finally { reader.releaseLock() }
+      },
     }
   }
 
   async streamText(target: FsTarget, signal?: AbortSignal): Promise<AsyncIterable<string>> {
     signal?.throwIfAborted()
-    const stream = await this.openReadStream(target)
+    const reader = await this.openReadStream(target, signal)
     return (async function* () {
-      const reader = stream.getReader()
       const decoder = new TextDecoder('utf-8', { fatal: true })
       let pendingCR = ''
+      let failed = false
       try {
         while (true) {
           signal?.throwIfAborted()
@@ -212,22 +226,23 @@ export class EdgeFileSystem extends FileSystem {
         const tail = pendingCR + decoder.decode()
         if (tail !== '') yield normalizeLineEndings(tail)
       } catch (error) {
+        failed = true
+        if (signal?.aborted && error === signal.reason) throw error
         if (error instanceof TypeError) throw new FsError('File is not valid UTF-8 text.', 'FS_NOT_TEXT', { cause: error })
         throw error
       } finally {
-        await reader.cancel()
-        reader.releaseLock()
+        await reader.close(failed)
       }
     })()
   }
 
   async readByteRange(target: FsTarget, range: { offset: number; length: number }, signal?: AbortSignal): Promise<Uint8Array> {
     signal?.throwIfAborted()
-    const stream = await this.openReadStream(target)
-    const reader = stream.getReader()
+    const reader = await this.openReadStream(target, signal)
     const chunks: Uint8Array[] = []
     let skipped = 0
     let total = 0
+    let failed = false
     try {
       while (total < range.length) {
         signal?.throwIfAborted()
@@ -242,9 +257,11 @@ export class EdgeFileSystem extends FileSystem {
       let offset = 0
       for (const chunk of chunks) { result.set(chunk, offset); offset += chunk.byteLength }
       return result
+    } catch (error) {
+      failed = true
+      throw error
     } finally {
-      await reader.cancel()
-      reader.releaseLock()
+      await reader.close(failed)
     }
   }
 

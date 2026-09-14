@@ -45,6 +45,56 @@ describe('bounded VFS preview reads', () => {
     } finally { await ctx.fiber.dispose() }
   })
 
+  it.each(['text', 'bytes'] as const)('classifies consumption failures and preserves cancellation for %s', async kind => {
+    const ctx = new Context()
+    await ctx.plugin(EdgeFileSystem)
+    const fs = ctx.fs as EdgeFileSystem
+    try {
+      for (const failure of [new Error('read failed'), new TypeError('VFS transport failed'), new FsError('typed', 'FS_NOT_FOUND'), new DOMException('cancelled', 'AbortError')]) {
+        const stream = new ReadableStream<Uint8Array>({ pull() { throw failure } }, { highWaterMark: 0 })
+        await fs.runInScope({ readFile: async () => stream } as never, '/workspace', async () => {
+          const target = await fs.resolve('a.txt')
+          const read = async () => {
+            if (kind === 'bytes') return fs.readByteRange(target, { offset: 0, length: 1 })
+            for await (const chunk of await fs.streamText(target)) void chunk
+          }
+          if (failure instanceof FsError || failure.name === 'AbortError') await expect(read()).rejects.toBe(failure)
+          else await expect(read()).rejects.toMatchObject({ code: 'FS_IO_ERROR', cause: failure })
+          expect(stream.locked).toBe(false)
+        })
+      }
+      const controller = new AbortController()
+      const reason = new TypeError('custom cancellation')
+      const stream = new ReadableStream<Uint8Array>({ pull() { controller.abort(reason); throw reason } }, { highWaterMark: 0 })
+      await fs.runInScope({ readFile: async () => stream } as never, '/workspace', async () => {
+        const target = await fs.resolve('a.txt')
+        const read = async () => {
+          if (kind === 'bytes') return fs.readByteRange(target, { offset: 0, length: 1 }, controller.signal)
+          for await (const chunk of await fs.streamText(target, controller.signal)) void chunk
+        }
+        await expect(read()).rejects.toBe(reason)
+        expect(stream.locked).toBe(false)
+      })
+    } finally { await ctx.fiber.dispose() }
+  })
+
+  it('does not mask invalid UTF-8 with a cleanup failure', async () => {
+    const ctx = new Context()
+    await ctx.plugin(EdgeFileSystem)
+    const fs = ctx.fs as EdgeFileSystem
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) { controller.enqueue(new Uint8Array([0xff])) },
+      cancel() { throw new Error('cleanup failed') },
+    }, { highWaterMark: 0 })
+    try {
+      await fs.runInScope({ readFile: async () => stream } as never, '/workspace', async () => {
+        const source = await fs.streamText(await fs.resolve('a.txt'))
+        await expect(source[Symbol.asyncIterator]().next()).rejects.toMatchObject({ code: 'FS_NOT_TEXT' })
+        expect(stream.locked).toBe(false)
+      })
+    } finally { await ctx.fiber.dispose() }
+  })
+
   it('decodes split UTF-8 and CRLF without joining the whole file', async () => {
     const text = encode('甲\r\n乙\r丙')
     await withFile([text.slice(0, 1), text.slice(1, 4), text.slice(4)], async fs => {
