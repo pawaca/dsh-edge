@@ -183,9 +183,18 @@ export class EdgeFileSystem extends FileSystem {
     }
   }
 
+  private async openReadStream(target: FsTarget): Promise<ReadableStream<Uint8Array>> {
+    try {
+      return await this.requireBinding().vfs.readFile(this.processPath(target))
+    } catch (error) {
+      if (error instanceof FsError) throw error
+      throw new FsError(`cannot read "${target.displayPath}": ${error instanceof Error ? error.message : String(error)}`, 'FS_IO_ERROR', { cause: error })
+    }
+  }
+
   async streamText(target: FsTarget, signal?: AbortSignal): Promise<AsyncIterable<string>> {
     signal?.throwIfAborted()
-    const stream = await this.requireBinding().vfs.readFile(this.processPath(target))
+    const stream = await this.openReadStream(target)
     return (async function* () {
       const reader = stream.getReader()
       const decoder = new TextDecoder('utf-8', { fatal: true })
@@ -214,7 +223,7 @@ export class EdgeFileSystem extends FileSystem {
 
   async readByteRange(target: FsTarget, range: { offset: number; length: number }, signal?: AbortSignal): Promise<Uint8Array> {
     signal?.throwIfAborted()
-    const stream = await this.requireBinding().vfs.readFile(this.processPath(target))
+    const stream = await this.openReadStream(target)
     const reader = stream.getReader()
     const chunks: Uint8Array[] = []
     let skipped = 0

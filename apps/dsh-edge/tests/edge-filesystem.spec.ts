@@ -1,5 +1,6 @@
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
+import { FsError } from '@deepseek-ai/dsh-fs'
 import { EdgeFileSystem } from '../src/edge-filesystem.ts'
 
 async function withFile(chunks: Uint8Array[], run: (fs: EdgeFileSystem, reads: () => number, cancelled: ReturnType<typeof vi.fn>) => Promise<void>) {
@@ -26,6 +27,24 @@ async function withFile(chunks: Uint8Array[], run: (fs: EdgeFileSystem, reads: (
 const encode = (text: string) => new TextEncoder().encode(text)
 
 describe('bounded VFS preview reads', () => {
+  it.each(['text', 'bytes'] as const)('preserves typed open failures for %s previews', async kind => {
+    const ctx = new Context()
+    await ctx.plugin(EdgeFileSystem)
+    const fs = ctx.fs as EdgeFileSystem
+    const failure = Object.assign(new Error('file deleted before open'), { code: 'ENOENT' })
+    const readFile = vi.fn().mockRejectedValue(failure)
+    try {
+      await fs.runInScope({ readFile } as never, '/workspace', async () => {
+        const target = await fs.resolve('deleted.txt')
+        const read = () => kind === 'text' ? fs.streamText(target) : fs.readByteRange(target, { offset: 0, length: 1 })
+        await expect(read()).rejects.toMatchObject({ code: 'FS_IO_ERROR', cause: failure })
+        const typed = new FsError('already classified', 'FS_NOT_FOUND')
+        readFile.mockRejectedValue(typed)
+        await expect(read()).rejects.toBe(typed)
+      })
+    } finally { await ctx.fiber.dispose() }
+  })
+
   it('decodes split UTF-8 and CRLF without joining the whole file', async () => {
     const text = encode('甲\r\n乙\r丙')
     await withFile([text.slice(0, 1), text.slice(1, 4), text.slice(4)], async fs => {
