@@ -1735,11 +1735,16 @@ try {
   assert.equal(turnRequests().length, 24)
   await worker.stop()
   worker = undefined
-  const physicalRows = sessionEventRowTypes(batchedSessionId)
+  const { physicalRows, writeBatches } = sessionEventStorageStats(batchedSessionId)
   // V3 stores the packed stream inside one assistant event, not top-level chunk rows.
   assert.equal(physicalRows.get('assistant/message'), 1)
   assert.equal(physicalRows.get('assistant/chunk') ?? 0, 0)
   assert.equal(physicalRows.get('text-chunks') ?? 0, 0)
+  // Revision increments once per appendBatch, including its summary update.
+  // Check write amplification as well as final row packing: a >=100-delta
+  // turn must not flush once per delta, even if a future backend upserts rows.
+  assert.ok(writeBatches <= 20, `Stream caused ${writeBatches} persistence batches`)
+  console.log(`${runtimeMode} stream storage: ${expandAssistantStream(batchAssistant.data.stream).length} chunks, ${writeBatches} write batches, ${[...physicalRows.values()].reduce((a, b) => a + b, 0)} event rows`)
   worker = await startWorker()
   const durableBatchHistory = await rpc('session.history', { sessionId: batchedSessionId })
   const durableBatch = durableBatchHistory.body.result.value.events
@@ -1768,7 +1773,7 @@ async function startReleasedStateSeeder() {
   })
 }
 
-function sessionEventRowTypes(sessionId) {
+function sessionEventStorageStats(sessionId) {
   for (const path of sqliteFiles(persistedState)) {
     const database = new DatabaseSync(path, { readOnly: true })
     try {
@@ -1779,7 +1784,10 @@ function sessionEventRowTypes(sessionId) {
       const rows = database.prepare(
         'SELECT type, COUNT(*) AS count FROM dsh_session_events WHERE session_id = ? GROUP BY type',
       ).all(sessionId)
-      if (rows.length > 0) return new Map(rows.map(row => [row.type, Number(row.count)]))
+      if (rows.length > 0) return {
+        physicalRows: new Map(rows.map(row => [row.type, Number(row.count)])),
+        writeBatches: Number(database.prepare('SELECT revision FROM dsh_sessions WHERE id = ?').get(sessionId).revision),
+      }
     } finally {
       database.close()
     }
