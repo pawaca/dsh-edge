@@ -194,6 +194,7 @@ class DurableObjectSessionHandle implements SessionHandle {
   private materialized = false
   private readonly liveBuffer: SessionEvent[] = []
   private appendedThrough = -1
+  private draining: Promise<void> | undefined
 
   constructor(
     readonly id: SessionId,
@@ -218,16 +219,28 @@ class DurableObjectSessionHandle implements SessionHandle {
     await this.flush()
   }
 
-  private async drainLiveBuffer(): Promise<void> {
-    if (this.liveBuffer.length === 0) return
-    const count = this.liveBuffer.length
-    const storage: SessionStorageMetadata = {
-      meta: this.header,
-      inheritedEventCount: this.inheritedEventCount,
+  private drainLiveBuffer(): Promise<void> {
+    if (this.draining !== undefined) return this.draining
+    if (this.liveBuffer.length === 0) return Promise.resolve()
+    this.draining = this.drainLiveBufferOnce().finally(() => { this.draining = undefined })
+    return this.draining
+  }
+
+  private async drainLiveBufferOnce(): Promise<void> {
+    while (this.liveBuffer.length > 0) {
+      const batch = this.liveBuffer.splice(0, this.liveBuffer.length)
+      const storage: SessionStorageMetadata = {
+        meta: this.header,
+        inheritedEventCount: this.inheritedEventCount,
+      }
+      try {
+        await this.backend.appendBatch(storage, batch, this.backend.hasSession(this.id))
+        this.materialized = true
+      } catch (error) {
+        this.liveBuffer.unshift(...batch)
+        throw error
+      }
     }
-    await this.backend.appendBatch(storage, this.liveBuffer.slice(0, count), this.backend.hasSession(this.id))
-    this.liveBuffer.splice(0, count)
-    this.materialized = true
   }
 
   async read(
