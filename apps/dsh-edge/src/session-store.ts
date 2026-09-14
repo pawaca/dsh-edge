@@ -462,10 +462,13 @@ export class EdgeSessionStore {
     // while the Edge Web client downloads the file through /api/workspace/file.
     class EdgeSessionController extends SessionController {
       constructor(ctx: Context, config: ConstructorParameters<typeof SessionController>[1]) {
-        super(ctx, config, {
+        // activateOnFollow is added by the Edge patch to dsh-api-session-controller
+        const internals = {
+          activateOnFollow: false,
           openPath: () => Promise.reject(new Error(EDGE_NATIVE_OPEN_UNAVAILABLE)),
           canOpenPath: () => false,
-        })
+        }
+        super(ctx, config, internals as never)
       }
     }
     await this.context.plugin(EdgeSessionController, { nativeOpen: false })

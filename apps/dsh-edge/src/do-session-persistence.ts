@@ -191,6 +191,7 @@ export interface EdgeStoredHistoryPage {
 
 class DurableObjectSessionHandle implements SessionHandle {
   private closed = false
+  private materialized = false
   private readonly liveBuffer: SessionEvent[] = []
 
   constructor(
@@ -199,7 +200,10 @@ class DurableObjectSessionHandle implements SessionHandle {
     readonly inheritedEventCount: SessionLogOffset,
     readonly access: SessionAccess,
     private readonly backend: DurableObjectSessionPersistence,
-  ) {}
+    materialized = false,
+  ) {
+    this.materialized = materialized
+  }
 
   enqueueLive(event: SessionEvent): void {
     if (this.closed || this.access !== 'write') return
@@ -214,12 +218,14 @@ class DurableObjectSessionHandle implements SessionHandle {
 
   private async drainLiveBuffer(): Promise<void> {
     if (this.liveBuffer.length === 0) return
-    const events = this.liveBuffer.splice(0)
+    const count = this.liveBuffer.length
     const storage: SessionStorageMetadata = {
       meta: this.header,
       inheritedEventCount: this.inheritedEventCount,
     }
-    await this.backend.appendBatch(storage, events, this.backend.hasSession(this.id))
+    await this.backend.appendBatch(storage, this.liveBuffer.slice(0, count), this.backend.hasSession(this.id))
+    this.liveBuffer.splice(0, count)
+    this.materialized = true
   }
 
   async read(
@@ -251,6 +257,7 @@ class DurableObjectSessionHandle implements SessionHandle {
       inheritedEventCount: this.inheritedEventCount,
     }
     await this.backend.appendBatch(storage, events, this.backend.hasSession(this.id))
+    this.materialized = true
   }
 
   async flush(options?: { readonly signal?: AbortSignal }): Promise<void> {
@@ -265,8 +272,14 @@ class DurableObjectSessionHandle implements SessionHandle {
     if (this.closed) return
     this.closed = true
     if (this.access === 'write') {
-      await this.drainLiveBuffer()
-      this.backend.releaseWriteOwnership(this.id)
+      try {
+        await this.drainLiveBuffer()
+      } finally {
+        if (!this.materialized) {
+          this.backend.abandonUnmaterialized(this.id)
+        }
+        this.backend.releaseWriteOwnership(this.id)
+      }
     }
   }
 
@@ -348,10 +361,15 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
       if (this.activeWriteOwners.has(id)) {
         throw new SessionAlreadyOwnedError(id)
       }
-      if (blank !== undefined) {
-        await this.materializeBlankSession(id)
-      }
       this.activeWriteOwners.add(id)
+      if (blank !== undefined) {
+        try {
+          await this.materializeBlankSession(id)
+        } catch (error) {
+          this.activeWriteOwners.delete(id)
+          throw error
+        }
+      }
     }
     const header = row !== undefined ? rowToHeader(row) : blank!
     const inheritedEventCount = row !== undefined
@@ -363,6 +381,7 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
       inheritedEventCount,
       access,
       this,
+      row !== undefined,
     )
     if (access === 'write') this.writeHandles.set(id, handle)
     return handle
@@ -453,11 +472,20 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
   ): Promise<SessionPersistenceSnapshot | undefined> {
     options?.signal?.throwIfAborted()
     const row = this.rowFor(id)
-    if (row === undefined) return undefined
-    return {
-      header: rowToHeader(row),
-      revision: revisionOf(this.storeIdentity, row),
+    if (row !== undefined) {
+      return {
+        header: rowToHeader(row),
+        revision: revisionOf(this.storeIdentity, row),
+      }
     }
+    const blank = this.readBlankSession(id)
+    if (blank !== undefined) {
+      return {
+        header: blank,
+        revision: SessionPersistenceRevision(`${this.storeIdentity}:blank:${id}`),
+      }
+    }
+    return undefined
   }
 
   async list(
@@ -488,6 +516,19 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
   releaseWriteOwnership(id: SessionId): void {
     this.activeWriteOwners.delete(id)
     this.writeHandles.delete(id)
+  }
+
+  abandonUnmaterialized(id: SessionId): void {
+    this.storage.transactionSync(() => {
+      const hasEvents = this.storage.sql.exec<{ c: number }>(
+        'SELECT count(*) AS c FROM dsh_session_events WHERE session_id = ? LIMIT 1',
+        id,
+      ).toArray()[0]?.c ?? 0
+      if (hasEvents === 0) {
+        this.storage.sql.exec('DELETE FROM dsh_session_summaries WHERE session_id = ?', id)
+        this.storage.sql.exec('DELETE FROM dsh_sessions WHERE id = ?', id)
+      }
+    })
   }
 
   /** Read and canonically validate one Edge-only replay page. */
@@ -554,6 +595,8 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
         `stored session ${id} history page exceeds the Edge limit of ${EDGE_HISTORY_PAGE_LIMITS.maxEvents} events or ${EDGE_HISTORY_PAGE_LIMITS.maxStoredBytes} stored bytes`,
       )
     }
+    assertVersion(page.meta)
+    validateStoredEvents(page.meta, page.events as SessionEvent[])
     return { summary, events: page.events, hasMore: boundary > 0 }
   }
 
@@ -896,7 +939,7 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
       this.migrateSession(row.id as SessionId, row)
     }
     this.storage.sql.exec(
-      'UPDATE dsh_edge_blank_sessions SET version = ? WHERE version != ?',
+      'UPDATE dsh_edge_blank_sessions SET version = ? WHERE version < ?',
       SESSION_FORMAT_VERSION,
       SESSION_FORMAT_VERSION,
     )
@@ -1187,6 +1230,11 @@ function rowToHeader(row: HeaderRow): SessionHeader {
 function blankRowToHeader(row: BlankSessionRow): SessionHeader {
   const header = rowToHeader({ ...row, incarnation: '', revision: 0 })
   if (header.version !== SESSION_FORMAT_VERSION) {
+    if (header.version > SESSION_FORMAT_VERSION) {
+      throw new SessionFormatUnsupportedError(
+        `blank session "${String(header.id)}" uses format v${String(header.version)}, newer than v${String(SESSION_FORMAT_VERSION)}`,
+      )
+    }
     return { ...header, version: SESSION_FORMAT_VERSION as typeof SESSION_FORMAT_VERSION }
   }
   return header
