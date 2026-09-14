@@ -14,7 +14,7 @@
 
 - `ReactLoopAgent`、`AgentRegistry`、`LlmRuntime`、`ToolRuntime`、`SystemPrompt`、`SessionStore` 和 `SessionPersistence` 通过上游 Cordis 组合运行。
 - 上游 `dsh-llm-deepseek` cordis 插件直接安装，自动注册 Settings 命名空间和可配置 Provider 条目。Edge 把原生 DSH `bash` 工具映射到 Cloudflare Computer。
-- Durable Object SQLite 实现上游 `SessionHandle` 持久化约定。Edge 缓冲实时事件并在发布前完成落盘；初始化事件（包括冷会话切换模型时的 `session/end-seed`）先于后续变更持久化。上游 agent loop 在恢复时补齐中断 turn 的结束事件。Edge 在持有写入所有权时先截断损坏的物理尾部，并原子重建摘要和提醒状态；对于格式损坏或已派发的提醒尾部，拒绝自动修复，避免重复投递。
+- Durable Object SQLite 实现上游 `SessionHandle` 持久化约定。Edge 缓冲实时事件并在发布前完成落盘；初始化事件（包括冷会话切换模型时的 `session/end-seed`）先于后续变更持久化。上游 agent loop 在恢复时补齐中断 turn 的结束事件。Edge 在持有写入所有权时先截断损坏的物理尾部，并原子重建摘要和提醒状态；对于含有 inbox 事件、格式损坏提醒或已派发提醒的尾部，拒绝自动修复，避免重复投递。
 - 模型历史从 canonical 事件投影，不在 Edge 中建立第二套 schema。
 - `GoalService` 和 `ToolGoal` 作为上游 cordis 插件直接组合。浏览器 GoalBar mutation 经由 `TypertGatewayService` 路由。
 - `SessionProjectionCache` 通过 KV 缓存在 Durable Object 重启后持久化 goal、title 和 model 状态。

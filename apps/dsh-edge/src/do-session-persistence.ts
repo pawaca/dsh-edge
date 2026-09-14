@@ -723,7 +723,13 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
       const rows = this.eventRowsFrom(id, 0)
       const { preserved, tornFrom } = scanRows(rows)
       if (tornFrom === undefined) return preserved
-      assertScheduleTailRepairable(rows.filter(row => row.seq >= tornFrom))
+      const tail = rows.filter(row => row.seq >= tornFrom)
+      // Inbox appends atomically acknowledge durable input receipts. Their
+      // removal could lose accepted prompts, including when payloads are torn.
+      if (tail.some(row => row.type === 'agent/inbox/spliced')) {
+        throw new Error('Cannot automatically repair a torn inbox event; input receipt state may already be committed.')
+      }
+      assertScheduleTailRepairable(tail)
       this.storage.sql.exec('DELETE FROM dsh_session_events WHERE session_id = ? AND seq >= ?', id, tornFrom)
       rebuildSchedules(this.storage, id, preserved, inheritedEventCount)
       this.storage.sql.exec('UPDATE dsh_sessions SET revision = revision + 1 WHERE id = ?', id)

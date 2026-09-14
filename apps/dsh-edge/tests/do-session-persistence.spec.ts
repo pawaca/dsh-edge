@@ -469,6 +469,44 @@ describe('durable-object bounded event pages', () => {
     } finally { await fiber.dispose(); storage.close() }
   })
 
+  it.each([false, true])('preserves inbox receipts when refusing torn-tail repair (claimed=%s)', async claimed => {
+    const storage = new TestDurableObjectStorage()
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(DurableObjectSessionPersistence, { storage: storage as never })
+    const persistence = ctx.sessionPersistence as DurableObjectSessionPersistence
+    const queue = new MainSessionQueue(storage as never)
+    const id = SessionId('torn-inbox-receipt')
+    const message = createUserMessage({ content: [{ type: 'text', text: 'accepted prompt' }], source: { kind: 'user' } })
+    const input = queue.enqueue(id, message.id, 'digest', message)
+    if (claimed) queue.claim()
+    try {
+      await persistence.appendBatch({
+        meta: { id, version: SESSION_FORMAT_VERSION, createdAt: 1, isSeeded: false },
+        inheritedEventCount: SessionLogOffset(0),
+      }, [
+        { type: 'turn/start', seq: SessionSeq(0), time: 1, data: { turn: 1 } },
+        { type: 'agent/inbox/spliced', seq: SessionSeq(1), time: 2,
+          data: { target: 'next-turn', start: 0, inserted: [message] } },
+      ], false)
+      expect(queue.state(input.seq)).toBe(claimed ? 'admitted' : 'settled')
+      const revision = await persistence.stat(id)
+      // Cover both an intact receipt-bearing event after corruption and a
+      // corrupt inbox payload whose durable type still identifies the hazard.
+      for (const seq of [0, 1]) {
+        storage.sql.exec("UPDATE dsh_session_events SET data = '{' WHERE session_id = ? AND seq = ?", id, seq)
+        const rows = storage.sql.exec('SELECT * FROM dsh_session_events WHERE session_id = ?', id).toArray()
+        const receipts = storage.sql.exec('SELECT * FROM dsh_runtime_inputs').toArray()
+        const slot = storage.sql.exec('SELECT * FROM dsh_runtime_slot').toArray()
+        await expect(resumeStored(persistence, id)).rejects.toThrow('Cannot automatically repair a torn inbox event')
+        expect(await persistence.stat(id)).toEqual(revision)
+        expect(storage.sql.exec('SELECT * FROM dsh_session_events WHERE session_id = ?', id).toArray()).toEqual(rows)
+        expect(storage.sql.exec('SELECT * FROM dsh_runtime_inputs').toArray()).toEqual(receipts)
+        expect(storage.sql.exec('SELECT * FROM dsh_runtime_slot').toArray()).toEqual(slot)
+      }
+    } finally { await fiber.dispose(); storage.close() }
+  })
+
   it('projects the latest upstream request/header model selection with a point read', async () => {
     const storage = new TestDurableObjectStorage()
     const ctx = new Context()
