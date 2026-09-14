@@ -155,6 +155,20 @@ export async function startMockDeepSeek(port = 0) {
         return
       }
 
+      if (prompt.includes('batch durable chunks')) {
+        sendEvents(response, [
+          { choices: [{ delta: { role: 'assistant', content: null, reasoning_content: '' } }] },
+          ...Array.from({ length: 100 }, (_, index) => ({
+            choices: [{ delta: { content: `chunk-${index}` } }],
+          })),
+          {
+            choices: [{ delta: { content: '' }, finish_reason: 'stop' }],
+            usage: { prompt_tokens: 4, completion_tokens: 100 },
+          },
+        ])
+        return
+      }
+
       if (prompt.includes('tool') && !hasToolResult) {
         sendEvents(response, [
           { choices: [{ delta: { role: 'assistant', content: null, reasoning_content: '' } }] },

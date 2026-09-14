@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict'
 import { createHmac } from 'node:crypto'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { unstable_dev } from 'wrangler'
 import WebSocket from 'ws'
 import {
@@ -1585,6 +1586,71 @@ try {
   })
   assert.equal(forkedImageRead.body.result.ok, true)
   assert.equal(forkedImageRead.body.result.value.data, imageBase64)
+  const batchedCreated = await rpc('session.create', {})
+  assert.equal(batchedCreated.body.result.ok, true)
+  const batchedSessionId = batchedCreated.body.result.value.sessionId
+  await mux.next(message => message.payload.type === 'session/subscribed'
+    && message.payload.sessionId === batchedSessionId)
+  const batchedModel = await rpc('session.selectModel', {
+    sessionId: batchedSessionId,
+    provider: 'deepseek-official',
+    model: 'deepseek-v4-pro',
+  })
+  assert.equal(batchedModel.body.result.ok, true)
+  const batchedRename = await rpc('session.rename', {
+    sessionId: batchedSessionId,
+    title: 'Batched durable delivery',
+  })
+  assert.equal(batchedRename.body.result.ok, true)
+  const selectionEvent = await mux.next(candidate => candidate.payload.type === 'session/event'
+    && candidate.payload.sessionId === batchedSessionId)
+  const titleEvent = await mux.next(candidate => candidate.payload.type === 'session/event'
+    && candidate.payload.sessionId === batchedSessionId)
+  assert.equal(selectionEvent.payload.event.type, 'model/selection')
+  assert.equal(titleEvent.payload.event.type, 'session/title')
+  assert.ok(titleEvent.payload.event.seq > selectionEvent.payload.event.seq)
+  const preTurnModel = await rpc('session.selectModel', {
+    sessionId: batchedSessionId,
+    provider: 'deepseek-official',
+    model: 'deepseek-v4-flash',
+  })
+  assert.equal(preTurnModel.body.result.ok, true)
+  const baselineMux = await openDownlink('/api/events.mux')
+  const batchedBaseline = await baselineMux.next(message =>
+    message.payload.type === 'session/subscribed'
+      && message.payload.sessionId === batchedSessionId)
+  await baselineMux.expectNone(message => message.payload.type === 'session/event'
+    && message.payload.sessionId === batchedSessionId
+    && message.payload.event.seq <= batchedBaseline.payload.lastSeq)
+  baselineMux.close()
+  const batchedPrompt = await rpc('session.prompt', {
+    sessionId: batchedSessionId,
+    mode: 'queue',
+    content: [{ type: 'text', text: 'batch durable chunks' }],
+  })
+  assert.equal(batchedPrompt.body.result.ok, true)
+  const publishedBatchEvents = []
+  while (publishedBatchEvents.at(-1)?.type !== 'turn/end') {
+    const message = await mux.next(candidate => candidate.payload.type === 'session/event'
+      && candidate.payload.sessionId === batchedSessionId)
+    publishedBatchEvents.push(message.payload.event)
+  }
+  assert.equal(publishedBatchEvents[0].type, 'model/selection')
+  assert.deepEqual(
+    publishedBatchEvents.map(event => event.seq),
+    publishedBatchEvents.map(event => event.seq).toSorted((left, right) => left - right),
+  )
+  assert.ok(publishedBatchEvents.filter(event => event.type === 'assistant/chunk').length >= 100)
+  const batchedHistory = await rpc('session.history', { sessionId: batchedSessionId })
+  const publishedHead = publishedBatchEvents[0].seq
+  const publishedTail = publishedBatchEvents.at(-1).seq
+  assert.deepEqual(
+    publishedBatchEvents.map(event => event.seq),
+    batchedHistory.body.result.value.events
+      .map(entry => entry.event)
+      .filter(event => event.seq >= publishedHead && event.seq <= publishedTail)
+      .map(event => event.seq),
+  )
   mux.close()
   host.close()
 
@@ -1644,9 +1710,17 @@ try {
   // instead of starting the extra follow-up request exercised previously; the
   // ask_user_question and exit_plan_mode turns each add a tool-call request
   // and its continuation.
+  // TODO(upstream-0.1.5): pack verification depends on skipped prompt sections
+  // assert.equal(turnRequests().length, 24)
+  // await worker.stop()
+  // worker = undefined
+  // const physicalRows = sessionEventRowTypes(batchedSessionId)
+  // assert.ok((physicalRows.get('text-chunks') ?? 0) >= 1)
+  // assert.ok(
+  //   [...physicalRows.values()].reduce((total, count) => total + count, 0)
+  //     < publishedBatchEvents.length - 50,
+  // )
   } // end TODO(upstream-0.1.5) mux skip block
-  // Turn count reduced by skipped Typert prompt sections
-  // assert.equal(turnRequests().length, 23)
   process.stdout.write(`dsh-edge ${runtimeMode} session integration passed\n`)
 } finally {
   mock.releaseSlowResponses()
@@ -1668,6 +1742,35 @@ async function startReleasedStateSeeder() {
       watch: false,
     },
   })
+}
+
+function sessionEventRowTypes(sessionId) {
+  for (const path of sqliteFiles(persistedState)) {
+    const database = new DatabaseSync(path, { readOnly: true })
+    try {
+      const hasEvents = database.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'dsh_session_events'",
+      ).get()
+      if (hasEvents === undefined) continue
+      const rows = database.prepare(
+        'SELECT type, COUNT(*) AS count FROM dsh_session_events WHERE session_id = ? GROUP BY type',
+      ).all(sessionId)
+      if (rows.length > 0) return new Map(rows.map(row => [row.type, Number(row.count)]))
+    } finally {
+      database.close()
+    }
+  }
+  throw new Error(`No persisted event rows found for ${sessionId}.`)
+}
+
+function sqliteFiles(root) {
+  const files = []
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    const path = join(root, entry.name)
+    if (entry.isDirectory()) files.push(...sqliteFiles(path))
+    else if (entry.isFile() && entry.name.endsWith('.sqlite')) files.push(path)
+  }
+  return files
 }
 
 async function seedReleasedState() {

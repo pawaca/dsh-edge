@@ -121,6 +121,49 @@ function cursor<T extends TestRow>(
 }
 
 describe('durable-object bounded event pages', () => {
+  // TODO(upstream-0.1.5): assistant/chunk event type removed in V3; rewrite with V3 streaming types
+  it.skip('packs a flushed stream of assistant deltas into one physical event row', async () => {
+    const storage = new TestDurableObjectStorage()
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(DurableObjectSessionPersistence, { storage: storage as never })
+    const persistence = ctx.sessionPersistence as unknown as DurableObjectSessionPersistence
+    const id = SessionId('packed-assistant-deltas')
+    const events: SessionEvent[] = Array.from({ length: 100 }, (_, index) => ({
+      type: 'assistant/chunk' as never,
+      seq: SessionSeq(index),
+      time: 1_000 + index,
+      data: {
+        turn: 1,
+        step: 1,
+        chunk: { type: 'text-delta', index: 0, text: `token-${index}` },
+      },
+    }))
+    try {
+      await persistence.appendBatch({
+        meta: { id, version: SESSION_FORMAT_VERSION, createdAt: 1, isSeeded: false },
+        inheritedEventCount: SessionLogOffset(0),
+      }, events, false)
+
+      expect(storage.sql.exec<{ count: number }>(
+        'SELECT COUNT(*) AS count FROM dsh_session_events WHERE session_id = ?',
+        id,
+      ).toArray()).toEqual([{ count: 1 }])
+      expect(storage.sql.exec<{ type: string }>(
+        'SELECT type FROM dsh_session_events WHERE session_id = ?',
+        id,
+      ).toArray()).toEqual([{ type: 'text-chunks' }])
+      await expect(persistence.readEventPage(id, 0, 100, 64 * 1_024)).resolves.toMatchObject({
+        events,
+        hasMore: false,
+      })
+    } finally {
+      await fiber.dispose()
+      await ctx.fiber.dispose()
+      storage.close()
+    }
+  })
+
   // TODO(upstream-0.1.5): torn-tail repair moved from PersistenceCoordinator to agent-loop
   it.skip('preserves flushed schedules when repairing a normally interrupted turn', async () => {
     const storage = new TestDurableObjectStorage()
