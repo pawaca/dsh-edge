@@ -322,6 +322,7 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
     initializeMainQueue(this.storage)
     initializeSchedules(this.storage)
     this.storeIdentity = this.initialize()
+    this.postInitialize()
 
     ctx.on('session/event', (session: Session, event: SessionEvent) => {
       this.writeHandles.get(session.id)?.enqueueLive(event)
@@ -941,10 +942,13 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
         title_time INTEGER,
         title_data TEXT
       ) STRICT`)
-      this.migrateStoredSessions()
-      this.syncSummaries()
       return `durable-object:store:${storeId}`
     })
+  }
+
+  private postInitialize(): void {
+    this.migrateStoredSessions()
+    this.syncSummaries()
   }
 
   private migrateStoredSessions(): void {
