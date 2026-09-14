@@ -38,6 +38,15 @@ The root and standalone lockfiles serve different purposes. The root lock instal
 - The npm package, tag, GitHub Release, deployment identity, and documentation must report the same dsh-edge version.
 - `apps/dsh-edge/package.json` is the only release-version source. Test assertions and snapshot expectations derive the version and npm dist-tag channel at runtime; a version bump requires no other file changes. Private workspace manifests omit `version` so they cannot imply a second product or upstream release identity.
 
+## Durable Object database budgets
+
+- Treat database cost as a correctness requirement in every path: normal requests, streaming, startup, migrations, cleanup, deletion, alarms, retries, recovery, and maintenance scripts. Successful SQL or correct final data alone does not prove a safe upgrade.
+- The Workers Free SQLite allowance is currently 100,000 rows written and 5 million rows read per account per day, resetting at 00:00 UTC. Verify current Cloudflare pricing before operational changes; leave room for existing account usage. Never assume a deployment, transaction rollback, or point-in-time restore refunds consumed quota.
+- Count affected rows, not SQL calls or final database size. DELETE consumes row writes; INSERT/UPDATE, indexes, cascades, triggers, SQLite-backed KV operations, and setAlarm can add writes. Batching reduces call overhead but does not by itself reduce billed rows.
+- Before changing a persistence path, estimate its cost at realistic retained-data volume and request frequency, including retries and repeated cold starts. For bulk operations or a changed write strategy, measure SqlStorageCursor.rowsWritten/rowsRead in the Cloudflare runtime with representative local data; Node SQLite changes counts alone are not billing evidence. Keep a focused regression test for the cost growth being prevented.
+- Prefer bounded incremental writes, compact streaming records, and idempotent startup. Compare the total cost of copying, deleting, rebuilding, and updating summaries before choosing a migration. Preserve atomicity and existing logs; verify failure rollback and retry without repeatedly rewriting already migrated data. Do not assume DDL is free without measuring it in the target runtime.
+- Never replay a large migration or destructive cleanup against production just to benchmark it. Validate locally first; preserve a recovery point for authorized production recovery, and account for quota already consumed. If the remaining budget is unknown or insufficient, report that limitation instead of claiming an unconditional safe upgrade or silently switching to a paid plan.
+
 ## Change discipline
 
 - Prefer the smallest Edge-owned adapter over reimplementing an upstream capability.

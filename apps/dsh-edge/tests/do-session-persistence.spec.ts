@@ -63,6 +63,7 @@ class TestDurableObjectStorage {
     }
   }
   readonly queries: string[] = []
+  writtenRows = 0
 
   sql = {
     exec: <T extends TestRow = TestRow>(
@@ -80,6 +81,7 @@ class TestDurableObjectStorage {
         return cursor(rows, Object.keys(rows[0] ?? {}), 0)
       }
       const result = statement.run(...bindings)
+      if (/^(INSERT|UPDATE|DELETE)\b/iu.test(query.trimStart())) this.writtenRows += Number(result.changes)
       return cursor([], [], Number(result.changes))
     },
   }
@@ -131,6 +133,205 @@ function cursor<T extends TestRow>(
     [Symbol.iterator]: () => rows[Symbol.iterator](),
   }
 }
+
+describe('legacy Edge cancellation migration', () => {
+  function cancelledStorage(message: unknown, extra: Record<string, unknown> = {}) {
+    const storage = new TestDurableObjectStorage()
+    storage.loadFixture(readFileSync(new URL('./fixtures/dsh-edge-0.1.3-session.sql', import.meta.url), 'utf8'))
+    storage.sql.exec('DELETE FROM dsh_session_events')
+    const rows: Array<{ type: string, data: unknown, surfaceOp?: string }> = [
+      { type: 'session/end-seed', data: {} },
+      { type: 'turn/start', data: { turn: 1 } },
+      { type: 'step/start', data: { turn: 1, step: 1 } },
+      { type: 'user/message', surfaceOp: 'append', data: {
+        id: 'cancelled-prompt', role: 'user', content: [{ type: 'text', text: 'preserve this prompt' }], source: { kind: 'user' },
+      } },
+      { type: 'step/end', data: { turn: 1, step: 1 } },
+      { type: 'turn/end', data: { turn: 1, reason: { kind: 'aborted', reason: { kind: 'user', message, ...extra } } } },
+    ]
+    rows.forEach((row, seq) => storage.sql.exec(
+      'INSERT INTO dsh_session_events (session_id, seq, type, time, data, surface_op) VALUES (?, ?, ?, ?, ?, ?)',
+      'session-v0-1-3', seq, row.type, 1001 + seq, JSON.stringify(row.data), row.surfaceOp ? JSON.stringify(row.surfaceOp) : null,
+    ))
+    return storage
+  }
+
+  it.each(['cancelled by the user', 'turn was cancelled', 'turn deadline exceeded'])(
+    'migrates and reopens a V0 turn cancelled with %s', async message => {
+      const storage = cancelledStorage(message)
+      const ctx = new Context()
+      await ctx.plugin(SessionStore)
+      try {
+        const persistence = new DurableObjectSessionPersistence(ctx, { storage: storage as never })
+        const id = SessionId('session-v0-1-3')
+        const restored = await readAll(persistence, id)
+        expect(restored.meta.version).toBe(SESSION_FORMAT_VERSION)
+        expect(restored.events.find(event => event.type === 'user/message')?.data).toMatchObject({
+          content: [{ type: 'text', text: 'preserve this prompt' }],
+        })
+        expect(restored.events.at(-1)).toMatchObject({
+          type: 'turn/end', data: { reason: { kind: 'aborted', reason: { kind: 'user' } } },
+        })
+        expect(JSON.stringify(restored.events.at(-1))).not.toContain(message)
+        const handle = await persistence.open(id, 'write')
+        await handle.append([{ type: 'session/title', seq: SessionSeq(restored.events.length), time: 2000,
+          data: { title: 'Recovered', messageSeqs: [], source: { kind: 'user' } } }])
+        await handle.close()
+        expect((await readAll(persistence, id)).events.at(-1)?.type).toBe('session/title')
+        expect(persistence.readAllSessionSummaries().length).toBeGreaterThan(0)
+      } finally { await ctx.fiber.dispose(); storage.close() }
+    },
+  )
+
+  it('migrates 10,000 legacy token deltas without deleting each old row', async () => {
+    const storage = cancelledStorage('cancelled by the user')
+    storage.sql.exec('UPDATE dsh_session_events SET seq = seq + 10002 WHERE seq >= 4')
+    const chunks = [
+      { type: 'block-start', index: 0, blockType: 'text' },
+      ...Array.from({ length: 10000 }, () => ({ type: 'text-delta', index: 0, text: 'x' })),
+      { type: 'block-end', index: 0, block: { type: 'text', text: 'x'.repeat(10000) } },
+    ]
+    chunks.forEach((chunk, i) => storage.sql.exec(
+      'INSERT INTO dsh_session_events (session_id,seq,type,time,data) VALUES (?,?,?,?,?)',
+      'session-v0-1-3', i + 4, 'assistant/chunk', 1004 + i,
+      JSON.stringify({ turn: 1, step: 1, chunk }),
+    ))
+    storage.writtenRows = 0
+    storage.queries.length = 0
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    try {
+      const persistence = new DurableObjectSessionPersistence(ctx, { storage: storage as never })
+      expect(storage.writtenRows).toBeLessThan(100)
+      expect(storage.queries).toContain('DROP TABLE dsh_session_events')
+      expect(storage.queries.some(q => q.startsWith('DELETE FROM dsh_session_events'))).toBe(false)
+      const result = await readAll(persistence, SessionId('session-v0-1-3'))
+      expect(result.meta.version).toBe(SESSION_FORMAT_VERSION)
+      expect(JSON.stringify(result.events)).toContain('x'.repeat(10000))
+      storage.writtenRows = 0
+      for (let i = 0; i < 10; i++) {
+        persistence.readAllSessionSummaries()
+        await readAll(persistence, SessionId('session-v0-1-3'))
+      }
+      const restarted = new Context()
+      await restarted.plugin(SessionStore)
+      try {
+        new DurableObjectSessionPersistence(restarted, { storage: storage as never })
+        expect(storage.writtenRows).toBe(0)
+      } finally { await restarted.fiber.dispose() }
+    } finally { await ctx.fiber.dispose(); storage.close() }
+  })
+
+  it.each([1, 100])('preserves current logs and chooses the cheaper migration with %i current rows', async count => {
+    const storage = cancelledStorage('cancelled by the user')
+    for (let i = 6; i < 66; i++) storage.sql.exec(
+      'INSERT INTO dsh_session_events (session_id,seq,type,time,data) VALUES (?,?,?,?,?)',
+      'session-v0-1-3', i, 'session/title', 1000 + i,
+      JSON.stringify({ title: 'Legacy title', messageSeqs: [], source: { kind: 'user' } }),
+    )
+    storage.sql.exec(`INSERT INTO dsh_sessions SELECT 'current', ?, created_at,cwd,parent_session,
+      seed_length,origin,delegation_depth,agent_preset,'current-incarnation',revision FROM dsh_sessions`, SESSION_FORMAT_VERSION)
+    for (let i = 0; i < count; i++) storage.sql.exec(
+      'INSERT INTO dsh_session_events (session_id,seq,type,time,data) VALUES (?,?,?,?,?)',
+      'current', i, 'session/title', 2000 + i,
+      JSON.stringify({ title: 'Keep current', messageSeqs: [], source: { kind: 'user' } }),
+    )
+    const before = storage.sql.exec("SELECT * FROM dsh_session_events WHERE session_id = 'current' ORDER BY seq").toArray()
+    storage.queries.length = 0
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    try {
+      const persistence = new DurableObjectSessionPersistence(ctx, { storage: storage as never })
+      expect(storage.queries.includes('DROP TABLE dsh_session_events')).toBe(count === 1)
+      expect(storage.sql.exec("SELECT * FROM dsh_session_events WHERE session_id = 'current' ORDER BY seq").toArray()).toEqual(before)
+      expect((await readAll(persistence, SessionId('session-v0-1-3'))).meta.version).toBe(SESSION_FORMAT_VERSION)
+      expect(storage.sql.exec("SELECT count(*) AS n FROM sqlite_master WHERE name = 'dsh_session_events_migrating'").toArray()).toEqual([{ n: 0 }])
+    } finally { await ctx.fiber.dispose(); storage.close() }
+  })
+
+  it('restores the original table if the compact table swap fails, then retries', async () => {
+    const storage = cancelledStorage('cancelled by the user')
+    for (let i = 6; i < 66; i++) storage.sql.exec(
+      'INSERT INTO dsh_session_events (session_id,seq,type,time,data) VALUES (?,?,?,?,?)',
+      'session-v0-1-3', i, 'session/title', 1000 + i,
+      JSON.stringify({ title: 'Legacy title', messageSeqs: [], source: { kind: 'user' } }),
+    )
+    const before = storage.sql.exec('SELECT * FROM dsh_session_events ORDER BY seq').toArray()
+    const exec = storage.sql.exec
+    storage.sql.exec = (query, ...bindings) => {
+      if (query.startsWith('ALTER TABLE dsh_session_events_migrating')) throw new Error('injected swap failure')
+      return exec(query, ...bindings)
+    }
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    try {
+      expect(() => new DurableObjectSessionPersistence(ctx, { storage: storage as never })).toThrow('injected swap failure')
+      expect(storage.queries).toContain('DROP TABLE dsh_session_events')
+      expect(storage.sql.exec('SELECT * FROM dsh_session_events ORDER BY seq').toArray()).toEqual(before)
+      expect(storage.sql.exec('SELECT version FROM dsh_sessions').toArray()).toEqual([{ version: 0 }])
+      expect(storage.sql.exec("SELECT count(*) AS n FROM sqlite_master WHERE name = 'dsh_session_events_migrating'").toArray()).toEqual([{ n: 0 }])
+      storage.sql.exec = exec
+      const restarted = new Context()
+      await restarted.plugin(SessionStore)
+      try {
+        const persistence = new DurableObjectSessionPersistence(restarted, { storage: storage as never })
+        expect((await readAll(persistence, SessionId('session-v0-1-3'))).meta.version).toBe(SESSION_FORMAT_VERSION)
+      } finally { await restarted.fiber.dispose() }
+    } finally { await ctx.fiber.dispose(); storage.close() }
+  })
+
+  it('rolls back earlier session migrations when a later session is incompatible', async () => {
+    const storage = cancelledStorage('cancelled by the user')
+    storage.sql.exec(`INSERT INTO dsh_sessions
+      SELECT 'later-incompatible', version, created_at, cwd, parent_session, seed_length, origin,
+      delegation_depth, agent_preset, 'later-incarnation', revision FROM dsh_sessions`)
+    storage.sql.exec(`INSERT INTO dsh_session_events
+      SELECT 'later-incompatible', seq, type, time, data, source_event_seqs, surface_op, ignorable FROM dsh_session_events`)
+    storage.sql.exec("UPDATE dsh_session_events SET data = ? WHERE session_id = 'later-incompatible' AND type = 'turn/end'",
+      JSON.stringify({ turn: 1, reason: { kind: 'aborted', reason: { kind: 'user', message: 'unknown payload' } } }))
+    const tables = ['dsh_sessions', 'dsh_session_events', 'dsh_session_summaries', 'dsh_edge_blank_sessions']
+    const before = tables.map(table => storage.sql.exec(`SELECT * FROM ${table}`).toArray())
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    try {
+      expect(() => new DurableObjectSessionPersistence(ctx, { storage: storage as never })).toThrow()
+      expect(tables.map(table => storage.sql.exec(`SELECT * FROM ${table}`).toArray())).toEqual(before)
+    } finally { await ctx.fiber.dispose(); storage.close() }
+  })
+
+  it('preserves the legacy log after a migration write failure and retries successfully', async () => {
+    const storage = cancelledStorage('cancelled by the user')
+    const before = storage.sql.exec('SELECT * FROM dsh_session_events ORDER BY seq').toArray()
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    try {
+      storage.failNextEventInsert()
+      expect(() => new DurableObjectSessionPersistence(ctx, { storage: storage as never })).toThrow('injected event insert failure')
+      expect(storage.sql.exec('SELECT * FROM dsh_session_events ORDER BY seq').toArray()).toEqual(before)
+      expect(storage.sql.exec('SELECT version FROM dsh_sessions').toArray()).toEqual([{ version: 0 }])
+      const restarted = new Context()
+      await restarted.plugin(SessionStore)
+      try {
+        const persistence = new DurableObjectSessionPersistence(restarted, { storage: storage as never })
+        expect((await readAll(persistence, SessionId('session-v0-1-3'))).meta.version).toBe(SESSION_FORMAT_VERSION)
+      } finally { await restarted.fiber.dispose() }
+    } finally { await ctx.fiber.dispose(); storage.close() }
+  })
+
+  it.each([['unknown explanation', {}], [42, {}], ['cancelled by the user', { unexpected: true }]])(
+    'refuses unrecognized cancellation payloads without changing stored events (%s)', async (message, extra) => {
+      const storage = cancelledStorage(message, extra as Record<string, unknown>)
+      const before = storage.sql.exec('SELECT * FROM dsh_session_events ORDER BY seq').toArray()
+      const ctx = new Context()
+      await ctx.plugin(SessionStore)
+      try {
+        expect(() => new DurableObjectSessionPersistence(ctx, { storage: storage as never })).toThrow()
+        expect(storage.sql.exec('SELECT * FROM dsh_session_events ORDER BY seq').toArray()).toEqual(before)
+        expect(storage.sql.exec('SELECT version FROM dsh_sessions').toArray()).toEqual([{ version: 0 }])
+      } finally { await ctx.fiber.dispose(); storage.close() }
+    },
+  )
+})
 
 describe('durable-object bounded event pages', () => {
   it('round-trips a compact V3 assistant stream in one physical event row', async () => {

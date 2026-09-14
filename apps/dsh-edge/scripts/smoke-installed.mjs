@@ -42,6 +42,16 @@ try {
     assert.equal(health.service, 'dsh-edge')
     assert.equal(health.shell, mode === 'direct' ? 'just-bash-direct' : 'just-bash-isolated')
     assert.equal(health.deploymentId, `dsh-edge@${edgePackage.version}/${mode}`)
+    const login = await worker.fetch('http://dsh-edge.test/api/auth/login', {
+      method: 'POST', redirect: 'manual', headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ accessKey: ACCESS_KEY }).toString(),
+    })
+    assert.equal(login.status, 303)
+    const cookie = login.headers.get('set-cookie')?.split(';', 1)[0]
+    assert.ok(cookie)
+    const ready = await worker.fetch('http://dsh-edge.test/api/ready', { headers: { cookie } })
+    assert.equal(ready.status, 200)
+    assert.equal((await ready.json()).runtime, true)
     await worker.stop()
     worker = undefined
     process.stdout.write(`Installed ${mode} Worker artifact started successfully.\n`)

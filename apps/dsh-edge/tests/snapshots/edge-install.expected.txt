@@ -86,7 +86,7 @@ community project · install
 │
 ◇  Cloudflare accepted the Worker upload. [0s]
 │
-◇  Public URL is ready. [0s]
+◇  Chat and workspace services are ready. [0s]
 │
 ◇  dsh-edge is ready ──────────────────────────────────────────────────────────────────╮
 │                                                                                      │
@@ -109,3 +109,5 @@ BOUNDARY EVENTS
 {"kind":"wrangler","command":"whoami","hasHome":true,"hasPath":true,"leakedKeys":[]}
 {"kind":"wrangler","command":"deploy","args":["--env","","--name","dsh-edge","--config","{{private-config-file}}","--secrets-file","{{private-secrets-file}}","--temporary"],"hasOutputCapture":true,"leakedKeys":[],"secretNames":["DEEPSEEK_API_KEY","DSH_EDGE_ACCESS_KEY"]}
 {"kind":"activation","url":"https://dsh-edge.preview.workers.dev/api/health","redirect":"manual","leakedHeaders":[]}
+{"kind":"activation","url":"https://dsh-edge.preview.workers.dev/api/auth/login","redirect":"manual","leakedHeaders":[]}
+{"kind":"activation","url":"https://dsh-edge.preview.workers.dev/api/ready","redirect":"manual","leakedHeaders":[]}

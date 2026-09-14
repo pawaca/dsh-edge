@@ -18,6 +18,7 @@ export const ACTIVATION_RETRY_MS: number
 export function observePublicActivation(options: {
   publicUrl: string
   mode: RuntimeMode
+  ownerSecret?: string
   fetchImpl?: typeof fetch
   now?: () => number
   requestTimeoutMs?: number
@@ -32,3 +33,5 @@ export function observePublicActivation(options: {
 }): Promise<ActivationObservation>
 
 export function isExpectedHealth(value: unknown, expected: ExpectedHealth): boolean
+
+export class RuntimeActivationError extends Error {}

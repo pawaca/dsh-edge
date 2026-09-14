@@ -46,6 +46,7 @@ try {
   })
   assert.equal(lockedShell.status, 302)
   assert.equal(lockedShell.headers.get('location'), '/login')
+  assert.equal((await worker.fetch('http://dsh-edge.test/api/ready')).status, 401)
   const lockedApi = await worker.fetch('http://dsh-edge.test/api/sessions')
   assert.equal(lockedApi.status, 401)
   assert.equal(lockedApi.headers.get('www-authenticate'), 'DshEdgeOwner')
@@ -58,6 +59,9 @@ try {
   assert.equal(login.status, 303)
   ownerCookie = login.headers.get('set-cookie')?.split(';', 1)[0]
   assert.match(ownerCookie ?? '', /^dsh_edge_owner=v1\./u)
+  const runtimeReady = await jsonRequest('/api/ready')
+  assert.equal(runtimeReady.response.status, 200)
+  assert.equal(runtimeReady.body.runtime, true)
   assert.equal(await rejectedDownlinkStatus('/api/events.mux', {
     cookie: ownerCookie,
     origin: 'http://untrusted.dsh-edge.test',
@@ -75,6 +79,7 @@ try {
   const releasedEvents = parseEvents(await releasedHistory.text())
   const lastTurnEnd = releasedEvents.findLast(e => e.type === 'turn/end')
   assert.ok(lastTurnEnd !== undefined, 'released fixture must contain a turn/end event')
+  assert.deepEqual(lastTurnEnd.data.reason, { kind: 'aborted', reason: { kind: 'user' } })
   const releasedContinuation = await turn(RELEASED_SESSION_ID, 'continue released fixture')
   assert.equal(assistantText(releasedContinuation), 'released-history-ok')
   const releasedHistoryCheck = await turn(RELEASED_SESSION_ID, 'released history after upgrade')
@@ -437,7 +442,7 @@ try {
   assert.equal(cancelledEvents.at(-1).type, 'turn/end')
   assert.deepEqual(cancelledEvents.at(-1).data.reason, {
     kind: 'aborted',
-    reason: { kind: 'user', message: 'cancelled by the user' },
+    reason: { kind: 'user' },
   })
 
   const legacySelector = await jsonRequest('/api/sessions', {
@@ -1750,6 +1755,39 @@ try {
   const durableBatch = durableBatchHistory.body.result.value.events
     .find(entry => entry.event.type === 'assistant/message').event
   assert.deepEqual(durableBatch, batchAssistant)
+  await worker.stop()
+  worker = undefined
+  let damagedDatabase
+  let savedVersion
+  for (const path of sqliteFiles(persistedState)) {
+    const db = new DatabaseSync(path)
+    try {
+      if (!db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'dsh_sessions'").get()) continue
+      const row = db.prepare('SELECT version FROM dsh_sessions WHERE id = ?').get(RELEASED_SESSION_ID)
+      if (!row) continue
+      savedVersion = row.version
+      db.prepare('UPDATE dsh_sessions SET version = 999 WHERE id = ?').run(RELEASED_SESSION_ID)
+      damagedDatabase = path
+      break
+    } finally { db.close() }
+  }
+  assert.ok(damagedDatabase)
+  worker = await startWorker()
+  // Public upload identity is deliberately insufficient to prove application readiness.
+  assert.equal((await request('/api/health')).status, 200)
+  const failedReadiness = await jsonRequest('/api/ready')
+  assert.equal(failedReadiness.response.status, 503)
+  assert.equal(failedReadiness.body.code, 'runtime-initialization-failed')
+  assert.equal(JSON.stringify(failedReadiness.body).includes(RELEASED_SESSION_ID), false)
+  await worker.stop()
+  worker = undefined
+  const repaired = new DatabaseSync(damagedDatabase)
+  try {
+    assert.equal(repaired.prepare('SELECT version FROM dsh_sessions WHERE id = ?').get(RELEASED_SESSION_ID).version, 999)
+    repaired.prepare('UPDATE dsh_sessions SET version = ? WHERE id = ?').run(savedVersion, RELEASED_SESSION_ID)
+  } finally { repaired.close() }
+  worker = await startWorker()
+  assert.equal((await jsonRequest('/api/ready')).response.status, 200)
   process.stdout.write(`dsh-edge ${runtimeMode} session integration passed\n`)
 } finally {
   mock.releaseSlowResponses()
@@ -1814,6 +1852,11 @@ async function seedReleasedState() {
       sql: [
         readFileSync(new URL('./fixtures/dsh-edge-0.1.3-vfs.sql', import.meta.url), 'utf8'),
         readFileSync(new URL('./fixtures/dsh-edge-0.1.3-session.sql', import.meta.url), 'utf8'),
+        // Released Edge stop handlers persisted this noncanonical extra field.
+        // Boot must migrate it before session/control and workspace/follow activate.
+        `UPDATE dsh_session_events
+         SET data = '{"turn":1,"reason":{"kind":"aborted","reason":{"kind":"user","message":"cancelled by the user"}}}'
+         WHERE session_id = 'session-v0-1-3' AND type = 'turn/end'`,
       ],
       entries: {
         ...JSON.parse(readFileSync(
