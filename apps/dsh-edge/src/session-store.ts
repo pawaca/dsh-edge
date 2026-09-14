@@ -411,6 +411,20 @@ export class EdgeSessionStore {
     if (this.context.workspaceRegistry.list().length === 0 && !workspaceWasInitialized) {
       await this.context.workspaceRegistry.create('/workspace')
     }
+    // The file-read controller consumes only the sandbox policy's fallback
+    // workspace root. Keep this read-only adapter private to that controller;
+    // it must not advertise a process-confinement policy to other plugins.
+    const workspaceFilesContext = this.context.isolate('sandboxPolicy')
+    workspaceFilesContext.provide('sandboxPolicy', { workspaceRoot: '/workspace' })
+    const { WorkspaceFiles } = await import('@deepseek-ai/dsh-api-workspace-files')
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    const { TYPERT: WORKSPACE_FILES_TYPERT } = await import(
+      '@deepseek-ai/dsh-api-workspace-files/typert' as string
+    )
+    this.context.typert.register(WORKSPACE_FILES_TYPERT as never)
+    await workspaceFilesContext.plugin(WorkspaceFiles, {
+      maxBytes: 1024 * 1024, maxFileBytes: 1024 * 1024, maxLines: 5000, maxEntries: 2000,
+    })
     await this.context.plugin(EdgeFileUploadsStub)
     // All SessionController inject deps now available: agentDefaultModel,
     // agents, attachments, llm, sessions, sessionProjections, sessionQuery,
@@ -971,6 +985,9 @@ export class EdgeSessionStore {
         inheritedEventCount: handle.inheritedEventCount,
         eventState: coldRead.eventState,
       }))
+      // Session construction can append session/end-seed before event routing
+      // starts. Persist that suffix before publishing any subsequent mutation.
+      await handle.append(preparation.session.snapshotEvents(SessionLogOffset(coldRead.events.length)))
       const detach = sessions.enter(preparation.session)
       try {
         sessions.announce(preparation.session)

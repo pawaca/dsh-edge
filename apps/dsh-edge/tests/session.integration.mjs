@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { unstable_dev } from 'wrangler'
 import WebSocket from 'ws'
+import { expandAssistantStream } from '@deepseek-ai/dsh-llm'
 import {
   workerArtifactPath,
   writePrebuiltModeWranglerConfig,
@@ -475,20 +476,17 @@ try {
     .find(content => content.includes('<referenced-sessions>'))
   assert.match(referenceContext ?? '', /fixture prompt/u)
   assert.match(referenceContext ?? '', /fixture response/u)
-  // TODO(upstream-0.1.5): fileReferences typert not resolving after SessionController
-  // upgrade. The SessionFileReferences sub-controller inject ["fileReferences", "typert"]
-  // may have a cordis activation timing issue. Skipped pending investigation.
-  // const fileCandidates = await typertRpc('fileReferences', 'list', {
-  //   agentId: referenceSessionId,
-  //   query: 'rel',
-  // })
-  // assert.equal(fileCandidates.body.result.ok, true, JSON.stringify(fileCandidates.body))
-  // assert.deepEqual(fileCandidates.body.result.value, [{ path: 'released.txt', kind: 'file' }])
-  // const escapedCandidates = await typertRpc('fileReferences', 'list', {
-  //   agentId: referenceSessionId,
-  //   query: '../',
-  // })
-  // assert.deepEqual(escapedCandidates.body.result.value, [])
+  const fileCandidates = await typertRpc('fileReferences', 'list', {
+    agentId: referenceSessionId,
+    query: 'rel',
+  })
+  assert.equal(fileCandidates.body.result.ok, true, JSON.stringify(fileCandidates.body))
+  assert.deepEqual(fileCandidates.body.result.value, [{ path: 'released.txt', kind: 'file' }])
+  const escapedCandidates = await typertRpc('fileReferences', 'list', {
+    agentId: referenceSessionId,
+    query: '../',
+  })
+  assert.deepEqual(escapedCandidates.body.result.value, [])
   const sessionCandidates = await typertRpc('sessionReferenceResolver', 'candidates', {
     agentId: referenceSessionId,
     query: '',
@@ -856,6 +854,37 @@ try {
       && message.payload.workspace.sessionIds.includes(protocolSessionId))
   assert.equal(workspaceChanged.payload.workspace.workspaceId, 'edge-workspace')
 
+  // The sidebar file service uses header-only lookup for an unactivated blank session.
+  const fileScope = { workspaceFileScopeId: protocolSessionId, path: 'released.txt' }
+  const preview = await typertRpc('workspaceFiles', 'read', { ...fileScope, range: { offset: 1, limit: 1 } })
+  assert.equal(preview.body.result.ok, true, JSON.stringify(preview.body))
+  assert.equal(preview.body.result.value.text, 'dsh-edge-0.1.3-vfs')
+  assert.equal(preview.body.result.value.absolutePath, '/workspace/released.txt')
+  const bytePreview = await typertRpc('workspaceFiles', 'readBytes', { ...fileScope, range: { offset: 4, length: 4 } })
+  assert.equal(bytePreview.body.result.ok, true, JSON.stringify(bytePreview.body))
+  assert.equal(Buffer.from(bytePreview.body.result.value.data, 'base64').toString(), 'edge')
+  assert.equal(bytePreview.body.result.value.eof, false)
+  const fullPreview = await typertRpc('workspaceFiles', 'readAll', fileScope)
+  assert.equal(fullPreview.body.result.ok, true, JSON.stringify(fullPreview.body))
+  assert.equal(Buffer.from(fullPreview.body.result.value.data, 'base64').toString(), 'dsh-edge-0.1.3-vfs')
+  const previewListing = await typertRpc('workspaceFiles', 'list', { ...fileScope, path: '.' })
+  assert.equal(previewListing.body.result.ok, true, JSON.stringify(previewListing.body))
+  assert.ok(previewListing.body.result.value.entries.some(entry => entry.name === 'released.txt'))
+  const fileChanges = await openDownlink('/api/remote.mux')
+  fileChanges.send({ type: 'open', streamId: 'file-changes', endpoint: 'workspaceFiles/changes', payload: { args: { workspaceFileScopeId: protocolSessionId } } })
+  const filesReady = await fileChanges.next(frame => frame.type === 'item' && frame.streamId === 'file-changes')
+  assert.equal(filesReady.value.kind, 'ready')
+  fileChanges.send({ type: 'cancel', streamId: 'file-changes' })
+  fileChanges.close()
+
+  // Resolve the upstream file-reference controller for a cold blank Agent too.
+  const blankFileCandidates = await typertRpc('fileReferences', 'list', {
+    agentId: protocolSessionId,
+    query: 'rel',
+  })
+  assert.equal(blankFileCandidates.body.result.ok, true, JSON.stringify(blankFileCandidates.body))
+  assert.deepEqual(blankFileCandidates.body.result.value, [{ path: 'released.txt', kind: 'file' }])
+
   const commandCatalog = await rpc('commands/list', {
     args: { agentId: protocolSessionId },
   })
@@ -953,6 +982,10 @@ try {
     model: 'deepseek-v4-pro',
   })
   assert.equal(restoredDefaultModel.body.result.ok, true)
+  const selectedHistory = parseEvents(await (await request(`/api/sessions/${protocolSessionId}/events`)).text())
+  assert.deepEqual(selectedHistory.map(event => event.seq), selectedHistory.map((_, index) => index))
+  assert.equal(selectedHistory.at(-1).type, 'model/selection')
+  assert.equal(selectedHistory.at(-1).data.model, 'deepseek-v4-pro')
 
   const blankFork = await rpc('session.fork', { sessionId: protocolSessionId })
   assert.equal(blankFork.body.result.ok, false)
@@ -967,11 +1000,6 @@ try {
   assert.equal(invalidRename.body.result.error.code, 'title-invalid')
   assert.equal(invalidRename.body.result.error.details.sessionId, protocolSessionId)
 
-  // TODO(upstream-0.1.5): Typert session/prompt mux event routing needs investigation.
-  // The prompt is accepted and the agent loop runs, but assistant/message events
-  // don't arrive on the mux WebSocket. This skips the prompt-response flow, fork,
-  // and fork-archive sections until the mux routing is debugged.
-  if (false) {
   // The Typert client mints its own requestId and reconciles its optimistic
   // user message against message.source.rpcId, so the persisted message must
   // carry that id rather than the transport envelope's rpcId.
@@ -1099,42 +1127,40 @@ try {
     .find(item => item.sessionId === forkedSessionId)
   assert.equal(forkSummary.parentSessionId, protocolSessionId)
   assert.equal(forkSummary.projections.values.title, 'Protocol path (2)')
-  } // end TODO(upstream-0.1.5) skip block
 
   const missingArchive = await rpc('workspace.archiveSession', {
     sessionId: 'session-ghost',
   })
   assert.equal(missingArchive.body.result.ok, false)
   assert.equal(missingArchive.body.result.error.code, 'session-not-found')
-  // TODO(upstream-0.1.5): fork archive skipped since fork section is disabled
-  // const archivedFork = await rpc('workspace.archiveSession', {
-  //   sessionId: forkedSessionId,
-  // })
-  // assert.equal(archivedFork.body.result.ok, true)
-  // assert.deepEqual(archivedFork.body.result.value.archivedSessionIds, [
-  //   RELEASED_ARCHIVED_SESSION_ID,
-  //   forkedSessionId,
-  // ])
-  // const archivedFrame = await host.next(message =>
-  //   message.payload.type === 'host/archived-sessions-changed')
-  // assert.deepEqual(archivedFrame.payload.archivedSessionIds, [
-  //   RELEASED_ARCHIVED_SESSION_ID,
-  //   forkedSessionId,
-  // ])
+  const archivedFork = await rpc('workspace.archiveSession', {
+    sessionId: forkedSessionId,
+  })
+  assert.equal(archivedFork.body.result.ok, true)
+  assert.deepEqual(archivedFork.body.result.value.archivedSessionIds, [
+    RELEASED_ARCHIVED_SESSION_ID,
+    forkedSessionId,
+  ])
+  const archivedFrame = await host.next(message =>
+    message.payload.type === 'host/archived-sessions-changed')
+  assert.deepEqual(archivedFrame.payload.archivedSessionIds, [
+    RELEASED_ARCHIVED_SESSION_ID,
+    forkedSessionId,
+  ])
   const archiveBaseline = await rpc('workspace.list', {})
   assert.equal(archiveBaseline.body.result.ok, true)
   assert.deepEqual(archiveBaseline.body.result.value.archivedSessionIds, [
     RELEASED_ARCHIVED_SESSION_ID,
+    forkedSessionId,
   ])
-  // TODO(upstream-0.1.5): fork archive assertions skipped
-  // const idempotentArchive = await rpc('workspace.archiveSession', {
-  //   sessionId: forkedSessionId,
-  // })
-  // assert.equal(idempotentArchive.body.result.ok, true)
-  // assert.deepEqual(idempotentArchive.body.result.value.archivedSessionIds, [
-  //   RELEASED_ARCHIVED_SESSION_ID,
-  //   forkedSessionId,
-  // ])
+  const idempotentArchive = await rpc('workspace.archiveSession', {
+    sessionId: forkedSessionId,
+  })
+  assert.equal(idempotentArchive.body.result.ok, true)
+  assert.deepEqual(idempotentArchive.body.result.value.archivedSessionIds, [
+    RELEASED_ARCHIVED_SESSION_ID,
+    forkedSessionId,
+  ])
 
   const traversalWorkspace = await rpc('workspace.create', {
     path: '/workspace/aliases/../projects/./deep/',
@@ -1170,19 +1196,18 @@ try {
       && message.payload.workspace.title === 'Edge project')
   assert.equal(renamedWorkspaceFrame.payload.workspace.workspaceId, 'edge-workspace')
 
-  // TODO(upstream-0.1.5): session reorder depends on forkedSessionId from skipped section
-  // const reorderedWorkspace = await rpc('workspace.insertSessionBefore', {
-  //   workspaceId: 'edge-workspace',
-  //   sessionId: protocolSessionId,
-  //   beforeSessionId: forkedSessionId,
-  // })
-  // assert.equal(reorderedWorkspace.body.result.ok, true)
-  // assert.ok(reorderedWorkspace.body.result.value.workspace.sessionIds.indexOf(protocolSessionId)
-  //   < reorderedWorkspace.body.result.value.workspace.sessionIds.indexOf(forkedSessionId))
-  // const reorderedWorkspaceFrame = await host.next(message =>
-  //   message.payload.type === 'host/workspace-changed'
-  //     && message.payload.workspace.sessionIds[0] === protocolSessionId)
-  // assert.equal(reorderedWorkspaceFrame.payload.workspace.title, 'Edge project')
+  const reorderedWorkspace = await rpc('workspace.insertSessionBefore', {
+    workspaceId: 'edge-workspace',
+    sessionId: protocolSessionId,
+    beforeSessionId: forkedSessionId,
+  })
+  assert.equal(reorderedWorkspace.body.result.ok, true)
+  assert.ok(reorderedWorkspace.body.result.value.workspace.sessionIds.indexOf(protocolSessionId)
+    < reorderedWorkspace.body.result.value.workspace.sessionIds.indexOf(forkedSessionId))
+  const reorderedWorkspaceFrame = await host.next(message =>
+    message.payload.type === 'host/workspace-changed'
+      && message.payload.workspace.sessionIds[0] === protocolSessionId)
+  assert.equal(reorderedWorkspaceFrame.payload.workspace.title, 'Edge project')
 
   const invalidWorkspaceMove = await rpc('workspace.insertSessionBefore', {
     workspaceId: 'edge-workspace',
@@ -1200,6 +1225,7 @@ try {
   assert.deepEqual(withoutWorkspace.body.result.value.items, [])
   assert.deepEqual(withoutWorkspace.body.result.value.archivedSessionIds, [
     RELEASED_ARCHIVED_SESSION_ID,
+    forkedSessionId,
   ])
   const missingWorkspaceSession = await rpc('session.create', { workspaceId: 'edge-workspace' })
   assert.equal(missingWorkspaceSession.body.result.ok, false)
@@ -1280,13 +1306,6 @@ try {
     1,
   )
 
-  // TODO(upstream-0.1.5): The Typert session.prompt → mux event flow doesn't
-  // deliver session/event frames to the WebSocket downlink after the 0.1.5-rc.2
-  // upgrade. The agent loop processes the prompt (mock responds) but events
-  // don't reach the mux channel. This blocks all remaining sections that depend
-  // on mux events from a Typert-initiated prompt. Skip until the mux routing
-  // regression is debugged.
-  if (false) {
   const activeVision = await rpc('session.selectModel', {
     sessionId: protocolSessionId,
     provider: 'deepseek-official',
@@ -1350,7 +1369,7 @@ try {
     itemId: queuedItem.id,
     action: { kind: 'edit', content: [{ type: 'text', text: 'edited queued prompt' }] },
   })
-  assert.equal(editedQueue.body.result.ok, true)
+  assert.equal(editedQueue.body.result.ok, true, JSON.stringify(editedQueue.body))
   const editedSnapshot = await mux.next(message => message.payload.type === 'session/queue'
     && message.payload.sessionId === protocolSessionId
     && message.payload.items.some(item => item.id === queuedItem.id
@@ -1640,7 +1659,9 @@ try {
     publishedBatchEvents.map(event => event.seq),
     publishedBatchEvents.map(event => event.seq).toSorted((left, right) => left - right),
   )
-  assert.ok(publishedBatchEvents.filter(event => event.type === 'assistant/chunk').length >= 100)
+  const batchAssistant = publishedBatchEvents.find(event => event.type === 'assistant/message')
+  assert.ok(expandAssistantStream(batchAssistant.data.stream).filter(entry => entry.chunk.type === 'text-delta').length >= 100)
+  assert.ok(batchAssistant.data.stream.some(record => record.type === 'text-chunks'))
   const batchedHistory = await rpc('session.history', { sessionId: batchedSessionId })
   const publishedHead = publishedBatchEvents[0].seq
   const publishedTail = publishedBatchEvents.at(-1).seq
@@ -1664,6 +1685,7 @@ try {
   assert.equal(restoredArchive.body.result.ok, true)
   assert.deepEqual(restoredArchive.body.result.value.archivedSessionIds, [
     RELEASED_ARCHIVED_SESSION_ID,
+    forkedSessionId,
   ])
   const restoredImage = await rpc('session.attachment', {
     sessionId: imageSessionId,
@@ -1710,17 +1732,19 @@ try {
   // instead of starting the extra follow-up request exercised previously; the
   // ask_user_question and exit_plan_mode turns each add a tool-call request
   // and its continuation.
-  // TODO(upstream-0.1.5): pack verification depends on skipped prompt sections
-  // assert.equal(turnRequests().length, 24)
-  // await worker.stop()
-  // worker = undefined
-  // const physicalRows = sessionEventRowTypes(batchedSessionId)
-  // assert.ok((physicalRows.get('text-chunks') ?? 0) >= 1)
-  // assert.ok(
-  //   [...physicalRows.values()].reduce((total, count) => total + count, 0)
-  //     < publishedBatchEvents.length - 50,
-  // )
-  } // end TODO(upstream-0.1.5) mux skip block
+  assert.equal(turnRequests().length, 24)
+  await worker.stop()
+  worker = undefined
+  const physicalRows = sessionEventRowTypes(batchedSessionId)
+  // V3 stores the packed stream inside one assistant event, not top-level chunk rows.
+  assert.equal(physicalRows.get('assistant/message'), 1)
+  assert.equal(physicalRows.get('assistant/chunk') ?? 0, 0)
+  assert.equal(physicalRows.get('text-chunks') ?? 0, 0)
+  worker = await startWorker()
+  const durableBatchHistory = await rpc('session.history', { sessionId: batchedSessionId })
+  const durableBatch = durableBatchHistory.body.result.value.events
+    .find(entry => entry.event.type === 'assistant/message').event
+  assert.deepEqual(durableBatch, batchAssistant)
   process.stdout.write(`dsh-edge ${runtimeMode} session integration passed\n`)
 } finally {
   mock.releaseSlowResponses()

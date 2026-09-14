@@ -3,9 +3,10 @@
 import { DatabaseSync, type SQLInputValue, type SQLOutputValue } from 'node:sqlite'
 import { readFileSync } from 'node:fs'
 import { Context } from '@deepseek-ai/cordis'
-import { ReasoningEffortId, createAssistantMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
+import { ReasoningEffortId, createAssistantMessage, createUserMessage, AssistantStreamAccumulator, expandAssistantStream } from '@deepseek-ai/dsh-llm'
 import SessionStore, {
   SESSION_FORMAT_VERSION,
+  interruptedTurnClosers,
   SessionId,
   SessionLogOffset,
   SessionSeq,
@@ -23,6 +24,17 @@ async function readAll(persistence: DurableObjectSessionPersistence, id: ReturnT
   try {
     const result = await handle.read()
     return { events: [...result.events] as SessionEvent[], meta: handle.header }
+  } finally { await handle.close() }
+}
+
+/** Exercise the same repair/read/closer sequence as upstream AgentLoop.resume. */
+async function resumeStored(persistence: DurableObjectSessionPersistence, id: ReturnType<typeof SessionId>) {
+  const handle = await persistence.open(id, 'write')
+  try {
+    const { events } = await handle.read()
+    const closers = interruptedTurnClosers(events)
+    await handle.append(closers)
+    return { events: [...events, ...closers] }
   } finally { await handle.close() }
 }
 
@@ -121,51 +133,103 @@ function cursor<T extends TestRow>(
 }
 
 describe('durable-object bounded event pages', () => {
-  // TODO(upstream-0.1.5): assistant/chunk event type removed in V3; rewrite with V3 streaming types
-  it.skip('packs a flushed stream of assistant deltas into one physical event row', async () => {
+  it('round-trips a compact V3 assistant stream in one physical event row', async () => {
     const storage = new TestDurableObjectStorage()
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const fiber = await ctx.plugin(DurableObjectSessionPersistence, { storage: storage as never })
-    const persistence = ctx.sessionPersistence as unknown as DurableObjectSessionPersistence
+    const persistence = ctx.sessionPersistence as DurableObjectSessionPersistence
     const id = SessionId('packed-assistant-deltas')
-    const events: SessionEvent[] = Array.from({ length: 100 }, (_, index) => ({
-      type: 'assistant/chunk' as never,
-      seq: SessionSeq(index),
+    const chunks = Array.from({ length: 100 }, (_, index) => ({
       time: 1_000 + index,
-      data: {
-        turn: 1,
-        step: 1,
-        chunk: { type: 'text-delta', index: 0, text: `token-${index}` },
-      },
+      chunk: { type: 'text-delta' as const, index: 0, text: `token-${index}` },
     }))
+    const stream = new AssistantStreamAccumulator()
+    for (const chunk of chunks) stream.push(chunk)
+    const events: SessionEvent[] = [{
+      type: 'assistant/message', seq: SessionSeq(0), time: 1_100, surfaceOp: 'append',
+      data: {
+        turn: 1, step: 1, stream: [...stream.snapshot()],
+        message: createAssistantMessage({
+          content: [{ type: 'text', text: chunks.map(entry => entry.chunk.text).join('') }],
+          source: { provider: 'deepseek-official', model: 'deepseek-v4-pro' },
+        }),
+      },
+    }]
     try {
       await persistence.appendBatch({
         meta: { id, version: SESSION_FORMAT_VERSION, createdAt: 1, isSeeded: false },
         inheritedEventCount: SessionLogOffset(0),
       }, events, false)
-
-      expect(storage.sql.exec<{ count: number }>(
-        'SELECT COUNT(*) AS count FROM dsh_session_events WHERE session_id = ?',
-        id,
-      ).toArray()).toEqual([{ count: 1 }])
       expect(storage.sql.exec<{ type: string }>(
-        'SELECT type FROM dsh_session_events WHERE session_id = ?',
-        id,
-      ).toArray()).toEqual([{ type: 'text-chunks' }])
-      await expect(persistence.readEventPage(id, 0, 100, 64 * 1_024)).resolves.toMatchObject({
-        events,
-        hasMore: false,
-      })
-    } finally {
-      await fiber.dispose()
-      await ctx.fiber.dispose()
-      storage.close()
-    }
+        'SELECT type FROM dsh_session_events WHERE session_id = ?', id,
+      ).toArray()).toEqual([{ type: 'assistant/message' }])
+      const restored = (await readAll(persistence, id)).events[0]!
+      expect(restored).toEqual(events[0])
+      if (restored.type !== 'assistant/message') throw new Error('Missing assistant event')
+      expect(restored.data.stream).toHaveLength(1)
+      expect(expandAssistantStream(restored.data.stream)).toEqual(chunks)
+    } finally { await fiber.dispose(); await ctx.fiber.dispose(); storage.close() }
   })
 
-  // TODO(upstream-0.1.5): torn-tail repair moved from PersistenceCoordinator to agent-loop
-  it.skip('preserves flushed schedules when repairing a normally interrupted turn', async () => {
+  it('leaves torn rows untouched for readers and repairs them before resume appends', async () => {
+    const storage = new TestDurableObjectStorage()
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(DurableObjectSessionPersistence, { storage: storage as never })
+    const persistence = ctx.sessionPersistence as DurableObjectSessionPersistence
+    const id = SessionId('torn-resume')
+    try {
+      await persistence.appendBatch({
+        meta: { id, version: SESSION_FORMAT_VERSION, createdAt: 1, isSeeded: false },
+        inheritedEventCount: SessionLogOffset(0),
+      }, [
+        { type: 'turn/start', seq: SessionSeq(0), time: 1, data: { turn: 1 } },
+        { type: 'step/start', seq: SessionSeq(1), time: 2, data: { turn: 1, step: 1 } },
+        { type: 'session/title', seq: SessionSeq(2), time: 3, data: { title: 'torn title', messageSeqs: [], source: { kind: 'user' } } },
+      ], false)
+      storage.sql.exec("UPDATE dsh_session_events SET data = '{' WHERE session_id = ? AND seq = 2", id)
+      const before = await persistence.stat(id)
+      expect((await readAll(persistence, id)).events).toHaveLength(2)
+      expect(await persistence.stat(id)).toEqual(before)
+      expect(persistence.readSessionSummary(id)?.lastSeq).toBe(2)
+      const restored = await resumeStored(persistence, id)
+      expect(restored.events.map(event => event.type)).toEqual(['turn/start', 'step/start', 'step/end', 'turn/end'])
+      expect((await readAll(persistence, id)).events).toEqual(restored.events)
+      expect(persistence.readSessionSummary(id)?.lastSeq).toBe(3)
+      expect(await persistence.stat(id)).not.toEqual(before)
+      await using handle = await persistence.open(id, 'write')
+      await handle.append([{ type: 'turn/start', seq: SessionSeq(4), time: 4, data: { turn: 2 } }])
+      expect((await handle.read()).events.map(event => event.seq)).toEqual([0, 1, 2, 3, 4])
+    } finally { await fiber.dispose(); storage.close() }
+  })
+
+  it('refuses to truncate corruption inside a completed turn', async () => {
+    const storage = new TestDurableObjectStorage()
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(DurableObjectSessionPersistence, { storage: storage as never })
+    const persistence = ctx.sessionPersistence as DurableObjectSessionPersistence
+    const id = SessionId('corrupt-committed-turn')
+    try {
+      await persistence.appendBatch({
+        meta: { id, version: SESSION_FORMAT_VERSION, createdAt: 1, isSeeded: false },
+        inheritedEventCount: SessionLogOffset(0),
+      }, [
+        { type: 'turn/start', seq: SessionSeq(0), time: 1, data: { turn: 1 } },
+        { type: 'turn/end', seq: SessionSeq(1), time: 2, data: { turn: 1, reason: { kind: 'completed' } } },
+      ], false)
+      storage.sql.exec("UPDATE dsh_session_events SET data = '{' WHERE session_id = ? AND seq = 0", id)
+      const before = await persistence.stat(id)
+      await expect(resumeStored(persistence, id)).rejects.toThrow('unparsable committed event')
+      expect(await persistence.stat(id)).toEqual(before)
+      expect(storage.sql.exec<{ count: number }>(
+        'SELECT COUNT(*) AS count FROM dsh_session_events WHERE session_id = ?', id,
+      ).toArray()[0]?.count).toBe(2)
+    } finally { await fiber.dispose(); storage.close() }
+  })
+
+  it('preserves flushed schedules when repairing a normally interrupted turn', async () => {
     const storage = new TestDurableObjectStorage()
     const ctx = new Context()
     await ctx.plugin(SessionStore)
@@ -179,16 +243,14 @@ describe('durable-object bounded event pages', () => {
         { type: 'turn/start', seq: SessionSeq(0), time: 1, data: { turn: 1 } },
         { type: 'schedule/change', seq: SessionSeq(1), time: 2, data: { version: 1, operation: 'create', schedule: record } },
       ], false)
-      expect((await readAll(persistence, id))?.['tornMarker' as never]).toBeUndefined()
-      const restored = await readAll(persistence, id)
+      const restored = await resumeStored(persistence, id)
       expect(restored.events.some(event => event.type === 'schedule/change')).toBe(true)
       expect(restored.events.some(event => event.type === 'turn/end')).toBe(true)
       expect(nextSchedule(storage as never)?.sessionId).toBe(id)
     } finally { await fiber.dispose(); storage.close() }
   })
 
-  // TODO(upstream-0.1.5): torn-tail repair moved from PersistenceCoordinator to agent-loop
-  it.skip('rebuilds torn creates/deletes atomically and refuses to replay a torn dispatch', async () => {
+  it('rebuilds torn creates/deletes atomically and refuses to replay a torn dispatch', async () => {
     const storage = new TestDurableObjectStorage()
     const ctx = new Context()
     await ctx.plugin(SessionStore)
@@ -204,8 +266,7 @@ describe('durable-object bounded event pages', () => {
         { type: 'turn/start', seq: SessionSeq(0), time: now, data: { turn: 1 } }, create(1),
       ], false)
       storage.sql.exec("UPDATE dsh_session_events SET data = '{' WHERE session_id = 'torn-create' AND seq = 0")
-      expect((await readAll(persistence, SessionId('torn-create')))?.['tornMarker' as never]).toBe(0)
-      await readAll(persistence, SessionId('torn-create'))
+      await resumeStored(persistence, SessionId('torn-create'))
       expect(nextSchedule(storage as never)).toBeUndefined()
 
       await persistence.appendBatch(metadata('torn-delete'), [create(0),
@@ -215,11 +276,11 @@ describe('durable-object bounded event pages', () => {
       storage.sql.exec("UPDATE dsh_session_events SET data = '{' WHERE session_id = 'torn-delete' AND seq = 1")
       storage.alarm = null
       storage.failAlarm = true
-      await expect(readAll(persistence, SessionId('torn-delete'))).rejects.toThrow('alarm failure')
+      await expect(resumeStored(persistence, SessionId('torn-delete'))).rejects.toThrow('alarm failure')
       expect(nextSchedule(storage as never)).toBeUndefined()
-      expect((await readAll(persistence, SessionId('torn-delete')))?.['tornMarker' as never]).toBe(1)
+      expect(storage.sql.exec<{ count: number }>("SELECT COUNT(*) AS count FROM dsh_session_events WHERE session_id = 'torn-delete'").toArray()[0]?.count).toBe(3)
       storage.failAlarm = false
-      await readAll(persistence, SessionId('torn-delete'))
+      await resumeStored(persistence, SessionId('torn-delete'))
       expect(nextSchedule(storage as never)?.sessionId).toBe('torn-delete')
       expect(storage.alarm).toBe(Date.parse(record.scheduledAt))
 
@@ -228,14 +289,14 @@ describe('durable-object bounded event pages', () => {
         { type: 'schedule/change', seq: SessionSeq(1), time: now, data: { version: 1, operation: 'dispatch', id: record.id } },
       ], true)
       storage.sql.exec("UPDATE dsh_session_events SET data = '{' WHERE session_id = 'torn-dispatch' AND seq = 1")
-      await expect(readAll(persistence, SessionId('torn-dispatch'))).rejects.toThrow('Cannot automatically repair')
+      await expect(resumeStored(persistence, SessionId('torn-dispatch'))).rejects.toThrow('Cannot automatically repair')
       expect(queue.pending('torn-dispatch')).toHaveLength(1)
       const periodic = [1, 2].map(n => createEveryScheduleRecord(ScheduleId(`schedule-${n}`), `batch ${n}`, 300, now))
       await persistence.appendBatch(metadata('torn-batch'), periodic.map((schedule, seq) => ({ type: 'schedule/change', seq: SessionSeq(seq), time: now, data: { version: 1, operation: 'create', schedule } })), false)
       await persistence.appendBatch(metadata('torn-batch'), periodic.map((schedule, seq) => ({ type: 'schedule/change', seq: SessionSeq(seq + 2), time: now + 300_000, data: { version: 1, operation: 'dispatch', id: schedule.id, acceptedAt: new Date(now + 300_000).toISOString() } })), true)
       // The last dispatch shares the FIRST dispatch's input identity.
       storage.sql.exec("UPDATE dsh_session_events SET data = '{' WHERE session_id = 'torn-batch' AND seq = 3")
-      await expect(readAll(persistence, SessionId('torn-batch'))).rejects.toThrow('Cannot automatically repair')
+      await expect(resumeStored(persistence, SessionId('torn-batch'))).rejects.toThrow('Cannot automatically repair')
       expect(queue.pending('torn-batch')).toHaveLength(1)
 
     } finally { await fiber.dispose(); storage.close() }

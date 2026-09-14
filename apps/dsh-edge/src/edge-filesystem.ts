@@ -184,13 +184,59 @@ export class EdgeFileSystem extends FileSystem {
   }
 
   async streamText(target: FsTarget, signal?: AbortSignal): Promise<AsyncIterable<string>> {
-    const content = await this.readText(target, signal)
-    return (async function* () { yield content })()
+    signal?.throwIfAborted()
+    const stream = await this.requireBinding().vfs.readFile(this.processPath(target))
+    return (async function* () {
+      const reader = stream.getReader()
+      const decoder = new TextDecoder('utf-8', { fatal: true })
+      let pendingCR = ''
+      try {
+        while (true) {
+          signal?.throwIfAborted()
+          const { done, value } = await reader.read()
+          if (done) break
+          const text = pendingCR + decoder.decode(value, { stream: true })
+          if (text.includes('\0')) throw new FsError('File is not text.', 'FS_NOT_TEXT')
+          pendingCR = text.endsWith('\r') ? '\r' : ''
+          yield normalizeLineEndings(pendingCR === '' ? text : text.slice(0, -1))
+        }
+        const tail = pendingCR + decoder.decode()
+        if (tail !== '') yield normalizeLineEndings(tail)
+      } catch (error) {
+        if (error instanceof TypeError) throw new FsError('File is not valid UTF-8 text.', 'FS_NOT_TEXT', { cause: error })
+        throw error
+      } finally {
+        await reader.cancel()
+        reader.releaseLock()
+      }
+    })()
   }
 
   async readByteRange(target: FsTarget, range: { offset: number; length: number }, signal?: AbortSignal): Promise<Uint8Array> {
-    const full = await this.readBytes(target, signal, range.offset + range.length)
-    return full.slice(range.offset, range.offset + range.length)
+    signal?.throwIfAborted()
+    const stream = await this.requireBinding().vfs.readFile(this.processPath(target))
+    const reader = stream.getReader()
+    const chunks: Uint8Array[] = []
+    let skipped = 0
+    let total = 0
+    try {
+      while (total < range.length) {
+        signal?.throwIfAborted()
+        const { done, value } = await reader.read()
+        if (done) break
+        const start = Math.min(value.byteLength, Math.max(0, range.offset - skipped))
+        skipped += value.byteLength
+        const window = value.subarray(start, Math.min(value.byteLength, start + range.length - total))
+        if (window.byteLength > 0) { chunks.push(window.slice()); total += window.byteLength }
+      }
+      const result = new Uint8Array(total)
+      let offset = 0
+      for (const chunk of chunks) { result.set(chunk, offset); offset += chunk.byteLength }
+      return result
+    } finally {
+      await reader.cancel()
+      reader.releaseLock()
+    }
   }
 
   async readBytes(target: FsTarget, signal: AbortSignal | undefined, maxBytes: number): Promise<Uint8Array> {
