@@ -158,6 +158,7 @@ export class EdgeSettingsController {
   }
 
   async setApprovalMode(mode: ApprovalMode): Promise<void> {
+    this.loadGeneration++
     this.store.update((state) => {
       state.approvalSaving = true
       state.approvalSaved = false

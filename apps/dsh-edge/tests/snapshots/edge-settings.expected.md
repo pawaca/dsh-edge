@@ -48,9 +48,9 @@
       - code: dsh-edge@{{version}}/direct
   - region "Tool permissions":
     - heading "Tool permissions" [level=3]
-    - term: When the model calls external tools
+    - term: Web fetch and MCP tools
     - definition:
-      - combobox "When the model calls external tools":
+      - combobox "Web fetch and MCP tools":
         - option "Always ask before running" [selected]
         - option "Trust all (no confirmation)"
   - region "Owner session":

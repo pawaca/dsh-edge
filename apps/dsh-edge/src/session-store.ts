@@ -541,6 +541,11 @@ export class EdgeSessionStore {
     // streams through the gateway's own pending-event bookkeeping.
     await this.context.plugin(ApiRemotes)
     await this.context.plugin(ApprovalService, { policy: 'ask' })
+    // Suppress the approval service's runtime-context contribution (the
+    // ASK/NEVER sentence) so it does not add a durable user-role snapshot
+    // to every turn. dsh-edge owns the approval policy through the
+    // pre-execute listener, not through the model transcript.
+    this.context.systemPrompt.suppressRuntimeContext()
     this.approvalScope = installEdgeApprovalPolicy(this.context, {
       defaultMode: config.approvalDefaultMode,
     })
