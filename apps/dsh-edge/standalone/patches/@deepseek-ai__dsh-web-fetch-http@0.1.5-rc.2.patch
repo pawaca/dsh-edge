@@ -132,3 +132,11 @@ index 65f0af604c03e08c3afc9938d57733595e57dfdd..458b57903b89f865b3ec287f0af384c4
  		const headers = {
  			"user-agent": this.limits.userAgent,
  			"accept": "text/html,application/xhtml+xml,text/*;q=0.9,application/json;q=0.8"
+@@ -500,7 +491,5 @@ var HttpFetchProvider = class {
+ 		};
+ 		try {
+-			const route = proxyRouteFor(url);
+-			if (route.proxied && !isNonPublicIpLiteral(url.hostname)) return await publicHttpNetwork.requestVia(route.dispatcher, url, headers, signal);
+ 			const addresses = await this.resolveAddresses(url.hostname, signal);
+ 			return await publicHttpNetwork.request(url, addresses, headers, signal);
+ 		} catch (error) {

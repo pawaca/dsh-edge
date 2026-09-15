@@ -8,10 +8,12 @@ import EdgeCredentialProvider from '../src/edge-credentials.ts'
 import { installEdgeWebSearch } from '../src/web-search.ts'
 
 describe('dsh-edge Web Search composition', () => {
-  it('fetches a public HTML page and converts it to Markdown', async () => {
+  it('converts provider HTML to Markdown', async () => {
     const htmlContent = `<!doctype html>
       <main><h1>Worker Fetch</h1><p>Rendered <strong>inside</strong> Cloudflare.</p>
       <script>globalThis.fixtureMustNotAppear = true</script></main>`
+    // Transport behavior is exercised against the patched standalone closure in
+    // standalone/tests/web-fetch.test.mjs; this test covers tool rendering only.
     vi.spyOn(
       HttpFetchProvider.prototype as unknown as { fetch: () => unknown },
       'fetch',

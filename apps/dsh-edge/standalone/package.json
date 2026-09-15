@@ -14,7 +14,7 @@
     "build:worker:direct": "node scripts/bundle-standalone.mjs direct",
     "build:worker:isolated": "node scripts/bundle-standalone.mjs isolated",
     "build:workers": "pnpm run build:worker:direct && pnpm run build:worker:isolated",
-    "verify": "node scripts/verify-determinism.mjs && node scripts/verify-standalone.mjs"
+    "verify": "node --test tests/*.test.mjs && node scripts/verify-determinism.mjs && node scripts/verify-standalone.mjs"
   },
   "dependencies": {
     "@cloudflare/computer": "0.2.1",
