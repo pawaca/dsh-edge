@@ -145,6 +145,7 @@ export class EdgeSettingsController {
       }
 
       const mcpGen = ++this.mcpGeneration
+      this.store.update((state) => { state.mcpLoaded = false })
       try {
         const mcpResponse = await this.io.fetch('/api/mcp-servers', { credentials: 'same-origin' })
         if (mcpGen === this.mcpGeneration && mcpResponse.ok) {

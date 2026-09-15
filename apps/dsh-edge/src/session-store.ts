@@ -923,6 +923,10 @@ export class EdgeSessionStore {
       if (parsed.username.length > 0 || parsed.password.length > 0) {
         throw new Error('url must not contain credentials; use the credential provider.')
       }
+      if (s.toolCallTimeoutMs !== undefined
+        && (typeof s.toolCallTimeoutMs !== 'number' || !Number.isFinite(s.toolCallTimeoutMs) || s.toolCallTimeoutMs <= 0)) {
+        throw new Error('toolCallTimeoutMs must be a positive number.')
+      }
       return {
         transport: 'streamable-http' as const,
         serverName: s.serverName,
