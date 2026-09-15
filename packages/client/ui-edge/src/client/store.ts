@@ -107,7 +107,7 @@ export class EdgeSettingsController {
   /** Load the current deployment projection without affecting owner-session state. */
   async load(): Promise<void> {
     const generation = ++this.loadGeneration
-    this.store.update((state) => { state.status = 'loading'; delete state.error })
+    this.store.update((state) => { state.status = 'loading'; state.mcpLoaded = false; delete state.error })
     try {
       const healthResponse = await this.io.fetch('/api/health', { credentials: 'same-origin' })
       if (!healthResponse.ok) throw new Error(`HTTP ${String(healthResponse.status)}`)
@@ -145,7 +145,6 @@ export class EdgeSettingsController {
       }
 
       const mcpGen = ++this.mcpGeneration
-      this.store.update((state) => { state.mcpLoaded = false })
       try {
         const mcpResponse = await this.io.fetch('/api/mcp-servers', { credentials: 'same-origin' })
         if (mcpGen === this.mcpGeneration && mcpResponse.ok) {
@@ -215,7 +214,7 @@ export class EdgeSettingsController {
     }
   }
 
-  async saveMcpServers(servers: McpServerEntry[]): Promise<void> {
+  async saveMcpServers(servers: McpServerEntry[]): Promise<boolean> {
     this.mcpGeneration++
     this.store.update((state) => { state.mcpSaving = true; delete state.mcpError })
     try {
@@ -235,11 +234,13 @@ export class EdgeSettingsController {
         state.mcpSaving = false
         state.mcpRestartNeeded = result.restartRequired === true
       })
+      return true
     } catch (error) {
       this.store.update((state) => {
         state.mcpSaving = false
         state.mcpError = messageOf(error)
       })
+      return false
     }
   }
 

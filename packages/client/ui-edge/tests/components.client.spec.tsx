@@ -50,7 +50,7 @@ describe('Edge settings section', () => {
       copyUpgrade={vi.fn(() => Promise.resolve())}
       signOut={signOut}
       setApprovalMode={vi.fn(() => Promise.resolve())}
-      saveMcpServers={vi.fn(() => Promise.resolve())}
+      saveMcpServers={vi.fn(() => Promise.resolve(true))}
       restartRuntime={vi.fn(() => Promise.resolve())}
     />)
     expect(screen.getByText('Isolated · Dynamic Worker')).toBeTruthy()
@@ -78,7 +78,7 @@ describe('Edge settings section', () => {
       copyUpgrade={vi.fn(() => Promise.resolve())}
       signOut={signOut}
       setApprovalMode={vi.fn(() => Promise.resolve())}
-      saveMcpServers={vi.fn(() => Promise.resolve())}
+      saveMcpServers={vi.fn(() => Promise.resolve(true))}
       restartRuntime={vi.fn(() => Promise.resolve())}
     />)
     expect(screen.getByRole('alert').textContent).not.toContain('private transport detail')

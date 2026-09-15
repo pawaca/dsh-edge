@@ -12,7 +12,7 @@ export interface EdgeSettingsInjected {
   copyUpgrade(): Promise<void>
   signOut(): Promise<void>
   setApprovalMode(mode: ApprovalMode): Promise<void>
-  saveMcpServers(servers: McpServerEntry[]): Promise<void>
+  saveMcpServers(servers: McpServerEntry[]): Promise<boolean>
   restartRuntime(): Promise<void>
 }
 
@@ -31,7 +31,7 @@ interface McpServersCardProps {
   error?: string | undefined
   restartNeeded: boolean
   disabled: boolean
-  onSave: (servers: McpServerEntry[]) => Promise<void>
+  onSave: (servers: McpServerEntry[]) => Promise<boolean>
   onRestart: () => Promise<void>
   t: EdgeSettingsSectionProps['t']
 }
@@ -48,7 +48,7 @@ function McpServersCard(props: McpServersCardProps): ReactNode {
     void onSave([...servers, {
       serverName: draft.serverName.trim(),
       url: draft.url.trim(),
-    } as McpServerEntry]).then(() => { setDraft({ serverName: '', url: '' }) })
+    } as McpServerEntry]).then(ok => { if (ok) setDraft({ serverName: '', url: '' }) })
   }, [draft, servers, onSave])
   const removeServer = useCallback((name: string) => {
     void onSave(servers.filter(s => s.serverName !== name))
