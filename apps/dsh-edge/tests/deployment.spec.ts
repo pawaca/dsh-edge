@@ -45,6 +45,12 @@ describe('dsh-edge deployment configuration', () => {
     })
   })
 
+  it('reports the platform Worker version separately from the package artifact', () => {
+    expect(resolveEdgeDeploymentHealth({ ...VALID_SOURCE, CF_VERSION_METADATA: { id: 'uploaded-version' } }))
+      .toMatchObject({ deploymentId: 'local-development', workerVersionId: 'uploaded-version' })
+    expect(resolveEdgeDeploymentHealth(VALID_SOURCE)).not.toHaveProperty('workerVersionId')
+  })
+
   it('projects validated deployment choices without returning the API key', () => {
     const profile = resolveEdgeDeploymentProfile({
       ...VALID_SOURCE,

@@ -7,6 +7,7 @@ export interface ActivationObservation {
 }
 
 export interface ExpectedHealth {
+  workerVersionId: string
   deploymentId: string
   shell: 'just-bash-direct' | 'just-bash-isolated'
 }
@@ -19,6 +20,7 @@ export function observePublicActivation(options: {
   publicUrl: string
   mode: RuntimeMode
   ownerSecret?: string
+  versionId?: string
   fetchImpl?: typeof fetch
   now?: () => number
   requestTimeoutMs?: number

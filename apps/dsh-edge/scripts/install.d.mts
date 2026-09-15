@@ -167,6 +167,7 @@ export function installEdge(options: {
   removePath?: typeof import('node:fs/promises').rm
   observeActivation?: (options: {
     ownerSecret: string
+    versionId?: string
     publicUrl: string
     mode: RuntimeMode
     signal?: AbortSignal

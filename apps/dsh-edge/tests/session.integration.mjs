@@ -62,6 +62,9 @@ try {
   const runtimeReady = await jsonRequest('/api/ready')
   assert.equal(runtimeReady.response.status, 200)
   assert.equal(runtimeReady.body.runtime, true)
+  const publicIdentity = await jsonRequest('/api/health')
+  assert.equal(typeof publicIdentity.body.workerVersionId, 'string')
+  assert.equal(runtimeReady.body.workerVersionId, publicIdentity.body.workerVersionId)
   assert.equal(await rejectedDownlinkStatus('/api/events.mux', {
     cookie: ownerCookie,
     origin: 'http://untrusted.dsh-edge.test',
@@ -1778,6 +1781,7 @@ try {
   const failedReadiness = await jsonRequest('/api/ready')
   assert.equal(failedReadiness.response.status, 503)
   assert.equal(failedReadiness.body.code, 'runtime-initialization-failed')
+  assert.equal(typeof failedReadiness.body.workerVersionId, 'string')
   assert.equal(JSON.stringify(failedReadiness.body).includes(RELEASED_SESSION_ID), false)
   await worker.stop()
   worker = undefined

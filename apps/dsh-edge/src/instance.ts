@@ -175,6 +175,7 @@ function applySessionListMetadata(
 
 /** Bindings shared by the entry Worker and each workspace Durable Object. */
 export interface EdgeEnv {
+  CF_VERSION_METADATA?: { id: string }
   DSH_EDGE_INSTANCE: DurableObjectNamespace<DshEdgeInstance>
   ASSETS: Fetcher
   LOADER?: WorkerShellLoader
@@ -358,7 +359,8 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         } catch {
           // Never return codec payloads, credentials, or stored event contents.
           return jsonResponse({ ok: false, service: 'dsh-edge', status: 'unavailable',
-            code: 'runtime-initialization-failed' }, 503)
+            code: 'runtime-initialization-failed',
+            ...this.env.CF_VERSION_METADATA === undefined ? {} : { workerVersionId: this.env.CF_VERSION_METADATA.id } }, 503)
         }
       }
       await this.sessions.assertReady()

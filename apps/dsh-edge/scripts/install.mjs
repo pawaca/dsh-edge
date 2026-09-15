@@ -814,6 +814,7 @@ export async function installEdge({
           mode,
           publicUrl: result.publicUrl,
           ownerSecret: result.ownerSecret,
+          versionId: result.versionId,
           signal,
         })
         result = { ...result, activation }

@@ -13,6 +13,7 @@ const READY_HEALTH = {
   shell: 'just-bash-direct',
   deploymentId: `dsh-edge@${edgePackage.version}/direct`,
   version: edgePackage.version,
+  workerVersionId: 'uploaded-version',
 }
 
 describe('public deployment activation', () => {
@@ -43,7 +44,7 @@ describe('public deployment activation', () => {
 
     await expect(observePublicActivation({
       publicUrl: 'https://dsh-edge.preview.workers.dev/',
-      mode: 'direct',
+      mode: 'direct', versionId: 'uploaded-version',
       ownerSecret: 'activation-owner-access-key-32-bytes',
       fetchImpl,
       now: () => time,
@@ -82,19 +83,42 @@ describe('public deployment activation', () => {
       return Response.json({ ...READY_HEALTH, runtime: true })
     }) as typeof fetch
     const result = await observePublicActivation({
-      publicUrl: 'https://dsh-edge.owner.workers.dev/', mode: 'direct', ownerSecret, fetchImpl,
+      publicUrl: 'https://dsh-edge.owner.workers.dev/', mode: 'direct', versionId: 'uploaded-version', ownerSecret, fetchImpl,
       now: () => time, waitMs: 3, retryMs: 1, sleepImpl: async () => { time++ },
     })
     expect(result.status).toBe(eventuallyReady ? 'ready' : 'pending')
     expect(logins).toBe(eventuallyReady ? 2 : 3)
   })
 
+  it.each(['old-health', 'old-ready', 'old-failed-ready', 'missing-version'])('waits for the uploaded Worker identity (%s)', async stale => {
+    let time = 0
+    const fetchImpl = vi.fn(async (input: string | URL | Request) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+      const old = time === 0
+      if (url.endsWith('/api/auth/login')) return new Response(null, { status: 303,
+        headers: { 'set-cookie': '__Host-dsh_edge_owner=v1.9999999999.signature; Secure' } })
+      if (url.endsWith('/api/health')) return Response.json({ ...READY_HEALTH,
+        workerVersionId: old && stale === 'old-health' ? 'previous-version'
+          : old && stale === 'missing-version' ? undefined : 'uploaded-version' })
+      if (old && stale === 'old-failed-ready') return Response.json({
+        code: 'runtime-initialization-failed', workerVersionId: 'previous-version',
+      }, { status: 503 })
+      return Response.json({ ...READY_HEALTH, runtime: true,
+        workerVersionId: old && stale === 'old-ready' ? 'previous-version' : 'uploaded-version' })
+    }) as typeof fetch
+    const result = await observePublicActivation({ publicUrl: 'https://dsh-edge.owner.workers.dev/',
+      mode: 'direct', versionId: 'uploaded-version', ownerSecret: 'activation-owner-access-key-32-bytes',
+      fetchImpl, now: () => time, waitMs: 3, retryMs: 1, sleepImpl: async () => { time++ },
+    })
+    expect(result).toMatchObject({ status: 'ready', attempts: 2 })
+  })
+
   it('does not report ready when the release responds but the runtime failed', async () => {
     const responses = [Response.json(READY_HEALTH),
       new Response(null, { status: 303, headers: { 'set-cookie': '__Host-dsh_edge_owner=v1.9999999999.signature; Secure' } }),
-      Response.json({ code: 'runtime-initialization-failed' }, { status: 503 })]
+      Response.json({ code: 'runtime-initialization-failed', workerVersionId: 'uploaded-version' }, { status: 503 })]
     const fetchImpl = vi.fn(async () => responses.shift()!) as typeof fetch
-    await expect(observePublicActivation({ publicUrl: 'https://dsh-edge.owner.workers.dev/', mode: 'direct',
+    await expect(observePublicActivation({ publicUrl: 'https://dsh-edge.owner.workers.dev/', mode: 'direct', versionId: 'uploaded-version',
       ownerSecret: 'activation-owner-access-key-32-bytes', fetchImpl,
     })).rejects.toThrow('Upgrade is not ready')
     expect(fetchImpl).toHaveBeenCalledTimes(3)
@@ -105,7 +129,7 @@ describe('public deployment activation', () => {
       ? Response.json(READY_HEALTH)
       : new Response(null, { status: 302, headers: { location: 'https://other.example/' } })) as typeof fetch
     let time = 0
-    const result = await observePublicActivation({ publicUrl: 'https://dsh-edge.owner.workers.dev', mode: 'direct',
+    const result = await observePublicActivation({ publicUrl: 'https://dsh-edge.owner.workers.dev', mode: 'direct', versionId: 'uploaded-version',
       ownerSecret: 'activation-owner-access-key-32-bytes', fetchImpl, now: () => time,
       waitMs: 1, retryMs: 1, sleepImpl: async () => { time++ },
     })
@@ -123,7 +147,7 @@ describe('public deployment activation', () => {
 
     await expect(observePublicActivation({
       publicUrl: 'https://dsh-edge.owner.workers.dev',
-      mode: 'direct',
+      mode: 'direct', versionId: 'uploaded-version',
       ownerSecret: 'activation-owner-access-key-32-bytes',
       fetchImpl,
       now: () => time,
@@ -144,7 +168,7 @@ describe('public deployment activation', () => {
     try {
       await expect(observePublicActivation({
         publicUrl: 'https://dsh-edge.owner.workers.dev',
-        mode: 'direct',
+        mode: 'direct', versionId: 'uploaded-version',
       ownerSecret: 'activation-owner-access-key-32-bytes',
         fetchImpl: vi.fn(async () => new Response('Not found', { status: 404 })) as typeof fetch,
         now: () => time,
@@ -182,7 +206,7 @@ describe('public deployment activation', () => {
 
     await expect(observePublicActivation({
       publicUrl: 'https://dsh-edge.owner.workers.dev',
-      mode: 'direct',
+      mode: 'direct', versionId: 'uploaded-version',
       ownerSecret: 'activation-owner-access-key-32-bytes',
       fetchImpl,
       now: () => time,
@@ -199,7 +223,7 @@ describe('public deployment activation', () => {
 
     await expect(observePublicActivation({
       publicUrl: 'https://dsh-edge.owner.workers.dev',
-      mode: 'direct',
+      mode: 'direct', versionId: 'uploaded-version',
       ownerSecret: 'activation-owner-access-key-32-bytes',
       signal: controller.signal,
     })).rejects.toBe(interrupted)
@@ -208,16 +232,16 @@ describe('public deployment activation', () => {
   it('accepts only the complete public health identity and a workers.dev origin', async () => {
     expect(isExpectedHealth(READY_HEALTH, {
       deploymentId: `dsh-edge@${edgePackage.version}/direct`,
-      shell: 'just-bash-direct',
+      shell: 'just-bash-direct', workerVersionId: 'uploaded-version',
     })).toBe(true)
     expect(isExpectedHealth({ ...READY_HEALTH, status: 'starting' }, {
       deploymentId: `dsh-edge@${edgePackage.version}/direct`,
-      shell: 'just-bash-direct',
+      shell: 'just-bash-direct', workerVersionId: 'uploaded-version',
     })).toBe(false)
 
     await expect(observePublicActivation({
       publicUrl: 'https://example.com',
-      mode: 'direct',
+      mode: 'direct', versionId: 'uploaded-version',
       ownerSecret: 'activation-owner-access-key-32-bytes',
       waitMs: 0,
     })).rejects.toThrow('public workers.dev origin')

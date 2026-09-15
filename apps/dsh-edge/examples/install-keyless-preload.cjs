@@ -54,6 +54,7 @@ globalThis.fetch = async function fetch(input, init = {}) {
   }
   return Response.json({
     ...(path === '/api/ready' ? { runtime: true } : {}),
+    workerVersionId: 'version-keyless',
     ok: true,
     service: 'dsh-edge',
     status: 'ready',

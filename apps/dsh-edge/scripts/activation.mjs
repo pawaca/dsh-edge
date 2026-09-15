@@ -12,6 +12,7 @@ export async function observePublicActivation({
   publicUrl,
   mode,
   ownerSecret,
+  versionId,
   fetchImpl = globalThis.fetch,
   now = Date.now,
   requestTimeoutMs = ACTIVATION_REQUEST_TIMEOUT_MS,
@@ -30,6 +31,7 @@ export async function observePublicActivation({
 
   const healthUrl = publicHealthUrl(publicUrl)
   const expected = {
+    workerVersionId: versionId,
     deploymentId: `dsh-edge@${edgePackage.version}/${mode}`,
     shell: mode === 'direct' ? 'just-bash-direct' : 'just-bash-isolated',
   }
@@ -92,6 +94,8 @@ export function isExpectedHealth(value, expected) {
     && value.deploymentId === expected.deploymentId
     && value.shell === expected.shell
     && value.version === edgePackage.version
+    && typeof expected.workerVersionId === 'string' && expected.workerVersionId.length > 0
+    && value.workerVersionId === expected.workerVersionId
 }
 
 function publicHealthUrl(publicUrl) {
@@ -160,7 +164,8 @@ async function verifyRuntime({ publicUrl, ownerSecret, fetchImpl, signal, expect
     headers: { accept: 'application/json', 'cache-control': 'no-cache', cookie },
   })
   const state = await readBoundedJson(response, MAX_HEALTH_BYTES)
-  if (response.status === 503 && state?.code === 'runtime-initialization-failed') {
+  if (response.status === 503 && state?.code === 'runtime-initialization-failed'
+    && state.workerVersionId === expected.workerVersionId) {
     throw new RuntimeActivationError('Worker uploaded, but session or workspace initialization failed. Upgrade is not ready. Do not delete stored data; install a compatible release. No automatic rollback was attempted.')
   }
   return response.ok && state?.runtime === true && isExpectedHealth(state, expected)
