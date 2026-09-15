@@ -99,6 +99,7 @@ export class EdgeSettingsController {
   })
   private loadGeneration = 0
   private approvalGeneration = 0
+  private mcpGeneration = 0
 
   constructor(private readonly io: EdgeSettingsIO) {}
 
@@ -142,11 +143,12 @@ export class EdgeSettingsController {
         }
       }
 
+      const mcpGen = ++this.mcpGeneration
       try {
         const mcpResponse = await this.io.fetch('/api/mcp-servers', { credentials: 'same-origin' })
-        if (generation === this.loadGeneration && mcpResponse.ok) {
+        if (mcpGen === this.mcpGeneration && mcpResponse.ok) {
           const data = await mcpResponse.json() as { servers?: McpServerEntry[] }
-          if (Array.isArray(data.servers)) {
+          if (mcpGen === this.mcpGeneration && Array.isArray(data.servers)) {
             this.store.update((state) => { state.mcpServers = data.servers as McpServerEntry[] })
           }
         }
@@ -212,6 +214,7 @@ export class EdgeSettingsController {
   }
 
   async saveMcpServers(servers: McpServerEntry[]): Promise<void> {
+    this.mcpGeneration++
     this.store.update((state) => { state.mcpSaving = true; delete state.mcpError })
     try {
       const response = await this.io.fetch('/api/mcp-servers', {

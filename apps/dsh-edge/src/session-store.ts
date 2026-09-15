@@ -552,10 +552,12 @@ export class EdgeSessionStore {
     this.approvalScope = installEdgeApprovalPolicy(this.context, {
       defaultMode: config.approvalDefaultMode,
     })
-    // MCP client instances are composed per-server from stored config.
-    // Each instance connects one streamable-http MCP server.
     for (const server of await this.loadMcpServers(storage)) {
-      await this.context.plugin(McpClient, server)
+      try {
+        await this.context.plugin(McpClient, server)
+      } catch (error) {
+        console.error(`dsh-edge: MCP server "${server.serverName}" failed to connect.`, error)
+      }
     }
     await this.context.plugin(ToolFs)
     await this.context.plugin(ToolSkill)
@@ -910,9 +912,7 @@ export class EdgeSessionStore {
         transport: 'streamable-http' as const,
         serverName: s.serverName,
         url: s.url,
-        ...(s.headers !== undefined ? { headers: s.headers } : {}),
         ...(s.toolCallTimeoutMs !== undefined ? { toolCallTimeoutMs: s.toolCallTimeoutMs } : {}),
-        ...(s.failOnStartupError !== undefined ? { failOnStartupError: s.failOnStartupError } : {}),
       }
     })
     await this.doStorage.put(EdgeSessionStore.MCP_STORAGE_KEY, validated)
