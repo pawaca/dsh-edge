@@ -79,7 +79,7 @@ export function EdgeSettingsSection(props: EdgeSettingsSectionProps): ReactNode 
             <select
               className={css.select}
               value={state.approvalMode}
-              disabled={state.approvalSaving}
+              disabled={state.approvalSaving || state.status !== 'ready'}
               aria-label={t('approvalMode')}
               onChange={e => { void setApprovalMode(e.target.value as ApprovalMode) }}
             >
