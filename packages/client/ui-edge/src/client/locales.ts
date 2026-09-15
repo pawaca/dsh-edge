@@ -31,6 +31,12 @@ export const en = {
   signOut: 'Sign out',
   signingOut: 'Signing out…',
   signOutFailed: 'Could not sign out. Try again.',
+  toolPermissions: 'Tool permissions',
+  approvalMode: 'Web fetch and MCP tools',
+  approvalAsk: 'Always ask before running',
+  approvalNever: 'Trust all (no confirmation)',
+  approvalSaved: 'Saved',
+  approvalError: 'Could not save setting.',
 } as const
 
 /** Locale keys shared by the English source and translated Edge settings copy. */
@@ -69,4 +75,10 @@ export const zh: Record<EdgeSettingsKey, string> = {
   signOut: '退出登录',
   signingOut: '正在退出…',
   signOutFailed: '退出失败，请重试。',
+  toolPermissions: '工具权限',
+  approvalMode: 'Web fetch 和 MCP 工具',
+  approvalAsk: '每次都询问',
+  approvalNever: '全部信任（不询问）',
+  approvalSaved: '已保存',
+  approvalError: '无法保存设置。',
 }

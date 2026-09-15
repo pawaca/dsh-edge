@@ -9,7 +9,7 @@ import { en, zh, type EdgeSettingsKey } from './locales.ts'
 
 export type { EdgeSettingsInjected, EdgeSettingsSectionProps } from './EdgeSettingsSection.tsx'
 export type { EdgeSettingsKey } from './locales.ts'
-export type { EdgeSettingsState, EdgeHealth } from './store.ts'
+export type { ApprovalMode, EdgeSettingsState, EdgeHealth } from './store.ts'
 
 type Slots = {
   inject(name: string, callback: (() => unknown) | (() => Generator<unknown>)): unknown
@@ -43,6 +43,7 @@ export function apply(ctx: Context): void {
     load: () => controller.load(),
     copyUpgrade: () => controller.copyUpgrade(),
     signOut: () => controller.signOut(),
+    setApprovalMode: (mode) => controller.setApprovalMode(mode),
   })
   slots.inject('settings.section', () => slots.register({
     name: 'settings.section',

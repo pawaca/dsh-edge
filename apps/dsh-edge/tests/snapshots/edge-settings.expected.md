@@ -46,6 +46,13 @@
     - term: Deployment ID
     - definition:
       - code: dsh-edge@{{version}}/direct
+  - region "Tool permissions":
+    - heading "Tool permissions" [level=3]
+    - term: Web fetch and MCP tools
+    - definition:
+      - combobox "Web fetch and MCP tools":
+        - option "Always ask before running" [selected]
+        - option "Trust all (no confirmation)"
   - region "Owner session":
     - heading "Owner session" [level=3]
     - paragraph: Signing out clears this browser’s owner session. Your deployment and data remain unchanged.

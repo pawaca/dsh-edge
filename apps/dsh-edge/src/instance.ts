@@ -267,6 +267,9 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       ...(this.env as unknown as Record<string, unknown>).IMAGES === undefined
         ? {}
         : { images: (this.env as unknown as Record<string, unknown>).IMAGES },
+      ...((this.env as unknown as Record<string, string>).DSH_EDGE_APPROVAL_MODE === 'never'
+        ? { approvalDefaultMode: 'never' as const }
+        : {}),
       withWorkspaceFiles: read => this.withWorkspaceFiles(read),
       onLateSessionEvent: (sessionId, event) => {
         this.publishSessionEvent(sessionId, event)
@@ -374,6 +377,25 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       }
       if (url.pathname === '/api/skills') {
         return await this.handleSkillsCrud(request)
+      }
+      if (url.pathname === '/api/approval-mode') {
+        if (request.method === 'GET') {
+          const mode = await this.sessions.getApprovalMode()
+          return jsonResponse({ mode })
+        }
+        if (request.method === 'PUT') {
+          let body: { mode?: string }
+          try {
+            body = await request.json() as { mode?: string }
+          } catch {
+            return jsonResponse({ error: 'invalid JSON body' }, 400)
+          }
+          if (body === null || typeof body !== 'object' || (body.mode !== 'ask' && body.mode !== 'never')) {
+            return jsonResponse({ error: 'mode must be "ask" or "never"' }, 400)
+          }
+          await this.sessions.setApprovalMode(body.mode)
+          return jsonResponse({ mode: body.mode })
+        }
       }
       if (url.pathname.startsWith('/api/') && !url.pathname.startsWith('/api/sessions')) {
         const expected = request.headers.get('x-dsh-edge-turn-seq')

@@ -28,6 +28,8 @@ export interface EdgeHealth {
   status: 'ready'
 }
 
+export type ApprovalMode = 'ask' | 'never'
+
 /** Browser-owned state for the Edge settings section. */
 export interface EdgeSettingsState {
   status: 'idle' | 'loading' | 'ready' | 'error'
@@ -40,6 +42,10 @@ export interface EdgeSettingsState {
   copyError?: string
   signingOut: boolean
   signOutError?: string
+  approvalMode: ApprovalMode
+  approvalSaving: boolean
+  approvalSaved: boolean
+  approvalError?: string
 }
 
 /** Side-effect boundary used by the Edge settings controller. */
@@ -77,8 +83,10 @@ export class EdgeSettingsController {
   /** Observable settings state consumed by the client runtime. */
   readonly store: SnapshotStore<EdgeSettingsState> = createSnapshotStore({
     status: 'idle', copied: false, signingOut: false,
+    approvalMode: 'ask', approvalSaving: false, approvalSaved: false,
   })
   private loadGeneration = 0
+  private approvalGeneration = 0
 
   constructor(private readonly io: EdgeSettingsIO) {}
 
@@ -102,6 +110,25 @@ export class EdgeSettingsController {
         delete state.latestVersion
         delete state.error
       })
+
+      const approvalGen = ++this.approvalGeneration
+      try {
+        const approvalResponse = await this.io.fetch('/api/approval-mode', { credentials: 'same-origin' })
+        if (approvalGen === this.approvalGeneration) {
+          if (approvalResponse.ok) {
+            const data = await approvalResponse.json() as { mode?: string }
+            if (approvalGen === this.approvalGeneration && (data.mode === 'ask' || data.mode === 'never')) {
+              this.store.update((state) => { state.approvalMode = data.mode as ApprovalMode; delete state.approvalError })
+            }
+          } else {
+            this.store.update((state) => { state.approvalError = `HTTP ${String(approvalResponse.status)}` })
+          }
+        }
+      } catch {
+        if (approvalGen === this.approvalGeneration) {
+          this.store.update((state) => { state.approvalError = 'Could not load approval setting.' })
+        }
+      }
 
       let latestVersion: string | undefined
       try {
@@ -130,6 +157,34 @@ export class EdgeSettingsController {
         state.status = 'error'
         state.error = messageOf(error)
         delete state.health
+      })
+    }
+  }
+
+  async setApprovalMode(mode: ApprovalMode): Promise<void> {
+    this.approvalGeneration++
+    this.store.update((state) => {
+      state.approvalSaving = true
+      state.approvalSaved = false
+      delete state.approvalError
+    })
+    try {
+      const response = await this.io.fetch('/api/approval-mode', {
+        method: 'PUT',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ mode }),
+      })
+      if (!response.ok) throw new Error(`HTTP ${String(response.status)}`)
+      this.store.update((state) => {
+        state.approvalMode = mode
+        state.approvalSaving = false
+        state.approvalSaved = true
+      })
+    } catch (error) {
+      this.store.update((state) => {
+        state.approvalSaving = false
+        state.approvalError = messageOf(error)
       })
     }
   }

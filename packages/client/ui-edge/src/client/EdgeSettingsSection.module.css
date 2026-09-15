@@ -12,4 +12,5 @@
 .status { display: flex; align-items: center; gap: 8px; }
 .notice { color: var(--dsw-alias-label-secondary); }
 .error { color: var(--dsw-alias-state-error-primary) !important; }
+.select { padding: 6px 10px; border: 1px solid var(--dsw-alias-border-subtle); border-radius: 8px; background: var(--dsw-alias-background-primary); color: var(--dsw-alias-text-primary); font-size: 14px; }
 @media (max-width: 560px) { .row { grid-template-columns: 1fr; gap: 4px; } }

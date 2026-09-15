@@ -2,7 +2,7 @@ import { useEffect, type ReactNode } from 'react'
 import { Button, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import type { EdgeSettingsState } from './store.ts'
+import type { ApprovalMode, EdgeSettingsState } from './store.ts'
 import { DSH_EDGE_RELEASES_URL } from './store.ts'
 import css from './EdgeSettingsSection.module.css'
 
@@ -11,6 +11,7 @@ export interface EdgeSettingsInjected {
   load(): Promise<void>
   copyUpgrade(): Promise<void>
   signOut(): Promise<void>
+  setApprovalMode(mode: ApprovalMode): Promise<void>
 }
 
 export type EdgeSettingsSectionProps =
@@ -23,7 +24,7 @@ function Row({ label, value }: { label: string; value: ReactNode }): ReactNode {
 }
 
 export function EdgeSettingsSection(props: EdgeSettingsSectionProps): ReactNode {
-  const { useEdgeSettings, load, copyUpgrade, signOut, t } = props
+  const { useEdgeSettings, load, copyUpgrade, signOut, setApprovalMode, t } = props
   useEffect(() => { void load() }, [load])
   const state = useEdgeSettings(snapshot => snapshot)
   const deploymentDetails = state.status === 'idle' || state.status === 'loading'
@@ -71,6 +72,25 @@ export function EdgeSettingsSection(props: EdgeSettingsSectionProps): ReactNode 
     <div className={css.section}>
       <header><h2>{t('title')}</h2><p>{t('intro')}</p></header>
       {deploymentDetails}
+      <section className={css.card} aria-labelledby="edge-approval-title">
+        <h3 id="edge-approval-title">{t('toolPermissions')}</h3>
+        <dl>
+          <Row label={t('approvalMode')} value={
+            <select
+              className={css.select}
+              value={state.approvalMode}
+              disabled={state.approvalSaving || state.status !== 'ready'}
+              aria-label={t('approvalMode')}
+              onChange={e => { void setApprovalMode(e.target.value as ApprovalMode) }}
+            >
+              <option value="ask">{t('approvalAsk')}</option>
+              <option value="never">{t('approvalNever')}</option>
+            </select>
+          } />
+        </dl>
+        {state.approvalSaved ? <p className={css.status}>{t('approvalSaved')}</p> : null}
+        {state.approvalError !== undefined ? <p className={css.error} role="alert">{t('approvalError')}</p> : null}
+      </section>
       <section className={css.card} aria-labelledby="edge-owner-title">
         <h3 id="edge-owner-title">{t('ownerSession')}</h3>
         <p>{t('ownerIntro')}</p>

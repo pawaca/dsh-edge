@@ -23,9 +23,11 @@ function response(body: unknown, status = 200): Response {
   })
 }
 
+function approvalResponse(): Response { return response({ mode: 'ask' }) }
+
 describe('Edge settings controller', () => {
   it('loads authenticated deployment health lazily', async () => {
-    const fetch = vi.fn().mockResolvedValueOnce(response(HEALTH)).mockResolvedValueOnce(response({ version: '1.2.3' }))
+    const fetch = vi.fn().mockResolvedValueOnce(response(HEALTH)).mockResolvedValueOnce(approvalResponse()).mockResolvedValueOnce(response({ version: '1.2.3' }))
     const controller = new EdgeSettingsController({ fetch, copy: vi.fn(), navigate: vi.fn() })
     expect(controller.store.getSnapshot().status).toBe('idle')
     await controller.load()
@@ -62,6 +64,7 @@ describe('Edge settings controller', () => {
     const fetch = vi.fn()
       .mockImplementationOnce(() => first.promise)
       .mockResolvedValueOnce(response({ ...HEALTH, deploymentId: 'fresh' }))
+      .mockResolvedValueOnce(approvalResponse())
     const controller = new EdgeSettingsController({
       fetch,
       copy: vi.fn(),
@@ -81,6 +84,7 @@ describe('Edge settings controller', () => {
     let healthCalls = 0
     const fetch = vi.fn((input: string, init?: RequestInit) => {
       if (input === '/api/auth/logout' && init?.method === 'POST') return logout.promise
+      if (input === '/api/approval-mode') return Promise.resolve(approvalResponse())
       if (input.startsWith('https://registry.npmjs.org/')) return Promise.resolve(response({ version: '1.2.3' }))
       healthCalls += 1
       return healthCalls === 1 ? firstHealth.promise : secondHealth.promise
@@ -112,11 +116,13 @@ describe('Edge settings controller', () => {
     const copy = vi.fn().mockResolvedValue(undefined)
     const fetch = vi.fn<(input: string, init?: RequestInit) => Promise<Response>>()
       .mockResolvedValueOnce(response(HEALTH))
+      .mockResolvedValueOnce(approvalResponse())
       .mockResolvedValueOnce(response({ version: '2.0.0' }))
     const controller = new EdgeSettingsController({ fetch, copy, navigate: vi.fn() })
     await controller.load()
-    expect(fetch.mock.calls[1]?.[0]).toBe('https://registry.npmjs.org/dsh-edge/latest')
-    expect(fetch.mock.calls[1]?.[1]?.signal).toBeInstanceOf(AbortSignal)
+    const npmCall = fetch.mock.calls.find(c => (c[0] as string).startsWith('https://registry.npmjs.org/'))
+    expect(npmCall?.[0]).toBe('https://registry.npmjs.org/dsh-edge/latest')
+    expect(npmCall?.[1]?.signal).toBeInstanceOf(AbortSignal)
     expect(controller.store.getSnapshot()).toMatchObject({
       releaseChannel: 'latest', releaseStatus: 'update-available', latestVersion: '2.0.0',
     })
@@ -129,11 +135,13 @@ describe('Edge settings controller', () => {
     const copy = vi.fn().mockResolvedValue(undefined)
     const fetch = vi.fn<(input: string, init?: RequestInit) => Promise<Response>>()
       .mockResolvedValueOnce(response({ ...HEALTH, version: '2.0.0-alpha.1' }))
+      .mockResolvedValueOnce(approvalResponse())
       .mockResolvedValueOnce(response({ version: '2.0.0-alpha.2' }))
     const controller = new EdgeSettingsController({ fetch, copy, navigate: vi.fn() })
     await controller.load()
-    expect(fetch.mock.calls[1]?.[0]).toBe('https://registry.npmjs.org/dsh-edge/next')
-    expect(fetch.mock.calls[1]?.[1]?.signal).toBeInstanceOf(AbortSignal)
+    const npmCall = fetch.mock.calls.find(c => (c[0] as string).startsWith('https://registry.npmjs.org/'))
+    expect(npmCall?.[0]).toBe('https://registry.npmjs.org/dsh-edge/next')
+    expect(npmCall?.[1]?.signal).toBeInstanceOf(AbortSignal)
     expect(controller.store.getSnapshot()).toMatchObject({
       releaseChannel: 'next', releaseStatus: 'update-available', latestVersion: '2.0.0-alpha.2',
     })
