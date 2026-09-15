@@ -329,7 +329,7 @@ export class EdgeSessionStore {
     try {
       const doUploadIndex = new DurableObjectUploadIndex(storage)
       ;(this.context as never as Record<string, unknown>)['edgeFileStore'] = new DeepSeekFileStore({ index: doUploadIndex as never })
-      await this.context.plugin(dshLlmDeepseek, buildEdgeLlmPluginConfig(config))
+      await this.context.plugin(dshLlmDeepseek, buildEdgeLlmPluginConfig(config)).await()
     } catch (error) {
       console.error('dsh-edge: LLM provider plugin failed to initialize; model operations will be unavailable.', error)
     }
@@ -667,6 +667,9 @@ export class EdgeSessionStore {
     for (const service of ['sessionPersistence', 'sessionQuery', 'workspaceRegistry',
       'sessionController', 'workspaceController', 'typertGateway']) {
       if (this.context.get(service) === undefined) throw new Error(`Required runtime service ${service} is unavailable.`)
+    }
+    if (!this.context.llm.listProviders().some(provider => provider.id === 'deepseek-official')) {
+      throw new Error('Required model adapter is unavailable.')
     }
   }
 

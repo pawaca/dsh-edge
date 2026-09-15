@@ -1018,7 +1018,7 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
         this.createEventTable(target)
         this.storage.sql.exec(
           `INSERT INTO dsh_session_events_migrating
-           SELECT e.* FROM dsh_session_events e JOIN dsh_sessions s ON s.id = e.session_id
+           SELECT e.* FROM dsh_sessions s CROSS JOIN dsh_session_events e ON e.session_id = s.id
            WHERE s.version = ?`, SESSION_FORMAT_VERSION,
         )
       }
@@ -1039,23 +1039,19 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
 
   private isEventTableRebuildCheaper(legacy: number): boolean {
     // INSERT includes the primary-key index; allow 32 catalog writes for a swap.
-    // Stop once copying is more expensive. Probe each session's covering index
-    // with LIMIT instead of scanning all current events just to count them.
-    let remaining = Math.floor((legacy - 33) / 2)
-    if (remaining < 0) return false
-    const current = this.storage.sql.exec<{ id: string }>(
-      'SELECT id FROM dsh_sessions WHERE version = ?', SESSION_FORMAT_VERSION,
-    ).toArray()
-    for (const row of current) {
-      const count = this.storage.sql.exec<{ count: number }>(
-        `SELECT COUNT(*) AS count FROM (
-          SELECT seq FROM dsh_session_events WHERE session_id = ? LIMIT ?
-        )`, row.id, remaining + 1,
-      ).toArray()[0]?.count ?? 0
-      if (count > remaining) return false
-      remaining -= count
-    }
-    return true
+    // One set-based probe caps event reads and SQL calls independently of the
+    // number of current sessions. CROSS JOIN fixes headers as the outer loop,
+    // so SQLite seeks the event primary key instead of scanning legacy events.
+    const allowance = Math.floor((legacy - 33) / 2)
+    if (allowance < 0) return false
+    const count = this.storage.sql.exec<{ count: number }>(
+      `SELECT COUNT(*) AS count FROM (
+        SELECT e.seq FROM dsh_sessions s
+        CROSS JOIN dsh_session_events e ON e.session_id = s.id
+        WHERE s.version = ? LIMIT ?
+      )`, SESSION_FORMAT_VERSION, allowance + 1,
+    ).toArray()[0]?.count ?? 0
+    return count <= allowance
   }
 
   private syncSummaries(): void {

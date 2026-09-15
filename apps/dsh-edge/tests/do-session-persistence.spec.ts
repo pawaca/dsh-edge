@@ -222,7 +222,7 @@ describe('legacy Edge cancellation migration', () => {
     } finally { await ctx.fiber.dispose(); storage.close() }
   })
 
-  it.each([1, 100, 100000])('preserves current logs and chooses the cheaper migration with %i current rows', async count => {
+  it.each([0, 1, 100, 100000])('preserves current logs and chooses the cheaper migration with %i current rows', async count => {
     const storage = cancelledStorage('cancelled by the user')
     for (let i = 6; i < 66; i++) storage.sql.exec(
       'INSERT INTO dsh_session_events (session_id,seq,type,time,data) VALUES (?,?,?,?,?)',
@@ -236,15 +236,21 @@ describe('legacy Edge cancellation migration', () => {
       'current', i, 'session/title', 2000 + i,
       JSON.stringify({ title: 'Keep current', messageSeqs: [], source: { kind: 'user' } }),
     )
+    if (count === 0) storage.sql.exec(`
+      WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x < 10000)
+      INSERT INTO dsh_sessions
+      SELECT 'sparse-' || x, version,created_at,cwd,parent_session,seed_length,origin,
+        delegation_depth,agent_preset,'sparse-incarnation-' || x,revision
+      FROM n CROSS JOIN dsh_sessions WHERE id = 'current'`)
     const before = storage.sql.exec("SELECT * FROM dsh_session_events WHERE session_id = 'current' ORDER BY seq").toArray()
     storage.queries.length = 0
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     try {
       const persistence = new DurableObjectSessionPersistence(ctx, { storage: storage as never })
-      expect(storage.queries.includes('DROP TABLE dsh_session_events')).toBe(count === 1)
+      expect(storage.queries.includes('DROP TABLE dsh_session_events')).toBe(count <= 1)
       expect(storage.queries.some(q => q.includes('GROUP BY s.version'))).toBe(false)
-      expect(storage.queries.some(q => q.includes('SELECT seq FROM dsh_session_events WHERE session_id = ? LIMIT ?'))).toBe(true)
+      expect(storage.queries.filter(q => q.includes('SELECT COUNT(*) AS count FROM ('))).toHaveLength(1)
       expect(storage.sql.exec("SELECT * FROM dsh_session_events WHERE session_id = 'current' ORDER BY seq").toArray()).toEqual(before)
       expect((await readAll(persistence, SessionId('session-v0-1-3'))).meta.version).toBe(SESSION_FORMAT_VERSION)
       expect(storage.sql.exec("SELECT count(*) AS n FROM sqlite_master WHERE name = 'dsh_session_events_migrating'").toArray()).toEqual([{ n: 0 }])

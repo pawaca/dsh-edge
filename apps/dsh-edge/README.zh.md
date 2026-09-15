@@ -325,12 +325,12 @@ pnpm --filter dsh-edge example:install
 - 每次 inbox splice 提交后，mux 都发布完整的 `session/queue` snapshot。客户端重连时会收到待处理的 live-inbox baseline。
 - `POST /api/commands/list` 使用上游 generated-Remote envelope 返回空 catalog，因为 Edge preset 没有注册 human command。
 - `GET /api/health` 返回公开 release/mode identifier 与配置的 attachment 默认值（`private-r2` 或 `temporary-do`）。它先验证 owner authentication、部署级 DeepSeek 凭据、模型/传输选择与命令 timeout，再报告 ready。
-- `GET /api/ready` 要求 owner cookie，等待会话迁移、工作区注册及浏览器所需的会话/工作区控制器就绪。启动失败时返回 HTTP 503 和 `runtime-initialization-failed`；公开 health 响应不能单独证明运行时可用。
+- `GET /api/ready` 要求 owner cookie，等待会话迁移、工作区注册、浏览器所需的会话/工作区控制器就绪，以及 DeepSeek 模型适配器完成注册。此检查不会向模型服务发起请求。启动失败时返回 HTTP 503 和 `runtime-initialization-failed`；公开 health 响应不能单独证明运行时可用。
 - Health 不调用 provider、Durable Object、R2、VFS 或 shell。认证后的 agent-preset projection 会报告固定 backend、临时存储上限、部署默认模型，以及 runtime 实际读取的上游 catalog 与 session 选择范围。
 
 Release 升级会自动兼容已知的旧版 Edge 取消记录，并在一个 SQLite 事务中迁移所有旧格式会话日志、摘要和空会话头。首次迁移写入前会解码并校验所有旧日志，避免后面的不兼容日志导致每次重启都重复消耗前面会话的迁移写入。预检会释放每份解码结果；迁移阶段在同一同步事务内再次解码，避免把所有历史同时保留在内存中。任一会话不兼容或写入失败时，本次启动的迁移会整体回滚，不会静默跳过或删除会话。此事务覆盖会话格式迁移，不涵盖任意插件存储改动或外部副作用。安装器会登录上传后的版本并检查运行时就绪状态，通过后才报告成功；超时会报告尚未验证，确认启动失败则报告错误和恢复信息。它不会在存储格式升级后自动回滚 Worker 代码。发布测试使用含旧取消记录的数据启动两种预构建模式，验证继续聊天，并确认不兼容数据不会误报就绪；打包后的 npm 产物也会验证经过认证的运行时就绪状态。
 
-SQLite 的 `DELETE` 操作也会消耗每日行写入额度。迁移格式时，Edge 会比较旧格式与当前格式的事件行数：有界索引探测在确认复制成本更高时即停止；如果复制当前事件的成本更低，就把迁移后的压缩日志写入替代表，并在同一事务内交换表，避免为每个旧 token 片段支付逐行删除费用；否则只替换需要迁移的会话。已有当前格式日志会保留，迁移失败也会回滚表交换。这会降低迁移写入量，但不能保证所有数据库都满足 Free 计划每日 100,000 行写入额度；数据库足够大或当天已使用较多额度时，仍可能触及上限。时间点恢复恢复的是数据，不会恢复账户已经消耗的每日额度。
+SQLite 的 `DELETE` 操作也会消耗每日行写入额度。迁移格式时，Edge 会比较旧格式与当前格式的事件行数：单条利用索引的探测查询在确认复制成本更高时即停止；如果复制当前事件的成本更低，就把迁移后的压缩日志写入替代表，并在同一事务内交换表，避免为每个旧 token 片段支付逐行删除费用；否则只替换需要迁移的会话。已有当前格式日志会保留，迁移失败也会回滚表交换。这会降低迁移写入量，但不能保证所有数据库都满足 Free 计划每日 100,000 行写入额度；数据库足够大或当天已使用较多额度时，仍可能触及上限。时间点恢复恢复的是数据，不会恢复账户已经消耗的每日额度。
 
 ### 诊断 REST 路由
 
