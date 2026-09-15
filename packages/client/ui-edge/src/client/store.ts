@@ -30,6 +30,13 @@ export interface EdgeHealth {
 
 export type ApprovalMode = 'ask' | 'never'
 
+export interface McpServerEntry {
+  serverName: string
+  url: string
+  headers?: Record<string, string>
+  toolCallTimeoutMs?: number
+}
+
 /** Browser-owned state for the Edge settings section. */
 export interface EdgeSettingsState {
   status: 'idle' | 'loading' | 'ready' | 'error'
@@ -46,6 +53,11 @@ export interface EdgeSettingsState {
   approvalSaving: boolean
   approvalSaved: boolean
   approvalError?: string
+  mcpServers: McpServerEntry[]
+  mcpLoaded: boolean
+  mcpSaving: boolean
+  mcpError?: string
+  mcpRestartNeeded: boolean
 }
 
 /** Side-effect boundary used by the Edge settings controller. */
@@ -84,16 +96,18 @@ export class EdgeSettingsController {
   readonly store: SnapshotStore<EdgeSettingsState> = createSnapshotStore({
     status: 'idle', copied: false, signingOut: false,
     approvalMode: 'ask', approvalSaving: false, approvalSaved: false,
+    mcpServers: [], mcpLoaded: false, mcpSaving: false, mcpRestartNeeded: false,
   })
   private loadGeneration = 0
   private approvalGeneration = 0
+  private mcpGeneration = 0
 
   constructor(private readonly io: EdgeSettingsIO) {}
 
   /** Load the current deployment projection without affecting owner-session state. */
   async load(): Promise<void> {
     const generation = ++this.loadGeneration
-    this.store.update((state) => { state.status = 'loading'; delete state.error })
+    this.store.update((state) => { state.status = 'loading'; state.mcpLoaded = false; delete state.error })
     try {
       const healthResponse = await this.io.fetch('/api/health', { credentials: 'same-origin' })
       if (!healthResponse.ok) throw new Error(`HTTP ${String(healthResponse.status)}`)
@@ -129,6 +143,17 @@ export class EdgeSettingsController {
           this.store.update((state) => { state.approvalError = 'Could not load approval setting.' })
         }
       }
+
+      const mcpGen = ++this.mcpGeneration
+      try {
+        const mcpResponse = await this.io.fetch('/api/mcp-servers', { credentials: 'same-origin' })
+        if (mcpGen === this.mcpGeneration && mcpResponse.ok) {
+          const data = await mcpResponse.json() as { servers?: McpServerEntry[] }
+          if (mcpGen === this.mcpGeneration && Array.isArray(data.servers)) {
+            this.store.update((state) => { state.mcpServers = data.servers as McpServerEntry[]; state.mcpLoaded = true })
+          }
+        }
+      } catch { /* MCP list defaults to empty */ }
 
       let latestVersion: string | undefined
       try {
@@ -189,7 +214,42 @@ export class EdgeSettingsController {
     }
   }
 
+  async saveMcpServers(servers: McpServerEntry[]): Promise<boolean> {
+    this.mcpGeneration++
+    this.store.update((state) => { state.mcpSaving = true; delete state.mcpError })
+    try {
+      const response = await this.io.fetch('/api/mcp-servers', {
+        method: 'PUT',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ servers }),
+      })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({})) as { error?: string }
+        throw new Error(data.error ?? `HTTP ${String(response.status)}`)
+      }
+      const result = await response.json() as { servers?: McpServerEntry[]; restartRequired?: boolean }
+      this.store.update((state) => {
+        state.mcpServers = result.servers ?? servers
+        state.mcpSaving = false
+        state.mcpRestartNeeded = result.restartRequired === true
+      })
+      return true
+    } catch (error) {
+      this.store.update((state) => {
+        state.mcpSaving = false
+        state.mcpError = messageOf(error)
+      })
+      return false
+    }
+  }
+
   /** Copy the matching channel upgrade command without affecting deployment state. */
+  async restartRuntime(): Promise<void> {
+    await this.io.fetch('/api/restart', { method: 'POST', credentials: 'same-origin' }).catch(() => {})
+    this.io.navigate(globalThis.location?.pathname ?? '/')
+  }
+
   async copyUpgrade(): Promise<void> {
     try {
       const version = this.store.getSnapshot().health?.version ?? '0.0.0'

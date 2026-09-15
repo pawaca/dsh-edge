@@ -2,6 +2,7 @@
 
 import { initializeSchedules, nextSchedule, scheduleWakeTime, setScheduleRetry } from './schedule-store.ts'
 import { AsyncLocalStorage } from 'node:async_hooks'
+import type * as McpClient from '@deepseek-ai/dsh-mcp-client'
 
 import {
   getWorkspace,
@@ -396,6 +397,34 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
           await this.sessions.setApprovalMode(body.mode)
           return jsonResponse({ mode: body.mode })
         }
+      }
+      if (url.pathname === '/api/mcp-servers') {
+        if (request.method === 'GET') {
+          const servers = await this.sessions.getMcpServers()
+          return jsonResponse({ servers })
+        }
+        if (request.method === 'PUT') {
+          let body: { servers?: unknown }
+          try {
+            body = await request.json() as { servers?: unknown }
+          } catch {
+            return jsonResponse({ error: 'invalid JSON body' }, 400)
+          }
+          if (body === null || typeof body !== 'object' || !Array.isArray(body.servers)) {
+            return jsonResponse({ error: 'body must contain a servers array' }, 400)
+          }
+          try {
+            await this.sessions.setMcpServers(body.servers as Partial<McpClient.StreamableHttpConfig>[])
+          } catch (error) {
+            return jsonResponse({ error: error instanceof Error ? error.message : 'validation failed' }, 400)
+          }
+          const saved = await this.sessions.getMcpServers()
+          return jsonResponse({ servers: saved, restartRequired: true })
+        }
+      }
+      if (url.pathname === '/api/restart' && request.method === 'POST') {
+        this.ctx.abort('Restart requested')
+        return jsonResponse({ ok: true })
       }
       if (url.pathname.startsWith('/api/') && !url.pathname.startsWith('/api/sessions')) {
         const expected = request.headers.get('x-dsh-edge-turn-seq')

@@ -1,8 +1,8 @@
-import { useEffect, type ReactNode } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Button, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import type { ApprovalMode, EdgeSettingsState } from './store.ts'
+import type { ApprovalMode, McpServerEntry, EdgeSettingsState } from './store.ts'
 import { DSH_EDGE_RELEASES_URL } from './store.ts'
 import css from './EdgeSettingsSection.module.css'
 
@@ -12,6 +12,8 @@ export interface EdgeSettingsInjected {
   copyUpgrade(): Promise<void>
   signOut(): Promise<void>
   setApprovalMode(mode: ApprovalMode): Promise<void>
+  saveMcpServers(servers: McpServerEntry[]): Promise<boolean>
+  restartRuntime(): Promise<void>
 }
 
 export type EdgeSettingsSectionProps =
@@ -23,8 +25,75 @@ function Row({ label, value }: { label: string; value: ReactNode }): ReactNode {
   return <div className={css.row}><dt>{label}</dt><dd>{value}</dd></div>
 }
 
+interface McpServersCardProps {
+  servers: McpServerEntry[]
+  saving: boolean
+  error?: string | undefined
+  restartNeeded: boolean
+  disabled: boolean
+  onSave: (servers: McpServerEntry[]) => Promise<boolean>
+  onRestart: () => Promise<void>
+  t: EdgeSettingsSectionProps['t']
+}
+
+function McpServersCard(props: McpServersCardProps): ReactNode {
+  const { servers, saving, disabled, error, restartNeeded } = props
+  const onSave = props.onSave
+  const onRestart = props.onRestart
+  // eslint-disable-next-line @typescript-eslint/unbound-method -- t is a bound translate function passed from props
+  const t = props.t
+  const [draft, setDraft] = useState<{ serverName: string; url: string }>({ serverName: '', url: '' })
+  const addServer = useCallback(() => {
+    if (draft.serverName.trim() === '' || draft.url.trim() === '') return
+    void onSave([...servers, {
+      serverName: draft.serverName.trim(),
+      url: draft.url.trim(),
+    } as McpServerEntry]).then(ok => { if (ok) setDraft({ serverName: '', url: '' }) })
+  }, [draft, servers, onSave])
+  const removeServer = useCallback((name: string) => {
+    void onSave(servers.filter(s => s.serverName !== name))
+  }, [servers, onSave])
+
+  return (
+    <section className={css.card} aria-labelledby="edge-mcp-title">
+      <h3 id="edge-mcp-title">{t('mcpServers')}</h3>
+      <p>{t('mcpIntro')}</p>
+      {servers.length > 0 ? (
+        <ul className={css.mcpList}>
+          {servers.map(s => (
+            <li key={s.serverName} className={css.mcpItem}>
+              <span className={css.mcpName}>{s.serverName}</span>
+              <code className={css.mcpUrl}>{s.url}</code>
+              <Button variant="outline" size="sm" disabled={saving || disabled}
+                onClick={() => removeServer(s.serverName)}>{t('mcpRemove')}</Button>
+            </li>
+          ))}
+        </ul>
+      ) : <p className={css.notice}>{t('mcpEmpty')}</p>}
+      <div className={css.mcpAdd}>
+        <input className={css.input} placeholder={t('mcpNamePlaceholder')}
+          value={draft.serverName} disabled={saving || disabled}
+          onChange={e => setDraft(d => ({ ...d, serverName: e.target.value }))} />
+        <input className={css.input} placeholder={t('mcpUrlPlaceholder')}
+          value={draft.url} disabled={saving || disabled}
+          onChange={e => setDraft(d => ({ ...d, url: e.target.value }))} />
+        <Button variant="outline" size="sm"
+          disabled={saving || disabled || draft.serverName.trim() === '' || draft.url.trim() === ''}
+          onClick={addServer}>{t('mcpAdd')}</Button>
+      </div>
+      {restartNeeded ? (
+        <div className={css.restartBanner}>
+          <p>{t('mcpRestartNeeded')}</p>
+          <Button variant="outline" size="sm" onClick={() => { void onRestart() }}>{t('mcpRestart')}</Button>
+        </div>
+      ) : null}
+      {error !== undefined ? <p className={css.error} role="alert">{error}</p> : null}
+    </section>
+  )
+}
+
 export function EdgeSettingsSection(props: EdgeSettingsSectionProps): ReactNode {
-  const { useEdgeSettings, load, copyUpgrade, signOut, setApprovalMode, t } = props
+  const { useEdgeSettings, load, copyUpgrade, signOut, setApprovalMode, saveMcpServers, restartRuntime, t } = props
   useEffect(() => { void load() }, [load])
   const state = useEdgeSettings(snapshot => snapshot)
   const deploymentDetails = state.status === 'idle' || state.status === 'loading'
@@ -91,6 +160,16 @@ export function EdgeSettingsSection(props: EdgeSettingsSectionProps): ReactNode 
         {state.approvalSaved ? <p className={css.status}>{t('approvalSaved')}</p> : null}
         {state.approvalError !== undefined ? <p className={css.error} role="alert">{t('approvalError')}</p> : null}
       </section>
+      <McpServersCard
+        servers={state.mcpServers}
+        saving={state.mcpSaving}
+        error={state.mcpError}
+        restartNeeded={state.mcpRestartNeeded}
+        disabled={state.status !== 'ready' || !state.mcpLoaded}
+        onSave={saveMcpServers}
+        onRestart={restartRuntime}
+        t={t}
+      />
       <section className={css.card} aria-labelledby="edge-owner-title">
         <h3 id="edge-owner-title">{t('ownerSession')}</h3>
         <p>{t('ownerIntro')}</p>
