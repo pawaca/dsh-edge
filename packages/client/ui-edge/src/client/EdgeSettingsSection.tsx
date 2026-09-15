@@ -80,6 +80,7 @@ export function EdgeSettingsSection(props: EdgeSettingsSectionProps): ReactNode 
               className={css.select}
               value={state.approvalMode}
               disabled={state.approvalSaving}
+              aria-label={t('approvalMode')}
               onChange={e => { void setApprovalMode(e.target.value as ApprovalMode) }}
             >
               <option value="ask">{t('approvalAsk')}</option>

@@ -50,7 +50,7 @@
     - heading "Tool permissions" [level=3]
     - term: Web fetch and MCP tools
     - definition:
-      - combobox:
+      - combobox "Web fetch and MCP tools":
         - option "Always ask before running" [selected]
         - option "Trust all (no confirmation)"
   - region "Owner session":

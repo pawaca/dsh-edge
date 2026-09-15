@@ -384,7 +384,12 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
           return jsonResponse({ mode })
         }
         if (request.method === 'PUT') {
-          const body = await request.json() as { mode?: string }
+          let body: { mode?: string }
+          try {
+            body = await request.json() as { mode?: string }
+          } catch {
+            return jsonResponse({ error: 'invalid JSON body' }, 400)
+          }
           if (body.mode !== 'ask' && body.mode !== 'never') {
             return jsonResponse({ error: 'mode must be "ask" or "never"' }, 400)
           }
