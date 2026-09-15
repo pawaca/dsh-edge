@@ -138,6 +138,7 @@ interface EdgeSessionStoreConfig {
   withWorkspaceFiles<T>(read: (files: EdgeWorkspaceFiles) => Promise<T>): Promise<T>
   onLateSessionEvent?: (sessionId: SessionId, event: SessionEvent) => void
   onProjectionChanged?: (sessionId: SessionId, key: string, value: unknown, seq: number) => void
+  approvalDefaultMode?: EdgeApprovalMode
 }
 
 interface TurnDeliveryItem {
@@ -540,7 +541,9 @@ export class EdgeSessionStore {
     // streams through the gateway's own pending-event bookkeeping.
     await this.context.plugin(ApiRemotes)
     await this.context.plugin(ApprovalService, { policy: 'ask' })
-    this.approvalScope = installEdgeApprovalPolicy(this.context)
+    this.approvalScope = installEdgeApprovalPolicy(this.context, {
+      defaultMode: config.approvalDefaultMode,
+    })
     await this.context.plugin(ToolFs)
     await this.context.plugin(ToolSkill)
     await this.context.plugin(GoalService)

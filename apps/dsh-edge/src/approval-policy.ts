@@ -24,8 +24,21 @@ function needsApproval(exec: ToolExecution): boolean {
   return GATED_TOOLS.has(exec.name) || exec.name.startsWith('mcp__')
 }
 
-export function installEdgeApprovalPolicy(ctx: Context): SettingsScope<EdgeApprovalSettings> {
-  const scope = ctx.settings.register(APPROVAL_SETTINGS_NAMESPACE, EdgeApprovalSchema)
+export interface EdgeApprovalPolicyOptions {
+  defaultMode?: EdgeApprovalMode | undefined
+}
+
+export function installEdgeApprovalPolicy(
+  ctx: Context,
+  options?: EdgeApprovalPolicyOptions,
+): SettingsScope<EdgeApprovalSettings> {
+  const schema = options?.defaultMode === 'never'
+    ? Schema.object({
+      mode: Schema.union([Schema.const('ask' as const), Schema.const('never' as const)]).default('never' as const),
+    }) as Schema<EdgeApprovalSettings>
+    : EdgeApprovalSchema
+
+  const scope = ctx.settings.register(APPROVAL_SETTINGS_NAMESPACE, schema)
 
   ctx.on('tools/pre-execute', (exec, next) => {
     if (!needsApproval(exec)) return next()

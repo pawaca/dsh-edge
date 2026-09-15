@@ -112,15 +112,17 @@ export class EdgeSettingsController {
 
       try {
         const approvalResponse = await this.io.fetch('/api/approval-mode', { credentials: 'same-origin' })
+        if (generation !== this.loadGeneration) return
         if (approvalResponse.ok) {
           const data = await approvalResponse.json() as { mode?: string }
           if (data.mode === 'ask' || data.mode === 'never') {
-            this.store.update((state) => { state.approvalMode = data.mode as ApprovalMode })
+            this.store.update((state) => { state.approvalMode = data.mode as ApprovalMode; delete state.approvalError })
           }
         } else {
           this.store.update((state) => { state.approvalError = `HTTP ${String(approvalResponse.status)}` })
         }
       } catch {
+        if (generation !== this.loadGeneration) return
         this.store.update((state) => { state.approvalError = 'Could not load approval setting.' })
       }
 
