@@ -6,7 +6,14 @@ describe('runtime model readiness', () => {
     const store = { ready: Promise.resolve(), context: {
       get: () => ({}), llm: { listProviders: () => providers },
     } }
+    // Ordinary request gating succeeds; only the installer readiness check fails.
+    await expect(EdgeSessionStore.prototype.waitForInitialization.call(store as never)).resolves.toBeUndefined()
     await expect(EdgeSessionStore.prototype.assertReady.call(store as never)).rejects.toThrow('Required model adapter is unavailable')
+  })
+
+  it('still rejects ordinary requests when session initialization itself failed', async () => {
+    const store = { ready: Promise.reject(new Error('session migration failed')) }
+    await expect(EdgeSessionStore.prototype.waitForInitialization.call(store as never)).rejects.toThrow('session migration failed')
   })
 
   it('accepts a registered DeepSeek adapter without contacting the provider', async () => {

@@ -363,7 +363,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
             ...this.env.CF_VERSION_METADATA === undefined ? {} : { workerVersionId: this.env.CF_VERSION_METADATA.id } }, 503)
         }
       }
-      await this.sessions.assertReady()
+      await this.sessions.waitForInitialization()
       const typertResponse = await this.handleTypertRpc(request, url)
       if (typertResponse !== undefined) return typertResponse
       if (url.pathname === '/api/events.mux' || url.pathname === '/api/events.host') {

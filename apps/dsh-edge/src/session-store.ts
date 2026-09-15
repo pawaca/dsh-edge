@@ -661,6 +661,11 @@ export class EdgeSessionStore {
     }
   }
 
+  /** Non-model APIs remain available when the optional model adapter failed. */
+  async waitForInitialization(): Promise<void> {
+    await this.ready
+  }
+
   /** Upgrade readiness includes the services behind the browser's live streams. */
   async assertReady(): Promise<void> {
     await this.ready
