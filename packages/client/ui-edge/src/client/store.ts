@@ -117,8 +117,12 @@ export class EdgeSettingsController {
           if (data.mode === 'ask' || data.mode === 'never') {
             this.store.update((state) => { state.approvalMode = data.mode as ApprovalMode })
           }
+        } else {
+          this.store.update((state) => { state.approvalError = `HTTP ${String(approvalResponse.status)}` })
         }
-      } catch { /* approval state defaults to 'ask' */ }
+      } catch {
+        this.store.update((state) => { state.approvalError = 'Could not load approval setting.' })
+      }
 
       let latestVersion: string | undefined
       try {
