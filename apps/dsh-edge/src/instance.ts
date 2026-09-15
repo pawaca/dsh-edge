@@ -390,7 +390,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
           } catch {
             return jsonResponse({ error: 'invalid JSON body' }, 400)
           }
-          if (body.mode !== 'ask' && body.mode !== 'never') {
+          if (body === null || typeof body !== 'object' || (body.mode !== 'ask' && body.mode !== 'never')) {
             return jsonResponse({ error: 'mode must be "ask" or "never"' }, 400)
           }
           await this.sessions.setApprovalMode(body.mode)
