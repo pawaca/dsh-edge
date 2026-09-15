@@ -117,6 +117,7 @@ export class EdgeSettingsController {
         if (approvalGen !== this.approvalGeneration) return
         if (approvalResponse.ok) {
           const data = await approvalResponse.json() as { mode?: string }
+          if (approvalGen !== this.approvalGeneration) return
           if (data.mode === 'ask' || data.mode === 'never') {
             this.store.update((state) => { state.approvalMode = data.mode as ApprovalMode; delete state.approvalError })
           }
