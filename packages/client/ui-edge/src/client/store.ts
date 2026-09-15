@@ -54,6 +54,7 @@ export interface EdgeSettingsState {
   approvalSaved: boolean
   approvalError?: string
   mcpServers: McpServerEntry[]
+  mcpLoaded: boolean
   mcpSaving: boolean
   mcpError?: string
   mcpRestartNeeded: boolean
@@ -95,7 +96,7 @@ export class EdgeSettingsController {
   readonly store: SnapshotStore<EdgeSettingsState> = createSnapshotStore({
     status: 'idle', copied: false, signingOut: false,
     approvalMode: 'ask', approvalSaving: false, approvalSaved: false,
-    mcpServers: [], mcpSaving: false, mcpRestartNeeded: false,
+    mcpServers: [], mcpLoaded: false, mcpSaving: false, mcpRestartNeeded: false,
   })
   private loadGeneration = 0
   private approvalGeneration = 0
@@ -149,7 +150,7 @@ export class EdgeSettingsController {
         if (mcpGen === this.mcpGeneration && mcpResponse.ok) {
           const data = await mcpResponse.json() as { servers?: McpServerEntry[] }
           if (mcpGen === this.mcpGeneration && Array.isArray(data.servers)) {
-            this.store.update((state) => { state.mcpServers = data.servers as McpServerEntry[] })
+            this.store.update((state) => { state.mcpServers = data.servers as McpServerEntry[]; state.mcpLoaded = true })
           }
         }
       } catch { /* MCP list defaults to empty */ }

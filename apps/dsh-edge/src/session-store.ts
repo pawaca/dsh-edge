@@ -898,6 +898,7 @@ export class EdgeSessionStore {
 
   async setMcpServers(servers: Partial<McpClient.StreamableHttpConfig>[]): Promise<void> {
     await this.ready
+    const seen = new Set<string>()
     const validated = servers.map(s => {
       if (s.transport !== undefined && s.transport !== 'streamable-http') {
         throw new Error('Only streamable-http transport is supported on Cloudflare Workers.')
@@ -905,8 +906,22 @@ export class EdgeSessionStore {
       if (typeof s.serverName !== 'string' || !/^[A-Za-z0-9_-]{1,32}$/u.test(s.serverName)) {
         throw new Error('serverName must match [A-Za-z0-9_-]{1,32}.')
       }
-      if (typeof s.url !== 'string' || !s.url.startsWith('http')) {
+      if (seen.has(s.serverName)) {
+        throw new Error(`Duplicate serverName "${s.serverName}".`)
+      }
+      seen.add(s.serverName)
+      if (typeof s.url !== 'string') {
+        throw new Error('url is required.')
+      }
+      let parsed: URL
+      try { parsed = new URL(s.url) } catch {
         throw new Error('url must be a valid HTTP(S) URL.')
+      }
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        throw new Error('url must use http: or https: protocol.')
+      }
+      if (parsed.username.length > 0 || parsed.password.length > 0) {
+        throw new Error('url must not contain credentials; use the credential provider.')
       }
       return {
         transport: 'streamable-http' as const,

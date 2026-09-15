@@ -32,6 +32,7 @@ const READY: EdgeSettingsState = {
   approvalSaving: false,
   approvalSaved: false,
   mcpServers: [],
+  mcpLoaded: true,
   mcpSaving: false,
   mcpRestartNeeded: false,
 }
@@ -71,7 +72,7 @@ describe('Edge settings section', () => {
       useEdgeSettings={selector => selector({
         status: 'error', error: 'private transport detail', copied: false, signingOut: false,
         approvalMode: 'ask', approvalSaving: false, approvalSaved: false,
-        mcpServers: [], mcpSaving: false, mcpRestartNeeded: false,
+        mcpServers: [], mcpLoaded: false, mcpSaving: false, mcpRestartNeeded: false,
       })}
       load={load}
       copyUpgrade={vi.fn(() => Promise.resolve())}

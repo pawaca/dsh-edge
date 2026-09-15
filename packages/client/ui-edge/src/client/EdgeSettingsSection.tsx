@@ -165,7 +165,7 @@ export function EdgeSettingsSection(props: EdgeSettingsSectionProps): ReactNode 
         saving={state.mcpSaving}
         error={state.mcpError}
         restartNeeded={state.mcpRestartNeeded}
-        disabled={state.status !== 'ready'}
+        disabled={state.status !== 'ready' || !state.mcpLoaded}
         onSave={saveMcpServers}
         onRestart={restartRuntime}
         t={t}
