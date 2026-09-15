@@ -7,10 +7,12 @@ export const ACTIVATION_RETRY_MS = 1_500
 
 const MAX_HEALTH_BYTES = 64 * 1024
 
-/** Observe when Cloudflare serves the exact Worker release without making it an install gate. */
+/** Verify the exact uploaded release and its authenticated runtime before reporting ready. */
 export async function observePublicActivation({
   publicUrl,
   mode,
+  ownerSecret,
+  versionId,
   fetchImpl = globalThis.fetch,
   now = Date.now,
   requestTimeoutMs = ACTIVATION_REQUEST_TIMEOUT_MS,
@@ -29,6 +31,7 @@ export async function observePublicActivation({
 
   const healthUrl = publicHealthUrl(publicUrl)
   const expected = {
+    workerVersionId: versionId,
     deploymentId: `dsh-edge@${edgePackage.version}/${mode}`,
     shell: mode === 'direct' ? 'just-bash-direct' : 'just-bash-isolated',
   }
@@ -59,12 +62,18 @@ export async function observePublicActivation({
       if (response.ok) {
         const health = await readBoundedJson(response, MAX_HEALTH_BYTES)
         if (isExpectedHealth(health, expected)) {
-          return activationResult('ready', attempts, startedAt, now())
+          if (typeof ownerSecret !== 'string' || Buffer.byteLength(ownerSecret, 'utf8') < 32 || Buffer.byteLength(ownerSecret, 'utf8') > 512) {
+            throw new RuntimeActivationError('Runtime verification requires the owner access key.')
+          }
+          if (await verifyRuntime({ publicUrl, ownerSecret, fetchImpl, signal: requestSignal, expected })) {
+            return activationResult('ready', attempts, startedAt, now())
+          }
         }
       } else {
         await response.body?.cancel()
       }
-    } catch {
+    } catch (error) {
+      if (error instanceof RuntimeActivationError) throw error
       if (signal?.aborted) signal.throwIfAborted()
       // DNS, routing, challenge, timeout, and placeholder responses are all
       // transient observations until the bounded wait expires.
@@ -85,6 +94,8 @@ export function isExpectedHealth(value, expected) {
     && value.deploymentId === expected.deploymentId
     && value.shell === expected.shell
     && value.version === edgePackage.version
+    && typeof expected.workerVersionId === 'string' && expected.workerVersionId.length > 0
+    && value.workerVersionId === expected.workerVersionId
 }
 
 function publicHealthUrl(publicUrl) {
@@ -130,4 +141,32 @@ function activationResult(status, attempts, startedAt, finishedAt) {
     elapsedMs: Math.max(0, finishedAt - startedAt),
     status,
   }
+}
+
+/** An upload succeeded, but its application is definitively not ready. */
+export class RuntimeActivationError extends Error {}
+
+async function verifyRuntime({ publicUrl, ownerSecret, fetchImpl, signal, expected }) {
+  // Login and readiness use the same validated origin. Never follow redirects
+  // with owner credentials, and keep the short-lived probe cookie in memory.
+  const login = await fetchImpl(new URL('/api/auth/login', publicUrl).href, {
+    method: 'POST', redirect: 'manual', signal,
+    headers: { 'content-type': 'application/x-www-form-urlencoded', origin: new URL(publicUrl).origin },
+    body: new URLSearchParams({ accessKey: ownerSecret }).toString(),
+  })
+  const cookie = login.headers.get('set-cookie')?.split(';', 1)[0]
+  await login.body?.cancel()
+  // A same-version deployment may still serve the previous owner key during propagation.
+  if (login.status === 401) return false
+  if (login.status !== 303 || !/^__Host-dsh_edge_owner=v1\.[0-9]+\.[A-Za-z0-9_-]+$/u.test(cookie ?? '')) return false
+  const response = await fetchImpl(new URL('/api/ready', publicUrl).href, {
+    redirect: 'manual', signal,
+    headers: { accept: 'application/json', 'cache-control': 'no-cache', cookie },
+  })
+  const state = await readBoundedJson(response, MAX_HEALTH_BYTES)
+  if (response.status === 503 && state?.code === 'runtime-initialization-failed'
+    && state.workerVersionId === expected.workerVersionId) {
+    throw new RuntimeActivationError('Worker uploaded, but session or workspace initialization failed. Upgrade is not ready. Do not delete stored data; install a compatible release. No automatic rollback was attempted.')
+  }
+  return response.ok && state?.runtime === true && isExpectedHealth(state, expected)
 }

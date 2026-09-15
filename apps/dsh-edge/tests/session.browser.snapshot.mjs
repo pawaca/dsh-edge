@@ -486,6 +486,20 @@ describe('dsh-edge assembled browser snapshot', () => {
         return { status: response.status, body: await response.text() }
       }, probePath)
       expect(downloaded).toEqual({ status: 200, body: 'download probe body' })
+      // Canonical V3 user cancellation settles the composer without a generic Error.
+      const beforeCancelRequests = mock.requests.filter(r => r.max_tokens !== 32).length
+      await liveComposer.fill('slow response for cancellation display')
+      await page.getByRole('button', { name: 'Send message', exact: true }).click()
+      await expect.poll(() => mock.requests.filter(r => r.max_tokens !== 32).length,
+        { timeout: 15_000 }).toBe(beforeCancelRequests + 1)
+      const cancelStatus = await page.evaluate(async id =>
+        (await fetch(`/api/sessions/${id}/cancel`, { method: 'POST' })).status, sourceId)
+      expect(cancelStatus).toBe(202)
+      await expect.poll(() => page.getByRole('button', { name: 'Send message', exact: true }).count(),
+        { timeout: 15_000 }).toBe(1)
+      expect(await page.locator('body').innerText()).not.toContain('[object Object]')
+      mock.releaseSlowResponses()
+
       expect(pageErrors).toEqual([])
 
       await page.waitForSelector('[class*="frame"]', { timeout: 15_000 })
@@ -513,6 +527,7 @@ describe('dsh-edge assembled browser snapshot', () => {
     } finally {
       await browser?.close()
       await worker?.stop()
+      mock.releaseSlowResponses()
       await mock.close()
       rmSync(persistedState, { recursive: true, force: true })
     }

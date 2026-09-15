@@ -794,14 +794,11 @@ describe('dsh-edge guided installation', () => {
         'Claim URL: https://dash.cloudflare.com/claim-preview?token=claim-secret',
       )
     })
+    const observeActivation = vi.fn().mockResolvedValue({ attempts: 4, elapsedMs: 4_500, status: 'ready' })
     const result = await installEdge({
       ui,
       runWrangler,
-      observeActivation: vi.fn().mockResolvedValue({
-        attempts: 4,
-        elapsedMs: 4_500,
-        status: 'ready',
-      }),
+      observeActivation,
       environment: {
         CLOUDFLARE_API_TOKEN: 'must-not-leak',
         PATH: '/bin',
@@ -815,6 +812,7 @@ describe('dsh-edge guided installation', () => {
       temporary: true,
       activation: { attempts: 4, elapsedMs: 4_500, status: 'ready' },
     })
+    expect(observeActivation).toHaveBeenCalledWith(expect.objectContaining({ versionId: 'version-1' }))
     expect(deployEnvironment?.CLOUDFLARE_API_TOKEN).toBeUndefined()
     expect(deployEnvironment?.XDG_CONFIG_HOME).toBe(dirname(secretsPath))
     await expect(stat(secretsPath)).rejects.toThrow()

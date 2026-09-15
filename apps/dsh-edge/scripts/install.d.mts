@@ -166,6 +166,8 @@ export function installEdge(options: {
   createTemporaryDirectory?: () => Promise<string>
   removePath?: typeof import('node:fs/promises').rm
   observeActivation?: (options: {
+    ownerSecret: string
+    versionId?: string
     publicUrl: string
     mode: RuntimeMode
     signal?: AbortSignal

@@ -7,6 +7,7 @@ export interface ActivationObservation {
 }
 
 export interface ExpectedHealth {
+  workerVersionId: string
   deploymentId: string
   shell: 'just-bash-direct' | 'just-bash-isolated'
 }
@@ -18,6 +19,8 @@ export const ACTIVATION_RETRY_MS: number
 export function observePublicActivation(options: {
   publicUrl: string
   mode: RuntimeMode
+  ownerSecret?: string
+  versionId?: string
   fetchImpl?: typeof fetch
   now?: () => number
   requestTimeoutMs?: number
@@ -32,3 +35,5 @@ export function observePublicActivation(options: {
 }): Promise<ActivationObservation>
 
 export function isExpectedHealth(value: unknown, expected: ExpectedHealth): boolean
+
+export class RuntimeActivationError extends Error {}

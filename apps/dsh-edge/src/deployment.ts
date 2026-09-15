@@ -22,6 +22,7 @@ const LOCAL_DEPLOYMENT_ID = 'local-development'
 
 /** Worker variables that control one Edge model and shell turn. */
 export interface EdgeDeploymentConfigSource {
+  CF_VERSION_METADATA?: { id: string }
   LOADER?: unknown
   DSH_EDGE_ATTACHMENTS?: unknown
   DEEPSEEK_API_KEY?: string
@@ -147,6 +148,7 @@ export function resolveEdgeDeploymentHealth(source: EdgeDeploymentConfigSource) 
     agent: 'upstream-react-loop-agent',
     access: 'single-owner-cookie',
     deploymentId: profile.deploymentId,
+    ...source.CF_VERSION_METADATA === undefined ? {} : { workerVersionId: source.CF_VERSION_METADATA.id },
     version: DSH_EDGE_VERSION,
     upstreamVersion: DSH_EDGE_UPSTREAM_VERSION,
     status: 'ready',

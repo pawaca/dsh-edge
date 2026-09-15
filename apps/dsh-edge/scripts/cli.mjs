@@ -279,9 +279,9 @@ export function createInstallerUi(
     },
     activationFinish(result) {
       if (activationSpinner === undefined) return
-      if (result?.status === 'ready') activationSpinner.stop('Public URL is ready.')
+      if (result?.status === 'ready') activationSpinner.stop('Chat and workspace services are ready.')
       else if (result?.status === 'pending') {
-        activationSpinner.stop('Worker uploaded; public URL activation is still pending.')
+        activationSpinner.stop('Worker uploaded; application readiness is not yet verified.')
       } else {
         activationSpinner.stop('Stopped waiting for public URL activation.')
       }
@@ -319,9 +319,9 @@ export function createInstallerUi(
         ...(result.activation?.status === 'ready'
           ? ['Status: Ready']
           : [
-              'Status: Cloudflare is still activating the public URL.',
-              'First-time workers.dev activation can take about a minute.',
-              'If the URL shows a placeholder, wait a moment and refresh.',
+              'Status: Application readiness has not been verified.',
+              'The public URL or application may still be starting.',
+              'Open the URL and confirm your chats and workspaces load before using it.',
             ]),
         '',
         `URL: ${result.publicUrl}`,
@@ -349,11 +349,11 @@ export function createInstallerUi(
       const ready = result.activation?.status === 'ready'
       const title = ready
         ? (command === 'upgrade' ? 'dsh-edge upgrade is live' : 'dsh-edge is ready')
-        : 'Worker uploaded — activation pending'
+        : 'Worker uploaded — readiness unverified'
       note(lines.join('\n'), title)
       const outro = ready
         ? (command === 'upgrade' ? 'Your dsh-edge upgrade is live.' : 'Your dsh-edge is ready.')
-        : `${command === 'upgrade' ? 'Upgrade' : 'Installation'} succeeded; Cloudflare is still activating the public URL.`
+        : 'Worker uploaded; application readiness remains unverified.'
       log(clack.outro, outro)
     },
   }

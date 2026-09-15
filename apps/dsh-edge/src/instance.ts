@@ -37,6 +37,7 @@ import {
 } from './deepseek.ts'
 import {
   resolveEdgeDeploymentConfig,
+  resolveEdgeDeploymentHealth,
   resolveEdgeDeploymentProfile,
 } from './deployment.ts'
 import {
@@ -174,6 +175,7 @@ function applySessionListMetadata(
 
 /** Bindings shared by the entry Worker and each workspace Durable Object. */
 export interface EdgeEnv {
+  CF_VERSION_METADATA?: { id: string }
   DSH_EDGE_INSTANCE: DurableObjectNamespace<DshEdgeInstance>
   ASSETS: Fetcher
   LOADER?: WorkerShellLoader
@@ -350,6 +352,18 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
   override async fetch(request: Request): Promise<Response> {
     try {
       const url = new URL(request.url)
+      if (url.pathname === '/api/ready' && request.method === 'GET') {
+        try {
+          await this.sessions.assertReady()
+          return jsonResponse({ ...resolveEdgeDeploymentHealth(this.env), runtime: true })
+        } catch {
+          // Never return codec payloads, credentials, or stored event contents.
+          return jsonResponse({ ok: false, service: 'dsh-edge', status: 'unavailable',
+            code: 'runtime-initialization-failed',
+            ...this.env.CF_VERSION_METADATA === undefined ? {} : { workerVersionId: this.env.CF_VERSION_METADATA.id } }, 503)
+        }
+      }
+      await this.sessions.waitForInitialization()
       const typertResponse = await this.handleTypertRpc(request, url)
       if (typertResponse !== undefined) return typertResponse
       if (url.pathname === '/api/events.mux' || url.pathname === '/api/events.host') {
@@ -499,7 +513,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
           timer = setTimeout(() => {
             interrupted = true
             claimed.turn.cancelRequested = true
-            claimed.handle.agent.cancel({ kind: 'user', message: 'turn deadline exceeded' } as { kind: 'user' })
+            claimed.handle.agent.cancel({ kind: 'user' })
           }, Math.max(1, claim.deadline - Date.now()))
           await this.runClaimedTurn({ claimed, commandTimeoutPolicy, mode: 'queue',
             message: input.message, content: input.message.content,
@@ -1444,7 +1458,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         ),
       },
       afterFollowup: () => {
-        if (input.turn.cancelRequested) input.agent.cancel({ kind: 'user', message: 'turn was cancelled' } as { kind: 'user' })
+        if (input.turn.cancelRequested) input.agent.cancel({ kind: 'user' })
       },
       ...input.onAdmitted === undefined ? {} : { onAdmitted: input.onAdmitted },
       ...input.onClosing === undefined ? {} : { onClosing: input.onClosing },
@@ -1482,7 +1496,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     const active = this.activeTurns.get(sessionId)
     if (active === undefined || (this.controlTarget.getStore() !== undefined && this.controlTarget.getStore() !== active.turnId)) return false
     active.cancelRequested = true
-    active.agent?.cancel({ kind: 'user', message: 'cancelled by the user' } as { kind: 'user' })
+    active.agent?.cancel({ kind: 'user' })
     return true
   }
 

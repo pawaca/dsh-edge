@@ -813,6 +813,8 @@ export async function installEdge({
         const activation = await observeActivation({
           mode,
           publicUrl: result.publicUrl,
+          ownerSecret: result.ownerSecret,
+          versionId: result.versionId,
           signal,
         })
         result = { ...result, activation }

@@ -591,7 +591,7 @@ describe('dsh-edge CLI', () => {
       'Activating the public URL… Cloudflare usually takes 10–30 seconds.',
     )
     expect(stop).toHaveBeenLastCalledWith(
-      'Worker uploaded; public URL activation is still pending.',
+      'Worker uploaded; application readiness is not yet verified.',
     )
   })
 
@@ -611,14 +611,14 @@ describe('dsh-edge CLI', () => {
     })
 
     expect(note).toHaveBeenCalledWith(expect.stringContaining(
-      'Status: Cloudflare is still activating the public URL.',
-    ), 'Worker uploaded — activation pending')
+      'Status: Application readiness has not been verified.',
+    ), 'Worker uploaded — readiness unverified')
     expect(note).toHaveBeenCalledWith(expect.stringContaining(
       '1. Open the URL above.\n2. Enter the owner access key when prompted.\n'
       + '3. Save the owner access key for future upgrades.',
-    ), 'Worker uploaded — activation pending')
+    ), 'Worker uploaded — readiness unverified')
     expect(outro).toHaveBeenCalledWith(
-      'Installation succeeded; Cloudflare is still activating the public URL.',
+      'Worker uploaded; application readiness remains unverified.',
     )
   })
 
@@ -660,7 +660,7 @@ describe('dsh-edge CLI', () => {
     expect(note).toHaveBeenCalledWith(expect.stringContaining(
       '1. Claim this temporary account within 60 minutes to keep the Worker and its data.\n'
       + '2. Open the URL above.\n3. Enter the owner access key when prompted.',
-    ), 'Worker uploaded — activation pending')
+    ), 'Worker uploaded — readiness unverified')
   })
 
   it.each([

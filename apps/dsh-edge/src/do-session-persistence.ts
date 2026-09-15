@@ -425,7 +425,27 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
     if (errors.length > 0) throw new AggregateError(errors)
   }
 
-  private migrateSession(id: SessionId, row: HeaderRow): void {
+  private migrateSession(id: SessionId, row: HeaderRow, inTransaction = false,
+    eventTable: EventTable = 'dsh_session_events'): void {
+    const prepared = this.prepareMigration(id, row)
+    if (prepared === undefined) return
+    const commit = () => {
+      if (eventTable === 'dsh_session_events') {
+        this.storage.sql.exec('DELETE FROM dsh_session_events WHERE session_id = ?', id)
+      }
+      this.storage.sql.exec(
+        `UPDATE dsh_sessions SET version = ?, seed_length = ?, revision = revision + 1 WHERE id = ?`,
+        prepared.version, prepared.seedLength, id,
+      )
+      for (const record of prepared.packed) this.insertStorageRecord(id, record, eventTable)
+      if (eventTable === 'dsh_session_events') this.recomputeSummary(id)
+    }
+    if (inTransaction) commit()
+    else this.storage.transactionSync(commit)
+  }
+
+  /** Decode without writes so a bad later log cannot repeatedly burn earlier writes. */
+  private prepareMigration(id: SessionId, row: HeaderRow) {
     const headerJson = {
       type: 'session',
       version: row.version,
@@ -468,28 +488,18 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
           : { surfaceOp: JSON.parse(eventRow.surface_op) as string },
         ...eventRow.ignorable === 1 ? { ignorable: true } : {},
       }
+      if (row.version === 0 && record.type === 'turn/end') {
+        record.data = normalizeLegacyEdgeCancellation(record.data)
+      }
       restore.decodeRow(record)
     }
     const artifact = restore.finish()
-    this.storage.transactionSync(() => {
-      this.storage.sql.exec(
-        'DELETE FROM dsh_session_events WHERE session_id = ?',
-        id,
-      )
-      this.storage.sql.exec(
-        `UPDATE dsh_sessions SET version = ?, seed_length = ? WHERE id = ?`,
-        artifact.header.version,
-        artifact.inheritedEventCount > 0 ? artifact.inheritedEventCount : null,
-        id,
-      )
-      const packed = packChunkRuns(artifact.events as SessionEvent[])
-      for (const record of packed) this.insertStorageRecord(id, record)
-      this.storage.sql.exec(
-        'UPDATE dsh_sessions SET revision = revision + 1 WHERE id = ?',
-        id,
-      )
-      this.recomputeSummary(id)
-    })
+    return {
+      version: artifact.header.version,
+      seedLength: artifact.inheritedEventCount > 0 ? artifact.inheritedEventCount : null,
+      physicalRows: eventRows.length,
+      packed: packChunkRuns(artifact.events as SessionEvent[]),
+    }
   }
 
   async stat(
@@ -899,6 +909,20 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
     return this.eventRows(id, fromSeq)
   }
 
+  private createEventTable(name: EventTable): void {
+    this.storage.sql.exec(`CREATE TABLE IF NOT EXISTS ${name} (
+      session_id TEXT NOT NULL REFERENCES dsh_sessions(id) ON DELETE CASCADE,
+      seq INTEGER NOT NULL,
+      type TEXT NOT NULL,
+      time INTEGER NOT NULL,
+      data TEXT NOT NULL,
+      source_event_seqs TEXT,
+      surface_op TEXT,
+      ignorable INTEGER,
+      PRIMARY KEY (session_id, seq)
+    ) STRICT`)
+  }
+
   private initialize(): string {
     this.storage.sql.exec('PRAGMA foreign_keys = ON')
     return this.storage.transactionSync(() => {
@@ -939,17 +963,7 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
         incarnation TEXT NOT NULL,
         revision INTEGER NOT NULL
       ) STRICT`)
-      this.storage.sql.exec(`CREATE TABLE IF NOT EXISTS dsh_session_events (
-        session_id TEXT NOT NULL REFERENCES dsh_sessions(id) ON DELETE CASCADE,
-        seq INTEGER NOT NULL,
-        type TEXT NOT NULL,
-        time INTEGER NOT NULL,
-        data TEXT NOT NULL,
-        source_event_seqs TEXT,
-        surface_op TEXT,
-        ignorable INTEGER,
-        PRIMARY KEY (session_id, seq)
-      ) STRICT`)
+      this.createEventTable('dsh_session_events')
       this.storage.sql.exec(`CREATE TABLE IF NOT EXISTS dsh_edge_blank_sessions (
         id TEXT PRIMARY KEY,
         version INTEGER NOT NULL,
@@ -977,8 +991,12 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
   }
 
   private postInitialize(): void {
-    this.migrateStoredSessions()
-    this.syncSummaries()
+    // Commit the whole startup upgrade together. An incompatible later session
+    // must also roll back earlier sessions, summaries, and blank header versions.
+    this.storage.transactionSync(() => {
+      this.migrateStoredSessions()
+      this.syncSummaries()
+    })
   }
 
   private migrateStoredSessions(): void {
@@ -988,14 +1006,52 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
        FROM dsh_sessions WHERE version != ?`,
       SESSION_FORMAT_VERSION,
     ).toArray()
-    for (const row of outdated) {
-      this.migrateSession(row.id as SessionId, row)
+    if (outdated.length > 0) {
+      // Validate every old log before the first migration write. Discard each
+      // artifact after preflight to avoid retaining all decoded histories at once.
+      // The second decode runs synchronously in the same transaction/snapshot.
+      let legacy = 0
+      for (const row of outdated) legacy += this.prepareMigration(row.id as SessionId, row)?.physicalRows ?? 0
+      const rebuild = this.isEventTableRebuildCheaper(legacy)
+      const target: EventTable = rebuild ? 'dsh_session_events_migrating' : 'dsh_session_events'
+      if (rebuild) {
+        this.createEventTable(target)
+        this.storage.sql.exec(
+          `INSERT INTO dsh_session_events_migrating
+           SELECT e.* FROM dsh_sessions s CROSS JOIN dsh_session_events e ON e.session_id = s.id
+           WHERE s.version = ?`, SESSION_FORMAT_VERSION,
+        )
+      }
+      for (const row of outdated) {
+        this.migrateSession(row.id as SessionId, row, true, target)
+      }
+      if (rebuild) {
+        this.storage.sql.exec('DROP TABLE dsh_session_events')
+        this.storage.sql.exec('ALTER TABLE dsh_session_events_migrating RENAME TO dsh_session_events')
+      }
     }
     this.storage.sql.exec(
       'UPDATE dsh_edge_blank_sessions SET version = ? WHERE version < ?',
       SESSION_FORMAT_VERSION,
       SESSION_FORMAT_VERSION,
     )
+  }
+
+  private isEventTableRebuildCheaper(legacy: number): boolean {
+    // INSERT includes the primary-key index; allow 32 catalog writes for a swap.
+    // One set-based probe caps event reads and SQL calls independently of the
+    // number of current sessions. CROSS JOIN fixes headers as the outer loop,
+    // so SQLite seeks the event primary key instead of scanning legacy events.
+    const allowance = Math.floor((legacy - 33) / 2)
+    if (allowance < 0) return false
+    const count = this.storage.sql.exec<{ count: number }>(
+      `SELECT COUNT(*) AS count FROM (
+        SELECT e.seq FROM dsh_sessions s
+        CROSS JOIN dsh_session_events e ON e.session_id = s.id
+        WHERE s.version = ? LIMIT ?
+      )`, SESSION_FORMAT_VERSION, allowance + 1,
+    ).toArray()[0]?.count ?? 0
+    return count <= allowance
   }
 
   private syncSummaries(): void {
@@ -1225,12 +1281,13 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
     )
   }
 
-  private insertStorageRecord(id: SessionId, record: Record<string, unknown>): void {
+  private insertStorageRecord(id: SessionId, record: Record<string, unknown>,
+    eventTable: EventTable = 'dsh_session_events'): void {
     const seq = (record.seq ?? record.seq0) as number
     const time = (record.time ?? record.time0) as number
     const type = record.type as string
     this.storage.sql.exec(
-      `INSERT INTO dsh_session_events
+      `INSERT INTO ${eventTable}
         (session_id, seq, type, time, data, source_event_seqs, surface_op, ignorable)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       id,
@@ -1245,6 +1302,8 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
   }
 
 }
+
+type EventTable = 'dsh_session_events' | 'dsh_session_events_migrating'
 
 function revisionOf(storeIdentity: string, row: HeaderRow): PersistenceRevision {
   return SessionPersistenceRevision(
@@ -1516,6 +1575,32 @@ function scanRows(
   return rowsConsumed < rows.length
     ? { preserved, tornFrom: base + preserved.length }
     : { preserved }
+}
+
+/** Exact diagnostic strings emitted by Edge before the V3 baseline upgrade. */
+const LEGACY_EDGE_CANCELLATION_MESSAGES = new Set([
+  'cancelled by the user',
+  'turn was cancelled',
+  'turn deadline exceeded',
+])
+
+/**
+ * Edge used to cast an extra diagnostic message into the upstream user cause.
+ * The released V0 codec correctly rejects that extra field. Normalize only our
+ * known payloads in memory; the migration transaction commits only after the
+ * complete log passes the upstream codec. Unknown fields still fail closed.
+ */
+function normalizeLegacyEdgeCancellation(data: Record<string, unknown>): Record<string, unknown> {
+  const reason = data.reason
+  if (reason === null || typeof reason !== 'object' || Array.isArray(reason)) return data
+  const end = reason as Record<string, unknown>
+  if (end.kind !== 'aborted') return data
+  const value = end.reason
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return data
+  const cause = value as Record<string, unknown>
+  if (cause.kind !== 'user' || Object.keys(cause).length !== 2
+    || typeof cause.message !== 'string' || !LEGACY_EDGE_CANCELLATION_MESSAGES.has(cause.message)) return data
+  return { ...data, reason: { ...end, reason: { kind: 'user' } } }
 }
 
 const V0_SURFACE_TYPES = new Set(['user/message', 'assistant/message', 'tool/result', 'system/message'])

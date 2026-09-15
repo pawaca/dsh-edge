@@ -290,6 +290,8 @@ export class EdgeSessionStore {
     this.modelSelections = new EdgeModelSelectionBridge(storage)
     this.publishesLateEvents = config.onLateSessionEvent !== undefined
     this.ready = this.initialize(storage, config)
+    // Requests observe the original rejection; early construction must not create an unhandled rejection.
+    void this.ready.catch(() => undefined)
   }
 
   private async initialize(
@@ -327,7 +329,7 @@ export class EdgeSessionStore {
     try {
       const doUploadIndex = new DurableObjectUploadIndex(storage)
       ;(this.context as never as Record<string, unknown>)['edgeFileStore'] = new DeepSeekFileStore({ index: doUploadIndex as never })
-      await this.context.plugin(dshLlmDeepseek, buildEdgeLlmPluginConfig(config))
+      await this.context.plugin(dshLlmDeepseek, buildEdgeLlmPluginConfig(config)).await()
     } catch (error) {
       console.error('dsh-edge: LLM provider plugin failed to initialize; model operations will be unavailable.', error)
     }
@@ -387,7 +389,7 @@ export class EdgeSessionStore {
     this.context.typert.register(COMMANDS_TYPERT as never)
     // SessionPersistence + WorkspaceRegistry before SessionController so it
     // finds ctx.workspaceRegistry on first tick.
-    await this.context.plugin(DurableObjectSessionPersistence, { storage })
+    await this.context.plugin(DurableObjectSessionPersistence, { storage }).await()
     await this.context.plugin(MessageFeedbackService, {
       maxNoteBytes: MAX_MESSAGE_FEEDBACK_NOTE_BYTES,
     })
@@ -656,6 +658,23 @@ export class EdgeSessionStore {
       this.context.sessionProjections.onChanged((session, key, value, seq) => {
         projectionCallback(session.id, key, value, seq)
       })
+    }
+  }
+
+  /** Non-model APIs remain available when the optional model adapter failed. */
+  async waitForInitialization(): Promise<void> {
+    await this.ready
+  }
+
+  /** Upgrade readiness includes the services behind the browser's live streams. */
+  async assertReady(): Promise<void> {
+    await this.ready
+    for (const service of ['sessionPersistence', 'sessionQuery', 'workspaceRegistry',
+      'sessionController', 'workspaceController', 'typertGateway']) {
+      if (this.context.get(service) === undefined) throw new Error(`Required runtime service ${service} is unavailable.`)
+    }
+    if (!this.context.llm.listProviders().some(provider => provider.id === 'deepseek-official')) {
+      throw new Error('Required model adapter is unavailable.')
     }
   }
 
