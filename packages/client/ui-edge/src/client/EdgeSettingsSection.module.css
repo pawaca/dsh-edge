@@ -13,4 +13,13 @@
 .notice { color: var(--dsw-alias-label-secondary); }
 .error { color: var(--dsw-alias-state-error-primary) !important; }
 .select { padding: 6px 10px; border: 1px solid var(--dsw-alias-border-subtle); border-radius: 8px; background: var(--dsw-alias-background-primary); color: var(--dsw-alias-text-primary); font-size: 14px; }
-@media (max-width: 560px) { .row { grid-template-columns: 1fr; gap: 4px; } }
+.input { padding: 6px 10px; border: 1px solid var(--dsw-alias-border-subtle); border-radius: 8px; background: var(--dsw-alias-background-primary); color: var(--dsw-alias-text-primary); font-size: 14px; flex: 1; min-width: 0; }
+.mcpList { list-style: none; margin: 12px 0; padding: 0; display: grid; gap: 8px; }
+.mcpItem { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--dsw-alias-border-secondary); }
+.mcpItem:last-child { border-bottom: 0; }
+.mcpName { font-weight: 600; color: var(--dsw-alias-text-primary); min-width: 80px; }
+.mcpUrl { flex: 1; overflow-wrap: anywhere; color: var(--dsw-alias-label-secondary); font-size: 13px; }
+.mcpAdd { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.restartBanner { margin-top: 12px; padding: 10px 14px; border-radius: 8px; background: var(--dsw-alias-state-warning-background, #fff8e6); display: flex; align-items: center; gap: 12px; }
+.restartBanner p { margin: 0; flex: 1; color: var(--dsw-alias-state-warning-primary, #b45309); font-size: 13px; }
+@media (max-width: 560px) { .row { grid-template-columns: 1fr; gap: 4px; } .mcpAdd { flex-direction: column; } }

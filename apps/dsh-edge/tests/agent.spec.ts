@@ -130,15 +130,13 @@ describe('dsh-edge native agent runtime', () => {
     await ctx.fiber.dispose()
   })
 
-  it('advertises dedicated Edge tools without routing file work through bash', () => {
-    expect(EDGE_SYSTEM_PROMPT).toContain('read, write, and edit tools')
-    expect(EDGE_SYSTEM_PROMPT).toContain('read_image')
-    expect(EDGE_SYSTEM_PROMPT).toContain('Use bash for shell commands')
-    expect(EDGE_SYSTEM_PROMPT).toContain('web_search and web_fetch')
-    expect(EDGE_SYSTEM_PROMPT).toContain('goal tools')
-    expect(EDGE_SYSTEM_PROMPT).not.toContain(
-      'Use the bash tool when you need to inspect or modify workspace files',
-    )
+  it('advertises Edge runtime constraints and MCP naming convention', () => {
+    expect(EDGE_SYSTEM_PROMPT).toContain('Cloudflare Worker')
+    expect(EDGE_SYSTEM_PROMPT).toContain('just-bash')
+    expect(EDGE_SYSTEM_PROMPT).toContain('mcp__<serverName>__<toolName>')
+    expect(EDGE_SYSTEM_PROMPT).toContain('full prefixed name')
+    expect(EDGE_SYSTEM_PROMPT).toContain('subagent')
+    expect(EDGE_SYSTEM_PROMPT).toContain('schedule')
   })
 
   it('reuses the upstream DeepSeek catalog including the experimental vision model', async () => {

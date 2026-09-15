@@ -37,6 +37,15 @@ export const en = {
   approvalNever: 'Trust all (no confirmation)',
   approvalSaved: 'Saved',
   approvalError: 'Could not save setting.',
+  mcpServers: 'MCP Servers',
+  mcpIntro: 'Connect external MCP tool servers via Streamable HTTP. Tools appear as mcp__<name>__<tool>.',
+  mcpEmpty: 'No MCP servers configured.',
+  mcpNamePlaceholder: 'Server name (e.g. github)',
+  mcpUrlPlaceholder: 'Endpoint URL (e.g. https://mcp.example.com/sse)',
+  mcpAdd: 'Add server',
+  mcpRemove: 'Remove',
+  mcpRestartNeeded: 'Restart the runtime to apply MCP changes.',
+  mcpRestart: 'Restart runtime',
 } as const
 
 /** Locale keys shared by the English source and translated Edge settings copy. */
@@ -81,4 +90,13 @@ export const zh: Record<EdgeSettingsKey, string> = {
   approvalNever: '全部信任（不询问）',
   approvalSaved: '已保存',
   approvalError: '无法保存设置。',
+  mcpServers: 'MCP 服务器',
+  mcpIntro: '通过 Streamable HTTP 连接外部 MCP 工具服务器。工具名格式为 mcp__<名称>__<工具>。',
+  mcpEmpty: '尚未配置 MCP 服务器。',
+  mcpNamePlaceholder: '服务器名称（如 github）',
+  mcpUrlPlaceholder: '端点 URL（如 https://mcp.example.com/sse）',
+  mcpAdd: '添加服务器',
+  mcpRemove: '移除',
+  mcpRestartNeeded: '重启运行时以应用 MCP 配置变更。',
+  mcpRestart: '重启运行时',
 }

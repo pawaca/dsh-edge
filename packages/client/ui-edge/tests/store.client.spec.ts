@@ -24,10 +24,11 @@ function response(body: unknown, status = 200): Response {
 }
 
 function approvalResponse(): Response { return response({ mode: 'ask' }) }
+function mcpResponse(): Response { return response({ servers: [] }) }
 
 describe('Edge settings controller', () => {
   it('loads authenticated deployment health lazily', async () => {
-    const fetch = vi.fn().mockResolvedValueOnce(response(HEALTH)).mockResolvedValueOnce(approvalResponse()).mockResolvedValueOnce(response({ version: '1.2.3' }))
+    const fetch = vi.fn().mockResolvedValueOnce(response(HEALTH)).mockResolvedValueOnce(approvalResponse()).mockResolvedValueOnce(mcpResponse()).mockResolvedValueOnce(response({ version: '1.2.3' }))
     const controller = new EdgeSettingsController({ fetch, copy: vi.fn(), navigate: vi.fn() })
     expect(controller.store.getSnapshot().status).toBe('idle')
     await controller.load()
@@ -65,6 +66,7 @@ describe('Edge settings controller', () => {
       .mockImplementationOnce(() => first.promise)
       .mockResolvedValueOnce(response({ ...HEALTH, deploymentId: 'fresh' }))
       .mockResolvedValueOnce(approvalResponse())
+      .mockResolvedValueOnce(mcpResponse())
     const controller = new EdgeSettingsController({
       fetch,
       copy: vi.fn(),
@@ -85,6 +87,7 @@ describe('Edge settings controller', () => {
     const fetch = vi.fn((input: string, init?: RequestInit) => {
       if (input === '/api/auth/logout' && init?.method === 'POST') return logout.promise
       if (input === '/api/approval-mode') return Promise.resolve(approvalResponse())
+      if (input === '/api/mcp-servers') return Promise.resolve(mcpResponse())
       if (input.startsWith('https://registry.npmjs.org/')) return Promise.resolve(response({ version: '1.2.3' }))
       healthCalls += 1
       return healthCalls === 1 ? firstHealth.promise : secondHealth.promise
@@ -117,6 +120,7 @@ describe('Edge settings controller', () => {
     const fetch = vi.fn<(input: string, init?: RequestInit) => Promise<Response>>()
       .mockResolvedValueOnce(response(HEALTH))
       .mockResolvedValueOnce(approvalResponse())
+      .mockResolvedValueOnce(mcpResponse())
       .mockResolvedValueOnce(response({ version: '2.0.0' }))
     const controller = new EdgeSettingsController({ fetch, copy, navigate: vi.fn() })
     await controller.load()
@@ -136,6 +140,7 @@ describe('Edge settings controller', () => {
     const fetch = vi.fn<(input: string, init?: RequestInit) => Promise<Response>>()
       .mockResolvedValueOnce(response({ ...HEALTH, version: '2.0.0-alpha.1' }))
       .mockResolvedValueOnce(approvalResponse())
+      .mockResolvedValueOnce(mcpResponse())
       .mockResolvedValueOnce(response({ version: '2.0.0-alpha.2' }))
     const controller = new EdgeSettingsController({ fetch, copy, navigate: vi.fn() })
     await controller.load()

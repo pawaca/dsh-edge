@@ -53,6 +53,13 @@
       - combobox "Web fetch and MCP tools":
         - option "Always ask before running" [selected]
         - option "Trust all (no confirmation)"
+  - region "MCP Servers":
+    - heading "MCP Servers" [level=3]
+    - paragraph: Connect external MCP tool servers via Streamable HTTP. Tools appear as mcp__<name>__<tool>.
+    - paragraph: No MCP servers configured.
+    - textbox "Server name (e.g. github)"
+    - textbox "Endpoint URL (e.g. https://mcp.example.com/sse)"
+    - button "Add server" [disabled]
   - region "Owner session":
     - heading "Owner session" [level=3]
     - paragraph: Signing out clears this browser’s owner session. Your deployment and data remain unchanged.
