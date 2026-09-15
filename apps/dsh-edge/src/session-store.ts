@@ -61,6 +61,7 @@ import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import * as SpillPolicy from '@deepseek-ai/dsh-spill-policy'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
+import ApprovalService from '@deepseek-ai/dsh-user-approval'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as ToolGoal from '@deepseek-ai/dsh-tool-goal'
 import * as ToolSkill from '@deepseek-ai/dsh-tool-skill'
@@ -112,6 +113,8 @@ import EdgeModelSelectionBridge from './model-selection-bridge.ts'
 import EdgeSessionQuery from './edge-session-query.ts'
 import { resolveEdgeModel } from './deepseek.ts'
 import type { CreateEdgeSessionInput, EdgeSession } from './protocol.ts'
+import { installEdgeApprovalPolicy, type EdgeApprovalMode, type EdgeApprovalSettings } from './approval-policy.ts'
+import type { SettingsScope } from '@deepseek-ai/dsh-settings'
 import { installEdgeWebSearch } from './web-search.ts'
 import { DurableEventDeliveryQueue } from './durable-event-delivery.ts'
 
@@ -281,6 +284,7 @@ export class EdgeSessionStore {
   private readonly baselineOwnedSessions = new WeakSet<Session>()
   private readonly publishesLateEvents: boolean
   private readonly residentAgents = new Map<SessionId, AgentHandle>()
+  private approvalScope?: SettingsScope<EdgeApprovalSettings>
   private readonly ready: Promise<void>
 
   constructor(
@@ -535,6 +539,8 @@ export class EdgeSessionStore {
     // Agent-scoped `user-questions/request` waterfall reach browser `$events`
     // streams through the gateway's own pending-event bookkeeping.
     await this.context.plugin(ApiRemotes)
+    await this.context.plugin(ApprovalService, { policy: 'ask' })
+    this.approvalScope = installEdgeApprovalPolicy(this.context)
     await this.context.plugin(ToolFs)
     await this.context.plugin(ToolSkill)
     await this.context.plugin(GoalService)
@@ -840,6 +846,17 @@ export class EdgeSessionStore {
   async settingsHasDocument(): Promise<boolean> {
     await this.ready
     return this.context.settings?.documentPath !== undefined
+  }
+
+  async getApprovalMode(): Promise<EdgeApprovalMode> {
+    await this.ready
+    return this.approvalScope?.get().mode ?? 'ask'
+  }
+
+  async setApprovalMode(mode: EdgeApprovalMode): Promise<void> {
+    await this.ready
+    if (mode !== 'ask' && mode !== 'never') throw new Error('Invalid approval mode.')
+    await this.approvalScope?.update({ mode })
   }
 
   /** Describe all registered settings namespaces with redacted secrets. */

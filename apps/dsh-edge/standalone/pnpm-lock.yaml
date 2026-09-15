@@ -67,6 +67,9 @@ importers:
       '@deepseek-ai/dsh-client-store':
         specifier: 0.1.5-rc.2
         version: 0.1.5-rc.2(@deepseek-ai/cordis@4.0.2)
+      '@deepseek-ai/dsh-client-ui-approval':
+        specifier: 0.1.5-rc.2
+        version: 0.1.5-rc.2(@deepseek-ai/cordis@4.0.2)
       '@deepseek-ai/dsh-client-ui-directory-picker-browse':
         specifier: 0.1.5-rc.2
         version: 0.1.5-rc.2(@deepseek-ai/cordis@4.0.2)
@@ -259,6 +262,9 @@ importers:
       '@deepseek-ai/dsh-typert-registry':
         specifier: 0.1.5-rc.2
         version: 0.1.5-rc.2(@deepseek-ai/cordis@4.0.2)
+      '@deepseek-ai/dsh-user-approval':
+        specifier: 0.1.5-rc.2
+        version: 0.1.5-rc.2(09dee888c4a936a5804c5677efa74605)
       '@deepseek-ai/dsh-user-questions':
         specifier: 0.1.5-rc.2
         version: 0.1.5-rc.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-agent@0.1.5-rc.2(e730e212c94a1068ae118cad0892c9d2))(@deepseek-ai/dsh-llm@0.1.5-rc.2(patch_hash=57dc9cc50ac7e83f36920a75987dcebb89d72273b06578a641c522b2638c3556)(@deepseek-ai/cordis@4.0.2))(@deepseek-ai/dsh-scope@0.1.5-rc.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.5-rc.2(@deepseek-ai/cordis@4.0.2)))
@@ -286,6 +292,9 @@ importers:
       '@deepseek-ai/dsh-workspace':
         specifier: 0.1.5-rc.2
         version: 0.1.5-rc.2(patch_hash=cdfd9e126ca667ec18e3cbb49f005c09569a9d4b5959b0ae62a05387a5be0b4c)(2faf0849fbdc6ac5919de8226950d80c)
+      '@deepseek-ai/schemastery':
+        specifier: 3.18.2
+        version: 3.18.2
       '@mixmark-io/domino':
         specifier: 2.2.0
         version: 2.2.0

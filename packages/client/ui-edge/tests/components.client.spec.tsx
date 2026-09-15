@@ -28,6 +28,9 @@ const READY: EdgeSettingsState = {
   },
   copied: false,
   signingOut: false,
+  approvalMode: 'ask',
+  approvalSaving: false,
+  approvalSaved: false,
 }
 
 describe('Edge settings section', () => {
@@ -42,6 +45,7 @@ describe('Edge settings section', () => {
       load={load}
       copyUpgrade={vi.fn(() => Promise.resolve())}
       signOut={signOut}
+      setApprovalMode={vi.fn(() => Promise.resolve())}
     />)
     expect(screen.getByText('Isolated · Dynamic Worker')).toBeTruthy()
     expect(screen.getByText('deploy-123')).toBeTruthy()
@@ -61,10 +65,12 @@ describe('Edge settings section', () => {
       t={t}
       useEdgeSettings={selector => selector({
         status: 'error', error: 'private transport detail', copied: false, signingOut: false,
+        approvalMode: 'ask', approvalSaving: false, approvalSaved: false,
       })}
       load={load}
       copyUpgrade={vi.fn(() => Promise.resolve())}
       signOut={signOut}
+      setApprovalMode={vi.fn(() => Promise.resolve())}
     />)
     expect(screen.getByRole('alert').textContent).not.toContain('private transport detail')
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }))

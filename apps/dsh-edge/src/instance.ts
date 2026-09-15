@@ -375,6 +375,20 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       if (url.pathname === '/api/skills') {
         return await this.handleSkillsCrud(request)
       }
+      if (url.pathname === '/api/approval-mode') {
+        if (request.method === 'GET') {
+          const mode = await this.sessions.getApprovalMode()
+          return jsonResponse({ mode })
+        }
+        if (request.method === 'PUT') {
+          const body = await request.json() as { mode?: string }
+          if (body.mode !== 'ask' && body.mode !== 'never') {
+            return jsonResponse({ error: 'mode must be "ask" or "never"' }, 400)
+          }
+          await this.sessions.setApprovalMode(body.mode)
+          return jsonResponse({ mode: body.mode })
+        }
+      }
       if (url.pathname.startsWith('/api/') && !url.pathname.startsWith('/api/sessions')) {
         const expected = request.headers.get('x-dsh-edge-turn-seq')
         if (expected !== null && ['/api/session.cancel', '/api/session.prompt', '/api/session.updateQueue'].includes(url.pathname)) {
