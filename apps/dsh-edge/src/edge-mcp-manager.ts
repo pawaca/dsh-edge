@@ -81,6 +81,9 @@ async function resolveAuth(config: EdgeMcpServerConfig, ctx?: Context, storage?:
           }
         } catch (e) {
           console.warn(`dsh-edge: OAuth token refresh failed for "${config.serverName}": ${e instanceof Error ? e.message : String(e)}`)
+          const servers = await storage.get<EdgeMcpServerConfig[]>(MCP_STORAGE_KEY) ?? []
+          const srv = servers.find(s => s.serverName === config.serverName)
+          if (srv !== undefined) { srv.status = 'error'; srv.lastError = 'Token refresh failed. Re-authenticate via Settings.'; await storage.put(MCP_STORAGE_KEY, servers) }
           return { type: 'none' }
         }
       }
