@@ -910,10 +910,13 @@ export class EdgeSessionStore {
         && (typeof s.toolCallTimeoutMs !== 'number' || !Number.isFinite(s.toolCallTimeoutMs) || s.toolCallTimeoutMs <= 0)) {
         throw new Error('toolCallTimeoutMs must be a positive number.')
       }
+      if (s.auth !== undefined && s.auth.type !== 'none') {
+        throw new Error('Only auth type "none" is supported. Bearer and OAuth require follow-up PRs.')
+      }
       return {
         serverName: s.serverName,
         url: s.url,
-        auth: s.auth ?? { type: 'none' as const },
+        auth: { type: 'none' as const },
         ...(s.toolCallTimeoutMs !== undefined ? { toolCallTimeoutMs: s.toolCallTimeoutMs } : {}),
       }
     })

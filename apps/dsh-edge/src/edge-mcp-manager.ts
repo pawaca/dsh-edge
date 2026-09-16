@@ -38,14 +38,31 @@ export async function installEdgeMcpServers(
   const raw = await storage.get<EdgeMcpServerConfig[]>(MCP_STORAGE_KEY)
   if (!Array.isArray(raw) || raw.length === 0) return
 
+  let dirty = false
   for (const server of raw) {
-    if (!Array.isArray(server.cachedTools) || server.cachedTools.length === 0) continue
+    if (!Array.isArray(server.cachedTools) || server.cachedTools.length === 0) {
+      try {
+        const result = await probe(server.serverName, server.url, authFromConfig(server))
+        server.cachedTools = result.tools
+        server.status = 'connected'
+        server.toolCount = result.tools.length
+        server.lastProbeAt = Date.now()
+        dirty = true
+      } catch (error) {
+        console.error(`dsh-edge: MCP probe failed for "${server.serverName}".`, error)
+        server.status = 'error'
+        server.lastError = error instanceof Error ? error.message : String(error)
+        dirty = true
+        continue
+      }
+    }
     try {
       registerCachedTools(ctx, server)
     } catch (error) {
       console.error(`dsh-edge: failed to register MCP tools for "${server.serverName}".`, error)
     }
   }
+  if (dirty) await storage.put(MCP_STORAGE_KEY, raw)
 }
 
 function registerCachedTools(ctx: Context, server: EdgeMcpServerConfig): void {
@@ -56,12 +73,17 @@ function registerCachedTools(ctx: Context, server: EdgeMcpServerConfig): void {
       description: cached.description,
       parameters: Object.fromEntries(
         Object.entries(cached.inputSchema.properties ?? {}).map(
-          ([k, v]) => [k, v as Record<string, unknown>],
+          ([k, v]) => {
+            const spec = v as Record<string, unknown>
+            const requiredList = cached.inputSchema.required
+            const isRequired = Array.isArray(requiredList) && requiredList.includes(k)
+            return [k, isRequired ? { ...spec, required: true } : spec]
+          },
         ),
       ),
       execute: async (args: Record<string, unknown>, exec: { signal: AbortSignal }) => {
         const auth = authFromConfig(server)
-        const result = await callTool(server.url, cached.name, args, auth, exec.signal)
+        const result = await callTool(server.url, cached.name, args, auth, exec.signal, server.toolCallTimeoutMs)
         if (result.isError) {
           const text = result.content
             .filter(b => b.type === 'text' && typeof b.text === 'string')

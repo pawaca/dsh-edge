@@ -64,6 +64,7 @@ export async function probe(
         { signal },
       )
       for (const tool of result.tools) {
+        if (tools.length >= MAX_TOOLS_PER_SERVER) break
         tools.push({
           name: tool.name,
           publicName: publicToolName(serverName, tool.name),
@@ -71,7 +72,7 @@ export async function probe(
           inputSchema: (tool.inputSchema ?? { type: 'object' }) as Record<string, unknown>,
         })
       }
-      if (tools.length > MAX_TOOLS_PER_SERVER) break
+      if (tools.length >= MAX_TOOLS_PER_SERVER) break
       cursor = result.nextCursor ?? undefined
       if (cursor === undefined) break
     }
@@ -99,10 +100,12 @@ export async function callTool(
   args: unknown,
   auth?: McpAuth,
   signal?: AbortSignal,
+  timeoutMs?: number,
 ): Promise<McpCallResult> {
+  const effectiveTimeout = timeoutMs ?? CALL_TIMEOUT_MS
   const deadline = signal
-    ? AbortSignal.any([signal, AbortSignal.timeout(CALL_TIMEOUT_MS)])
-    : AbortSignal.timeout(CALL_TIMEOUT_MS)
+    ? AbortSignal.any([signal, AbortSignal.timeout(effectiveTimeout)])
+    : AbortSignal.timeout(effectiveTimeout)
   const { client, close } = await connectClient(url, auth, deadline)
   try {
     const result = await client.callTool(
