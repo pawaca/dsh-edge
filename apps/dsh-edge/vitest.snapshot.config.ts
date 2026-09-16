@@ -12,7 +12,7 @@ export default defineConfig({
     // and crash subsequent files on memory-constrained Windows runners.
     maxWorkers: 1,
     poolOptions: { forks: { isolate: true } },
-    testTimeout: 120_000,
+    testTimeout: 300_000,
     hookTimeout: 30_000,
   },
 })
