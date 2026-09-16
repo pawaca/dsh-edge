@@ -148,7 +148,7 @@ export async function probeAndCache(
   }
   const fresh = await storage.get<EdgeMcpServerConfig[]>(MCP_STORAGE_KEY) ?? []
   const entry = fresh.find(s => s.serverName === serverName)
-  if (entry !== undefined) {
+  if (entry !== undefined && entry.url === url) {
     entry.cachedTools = capCatalogSize(result.tools)
     entry.status = 'connected'
     entry.toolCount = result.tools.length
