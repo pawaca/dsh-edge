@@ -118,11 +118,6 @@ function registerCachedTools(
   const disposers = new Map<string, () => void>()
   const tools = server.cachedTools ?? []
   for (const cached of tools) {
-    toolMeta.set(cached.publicName, {
-      serverName: server.serverName,
-      rawName: cached.name,
-      readOnlyHint: cached.annotations?.readOnlyHint,
-    })
     try {
       const dispose = ctx.tools.register({
         name: cached.publicName,
@@ -152,6 +147,11 @@ function registerCachedTools(
         },
       } as never) as () => void
       disposers.set(cached.publicName, dispose)
+      toolMeta.set(cached.publicName, {
+        serverName: server.serverName,
+        rawName: cached.name,
+        readOnlyHint: cached.annotations?.readOnlyHint,
+      })
     } catch (regError) {
       console.warn(`dsh-edge: skipped MCP tool "${cached.publicName}": ${regError instanceof Error ? regError.message : String(regError)}`)
     }
