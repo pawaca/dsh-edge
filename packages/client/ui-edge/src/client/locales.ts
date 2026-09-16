@@ -55,6 +55,10 @@ export const en = {
   mcpNeedsReauth: 'needs reconnect',
   mcpError: 'connection error',
   mcpTools: 'tools',
+  mcpToolPolicy: 'Tool permissions',
+  mcpPolicyApproveAll: 'Approve all calls',
+  mcpPolicyReadOnly: 'Auto-approve reads',
+  mcpPolicyAllowAll: 'Allow all calls',
 } as const
 
 /** Locale keys shared by the English source and translated Edge settings copy. */
@@ -117,4 +121,8 @@ export const zh: Record<EdgeSettingsKey, string> = {
   mcpNeedsReauth: '需要重连',
   mcpError: '连接错误',
   mcpTools: '个工具',
+  mcpToolPolicy: '工具权限',
+  mcpPolicyApproveAll: '全部需确认',
+  mcpPolicyReadOnly: '读取自动通过',
+  mcpPolicyAllowAll: '全部自动通过',
 }

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Button, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import type { ApprovalMode, McpAuthType, McpServerEntry, EdgeSettingsState } from './store.ts'
+import type { ApprovalMode, McpAuthType, McpToolPolicyMode, McpServerEntry, EdgeSettingsState } from './store.ts'
 import { DSH_EDGE_RELEASES_URL } from './store.ts'
 import css from './EdgeSettingsSection.module.css'
 
@@ -14,6 +14,7 @@ export interface EdgeSettingsInjected {
   setApprovalMode(mode: ApprovalMode): Promise<void>
   saveMcpServers(servers: McpServerEntry[]): Promise<boolean>
   saveMcpToken(serverName: string, token: string): Promise<boolean>
+  setMcpToolPolicy(serverName: string, mode: McpToolPolicyMode): Promise<boolean>
   startOAuthConnect(serverName: string, serverUrl: string): Promise<string | undefined>
 }
 
@@ -33,6 +34,7 @@ interface McpServersCardProps {
   disabled: boolean
   onSave: (servers: McpServerEntry[]) => Promise<boolean>
   onSaveToken: (serverName: string, token: string) => Promise<boolean>
+  onSetToolPolicy: (serverName: string, mode: McpToolPolicyMode) => Promise<boolean>
   onOAuthConnect: (serverName: string, serverUrl: string) => Promise<string | undefined>
   t: EdgeSettingsSectionProps['t']
 }
@@ -85,6 +87,16 @@ function McpServersCard(props: McpServersCardProps): ReactNode {
                  s.status === 'needs_reauth' ? t('mcpNeedsReauth') :
                  s.status === 'error' ? t('mcpError') : ''}
               </span>
+              {s.status === 'connected' ? (
+                <select className={css.select} value={s.toolPolicy?.mode ?? 'approve_all'}
+                  disabled={saving || disabled}
+                  aria-label={t('mcpToolPolicy')}
+                  onChange={e => { void props.onSetToolPolicy(s.serverName, e.target.value as McpToolPolicyMode) }}>
+                  <option value="approve_all">{t('mcpPolicyApproveAll')}</option>
+                  <option value="read_only">{t('mcpPolicyReadOnly')}</option>
+                  <option value="allow_all">{t('mcpPolicyAllowAll')}</option>
+                </select>
+              ) : null}
               {s.auth?.type === 'oauth' && s.status !== 'connected' ? (
                 <Button variant="outline" size="sm" disabled={saving || disabled}
                   onClick={() => {
@@ -129,7 +141,7 @@ function McpServersCard(props: McpServersCardProps): ReactNode {
 }
 
 export function EdgeSettingsSection(props: EdgeSettingsSectionProps): ReactNode {
-  const { useEdgeSettings, load, copyUpgrade, signOut, setApprovalMode, saveMcpServers, saveMcpToken, startOAuthConnect, t } = props
+  const { useEdgeSettings, load, copyUpgrade, signOut, setApprovalMode, saveMcpServers, saveMcpToken, setMcpToolPolicy, startOAuthConnect, t } = props
   useEffect(() => { void load() }, [load])
   const state = useEdgeSettings(snapshot => snapshot)
   const deploymentDetails = state.status === 'idle' || state.status === 'loading'
@@ -203,6 +215,7 @@ export function EdgeSettingsSection(props: EdgeSettingsSectionProps): ReactNode 
         disabled={state.status !== 'ready' || !state.mcpLoaded}
         onSave={saveMcpServers}
         onSaveToken={saveMcpToken}
+        onSetToolPolicy={setMcpToolPolicy}
         onOAuthConnect={startOAuthConnect}
         t={t}
       />

@@ -32,10 +32,13 @@ export type ApprovalMode = 'ask' | 'never'
 
 export type McpAuthType = 'none' | 'bearer' | 'oauth'
 
+export type McpToolPolicyMode = 'allow_all' | 'read_only' | 'approve_all'
+
 export interface McpServerEntry {
   serverName: string
   url: string
   auth?: { type: McpAuthType } | undefined
+  toolPolicy?: { mode: McpToolPolicyMode } | undefined
   status?: 'unknown' | 'connected' | 'error' | 'needs_reauth' | undefined
   toolCount?: number | undefined
   toolCallTimeoutMs?: number
@@ -298,6 +301,14 @@ export class EdgeSettingsController {
       })
       return false
     }
+  }
+
+  async setMcpToolPolicy(serverName: string, mode: McpToolPolicyMode): Promise<boolean> {
+    const current = this.store.getSnapshot().mcpServers
+    const updated = current.map(s =>
+      s.serverName === serverName ? { ...s, toolPolicy: { mode } } : s,
+    )
+    return this.saveMcpServers(updated)
   }
 
   async saveMcpToken(serverName: string, token: string): Promise<boolean> {
