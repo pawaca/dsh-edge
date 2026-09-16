@@ -7,6 +7,7 @@ import { callTool, probe, type McpAuth, type ProbeResult } from './edge-mcp-clie
 import { type CachedMcpTool, mapMcpResultToContentBlocks } from './edge-mcp-tools.ts'
 
 const MCP_STORAGE_KEY = 'dsh-edge:mcp-servers'
+const MCP_REFRESH_PREFIX = 'dsh-edge:mcp-refresh:'
 const MAX_CATALOG_BYTES = 128 * 1024
 const MAX_DESCRIPTION_LENGTH = 512
 
@@ -42,8 +43,35 @@ function mcpCredentialRefName(serverName: string): string {
   return `MCP_TOKEN_${serverName.toUpperCase().replace(/[^A-Z0-9]/gu, '_')}`
 }
 
-async function resolveAuth(config: EdgeMcpServerConfig, ctx?: Context): Promise<McpAuth> {
+async function resolveAuth(config: EdgeMcpServerConfig, ctx?: Context, storage?: DurableObjectStorage): Promise<McpAuth> {
   if ((config.auth?.type === 'bearer' || config.auth?.type === 'oauth') && ctx?.credentials !== undefined) {
+    // For OAuth, try to refresh expired tokens
+    if (config.auth?.type === 'oauth' && storage !== undefined) {
+      const refreshData = await storage.get<{
+        refreshToken: string
+        expiresAt?: number
+        tokenEndpoint: string
+        client: { clientId: string; clientSecret?: string }
+      }>(MCP_REFRESH_PREFIX + config.serverName)
+      if (refreshData !== undefined && refreshData.expiresAt !== undefined && Date.now() > refreshData.expiresAt - 120_000) {
+        try {
+          const { refreshToken } = await import('./edge-mcp-oauth.ts')
+          const tokens = await refreshToken(refreshData.tokenEndpoint, refreshData.client, refreshData.refreshToken)
+          await ctx.credentials.set(credentialRef(mcpCredentialRefName(config.serverName)), tokens.accessToken)
+          if (tokens.refreshToken !== undefined) {
+            await storage.put(MCP_REFRESH_PREFIX + config.serverName, {
+              ...refreshData,
+              refreshToken: tokens.refreshToken,
+              expiresAt: tokens.expiresAt,
+            })
+          } else if (tokens.expiresAt !== undefined) {
+            await storage.put(MCP_REFRESH_PREFIX + config.serverName, { ...refreshData, expiresAt: tokens.expiresAt })
+          }
+        } catch (e) {
+          console.warn(`dsh-edge: OAuth token refresh failed for "${config.serverName}": ${e instanceof Error ? e.message : String(e)}`)
+        }
+      }
+    }
     const resolved = await ctx.credentials.resolve(credentialRef(mcpCredentialRefName(config.serverName)))
     if (resolved?.value !== undefined) {
       return { type: 'bearer', token: resolved.value }
@@ -68,7 +96,7 @@ export async function installEdgeMcpServers(
     }
     try {
       console.log(`dsh-edge: registering ${server.cachedTools.length} MCP tools for "${server.serverName}"`)
-      registerCachedTools(ctx, server)
+      registerCachedTools(ctx, server, storage)
       console.log(`dsh-edge: registered MCP tools for "${server.serverName}" successfully`)
     } catch (error) {
       console.error(`dsh-edge: failed to register MCP tools for "${server.serverName}".`, error)
@@ -76,7 +104,7 @@ export async function installEdgeMcpServers(
   }
 }
 
-function registerCachedTools(ctx: Context, server: EdgeMcpServerConfig): void {
+function registerCachedTools(ctx: Context, server: EdgeMcpServerConfig, storage: DurableObjectStorage): void {
   const tools = server.cachedTools ?? []
   for (const cached of tools) {
     try { ctx.tools.register({
@@ -84,7 +112,7 @@ function registerCachedTools(ctx: Context, server: EdgeMcpServerConfig): void {
       description: cached.description,
       parameters: cached.inputSchema ?? { type: 'object' },
       execute: async (args: Record<string, unknown>, exec: { signal: AbortSignal }) => {
-        const auth = await resolveAuth(server, ctx)
+        const auth = await resolveAuth(server, ctx, storage)
         const result = await callTool(server.url, cached.name, args, auth, exec.signal, server.toolCallTimeoutMs)
         if (result.isError) {
           const text = result.content
@@ -122,7 +150,7 @@ export async function probeAndCache(
   const server = servers.find(s => s.serverName === serverName)
   if (server === undefined) throw new Error(`Server "${serverName}" not found.`)
 
-  const auth = await resolveAuth(server, ctx)
+  const auth = await resolveAuth(server, ctx, storage)
   const url = server.url
   let result: ProbeResult
   try {
@@ -130,7 +158,7 @@ export async function probeAndCache(
   } catch (error) {
     const fresh = await storage.get<EdgeMcpServerConfig[]>(MCP_STORAGE_KEY) ?? []
     const entry = fresh.find(s => s.serverName === serverName)
-    if (entry !== undefined) {
+    if (entry !== undefined && entry.url === url) {
       entry.status = 'error'
       entry.lastError = error instanceof Error ? error.message : String(error)
       entry.lastProbeAt = Date.now()

@@ -45,7 +45,6 @@ function McpServersCard(props: McpServersCardProps): ReactNode {
   const onSave = props.onSave
   const onSaveToken = props.onSaveToken
   const onRestart = props.onRestart
-  // eslint-disable-next-line @typescript-eslint/unbound-method -- t is a bound translate function passed from props
   const t = props.t
   const [draft, setDraft] = useState<{ serverName: string; url: string; authType: McpAuthType; token: string }>({ serverName: '', url: '', authType: 'none', token: '' })
   const addServer = useCallback(() => {
@@ -56,11 +55,12 @@ function McpServersCard(props: McpServersCardProps): ReactNode {
       auth: { type: draft.authType },
     }
     void (async () => {
-      const ok = await onSave([...servers, entry])
-      if (!ok) return
+      // Save bearer token first so the auto-probe can authenticate
       if (draft.authType === 'bearer' && draft.token.trim() !== '') {
         await onSaveToken(draft.serverName.trim(), draft.token.trim())
       }
+      const ok = await onSave([...servers, entry])
+      if (!ok) return
       setDraft({ serverName: '', url: '', authType: 'none', token: '' })
     })()
   }, [draft, servers, onSave])

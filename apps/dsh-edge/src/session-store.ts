@@ -553,6 +553,7 @@ export class EdgeSessionStore {
       defaultMode: config.approvalDefaultMode,
     })
     await installEdgeMcpServers(this.context, storage)
+    await this.clearMcpDirty()
     await this.context.plugin(ToolFs)
     await this.context.plugin(ToolSkill)
     await this.context.plugin(GoalService)
@@ -917,6 +918,9 @@ export class EdgeSessionStore {
 
     const servers = await this.doStorage.get<EdgeMcpServerConfig[]>(EdgeSessionStore.MCP_STORAGE_KEY) ?? []
     const entry = servers.find(s => s.serverName === pending.serverName)
+    if (entry !== undefined && pending.serverUrl !== undefined && entry.url !== pending.serverUrl) {
+      throw new Error('Server URL changed during OAuth flow. Try connecting again.')
+    }
     const oauthAuth = entry?.auth as { type: string; endpoints?: { token?: string }; client?: { clientId: string; clientSecret?: string } } | undefined
     if (oauthAuth?.type !== 'oauth' || oauthAuth.endpoints?.token === undefined || oauthAuth.client === undefined) {
       throw new Error('OAuth config not found for this server.')
@@ -950,6 +954,7 @@ export class EdgeSessionStore {
     try {
       const { probeAndCache } = await import('./edge-mcp-manager.ts')
       await probeAndCache(this.doStorage, pending.serverName, this.context)
+      await this.markMcpDirty()
     } catch (probeError) {
       console.error(`dsh-edge: post-OAuth probe failed for "${pending.serverName}".`, probeError)
     }
@@ -971,6 +976,7 @@ export class EdgeSessionStore {
   }
 
   private static readonly MCP_STORAGE_KEY = 'dsh-edge:mcp-servers'
+  private static readonly MCP_DIRTY_KEY = 'dsh-edge:mcp-tools-dirty'
 
   async getMcpServers(): Promise<EdgeMcpServerConfig[]> {
     await this.ready
@@ -978,11 +984,30 @@ export class EdgeSessionStore {
       EdgeSessionStore.MCP_STORAGE_KEY,
     )
     if (!Array.isArray(raw)) return []
-    return raw
+    return raw.map(s => {
+      const auth = s.auth as { type: string; endpoints?: unknown; client?: { clientId: string; clientSecret?: string } } | undefined
+      if (auth?.type === 'oauth' && auth.client?.clientSecret !== undefined) {
+        return { ...s, auth: { type: 'oauth' as const, endpoints: auth.endpoints, client: { clientId: auth.client.clientId } } }
+      }
+      return s
+    })
+  }
+
+  async isMcpRestartNeeded(): Promise<boolean> {
+    return (await this.doStorage.get<boolean>(EdgeSessionStore.MCP_DIRTY_KEY)) === true
+  }
+
+  async markMcpDirty(): Promise<void> {
+    await this.doStorage.put(EdgeSessionStore.MCP_DIRTY_KEY, true)
+  }
+
+  async clearMcpDirty(): Promise<void> {
+    await this.doStorage.delete(EdgeSessionStore.MCP_DIRTY_KEY)
   }
 
   async setMcpServers(servers: Partial<EdgeMcpServerConfig>[]): Promise<void> {
     await this.ready
+    const oldServers = await this.doStorage.get<EdgeMcpServerConfig[]>(EdgeSessionStore.MCP_STORAGE_KEY) ?? []
     const seen = new Set<string>()
     const validated = servers.map(s => {
       if (typeof s.serverName !== 'string' || !/^[A-Za-z0-9_-]{1,32}$/u.test(s.serverName)) {
@@ -1021,7 +1046,31 @@ export class EdgeSessionStore {
         ...(s.toolCallTimeoutMs !== undefined ? { toolCallTimeoutMs: s.toolCallTimeoutMs } : {}),
       }
     })
+    // Preserve cached tools for servers whose name+url+auth.type are unchanged
+    const oldByName = new Map(oldServers.map(s => [s.serverName, s]))
+    for (const v of validated) {
+      const old = oldByName.get(v.serverName)
+      if (old !== undefined && old.url === v.url && old.auth?.type === v.auth?.type && old.cachedTools !== undefined) {
+        (v as EdgeMcpServerConfig).cachedTools = old.cachedTools;
+        (v as EdgeMcpServerConfig).status = old.status;
+        (v as EdgeMcpServerConfig).toolCount = old.toolCount;
+        (v as EdgeMcpServerConfig).lastProbeAt = old.lastProbeAt;
+        (v as EdgeMcpServerConfig).serverInfo = old.serverInfo;
+        (v as EdgeMcpServerConfig).instructions = old.instructions
+      }
+    }
     await this.doStorage.put(EdgeSessionStore.MCP_STORAGE_KEY, validated)
+    await this.markMcpDirty()
+    // Clear credentials for removed or auth-changed servers
+    const newByName = new Map(validated.map(s => [s.serverName, s]))
+    for (const old of oldServers) {
+      if (old.auth?.type !== 'bearer' && old.auth?.type !== 'oauth') continue
+      const replacement = newByName.get(old.serverName)
+      if (replacement === undefined || replacement.auth?.type !== old.auth.type) {
+        await this.context.credentials.unset(this.mcpCredentialRef(old.serverName)).catch(() => {})
+        await this.doStorage.delete(`dsh-edge:mcp-refresh:${old.serverName}`).catch(() => {})
+      }
+    }
   }
 
   private mcpCredentialRef(serverName: string) {

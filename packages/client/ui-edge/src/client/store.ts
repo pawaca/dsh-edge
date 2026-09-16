@@ -105,8 +105,21 @@ export class EdgeSettingsController {
   private loadGeneration = 0
   private approvalGeneration = 0
   private mcpGeneration = 0
+  private oauthMessageHandler: ((e: MessageEvent) => void) | undefined
 
-  constructor(private readonly io: EdgeSettingsIO) {}
+  constructor(private readonly io: EdgeSettingsIO) {
+    this.oauthMessageHandler = (e: MessageEvent) => {
+      if ((e.data as { type?: string } | null)?.type === 'mcp-oauth-complete') void this.refreshMcpServers()
+    }
+    globalThis.addEventListener?.('message', this.oauthMessageHandler)
+  }
+
+  dispose(): void {
+    if (this.oauthMessageHandler !== undefined) {
+      globalThis.removeEventListener?.('message', this.oauthMessageHandler)
+      this.oauthMessageHandler = undefined
+    }
+  }
 
   /** Load the current deployment projection without affecting owner-session state. */
   async load(): Promise<void> {
@@ -152,9 +165,13 @@ export class EdgeSettingsController {
       try {
         const mcpResponse = await this.io.fetch('/api/mcp-servers', { credentials: 'same-origin' })
         if (mcpGen === this.mcpGeneration && mcpResponse.ok) {
-          const data = await mcpResponse.json() as { servers?: McpServerEntry[] }
+          const data = await mcpResponse.json() as { servers?: McpServerEntry[]; restartRequired?: boolean }
           if (mcpGen === this.mcpGeneration && Array.isArray(data.servers)) {
-            this.store.update((state) => { state.mcpServers = data.servers as McpServerEntry[]; state.mcpLoaded = true })
+            this.store.update((state) => {
+              state.mcpServers = data.servers as McpServerEntry[]
+              state.mcpLoaded = true
+              state.mcpRestartNeeded = data.restartRequired === true
+            })
           }
         }
       } catch { /* MCP list defaults to empty */ }
@@ -216,6 +233,23 @@ export class EdgeSettingsController {
         state.approvalError = messageOf(error)
       })
     }
+  }
+
+  async refreshMcpServers(): Promise<void> {
+    const mcpGen = ++this.mcpGeneration
+    try {
+      const response = await this.io.fetch('/api/mcp-servers', { credentials: 'same-origin' })
+      if (mcpGen === this.mcpGeneration && response.ok) {
+        const data = await response.json() as { servers?: McpServerEntry[]; restartRequired?: boolean }
+        if (mcpGen === this.mcpGeneration && Array.isArray(data.servers)) {
+          this.store.update((state) => {
+            state.mcpServers = data.servers as McpServerEntry[]
+            state.mcpLoaded = true
+            state.mcpRestartNeeded = data.restartRequired === true
+          })
+        }
+      }
+    } catch { /* ignore */ }
   }
 
   async saveMcpServers(servers: McpServerEntry[]): Promise<boolean> {

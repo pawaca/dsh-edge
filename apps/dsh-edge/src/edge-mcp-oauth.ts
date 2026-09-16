@@ -27,6 +27,7 @@ export interface PendingOAuthFlow {
   codeVerifier: string
   redirectUri: string
   serverName: string
+  serverUrl: string
   stagedClient?: OAuthClient | undefined
   createdAt: number
 }
@@ -51,8 +52,9 @@ export async function discoverEndpoints(
   const signal = AbortSignal.timeout(DISCOVERY_TIMEOUT_MS)
   const url = new URL(serverUrl)
 
-  // RFC 9728: Protected Resource Metadata
-  const prmUrl = new URL('/.well-known/oauth-protected-resource', url.origin)
+  // RFC 9728: Protected Resource Metadata — path-aware discovery
+  const prmPath = url.pathname === '/' ? '/.well-known/oauth-protected-resource' : `/.well-known/oauth-protected-resource${url.pathname}`
+  const prmUrl = new URL(prmPath, url.origin)
   const prmRes = await fetch(prmUrl.href, { signal })
   if (!prmRes.ok) throw new Error(`PRM discovery failed: HTTP ${prmRes.status}`)
   const prm = await prmRes.json() as { authorization_servers?: string[] }
@@ -136,6 +138,7 @@ export async function buildAuthorizationUrl(
       codeVerifier,
       redirectUri,
       serverName,
+      serverUrl,
       stagedClient: client,
       createdAt: Date.now(),
     },

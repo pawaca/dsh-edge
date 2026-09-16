@@ -401,7 +401,8 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       if (url.pathname === '/api/mcp-servers') {
         if (request.method === 'GET') {
           const servers = await this.sessions.getMcpServers()
-          return jsonResponse({ servers })
+          const restartRequired = await this.sessions.isMcpRestartNeeded()
+          return jsonResponse({ servers, restartRequired })
         }
         if (request.method === 'PUT') {
           let body: { servers?: unknown }
@@ -484,8 +485,11 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         }
         try {
           const { probeAndCache } = await import('./edge-mcp-manager.ts')
-          const result = await probeAndCache(this.ctx.storage, serverName, this.sessions.getContext())
-          return jsonResponse({ status: 'connected', toolCount: result.tools.length, tools: result.tools.map(t => t.publicName) })
+          await probeAndCache(this.ctx.storage, serverName, this.sessions.getContext())
+          await this.sessions.markMcpDirty()
+          const updated = await this.sessions.getMcpServers()
+          const cached = updated.find(s => s.serverName === serverName)
+          return jsonResponse({ status: cached?.status ?? 'connected', toolCount: cached?.toolCount ?? 0 })
         } catch (error) {
           return jsonResponse({ status: 'error', error: error instanceof Error ? error.message : 'probe failed' }, 502)
         }

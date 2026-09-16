@@ -19,6 +19,7 @@ export interface McpContentBlock {
   mimeType?: string
   name?: string
   uri?: string
+  resource?: { uri?: string; text?: string; mimeType?: string; blob?: string } | undefined
 }
 
 export interface McpCallResult {
@@ -56,12 +57,17 @@ export function mapMcpResultToContentBlocks(result: McpCallResult): ContentBlock
       textParts.push(block.text)
     } else if (block.type === 'resource_link' && block.uri !== undefined) {
       textParts.push(`Resource: ${block.name ?? 'unnamed'} (${block.uri})`)
+    } else if (block.type === 'image' && block.data !== undefined) {
+      textParts.push(`![image](data:${block.mimeType ?? 'image/png'};base64,${block.data})`)
     } else if (block.type === 'image') {
       textParts.push(`[image: ${block.mimeType ?? 'unknown type'}]`)
     } else if (block.type === 'audio') {
       textParts.push('[audio result unsupported on Cloudflare Workers]')
+    } else if (block.type === 'resource' && block.resource?.text !== undefined) {
+      const label = block.resource.uri ?? 'embedded resource'
+      textParts.push(`--- ${label} ---\n${block.resource.text}`)
     } else if (block.type === 'resource') {
-      textParts.push('[embedded resource unsupported on Cloudflare Workers]')
+      textParts.push('[embedded resource: binary content not displayed]')
     } else {
       textParts.push(`[unsupported MCP content type: ${block.type}]`)
     }
