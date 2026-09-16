@@ -903,7 +903,7 @@ export class EdgeSessionStore {
   async completeOAuthFlow(
     code: string,
     state: string,
-  ): Promise<{ serverName: string; status: string }> {
+  ): Promise<{ serverName: string; status: string; toolCount: number }> {
     await this.ready
     const { exchangeCode } = await import('./edge-mcp-oauth.ts')
     const pending = await this.doStorage.get<import('./edge-mcp-oauth.ts').PendingOAuthFlow>(
@@ -946,7 +946,17 @@ export class EdgeSessionStore {
       })
     }
 
-    return { serverName: pending.serverName, status: 'connected' }
+    // Auto-probe now that we have a token
+    try {
+      const { probeAndCache } = await import('./edge-mcp-manager.ts')
+      await probeAndCache(this.doStorage, pending.serverName, this.context)
+    } catch (probeError) {
+      console.error(`dsh-edge: post-OAuth probe failed for "${pending.serverName}".`, probeError)
+    }
+
+    const updatedServers = await this.doStorage.get<EdgeMcpServerConfig[]>(EdgeSessionStore.MCP_STORAGE_KEY) ?? []
+    const updated = updatedServers.find(s => s.serverName === pending.serverName)
+    return { serverName: pending.serverName, status: updated?.status ?? 'connected', toolCount: updated?.toolCount ?? 0 }
   }
 
   async getApprovalMode(): Promise<EdgeApprovalMode> {

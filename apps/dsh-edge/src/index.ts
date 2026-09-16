@@ -55,6 +55,40 @@ export default {
         return jsonResponse(resolveEdgeDeploymentHealth(env))
       }
 
+      // OAuth callback from Auth Server redirect — must bypass owner auth
+      // because the popup window doesn't carry the owner cookie.
+      if (request.method === 'GET' && url.pathname === '/api/mcp/oauth/callback') {
+        const code = url.searchParams.get('code')
+        const state = url.searchParams.get('state')
+        if (typeof code === 'string' && typeof state === 'string') {
+          try {
+            const stub = env.DSH_EDGE_INSTANCE.getByName(OWNER_INSTANCE)
+            const completeRes = await stub.fetch(new Request('https://dsh-edge.internal/api/mcp/oauth/complete', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ code, state }),
+            }))
+            const result = await completeRes.json() as { serverName?: string; toolCount?: number; error?: string }
+            if (completeRes.ok) {
+              const toolInfo = result.toolCount !== undefined && result.toolCount > 0 ? `<p>${result.toolCount} tools discovered.</p>` : ''
+              return new Response(
+                `<!doctype html><html><head><title>Connected</title></head><body style="font-family:system-ui;text-align:center;padding:60px"><h2>Connected to ${result.serverName ?? 'MCP server'}</h2>${toolInfo}<p>You can close this window and restart the runtime.</p><script>window.opener?.focus()</script></body></html>`,
+                { headers: { 'content-type': 'text/html' } },
+              )
+            }
+            return new Response(
+              `<!doctype html><html><head><title>Error</title></head><body style="font-family:system-ui;text-align:center;padding:60px"><h2>Connection failed</h2><p>${result.error ?? 'Unknown error'}</p></body></html>`,
+              { status: 400, headers: { 'content-type': 'text/html' } },
+            )
+          } catch (error) {
+            return new Response(
+              `<!doctype html><html><head><title>Error</title></head><body style="font-family:system-ui;text-align:center;padding:60px"><h2>Connection failed</h2><p>${error instanceof Error ? error.message : 'Unknown error'}</p></body></html>`,
+              { status: 500, headers: { 'content-type': 'text/html' } },
+            )
+          }
+        }
+      }
+
       const authResponse = await handleOwnerAuthRoute(request, auth)
       if (authResponse !== undefined) return authResponse
 

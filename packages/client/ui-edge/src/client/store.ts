@@ -239,6 +239,7 @@ export class EdgeSettingsController {
       })
       const probeErrors: string[] = []
       for (const s of saved) {
+        if (s.auth?.type === 'oauth') continue
         try {
           const probeRes = await this.io.fetch(`/api/mcp-servers/${encodeURIComponent(s.serverName)}/probe`, {
             method: 'POST', credentials: 'same-origin',

@@ -67,7 +67,9 @@ export async function installEdgeMcpServers(
       continue
     }
     try {
+      console.log(`dsh-edge: registering ${server.cachedTools.length} MCP tools for "${server.serverName}"`)
       registerCachedTools(ctx, server)
+      console.log(`dsh-edge: registered MCP tools for "${server.serverName}" successfully`)
     } catch (error) {
       console.error(`dsh-edge: failed to register MCP tools for "${server.serverName}".`, error)
     }
@@ -77,19 +79,10 @@ export async function installEdgeMcpServers(
 function registerCachedTools(ctx: Context, server: EdgeMcpServerConfig): void {
   const tools = server.cachedTools ?? []
   for (const cached of tools) {
-    ctx.tools.register({
+    try { ctx.tools.register({
       name: cached.publicName,
       description: cached.description,
-      parameters: Object.fromEntries(
-        Object.entries(cached.inputSchema.properties ?? {}).map(
-          ([k, v]) => {
-            const spec = v as Record<string, unknown>
-            const requiredList = cached.inputSchema.required
-            const isRequired = Array.isArray(requiredList) && requiredList.includes(k)
-            return [k, isRequired ? { ...spec, required: true } : spec]
-          },
-        ),
-      ),
+      parameters: cached.inputSchema ?? { type: 'object' },
       execute: async (args: Record<string, unknown>, exec: { signal: AbortSignal }) => {
         const auth = await resolveAuth(server, ctx)
         const result = await callTool(server.url, cached.name, args, auth, exec.signal, server.toolCallTimeoutMs)
@@ -103,6 +96,7 @@ function registerCachedTools(ctx: Context, server: EdgeMcpServerConfig): void {
         return { content: result.content }
       },
       output: {
+        schema: { type: 'object', properties: { content: { type: 'array' } }, additionalProperties: true },
         render(_args: unknown, value: unknown): ContentBlock[] {
           const v = value as { content?: unknown[] }
           if (v?.content !== undefined) {
@@ -112,8 +106,12 @@ function registerCachedTools(ctx: Context, server: EdgeMcpServerConfig): void {
         },
       },
     } as never)
+    } catch (regError) {
+      console.warn(`dsh-edge: skipped MCP tool "${cached.publicName}": ${regError instanceof Error ? regError.message : String(regError)}`)
+    }
   }
 }
+
 
 export async function probeAndCache(
   storage: DurableObjectStorage,
