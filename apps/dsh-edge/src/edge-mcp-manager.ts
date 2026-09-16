@@ -26,6 +26,7 @@ export interface EdgeMcpServerConfig {
 }
 
 export interface McpToolManager {
+  ready: Promise<void>
   syncServer(serverName: string): Promise<ProbeResult>
   disposeServer(serverName: string): void
   disposeAll(): void
@@ -232,6 +233,7 @@ export function installEdgeMcpServers(
   }
 
   return {
+    ready: initPromise,
     syncServer,
     disposeServer,
     disposeAll() {

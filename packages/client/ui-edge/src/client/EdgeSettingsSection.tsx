@@ -58,7 +58,8 @@ function McpServersCard(props: McpServersCardProps): ReactNode {
       try { new URL(draft.url.trim()) } catch { return }
       if (servers.some(s => s.serverName === name)) return
       if (draft.authType === 'bearer' && draft.token.trim() !== '') {
-        await onSaveToken(name, draft.token.trim())
+        const tokenOk = await onSaveToken(name, draft.token.trim())
+        if (!tokenOk) return
       }
       const ok = await onSave([...servers, entry])
       if (!ok) return

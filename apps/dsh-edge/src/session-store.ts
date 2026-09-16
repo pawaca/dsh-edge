@@ -554,6 +554,7 @@ export class EdgeSessionStore {
       defaultMode: config.approvalDefaultMode,
     })
     this.mcpToolManager = installEdgeMcpServers(this.context, storage)
+    await this.mcpToolManager.ready
     await this.context.plugin(ToolFs)
     await this.context.plugin(ToolSkill)
     await this.context.plugin(GoalService)
