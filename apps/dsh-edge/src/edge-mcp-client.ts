@@ -91,8 +91,7 @@ const cfWorkerValidator = new CfWorkerJsonSchemaValidator()
 const noRedirectFetch: typeof globalThis.fetch = async (input, init) => {
   const res = await globalThis.fetch(input, { ...init, redirect: 'manual' })
   if (res.status >= 300 && res.status < 400) {
-    const location = res.headers.get('location') ?? '(unknown)'
-    throw new Error(`MCP server returned a redirect to ${location}; redirects are blocked for security.`)
+    throw new Error(`MCP server returned HTTP ${String(res.status)} redirect; redirects are blocked for security.`)
   }
   return res
 }
