@@ -7,6 +7,7 @@ import {
   type McpCallResult,
   publicToolName,
 } from './edge-mcp-tools.ts'
+import { DSH_EDGE_VERSION } from './release.ts'
 
 const PROBE_TIMEOUT_MS = 30_000
 const CALL_TIMEOUT_MS = 60_000
@@ -40,7 +41,7 @@ async function connectClient(
     new URL(url),
     { requestInit: { headers: buildHeaders(auth), signal } },
   )
-  const client = new Client({ name: 'dsh-edge', version: '1.0.0' })
+  const client = new Client({ name: 'dsh-edge', version: DSH_EDGE_VERSION })
   await client.connect(transport as never)
   return {
     client,

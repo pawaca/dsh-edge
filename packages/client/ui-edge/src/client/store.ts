@@ -228,11 +228,17 @@ export class EdgeSettingsController {
         throw new Error(data.error ?? `HTTP ${String(response.status)}`)
       }
       const result = await response.json() as { servers?: McpServerEntry[]; restartRequired?: boolean }
+      const saved = result.servers ?? servers
       this.store.update((state) => {
-        state.mcpServers = result.servers ?? servers
+        state.mcpServers = saved
         state.mcpSaving = false
         state.mcpRestartNeeded = result.restartRequired === true
       })
+      for (const s of saved) {
+        await this.io.fetch(`/api/mcp-servers/${encodeURIComponent(s.serverName)}/probe`, {
+          method: 'POST', credentials: 'same-origin',
+        }).catch(() => {})
+      }
       return true
     } catch (error) {
       this.store.update((state) => {
