@@ -253,6 +253,15 @@ export class EdgeSettingsController {
     } catch { /* ignore */ }
   }
 
+  private static stripServerManagedFields(servers: McpServerEntry[]): Partial<McpServerEntry>[] {
+    return servers.map(({ serverName, url, auth, toolPolicy, toolCallTimeoutMs }) => ({
+      serverName, url,
+      ...(auth !== undefined ? { auth } : {}),
+      ...(toolPolicy !== undefined ? { toolPolicy } : {}),
+      ...(toolCallTimeoutMs !== undefined ? { toolCallTimeoutMs } : {}),
+    }))
+  }
+
   async saveMcpServers(servers: McpServerEntry[]): Promise<boolean> {
     this.mcpGeneration++
     this.store.update((state) => { state.mcpSaving = true; delete state.mcpError })
@@ -261,7 +270,7 @@ export class EdgeSettingsController {
         method: 'PUT',
         credentials: 'same-origin',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ servers }),
+        body: JSON.stringify({ servers: EdgeSettingsController.stripServerManagedFields(servers) }),
       })
       if (!response.ok) {
         const data = await response.json().catch(() => ({})) as { error?: string }
@@ -313,12 +322,16 @@ export class EdgeSettingsController {
         method: 'PUT',
         credentials: 'same-origin',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ servers: updated }),
+        body: JSON.stringify({ servers: EdgeSettingsController.stripServerManagedFields(updated) }),
       })
-      if (!response.ok) return false
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({})) as { error?: string }
+        this.store.update((state) => { state.mcpError = data.error ?? 'Policy update failed' })
+        return false
+      }
       const result = await response.json() as { servers?: McpServerEntry[] }
       if (Array.isArray(result.servers)) {
-        this.store.update((state) => { state.mcpServers = result.servers as McpServerEntry[] })
+        this.store.update((state) => { state.mcpServers = result.servers as McpServerEntry[]; delete state.mcpError })
       }
       return true
     } catch {
