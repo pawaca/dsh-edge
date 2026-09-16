@@ -61,6 +61,11 @@ async function resolveAuth(config: EdgeMcpServerConfig, ctx?: Context, storage?:
       if (refreshData !== undefined && refreshData.expiresAt !== undefined && Date.now() > refreshData.expiresAt - 120_000) {
         if (!refreshData.refreshToken) {
           console.warn(`dsh-edge: OAuth token expired for "${config.serverName}" and no refresh token is available. Re-authenticate via Settings.`)
+          // Mark as needing reauth and withhold the expired token
+          const servers = await storage.get<EdgeMcpServerConfig[]>(MCP_STORAGE_KEY) ?? []
+          const srv = servers.find(s => s.serverName === config.serverName)
+          if (srv !== undefined) { srv.status = 'error'; srv.lastError = 'Token expired. Re-authenticate via Settings.'; await storage.put(MCP_STORAGE_KEY, servers) }
+          return { type: 'none' }
         } else try {
           const { refreshToken } = await import('./edge-mcp-oauth.ts')
           const tokens = await refreshToken(refreshData.tokenEndpoint, refreshData.client, refreshData.refreshToken, config.url)

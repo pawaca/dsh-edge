@@ -61,8 +61,10 @@ export async function discoverEndpoints(
   const asUrl = prm.authorization_servers?.[0]
   if (typeof asUrl !== 'string') throw new Error('No authorization server in PRM')
 
-  // RFC 8414: Authorization Server Metadata
-  const asMetaUrl = new URL('/.well-known/oauth-authorization-server', new URL(asUrl).origin)
+  // RFC 8414: Authorization Server Metadata — path-aware issuer
+  const asIssuer = new URL(asUrl)
+  const asMetaPath = asIssuer.pathname === '/' ? '/.well-known/oauth-authorization-server' : `/.well-known/oauth-authorization-server${asIssuer.pathname}`
+  const asMetaUrl = new URL(asMetaPath, asIssuer.origin)
   const asRes = await fetch(asMetaUrl.href, { signal })
   if (!asRes.ok) throw new Error(`AS metadata failed: HTTP ${asRes.status}`)
   const meta = await asRes.json() as {

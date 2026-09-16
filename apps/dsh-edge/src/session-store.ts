@@ -1068,7 +1068,7 @@ export class EdgeSessionStore {
     for (const old of oldServers) {
       if (old.auth?.type !== 'bearer' && old.auth?.type !== 'oauth') continue
       const replacement = newByName.get(old.serverName)
-      if (replacement === undefined || replacement.auth?.type !== old.auth.type) {
+      if (replacement === undefined || replacement.auth?.type !== old.auth.type || replacement.url !== old.url) {
         await this.context.credentials.unset(this.mcpCredentialRef(old.serverName)).catch(() => {})
         await this.doStorage.delete(`dsh-edge:mcp-refresh:${old.serverName}`).catch(() => {})
       }
