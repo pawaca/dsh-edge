@@ -6,6 +6,8 @@ import { callTool, probe, type McpAuth, type ProbeResult } from './edge-mcp-clie
 import { type CachedMcpTool, mapMcpResultToContentBlocks } from './edge-mcp-tools.ts'
 
 const MCP_STORAGE_KEY = 'dsh-edge:mcp-servers'
+const MAX_CATALOG_BYTES = 128 * 1024
+const MAX_DESCRIPTION_LENGTH = 512
 
 export interface EdgeMcpServerConfig {
   serverName: string
@@ -19,6 +21,20 @@ export interface EdgeMcpServerConfig {
   serverInfo?: { name?: string | undefined; version?: string | undefined } | undefined
   instructions?: string | undefined
   lastError?: string | undefined
+}
+
+function capCatalogSize(tools: CachedMcpTool[]): CachedMcpTool[] {
+  const capped = tools.map(t => ({
+    ...t,
+    description: t.description.length > MAX_DESCRIPTION_LENGTH
+      ? t.description.slice(0, MAX_DESCRIPTION_LENGTH) + '…'
+      : t.description,
+  }))
+  const serialized = JSON.stringify(capped)
+  if (serialized.length <= MAX_CATALOG_BYTES) return capped
+  const ratio = MAX_CATALOG_BYTES / serialized.length
+  const limit = Math.max(1, Math.floor(capped.length * ratio))
+  return capped.slice(0, limit)
 }
 
 function authFromConfig(config: EdgeMcpServerConfig): McpAuth {
@@ -40,10 +56,10 @@ export async function installEdgeMcpServers(
 
   let dirty = false
   for (const server of raw) {
-    if (!Array.isArray(server.cachedTools) || server.cachedTools.length === 0) {
+    if (server.cachedTools === undefined) {
       try {
         const result = await probe(server.serverName, server.url, authFromConfig(server))
-        server.cachedTools = result.tools
+        server.cachedTools = capCatalogSize(result.tools)
         server.status = 'connected'
         server.toolCount = result.tools.length
         server.lastProbeAt = Date.now()
@@ -115,22 +131,32 @@ export async function probeAndCache(
   if (server === undefined) throw new Error(`Server "${serverName}" not found.`)
 
   const auth = authFromConfig(server)
+  const url = server.url
+  let result: ProbeResult
   try {
-    const result = await probe(serverName, server.url, auth)
-    server.cachedTools = result.tools
-    server.status = 'connected'
-    server.toolCount = result.tools.length
-    server.lastProbeAt = Date.now()
-    server.serverInfo = result.serverInfo
-    server.instructions = result.instructions
-    delete server.lastError
-    await storage.put(MCP_STORAGE_KEY, servers)
-    return result
+    result = await probe(serverName, url, auth)
   } catch (error) {
-    server.status = 'error'
-    server.lastError = error instanceof Error ? error.message : String(error)
-    server.lastProbeAt = Date.now()
-    await storage.put(MCP_STORAGE_KEY, servers)
+    const fresh = await storage.get<EdgeMcpServerConfig[]>(MCP_STORAGE_KEY) ?? []
+    const entry = fresh.find(s => s.serverName === serverName)
+    if (entry !== undefined) {
+      entry.status = 'error'
+      entry.lastError = error instanceof Error ? error.message : String(error)
+      entry.lastProbeAt = Date.now()
+      await storage.put(MCP_STORAGE_KEY, fresh)
+    }
     throw error
   }
+  const fresh = await storage.get<EdgeMcpServerConfig[]>(MCP_STORAGE_KEY) ?? []
+  const entry = fresh.find(s => s.serverName === serverName)
+  if (entry !== undefined) {
+    entry.cachedTools = capCatalogSize(result.tools)
+    entry.status = 'connected'
+    entry.toolCount = result.tools.length
+    entry.lastProbeAt = Date.now()
+    entry.serverInfo = result.serverInfo
+    entry.instructions = result.instructions
+    delete entry.lastError
+    await storage.put(MCP_STORAGE_KEY, fresh)
+  }
+  return result
 }
