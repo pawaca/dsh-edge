@@ -55,8 +55,6 @@ export const en = {
   mcpNeedsReauth: 'needs reconnect',
   mcpError: 'connection error',
   mcpTools: 'tools',
-  mcpRestartNeeded: 'Restart the runtime to apply MCP changes.',
-  mcpRestart: 'Restart runtime',
 } as const
 
 /** Locale keys shared by the English source and translated Edge settings copy. */
@@ -119,6 +117,4 @@ export const zh: Record<EdgeSettingsKey, string> = {
   mcpNeedsReauth: '需要重连',
   mcpError: '连接错误',
   mcpTools: '个工具',
-  mcpRestartNeeded: '重启运行时以应用 MCP 配置变更。',
-  mcpRestart: '重启运行时',
 }

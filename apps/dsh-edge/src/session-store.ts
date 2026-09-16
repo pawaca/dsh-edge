@@ -62,7 +62,7 @@ import * as SpillPolicy from '@deepseek-ai/dsh-spill-policy'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import ApprovalService from '@deepseek-ai/dsh-user-approval'
-import { installEdgeMcpServers, type EdgeMcpServerConfig } from './edge-mcp-manager.ts'
+import { installEdgeMcpServers, type EdgeMcpServerConfig, type McpToolManager } from './edge-mcp-manager.ts'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as ToolGoal from '@deepseek-ai/dsh-tool-goal'
 import * as ToolSkill from '@deepseek-ai/dsh-tool-skill'
@@ -287,6 +287,7 @@ export class EdgeSessionStore {
   private readonly publishesLateEvents: boolean
   private readonly residentAgents = new Map<SessionId, AgentHandle>()
   private approvalScope?: SettingsScope<EdgeApprovalSettings>
+  private mcpToolManager?: McpToolManager
   private readonly doStorage: DurableObjectStorage
   private readonly ready: Promise<void>
 
@@ -552,8 +553,7 @@ export class EdgeSessionStore {
     this.approvalScope = installEdgeApprovalPolicy(this.context, {
       defaultMode: config.approvalDefaultMode,
     })
-    await installEdgeMcpServers(this.context, storage)
-    await this.clearMcpDirty()
+    this.mcpToolManager = installEdgeMcpServers(this.context, storage)
     await this.context.plugin(ToolFs)
     await this.context.plugin(ToolSkill)
     await this.context.plugin(GoalService)
@@ -861,7 +861,18 @@ export class EdgeSessionStore {
     return this.context.settings?.documentPath !== undefined
   }
 
-  getContext(): Context { return this.context }
+  async syncMcpServer(serverName: string): Promise<{ toolCount: number }> {
+    await this.ready
+    if (this.mcpToolManager === undefined) throw new Error('MCP not initialized')
+    const result = await this.mcpToolManager.syncServer(serverName)
+    const servers = await this.doStorage.get<EdgeMcpServerConfig[]>(EdgeSessionStore.MCP_STORAGE_KEY) ?? []
+    const cached = servers.find(s => s.serverName === serverName)
+    return { toolCount: cached?.toolCount ?? result.tools.length }
+  }
+
+  disposeMcpServer(serverName: string): void {
+    this.mcpToolManager?.disposeServer(serverName)
+  }
 
   private static readonly MCP_PENDING_FLOW_KEY = 'dsh-edge:mcp-pending-oauth'
 
@@ -955,11 +966,9 @@ export class EdgeSessionStore {
       await this.doStorage.delete(refreshKey)
     }
 
-    // Auto-probe now that we have a token
+    // Auto-probe + hot-swap now that we have a token
     try {
-      const { probeAndCache } = await import('./edge-mcp-manager.ts')
-      await probeAndCache(this.doStorage, pending.serverName, this.context)
-      await this.markMcpDirty()
+      await this.syncMcpServer(pending.serverName)
     } catch (probeError) {
       console.error(`dsh-edge: post-OAuth probe failed for "${pending.serverName}".`, probeError)
     }
@@ -981,7 +990,6 @@ export class EdgeSessionStore {
   }
 
   private static readonly MCP_STORAGE_KEY = 'dsh-edge:mcp-servers'
-  private static readonly MCP_DIRTY_KEY = 'dsh-edge:mcp-tools-dirty'
 
   async getMcpServers(): Promise<EdgeMcpServerConfig[]> {
     await this.ready
@@ -996,18 +1004,6 @@ export class EdgeSessionStore {
       }
       return s
     })
-  }
-
-  async isMcpRestartNeeded(): Promise<boolean> {
-    return (await this.doStorage.get<boolean>(EdgeSessionStore.MCP_DIRTY_KEY)) === true
-  }
-
-  async markMcpDirty(): Promise<void> {
-    await this.doStorage.put(EdgeSessionStore.MCP_DIRTY_KEY, true)
-  }
-
-  async clearMcpDirty(): Promise<void> {
-    await this.doStorage.delete(EdgeSessionStore.MCP_DIRTY_KEY)
   }
 
   async setMcpServers(servers: Partial<EdgeMcpServerConfig>[]): Promise<void> {
@@ -1065,15 +1061,17 @@ export class EdgeSessionStore {
       }
     }
     await this.doStorage.put(EdgeSessionStore.MCP_STORAGE_KEY, validated)
-    await this.markMcpDirty()
-    // Clear credentials for removed or auth-changed servers
+    // Dispose tools and clear credentials for removed or changed servers
     const newByName = new Map(validated.map(s => [s.serverName, s]))
     for (const old of oldServers) {
-      if (old.auth?.type !== 'bearer' && old.auth?.type !== 'oauth') continue
       const replacement = newByName.get(old.serverName)
-      if (replacement === undefined || replacement.auth?.type !== old.auth.type || replacement.url !== old.url) {
-        await this.context.credentials.unset(this.mcpCredentialRef(old.serverName)).catch(() => {})
-        await this.doStorage.delete(`dsh-edge:mcp-refresh:${old.serverName}`).catch(() => {})
+      const changed = replacement === undefined || replacement.url !== old.url || replacement.auth?.type !== old.auth?.type
+      if (changed) {
+        this.disposeMcpServer(old.serverName)
+        if (old.auth?.type === 'bearer' || old.auth?.type === 'oauth') {
+          await this.context.credentials.unset(this.mcpCredentialRef(old.serverName)).catch(() => {})
+          await this.doStorage.delete(`dsh-edge:mcp-refresh:${old.serverName}`).catch(() => {})
+        }
       }
     }
   }

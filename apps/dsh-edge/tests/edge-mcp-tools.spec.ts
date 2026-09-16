@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { publicToolName, mapMcpResultToContentBlocks } from '../src/edge-mcp-tools.ts'
+import { publicToolName, mapMcpResultToContentBlocks, scrubMcpErrorMessage } from '../src/edge-mcp-tools.ts'
 
 describe('edge-mcp-tools', () => {
   describe('publicToolName', () => {
@@ -79,6 +79,29 @@ describe('edge-mcp-tools', () => {
     it('handles empty content', () => {
       const blocks = mapMcpResultToContentBlocks({ content: [] })
       expect((blocks[0] as { text: string }).text).toBe('(empty MCP result)')
+    })
+  })
+
+  describe('scrubMcpErrorMessage', () => {
+    it('strips bearer tokens', () => {
+      expect(scrubMcpErrorMessage('auth failed: Bearer sk-abc123xyz')).toBe('auth failed: Bearer ***')
+    })
+
+    it('strips URL query strings', () => {
+      expect(scrubMcpErrorMessage('error at https://example.com/api?token=secret&key=val')).toBe('error at https://example.com/api?***')
+    })
+
+    it('strips control characters', () => {
+      expect(scrubMcpErrorMessage('bad\x00data\x01here')).toBe('baddatahere')
+    })
+
+    it('truncates to 300 chars', () => {
+      const long = 'x'.repeat(500)
+      expect(scrubMcpErrorMessage(long)).toHaveLength(300)
+    })
+
+    it('passes through clean messages unchanged', () => {
+      expect(scrubMcpErrorMessage('Connection refused')).toBe('Connection refused')
     })
   })
 })
