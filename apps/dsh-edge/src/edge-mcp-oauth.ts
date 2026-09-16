@@ -123,7 +123,8 @@ export async function buildAuthorizationUrl(
   const codeVerifier = randomString(64)
   const codeChallenge = await sha256Base64Url(codeVerifier)
 
-  const params = new URLSearchParams({
+  const authUrl = new URL(endpoints.authorization)
+  for (const [k, v] of Object.entries({
     response_type: 'code',
     client_id: client.clientId,
     redirect_uri: redirectUri,
@@ -131,10 +132,10 @@ export async function buildAuthorizationUrl(
     code_challenge: codeChallenge,
     code_challenge_method: 'S256',
     resource: serverUrl,
-  })
+  })) authUrl.searchParams.set(k, v)
 
   return {
-    authorizationUrl: `${endpoints.authorization}?${params.toString()}`,
+    authorizationUrl: authUrl.href,
     pendingFlow: {
       state,
       codeVerifier,

@@ -941,15 +941,18 @@ export class EdgeSessionStore {
       this.mcpCredentialRef(pending.serverName),
       tokens.accessToken,
     )
-    // Store refresh/expiry metadata for token lifecycle
+    // Always replace refresh metadata — clears stale expiry from prior flows
+    const refreshKey = `dsh-edge:mcp-refresh:${pending.serverName}`
     if (tokens.refreshToken !== undefined || tokens.expiresAt !== undefined) {
-      await this.doStorage.put(`dsh-edge:mcp-refresh:${pending.serverName}`, {
+      await this.doStorage.put(refreshKey, {
         refreshToken: tokens.refreshToken ?? '',
         expiresAt: tokens.expiresAt,
         tokenEndpoint: oauthAuth.endpoints.token,
         client,
         serverUrl: pending.serverUrl,
       })
+    } else {
+      await this.doStorage.delete(refreshKey)
     }
 
     // Auto-probe now that we have a token
