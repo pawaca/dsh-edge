@@ -33,7 +33,6 @@ export type ApprovalMode = 'ask' | 'never'
 export interface McpServerEntry {
   serverName: string
   url: string
-  headers?: Record<string, string>
   toolCallTimeoutMs?: number
 }
 
