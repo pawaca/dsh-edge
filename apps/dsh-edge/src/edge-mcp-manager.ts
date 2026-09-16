@@ -4,7 +4,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import { callTool, probe, type McpAuth, type ProbeResult } from './edge-mcp-client.ts'
-import { type CachedMcpTool, mapMcpResultToContentBlocks, scrubMcpErrorMessage } from './edge-mcp-tools.ts'
+import { type CachedMcpTool, type McpToolPolicyMode, evaluateMcpToolPolicy, mapMcpResultToContentBlocks, scrubMcpErrorMessage } from './edge-mcp-tools.ts'
 
 const MCP_STORAGE_KEY = 'dsh-edge:mcp-servers'
 const MCP_REFRESH_PREFIX = 'dsh-edge:mcp-refresh:'
@@ -15,6 +15,7 @@ export interface EdgeMcpServerConfig {
   serverName: string
   url: string
   auth?: { type: 'none' } | { type: 'bearer'; token?: string | undefined } | { type: 'oauth'; endpoints?: unknown; client?: unknown } | undefined
+  toolPolicy?: { mode: McpToolPolicyMode } | undefined
   toolCallTimeoutMs?: number | undefined
   cachedTools?: CachedMcpTool[] | undefined
   status?: 'unknown' | 'connected' | 'error' | undefined
@@ -25,11 +26,18 @@ export interface EdgeMcpServerConfig {
   lastError?: string | undefined
 }
 
+export interface McpToolMeta {
+  serverName: string
+  rawName: string
+  readOnlyHint?: boolean | undefined
+}
+
 export interface McpToolManager {
   ready: Promise<void>
   syncServer(serverName: string): Promise<ProbeResult>
   disposeServer(serverName: string): void
   disposeAll(): void
+  resolveToolPolicy(publicName: string): Promise<'allow' | 'ask' | undefined>
 }
 
 function capCatalogSize(tools: CachedMcpTool[]): CachedMcpTool[] {
@@ -105,10 +113,16 @@ function registerCachedTools(
   ctx: Context,
   server: EdgeMcpServerConfig,
   storage: DurableObjectStorage,
+  toolMeta: Map<string, McpToolMeta>,
 ): Map<string, () => void> {
   const disposers = new Map<string, () => void>()
   const tools = server.cachedTools ?? []
   for (const cached of tools) {
+    toolMeta.set(cached.publicName, {
+      serverName: server.serverName,
+      rawName: cached.name,
+      readOnlyHint: cached.annotations?.readOnlyHint,
+    })
     try {
       const dispose = ctx.tools.register({
         name: cached.publicName,
@@ -150,6 +164,7 @@ export function installEdgeMcpServers(
   storage: DurableObjectStorage,
 ): McpToolManager {
   const serverDisposers = new Map<string, Map<string, () => void>>()
+  const toolMeta = new Map<string, McpToolMeta>()
   let syncChain = Promise.resolve()
 
   const raw = storage.get<EdgeMcpServerConfig[]>(MCP_STORAGE_KEY)
@@ -165,7 +180,7 @@ export function installEdgeMcpServers(
       }
       try {
         console.log(`dsh-edge: registering ${server.cachedTools.length} MCP tools for "${server.serverName}"`)
-        const disposers = registerCachedTools(ctx, server, storage)
+        const disposers = registerCachedTools(ctx, server, storage, toolMeta)
         serverDisposers.set(server.serverName, disposers)
         console.log(`dsh-edge: registered MCP tools for "${server.serverName}" successfully`)
       } catch (error) {
@@ -177,7 +192,10 @@ export function installEdgeMcpServers(
   function disposeServer(serverName: string): void {
     const disposers = serverDisposers.get(serverName)
     if (disposers !== undefined) {
-      for (const dispose of disposers.values()) dispose()
+      for (const [publicName, dispose] of disposers) {
+        dispose()
+        toolMeta.delete(publicName)
+      }
       serverDisposers.delete(serverName)
     }
   }
@@ -222,7 +240,7 @@ export function installEdgeMcpServers(
 
         // Hot-swap: dispose old tools, register from fresh config
         disposeServer(serverName)
-        const disposers = registerCachedTools(ctx, entry, storage)
+        const disposers = registerCachedTools(ctx, entry, storage, toolMeta)
         serverDisposers.set(serverName, disposers)
         console.log(`dsh-edge: hot-swapped ${disposers.size} MCP tools for "${serverName}"`)
       }
@@ -232,14 +250,25 @@ export function installEdgeMcpServers(
     return run
   }
 
+  async function resolveToolPolicy(publicName: string): Promise<'allow' | 'ask' | undefined> {
+    await initPromise
+    const meta = toolMeta.get(publicName)
+    if (meta === undefined) return undefined
+    const servers = await storage.get<EdgeMcpServerConfig[]>(MCP_STORAGE_KEY) ?? []
+    const server = servers.find(s => s.serverName === meta.serverName)
+    return evaluateMcpToolPolicy(meta.rawName, server?.toolPolicy?.mode, meta.readOnlyHint)
+  }
+
   return {
     ready: initPromise,
     syncServer,
     disposeServer,
+    resolveToolPolicy,
     disposeAll() {
       for (const [, disposers] of serverDisposers) {
         for (const dispose of disposers.values()) dispose()
       }
+      toolMeta.clear()
       serverDisposers.clear()
     },
   }

@@ -80,11 +80,13 @@ export async function probe(
           throw new Error(`Server listed tool "${tool.name}" more than once`)
         }
         seenNames.add(publicName)
+        const hint = (tool as { annotations?: { readOnlyHint?: boolean } }).annotations?.readOnlyHint
         tools.push({
           name: tool.name,
           publicName,
           description: tool.description ?? '',
           inputSchema: (tool.inputSchema ?? { type: 'object' }) as Record<string, unknown>,
+          ...(hint !== undefined ? { annotations: { readOnlyHint: hint } } : {}),
         })
       }
       if (tools.length >= MAX_TOOLS_PER_SERVER) break

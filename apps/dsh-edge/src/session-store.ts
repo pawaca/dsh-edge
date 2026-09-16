@@ -550,10 +550,11 @@ export class EdgeSessionStore {
     // to every turn. dsh-edge owns the approval policy through the
     // pre-execute listener, not through the model transcript.
     this.context.systemPrompt.suppressRuntimeContext()
+    this.mcpToolManager = installEdgeMcpServers(this.context, storage)
     this.approvalScope = installEdgeApprovalPolicy(this.context, {
       defaultMode: config.approvalDefaultMode,
+      resolveMcpPolicy: name => this.mcpToolManager!.resolveToolPolicy(name),
     })
-    this.mcpToolManager = installEdgeMcpServers(this.context, storage)
     await this.mcpToolManager.ready
     await this.context.plugin(ToolFs)
     await this.context.plugin(ToolSkill)
@@ -1039,6 +1040,10 @@ export class EdgeSessionStore {
       if (s.auth !== undefined && s.auth.type !== 'none' && s.auth.type !== 'bearer' && s.auth.type !== 'oauth') {
         throw new Error('Supported auth types: "none", "bearer", "oauth".')
       }
+      const tp = (s as { toolPolicy?: { mode?: string } }).toolPolicy
+      if (tp !== undefined && (typeof tp !== 'object' || (tp.mode !== 'allow_all' && tp.mode !== 'read_only' && tp.mode !== 'approve_all'))) {
+        throw new Error('Supported toolPolicy modes: "allow_all", "read_only", "approve_all".')
+      }
       return {
         serverName: s.serverName,
         url: s.url,
@@ -1046,19 +1051,25 @@ export class EdgeSessionStore {
           : s.auth?.type === 'bearer' ? { type: 'bearer' as const }
           : { type: 'none' as const },
         ...(s.toolCallTimeoutMs !== undefined ? { toolCallTimeoutMs: s.toolCallTimeoutMs } : {}),
+        ...(tp?.mode !== undefined ? { toolPolicy: { mode: tp.mode as 'allow_all' | 'read_only' | 'approve_all' } } : {}),
       }
     })
     // Preserve cached tools for servers whose name+url+auth.type are unchanged
     const oldByName = new Map(oldServers.map(s => [s.serverName, s]))
     for (const v of validated) {
       const old = oldByName.get(v.serverName)
-      if (old !== undefined && old.url === v.url && old.auth?.type === v.auth?.type && old.cachedTools !== undefined) {
-        (v as EdgeMcpServerConfig).cachedTools = old.cachedTools;
-        (v as EdgeMcpServerConfig).status = old.status;
-        (v as EdgeMcpServerConfig).toolCount = old.toolCount;
-        (v as EdgeMcpServerConfig).lastProbeAt = old.lastProbeAt;
-        (v as EdgeMcpServerConfig).serverInfo = old.serverInfo;
-        (v as EdgeMcpServerConfig).instructions = old.instructions
+      if (old !== undefined && old.url === v.url && old.auth?.type === v.auth?.type) {
+        if (old.cachedTools !== undefined) {
+          (v as EdgeMcpServerConfig).cachedTools = old.cachedTools;
+          (v as EdgeMcpServerConfig).status = old.status;
+          (v as EdgeMcpServerConfig).toolCount = old.toolCount;
+          (v as EdgeMcpServerConfig).lastProbeAt = old.lastProbeAt;
+          (v as EdgeMcpServerConfig).serverInfo = old.serverInfo;
+          (v as EdgeMcpServerConfig).instructions = old.instructions
+        }
+        if (v.toolPolicy === undefined && old.toolPolicy !== undefined) {
+          (v as EdgeMcpServerConfig).toolPolicy = old.toolPolicy
+        }
       }
     }
     await this.doStorage.put(EdgeSessionStore.MCP_STORAGE_KEY, validated)

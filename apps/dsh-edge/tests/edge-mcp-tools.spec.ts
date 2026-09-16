@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { publicToolName, mapMcpResultToContentBlocks, scrubMcpErrorMessage } from '../src/edge-mcp-tools.ts'
+import { publicToolName, mapMcpResultToContentBlocks, scrubMcpErrorMessage, evaluateMcpToolPolicy } from '../src/edge-mcp-tools.ts'
 
 describe('edge-mcp-tools', () => {
   describe('publicToolName', () => {
@@ -102,6 +102,45 @@ describe('edge-mcp-tools', () => {
 
     it('passes through clean messages unchanged', () => {
       expect(scrubMcpErrorMessage('Connection refused')).toBe('Connection refused')
+    })
+  })
+
+  describe('evaluateMcpToolPolicy', () => {
+    it('allow_all always allows', () => {
+      expect(evaluateMcpToolPolicy('place_order', 'allow_all')).toBe('allow')
+      expect(evaluateMcpToolPolicy('place_order', 'allow_all', false)).toBe('allow')
+    })
+
+    it('approve_all always asks', () => {
+      expect(evaluateMcpToolPolicy('get_quote', 'approve_all')).toBe('ask')
+      expect(evaluateMcpToolPolicy('get_quote', 'approve_all', true)).toBe('ask')
+    })
+
+    it('defaults to approve_all when undefined', () => {
+      expect(evaluateMcpToolPolicy('get_quote', undefined)).toBe('ask')
+    })
+
+    it('read_only with readOnlyHint=true allows', () => {
+      expect(evaluateMcpToolPolicy('custom_tool', 'read_only', true)).toBe('allow')
+    })
+
+    it('read_only with readOnlyHint=false asks', () => {
+      expect(evaluateMcpToolPolicy('get_data', 'read_only', false)).toBe('ask')
+    })
+
+    it('read_only with no hint uses name patterns', () => {
+      expect(evaluateMcpToolPolicy('get_stock_quote', 'read_only')).toBe('allow')
+      expect(evaluateMcpToolPolicy('list_accounts', 'read_only')).toBe('allow')
+      expect(evaluateMcpToolPolicy('search_symbols', 'read_only')).toBe('allow')
+      expect(evaluateMcpToolPolicy('place_order', 'read_only')).toBe('ask')
+      expect(evaluateMcpToolPolicy('delete_item', 'read_only')).toBe('ask')
+    })
+
+    it('read_only hint overrides name pattern', () => {
+      // get_ pattern would allow, but explicit hint=false overrides
+      expect(evaluateMcpToolPolicy('get_and_delete', 'read_only', false)).toBe('ask')
+      // non-read name would ask, but explicit hint=true overrides
+      expect(evaluateMcpToolPolicy('execute_trade', 'read_only', true)).toBe('allow')
     })
   })
 })
