@@ -56,7 +56,13 @@ export async function probe(
   auth?: McpAuth,
 ): Promise<ProbeResult> {
   const signal = AbortSignal.timeout(PROBE_TIMEOUT_MS)
-  const { client, close } = await connectClient(url, auth, signal)
+  let conn: Awaited<ReturnType<typeof connectClient>>
+  try {
+    conn = await connectClient(url, auth, signal)
+  } catch (error) {
+    throw new Error(scrubMcpErrorMessage(error instanceof Error ? error.message : String(error)))
+  }
+  const { client, close } = conn
   try {
     const tools: CachedMcpTool[] = []
     const seenNames = new Set<string>()
@@ -119,9 +125,14 @@ export async function callTool(
   const deadline = signal
     ? AbortSignal.any([signal, AbortSignal.timeout(effectiveTimeout)])
     : AbortSignal.timeout(effectiveTimeout)
-  const { client, close } = await connectClient(url, auth, deadline)
+  let client: Awaited<ReturnType<typeof connectClient>>
   try {
-    const result = await client.callTool(
+    client = await connectClient(url, auth, deadline)
+  } catch (error) {
+    throw new Error(scrubMcpErrorMessage(error instanceof Error ? error.message : String(error)))
+  }
+  try {
+    const result = await client.client.callTool(
       { name: rawToolName, arguments: args as Record<string, unknown> },
       undefined,
       { signal: deadline },
@@ -133,6 +144,6 @@ export async function callTool(
   } catch (error) {
     throw new Error(scrubMcpErrorMessage(error instanceof Error ? error.message : String(error)))
   } finally {
-    await close()
+    await client.close()
   }
 }
