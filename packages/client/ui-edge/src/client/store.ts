@@ -32,10 +32,13 @@ export type ApprovalMode = 'ask' | 'never'
 
 export type McpAuthType = 'none' | 'bearer' | 'oauth'
 
+export type McpToolPolicyMode = 'allow_all' | 'read_only' | 'approve_all'
+
 export interface McpServerEntry {
   serverName: string
   url: string
   auth?: { type: McpAuthType } | undefined
+  toolPolicy?: { mode: McpToolPolicyMode } | undefined
   status?: 'unknown' | 'connected' | 'error' | 'needs_reauth' | undefined
   toolCount?: number | undefined
   toolCallTimeoutMs?: number
@@ -296,6 +299,29 @@ export class EdgeSettingsController {
         state.mcpSaving = false
         state.mcpError = messageOf(error)
       })
+      return false
+    }
+  }
+
+  async setMcpToolPolicy(serverName: string, mode: McpToolPolicyMode): Promise<boolean> {
+    const current = this.store.getSnapshot().mcpServers
+    const updated = current.map(s =>
+      s.serverName === serverName ? { ...s, toolPolicy: { mode } } : s,
+    )
+    try {
+      const response = await this.io.fetch('/api/mcp-servers', {
+        method: 'PUT',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ servers: updated }),
+      })
+      if (!response.ok) return false
+      const result = await response.json() as { servers?: McpServerEntry[] }
+      if (Array.isArray(result.servers)) {
+        this.store.update((state) => { state.mcpServers = result.servers as McpServerEntry[] })
+      }
+      return true
+    } catch {
       return false
     }
   }
