@@ -9,7 +9,7 @@ import { en, zh, type EdgeSettingsKey } from './locales.ts'
 
 export type { EdgeSettingsInjected, EdgeSettingsSectionProps } from './EdgeSettingsSection.tsx'
 export type { EdgeSettingsKey } from './locales.ts'
-export type { ApprovalMode, McpServerEntry, EdgeSettingsState, EdgeHealth } from './store.ts'
+export type { ApprovalMode, McpAuthType, McpServerEntry, EdgeSettingsState, EdgeHealth } from './store.ts'
 
 type Slots = {
   inject(name: string, callback: (() => unknown) | (() => Generator<unknown>)): unknown
@@ -45,6 +45,8 @@ export function apply(ctx: Context): void {
     signOut: () => controller.signOut(),
     setApprovalMode: (mode) => controller.setApprovalMode(mode),
     saveMcpServers: (servers) => controller.saveMcpServers(servers),
+    saveMcpToken: (name, token) => controller.saveMcpToken(name, token),
+    startOAuthConnect: (name, url) => controller.startOAuthConnect(name, url),
     restartRuntime: () => controller.restartRuntime(),
   })
   slots.inject('settings.section', () => slots.register({

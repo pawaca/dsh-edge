@@ -35,7 +35,7 @@ SOFTWARE.
 
 ## Bundled component inventory
 
-The following 583 package versions form the conservative, platform-neutral production closure used to assemble the Web and Worker artifacts in this distribution. Platform-specific build binaries that are not distributed in those artifacts are excluded; tree shaking can omit additional code. The inventory and legal texts are generated during packaging rather than referring recipients to a source checkout. License expressions are SPDX identifiers supplied by each package. Dependencies installed separately by npm remain declared in this package's `package.json`.
+The following 582 package versions form the conservative, platform-neutral production closure used to assemble the Web and Worker artifacts in this distribution. Platform-specific build binaries that are not distributed in those artifacts are excluded; tree shaking can omit additional code. The inventory and legal texts are generated during packaging rather than referring recipients to a source checkout. License expressions are SPDX identifiers supplied by each package. Dependencies installed separately by npm remain declared in this package's `package.json`.
 
 | Component | License |
 | --- | --- |
@@ -192,7 +192,6 @@ The following 583 package versions form the conservative, platform-neutral produ
 | `@deepseek-ai/dsh-llm-deepseek@0.1.5-rc.2` | `MIT` |
 | `@deepseek-ai/dsh-llm-pi-ai@0.1.5-rc.2` | `MIT` |
 | `@deepseek-ai/dsh-llm-retry@0.1.5-rc.2` | `MIT` |
-| `@deepseek-ai/dsh-mcp-client@0.1.5-rc.2` | `MIT` |
 | `@deepseek-ai/dsh-message-feedback@0.1.5-rc.2` | `MIT` |
 | `@deepseek-ai/dsh-native-command@0.1.5-rc.2` | `MIT` |
 | `@deepseek-ai/dsh-output-retention@0.1.5-rc.2` | `MIT` |
@@ -11041,7 +11040,6 @@ Applies to:
 - `@deepseek-ai/dsh-llm-deepseek@0.1.5-rc.2` (`LICENSE`)
 - `@deepseek-ai/dsh-llm-pi-ai@0.1.5-rc.2` (`LICENSE`)
 - `@deepseek-ai/dsh-llm-retry@0.1.5-rc.2` (`LICENSE`)
-- `@deepseek-ai/dsh-mcp-client@0.1.5-rc.2` (`LICENSE`)
 - `@deepseek-ai/dsh-message-feedback@0.1.5-rc.2` (`LICENSE`)
 - `@deepseek-ai/dsh-native-command@0.1.5-rc.2` (`LICENSE`)
 - `@deepseek-ai/dsh-output-retention@0.1.5-rc.2` (`LICENSE`)

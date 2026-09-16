@@ -59,6 +59,10 @@
     - paragraph: No MCP servers configured.
     - textbox "Server name (e.g. github)"
     - textbox "Endpoint URL (e.g. https://mcp.example.com/sse)"
+    - combobox "Auth type":
+      - option "No auth" [selected]
+      - option "Bearer"
+      - option "OAuth"
     - button "Add server" [disabled]
   - region "Owner session":
     - heading "Owner session" [level=3]

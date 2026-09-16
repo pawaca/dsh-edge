@@ -30,9 +30,14 @@ export interface EdgeHealth {
 
 export type ApprovalMode = 'ask' | 'never'
 
+export type McpAuthType = 'none' | 'bearer' | 'oauth'
+
 export interface McpServerEntry {
   serverName: string
   url: string
+  auth?: { type: McpAuthType } | undefined
+  status?: 'unknown' | 'connected' | 'error' | 'needs_reauth' | undefined
+  toolCount?: number | undefined
   toolCallTimeoutMs?: number
 }
 
@@ -100,8 +105,21 @@ export class EdgeSettingsController {
   private loadGeneration = 0
   private approvalGeneration = 0
   private mcpGeneration = 0
+  private oauthMessageHandler: ((e: MessageEvent) => void) | undefined
 
-  constructor(private readonly io: EdgeSettingsIO) {}
+  constructor(private readonly io: EdgeSettingsIO) {
+    this.oauthMessageHandler = (e: MessageEvent) => {
+      if ((e.data as { type?: string } | null)?.type === 'mcp-oauth-complete') void this.refreshMcpServers()
+    }
+    globalThis.addEventListener?.('message', this.oauthMessageHandler)
+  }
+
+  dispose(): void {
+    if (this.oauthMessageHandler !== undefined) {
+      globalThis.removeEventListener?.('message', this.oauthMessageHandler)
+      this.oauthMessageHandler = undefined
+    }
+  }
 
   /** Load the current deployment projection without affecting owner-session state. */
   async load(): Promise<void> {
@@ -147,9 +165,13 @@ export class EdgeSettingsController {
       try {
         const mcpResponse = await this.io.fetch('/api/mcp-servers', { credentials: 'same-origin' })
         if (mcpGen === this.mcpGeneration && mcpResponse.ok) {
-          const data = await mcpResponse.json() as { servers?: McpServerEntry[] }
+          const data = await mcpResponse.json() as { servers?: McpServerEntry[]; restartRequired?: boolean }
           if (mcpGen === this.mcpGeneration && Array.isArray(data.servers)) {
-            this.store.update((state) => { state.mcpServers = data.servers as McpServerEntry[]; state.mcpLoaded = true })
+            this.store.update((state) => {
+              state.mcpServers = data.servers as McpServerEntry[]
+              state.mcpLoaded = true
+              state.mcpRestartNeeded = data.restartRequired === true
+            })
           }
         }
       } catch { /* MCP list defaults to empty */ }
@@ -213,6 +235,23 @@ export class EdgeSettingsController {
     }
   }
 
+  async refreshMcpServers(): Promise<void> {
+    const mcpGen = ++this.mcpGeneration
+    try {
+      const response = await this.io.fetch('/api/mcp-servers', { credentials: 'same-origin' })
+      if (mcpGen === this.mcpGeneration && response.ok) {
+        const data = await response.json() as { servers?: McpServerEntry[]; restartRequired?: boolean }
+        if (mcpGen === this.mcpGeneration && Array.isArray(data.servers)) {
+          this.store.update((state) => {
+            state.mcpServers = data.servers as McpServerEntry[]
+            state.mcpLoaded = true
+            state.mcpRestartNeeded = data.restartRequired === true
+          })
+        }
+      }
+    } catch { /* ignore */ }
+  }
+
   async saveMcpServers(servers: McpServerEntry[]): Promise<boolean> {
     this.mcpGeneration++
     this.store.update((state) => { state.mcpSaving = true; delete state.mcpError })
@@ -228,10 +267,31 @@ export class EdgeSettingsController {
         throw new Error(data.error ?? `HTTP ${String(response.status)}`)
       }
       const result = await response.json() as { servers?: McpServerEntry[]; restartRequired?: boolean }
+      const saved = result.servers ?? servers
       this.store.update((state) => {
-        state.mcpServers = result.servers ?? servers
+        state.mcpServers = saved
+      })
+      const probeErrors: string[] = []
+      for (const s of saved) {
+        if (s.auth?.type === 'oauth') continue
+        try {
+          const probeRes = await this.io.fetch(`/api/mcp-servers/${encodeURIComponent(s.serverName)}/probe`, {
+            method: 'POST', credentials: 'same-origin',
+          })
+          if (!probeRes.ok) {
+            const data = await probeRes.json().catch(() => ({})) as { error?: string }
+            probeErrors.push(`${s.serverName}: ${data.error ?? 'probe failed'}`)
+          }
+        } catch {
+          probeErrors.push(`${s.serverName}: network error`)
+        }
+      }
+      this.store.update((state) => {
         state.mcpSaving = false
         state.mcpRestartNeeded = result.restartRequired === true
+        if (probeErrors.length > 0) {
+          state.mcpError = probeErrors.join('; ')
+        }
       })
       return true
     } catch (error) {
@@ -241,6 +301,73 @@ export class EdgeSettingsController {
       })
       return false
     }
+  }
+
+  async saveMcpToken(serverName: string, token: string): Promise<boolean> {
+    try {
+      const response = await this.io.fetch(`/api/mcp-servers/${encodeURIComponent(serverName)}/token`, {
+        method: 'PUT',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ token }),
+      })
+      if (!response.ok) return false
+      // Probe the server now that the token is available, then refresh state
+      await this.io.fetch(`/api/mcp-servers/${encodeURIComponent(serverName)}/probe`, {
+        method: 'POST', credentials: 'same-origin',
+      }).catch(() => {})
+      await this.refreshMcpServers()
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  async startOAuthConnect(serverName: string, serverUrl: string): Promise<string | undefined> {
+    const redirectUri = `${globalThis.location?.origin ?? ''}/api/mcp/oauth/callback`
+    try {
+      const response = await this.io.fetch('/api/mcp/oauth/start', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ serverName, serverUrl, redirectUri }),
+      })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({})) as { error?: string }
+        this.store.update((state) => { state.mcpError = data.error ?? 'OAuth start failed' })
+        return undefined
+      }
+      const result = await response.json() as { authorizationUrl?: string }
+      return result.authorizationUrl
+    } catch (error) {
+      this.store.update((state) => { state.mcpError = messageOf(error) })
+      return undefined
+    }
+  }
+
+  async completeOAuthConnect(code: string, state: string): Promise<boolean> {
+    try {
+      const response = await this.io.fetch('/api/mcp/oauth/complete', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ code, state }),
+      })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({})) as { error?: string }
+        this.store.update((state) => { state.mcpError = data.error ?? 'OAuth complete failed' })
+        return false
+      }
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  async clearMcpToken(serverName: string): Promise<void> {
+    await this.io.fetch(`/api/mcp-servers/${encodeURIComponent(serverName)}/token`, {
+      method: 'DELETE', credentials: 'same-origin',
+    }).catch(() => {})
   }
 
   /** Copy the matching channel upgrade command without affecting deployment state. */

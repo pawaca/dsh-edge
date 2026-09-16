@@ -55,6 +55,32 @@ export default {
         return jsonResponse(resolveEdgeDeploymentHealth(env))
       }
 
+      // OAuth callback from Auth Server redirect — must bypass owner auth
+      // because the popup window doesn't carry the owner cookie.
+      if (request.method === 'GET' && url.pathname === '/api/mcp/oauth/callback') {
+        const code = url.searchParams.get('code')
+        const state = url.searchParams.get('state')
+        if (typeof code === 'string' && typeof state === 'string') {
+          try {
+            const stub = env.DSH_EDGE_INSTANCE.getByName(OWNER_INSTANCE)
+            const completeRes = await stub.fetch(new Request('https://dsh-edge.internal/api/mcp/oauth/complete', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ code, state }),
+            }))
+            const result = await completeRes.json() as { serverName?: string; toolCount?: number; error?: string }
+            if (completeRes.ok) {
+              const serverName = result.serverName ?? 'MCP server'
+              const toolCount = result.toolCount ?? 0
+              return oauthResultPage(true, serverName, toolCount)
+            }
+            return oauthResultPage(false, undefined, undefined, result.error)
+          } catch (error) {
+            return oauthResultPage(false, undefined, undefined, error instanceof Error ? error.message : undefined)
+          }
+        }
+      }
+
       const authResponse = await handleOwnerAuthRoute(request, auth)
       if (authResponse !== undefined) return authResponse
 
@@ -187,4 +213,26 @@ function isInstanceApiPath(pathname: string): boolean {
 function parentDirectory(path: string): string {
   const separator = path.lastIndexOf('/')
   return separator <= 0 ? '/' : path.slice(0, separator)
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/gu, '&amp;').replace(/</gu, '&lt;').replace(/>/gu, '&gt;').replace(/"/gu, '&quot;')
+}
+
+function oauthResultPage(ok: boolean, serverName?: string, toolCount?: number, errorMsg?: string): Response {
+  const esc = escapeHtml
+  if (ok) {
+    const name = esc(serverName ?? 'MCP server')
+    const tools = toolCount !== undefined && toolCount > 0 ? `<p>${String(toolCount)} tools discovered.</p>` : ''
+    const postMsg = JSON.stringify({ type: 'mcp-oauth-complete', serverName: serverName ?? 'MCP server', toolCount: toolCount ?? 0 }).replace(/</gu, '\\u003c')
+    return new Response(
+      `<!doctype html><html><head><title>Connected</title></head><body style="font-family:system-ui;text-align:center;padding:60px"><h2>Connected to ${name}</h2>${tools}<p>You can close this window.</p><script>window.opener?.postMessage(${postMsg},'*');window.opener?.focus()</script></body></html>`,
+      { headers: { 'content-type': 'text/html' } },
+    )
+  }
+  const msg = esc(errorMsg ?? 'Unknown error')
+  return new Response(
+    `<!doctype html><html><head><title>Error</title></head><body style="font-family:system-ui;text-align:center;padding:60px"><h2>Connection failed</h2><p>${msg}</p></body></html>`,
+    { status: 400, headers: { 'content-type': 'text/html' } },
+  )
 }

@@ -86,7 +86,7 @@ if (mode !== 'direct' && mode !== 'isolated') {
 
 async function publishedPackageAliases() {
   const specifiers = new Set()
-  const scopePattern = ['@deepseek-ai', '@cloudflare', ...extraAliasScopes]
+  const scopePattern = ['@deepseek-ai', '@cloudflare', '@modelcontextprotocol', ...extraAliasScopes]
     .map(escapeRegExpLiteral)
     .join('|')
   const specifierPattern = new RegExp(
@@ -233,6 +233,8 @@ async function requirePublishedDependencyInputs(metafilePath) {
     const isPinnedRuntimeDependency = path.includes('@deepseek-ai')
       || path.includes('@deepseek-ai+')
       || path.includes('@cloudflare+computer')
+      || path.includes('@modelcontextprotocol')
+      || path.includes('@modelcontextprotocol+')
       || extraAliasScopes.some(scope => path.includes(scope) || path.includes(`${scope}+`))
       || path.includes('just-bash')
       || path.includes('fast-png')

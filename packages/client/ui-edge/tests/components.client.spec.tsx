@@ -51,6 +51,8 @@ describe('Edge settings section', () => {
       signOut={signOut}
       setApprovalMode={vi.fn(() => Promise.resolve())}
       saveMcpServers={vi.fn(() => Promise.resolve(true))}
+      saveMcpToken={vi.fn(() => Promise.resolve(true))}
+      startOAuthConnect={vi.fn(() => Promise.resolve(undefined))}
       restartRuntime={vi.fn(() => Promise.resolve())}
     />)
     expect(screen.getByText('Isolated · Dynamic Worker')).toBeTruthy()
@@ -79,6 +81,8 @@ describe('Edge settings section', () => {
       signOut={signOut}
       setApprovalMode={vi.fn(() => Promise.resolve())}
       saveMcpServers={vi.fn(() => Promise.resolve(true))}
+      saveMcpToken={vi.fn(() => Promise.resolve(true))}
+      startOAuthConnect={vi.fn(() => Promise.resolve(undefined))}
       restartRuntime={vi.fn(() => Promise.resolve())}
     />)
     expect(screen.getByRole('alert').textContent).not.toContain('private transport detail')

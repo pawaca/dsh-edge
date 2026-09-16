@@ -2,7 +2,7 @@
 
 import { initializeSchedules, nextSchedule, scheduleWakeTime, setScheduleRetry } from './schedule-store.ts'
 import { AsyncLocalStorage } from 'node:async_hooks'
-import type * as McpClient from '@deepseek-ai/dsh-mcp-client'
+import type { EdgeMcpServerConfig } from './edge-mcp-manager.ts'
 
 import {
   getWorkspace,
@@ -401,7 +401,8 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       if (url.pathname === '/api/mcp-servers') {
         if (request.method === 'GET') {
           const servers = await this.sessions.getMcpServers()
-          return jsonResponse({ servers })
+          const restartRequired = await this.sessions.isMcpRestartNeeded()
+          return jsonResponse({ servers, restartRequired })
         }
         if (request.method === 'PUT') {
           let body: { servers?: unknown }
@@ -414,7 +415,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
             return jsonResponse({ error: 'body must contain a servers array' }, 400)
           }
           try {
-            await this.sessions.setMcpServers(body.servers as Partial<McpClient.StreamableHttpConfig>[])
+            await this.sessions.setMcpServers(body.servers as Partial<EdgeMcpServerConfig>[])
           } catch (error) {
             return jsonResponse({ error: error instanceof Error ? error.message : 'validation failed' }, 400)
           }
@@ -422,9 +423,76 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
           return jsonResponse({ servers: saved, restartRequired: true })
         }
       }
+      if (url.pathname.startsWith('/api/mcp-servers/') && url.pathname.endsWith('/token')) {
+        const serverName = url.pathname.split('/')[3]
+        if (typeof serverName !== 'string' || serverName === '') {
+          return jsonResponse({ error: 'missing server name' }, 400)
+        }
+        if (request.method === 'PUT') {
+          let body: { token?: string }
+          try { body = await request.json() as { token?: string } } catch {
+            return jsonResponse({ error: 'invalid JSON body' }, 400)
+          }
+          if (body === null || typeof body !== 'object' || typeof body.token !== 'string' || body.token === '') {
+            return jsonResponse({ error: 'token must be a non-empty string' }, 400)
+          }
+          await this.sessions.setMcpToken(serverName, body.token)
+          return jsonResponse({ ok: true })
+        }
+        if (request.method === 'DELETE') {
+          await this.sessions.clearMcpToken(serverName)
+          return jsonResponse({ ok: true })
+        }
+      }
+      if (url.pathname === '/api/mcp/oauth/start' && request.method === 'POST') {
+        let body: { serverName?: string; serverUrl?: string; redirectUri?: string }
+        try { body = await request.json() as typeof body } catch {
+          return jsonResponse({ error: 'invalid JSON' }, 400)
+        }
+        if (typeof body?.serverName !== 'string' || typeof body?.serverUrl !== 'string' || typeof body?.redirectUri !== 'string') {
+          return jsonResponse({ error: 'serverName, serverUrl, and redirectUri are required' }, 400)
+        }
+        try {
+          const result = await this.sessions.startOAuthFlow(body.serverName, body.serverUrl, body.redirectUri)
+          return jsonResponse(result)
+        } catch (error) {
+          return jsonResponse({ error: error instanceof Error ? error.message : 'OAuth start failed' }, 502)
+        }
+      }
+      if (url.pathname === '/api/mcp/oauth/complete' && request.method === 'POST') {
+        let body: { code?: string; state?: string }
+        try { body = await request.json() as typeof body } catch {
+          return jsonResponse({ error: 'invalid JSON' }, 400)
+        }
+        if (typeof body?.code !== 'string' || typeof body?.state !== 'string') {
+          return jsonResponse({ error: 'code and state are required' }, 400)
+        }
+        try {
+          const result = await this.sessions.completeOAuthFlow(body.code, body.state)
+          return jsonResponse(result)
+        } catch (error) {
+          return jsonResponse({ error: error instanceof Error ? error.message : 'OAuth complete failed' }, 400)
+        }
+      }
       if (url.pathname === '/api/restart' && request.method === 'POST') {
         this.ctx.abort('Restart requested')
         return jsonResponse({ ok: true })
+      }
+      if (url.pathname.startsWith('/api/mcp-servers/') && url.pathname.endsWith('/probe') && request.method === 'POST') {
+        const serverName = url.pathname.split('/')[3]
+        if (typeof serverName !== 'string' || serverName === '') {
+          return jsonResponse({ error: 'missing server name' }, 400)
+        }
+        try {
+          const { probeAndCache } = await import('./edge-mcp-manager.ts')
+          await probeAndCache(this.ctx.storage, serverName, this.sessions.getContext())
+          await this.sessions.markMcpDirty()
+          const updated = await this.sessions.getMcpServers()
+          const cached = updated.find(s => s.serverName === serverName)
+          return jsonResponse({ status: cached?.status ?? 'connected', toolCount: cached?.toolCount ?? 0 })
+        } catch (error) {
+          return jsonResponse({ status: 'error', error: error instanceof Error ? error.message : 'probe failed' }, 502)
+        }
       }
       if (url.pathname.startsWith('/api/') && !url.pathname.startsWith('/api/sessions')) {
         const expected = request.headers.get('x-dsh-edge-turn-seq')

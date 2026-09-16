@@ -19,6 +19,10 @@
 .mcpItem:last-child { border-bottom: 0; }
 .mcpName { font-weight: 600; color: var(--dsw-alias-text-primary); min-width: 80px; }
 .mcpUrl { flex: 1; overflow-wrap: anywhere; color: var(--dsw-alias-label-secondary); font-size: 13px; }
+.mcpStatus { font-size: 12px; white-space: nowrap; }
+.mcpStatus[data-status="connected"] { color: var(--dsw-alias-state-success-primary, #16a34a); }
+.mcpStatus[data-status="needs_reauth"] { color: var(--dsw-alias-state-warning-primary, #d97706); }
+.mcpStatus[data-status="error"] { color: var(--dsw-alias-state-error-primary, #dc2626); }
 .mcpAdd { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
 .restartBanner { margin-top: 12px; padding: 10px 14px; border-radius: 8px; background: var(--dsw-alias-state-warning-background, #fff8e6); display: flex; align-items: center; gap: 12px; }
 .restartBanner p { margin: 0; flex: 1; color: var(--dsw-alias-state-warning-primary, #b45309); font-size: 13px; }
