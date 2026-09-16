@@ -401,8 +401,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       if (url.pathname === '/api/mcp-servers') {
         if (request.method === 'GET') {
           const servers = await this.sessions.getMcpServers()
-          const restartRequired = await this.sessions.isMcpRestartNeeded()
-          return jsonResponse({ servers, restartRequired })
+          return jsonResponse({ servers })
         }
         if (request.method === 'PUT') {
           let body: { servers?: unknown }
@@ -420,7 +419,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
             return jsonResponse({ error: error instanceof Error ? error.message : 'validation failed' }, 400)
           }
           const saved = await this.sessions.getMcpServers()
-          return jsonResponse({ servers: saved, restartRequired: true })
+          return jsonResponse({ servers: saved })
         }
       }
       if (url.pathname.startsWith('/api/mcp-servers/') && url.pathname.endsWith('/token')) {
@@ -474,22 +473,14 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
           return jsonResponse({ error: error instanceof Error ? error.message : 'OAuth complete failed' }, 400)
         }
       }
-      if (url.pathname === '/api/restart' && request.method === 'POST') {
-        this.ctx.abort('Restart requested')
-        return jsonResponse({ ok: true })
-      }
       if (url.pathname.startsWith('/api/mcp-servers/') && url.pathname.endsWith('/probe') && request.method === 'POST') {
         const serverName = url.pathname.split('/')[3]
         if (typeof serverName !== 'string' || serverName === '') {
           return jsonResponse({ error: 'missing server name' }, 400)
         }
         try {
-          const { probeAndCache } = await import('./edge-mcp-manager.ts')
-          await probeAndCache(this.ctx.storage, serverName, this.sessions.getContext())
-          await this.sessions.markMcpDirty()
-          const updated = await this.sessions.getMcpServers()
-          const cached = updated.find(s => s.serverName === serverName)
-          return jsonResponse({ status: cached?.status ?? 'connected', toolCount: cached?.toolCount ?? 0 })
+          const result = await this.sessions.syncMcpServer(serverName)
+          return jsonResponse({ status: 'connected', toolCount: result.toolCount })
         } catch (error) {
           return jsonResponse({ status: 'error', error: error instanceof Error ? error.message : 'probe failed' }, 502)
         }

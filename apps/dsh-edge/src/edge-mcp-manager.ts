@@ -1,10 +1,10 @@
-/** MCP connection manager: registers cached tools at session init, executes calls per-request. */
+/** MCP connection manager: registers cached tools at session init, hot-swaps on probe. */
 
 import type { Context } from '@deepseek-ai/cordis'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import { callTool, probe, type McpAuth, type ProbeResult } from './edge-mcp-client.ts'
-import { type CachedMcpTool, mapMcpResultToContentBlocks } from './edge-mcp-tools.ts'
+import { type CachedMcpTool, mapMcpResultToContentBlocks, scrubMcpErrorMessage } from './edge-mcp-tools.ts'
 
 const MCP_STORAGE_KEY = 'dsh-edge:mcp-servers'
 const MCP_REFRESH_PREFIX = 'dsh-edge:mcp-refresh:'
@@ -23,6 +23,13 @@ export interface EdgeMcpServerConfig {
   serverInfo?: { name?: string | undefined; version?: string | undefined } | undefined
   instructions?: string | undefined
   lastError?: string | undefined
+}
+
+export interface McpToolManager {
+  ready: Promise<void>
+  syncServer(serverName: string): Promise<ProbeResult>
+  disposeServer(serverName: string): void
+  disposeAll(): void
 }
 
 function capCatalogSize(tools: CachedMcpTool[]): CachedMcpTool[] {
@@ -50,7 +57,6 @@ function mcpCredentialRefName(serverName: string): string {
 
 async function resolveAuth(config: EdgeMcpServerConfig, ctx?: Context, storage?: DurableObjectStorage): Promise<McpAuth> {
   if ((config.auth?.type === 'bearer' || config.auth?.type === 'oauth') && ctx?.credentials !== undefined) {
-    // For OAuth, try to refresh expired tokens
     if (config.auth?.type === 'oauth' && storage !== undefined) {
       const refreshData = await storage.get<{
         refreshToken: string
@@ -60,8 +66,7 @@ async function resolveAuth(config: EdgeMcpServerConfig, ctx?: Context, storage?:
       }>(MCP_REFRESH_PREFIX + config.serverName)
       if (refreshData !== undefined && refreshData.expiresAt !== undefined && Date.now() > refreshData.expiresAt - 120_000) {
         if (!refreshData.refreshToken) {
-          console.warn(`dsh-edge: OAuth token expired for "${config.serverName}" and no refresh token is available. Re-authenticate via Settings.`)
-          // Mark as needing reauth and withhold the expired token
+          console.warn(`dsh-edge: OAuth token expired for "${config.serverName}" and no refresh token is available.`)
           const servers = await storage.get<EdgeMcpServerConfig[]>(MCP_STORAGE_KEY) ?? []
           const srv = servers.find(s => s.serverName === config.serverName)
           if (srv !== undefined) { srv.status = 'error'; srv.lastError = 'Token expired. Re-authenticate via Settings.'; await storage.put(MCP_STORAGE_KEY, servers) }
@@ -80,7 +85,7 @@ async function resolveAuth(config: EdgeMcpServerConfig, ctx?: Context, storage?:
             await storage.put(MCP_REFRESH_PREFIX + config.serverName, { ...refreshData, expiresAt: tokens.expiresAt })
           }
         } catch (e) {
-          console.warn(`dsh-edge: OAuth token refresh failed for "${config.serverName}": ${e instanceof Error ? e.message : String(e)}`)
+          console.warn(`dsh-edge: OAuth token refresh failed for "${config.serverName}": ${scrubMcpErrorMessage(e instanceof Error ? e.message : String(e))}`)
           const servers = await storage.get<EdgeMcpServerConfig[]>(MCP_STORAGE_KEY) ?? []
           const srv = servers.find(s => s.serverName === config.serverName)
           if (srv !== undefined) { srv.status = 'error'; srv.lastError = 'Token refresh failed. Re-authenticate via Settings.'; await storage.put(MCP_STORAGE_KEY, servers) }
@@ -96,104 +101,146 @@ async function resolveAuth(config: EdgeMcpServerConfig, ctx?: Context, storage?:
   return { type: 'none' }
 }
 
-export async function installEdgeMcpServers(
+function registerCachedTools(
   ctx: Context,
+  server: EdgeMcpServerConfig,
   storage: DurableObjectStorage,
-): Promise<void> {
-  const raw = await storage.get<EdgeMcpServerConfig[]>(MCP_STORAGE_KEY)
-  if (!Array.isArray(raw) || raw.length === 0) return
-
-  for (const server of raw) {
-    if (!Array.isArray(server.cachedTools) || server.cachedTools.length === 0) {
-      if (server.cachedTools === undefined) {
-        console.log(`dsh-edge: MCP server "${server.serverName}" has no cached tools. Use POST /api/mcp-servers/${server.serverName}/probe to discover tools.`)
-      }
-      continue
-    }
-    try {
-      console.log(`dsh-edge: registering ${server.cachedTools.length} MCP tools for "${server.serverName}"`)
-      registerCachedTools(ctx, server, storage)
-      console.log(`dsh-edge: registered MCP tools for "${server.serverName}" successfully`)
-    } catch (error) {
-      console.error(`dsh-edge: failed to register MCP tools for "${server.serverName}".`, error)
-    }
-  }
-}
-
-function registerCachedTools(ctx: Context, server: EdgeMcpServerConfig, storage: DurableObjectStorage): void {
+): Map<string, () => void> {
+  const disposers = new Map<string, () => void>()
   const tools = server.cachedTools ?? []
   for (const cached of tools) {
-    try { ctx.tools.register({
-      name: cached.publicName,
-      description: cached.description,
-      parameters: cached.inputSchema ?? { type: 'object' },
-      execute: async (args: Record<string, unknown>, exec: { signal: AbortSignal }) => {
-        const auth = await resolveAuth(server, ctx, storage)
-        const result = await callTool(server.url, cached.name, args, auth, exec.signal, server.toolCallTimeoutMs)
-        if (result.isError) {
-          const text = result.content
-            .filter(b => b.type === 'text' && typeof b.text === 'string')
-            .map(b => b.text!)
-            .join('\n')
-          throw new Error(text || 'MCP tool returned an error.')
-        }
-        return { content: result.content }
-      },
-      output: {
-        schema: { type: 'object', properties: { content: { type: 'array' } }, additionalProperties: true },
-        render(_args: unknown, value: unknown): ContentBlock[] {
-          const v = value as { content?: unknown[] }
-          if (v?.content !== undefined) {
-            return mapMcpResultToContentBlocks({ content: v.content as never[], isError: false })
+    try {
+      const dispose = ctx.tools.register({
+        name: cached.publicName,
+        description: cached.description,
+        parameters: cached.inputSchema ?? { type: 'object' },
+        execute: async (args: Record<string, unknown>, exec: { signal: AbortSignal }) => {
+          const auth = await resolveAuth(server, ctx, storage)
+          const result = await callTool(server.url, cached.name, args, auth, exec.signal, server.toolCallTimeoutMs)
+          if (result.isError) {
+            const text = result.content
+              .filter(b => b.type === 'text' && typeof b.text === 'string')
+              .map(b => b.text!)
+              .join('\n')
+            throw new Error(scrubMcpErrorMessage(text || 'MCP tool returned an error.'))
           }
-          return [{ type: 'text', text: '(empty MCP result)' }]
+          return { content: result.content }
         },
-      },
-    } as never)
+        output: {
+          schema: { type: 'object', properties: { content: { type: 'array' } }, additionalProperties: true },
+          render(_args: unknown, value: unknown): ContentBlock[] {
+            const v = value as { content?: unknown[] }
+            if (v?.content !== undefined) {
+              return mapMcpResultToContentBlocks({ content: v.content as never[], isError: false })
+            }
+            return [{ type: 'text', text: '(empty MCP result)' }]
+          },
+        },
+      } as never) as () => void
+      disposers.set(cached.publicName, dispose)
     } catch (regError) {
       console.warn(`dsh-edge: skipped MCP tool "${cached.publicName}": ${regError instanceof Error ? regError.message : String(regError)}`)
     }
   }
+  return disposers
 }
 
-
-export async function probeAndCache(
+export function installEdgeMcpServers(
+  ctx: Context,
   storage: DurableObjectStorage,
-  serverName: string,
-  ctx?: Context,
-): Promise<ProbeResult> {
-  const servers = await storage.get<EdgeMcpServerConfig[]>(MCP_STORAGE_KEY) ?? []
-  const server = servers.find(s => s.serverName === serverName)
-  if (server === undefined) throw new Error(`Server "${serverName}" not found.`)
+): McpToolManager {
+  const serverDisposers = new Map<string, Map<string, () => void>>()
+  let syncChain = Promise.resolve()
 
-  const auth = await resolveAuth(server, ctx, storage)
-  const url = server.url
-  let result: ProbeResult
-  try {
-    result = await probe(serverName, url, auth)
-  } catch (error) {
-    const fresh = await storage.get<EdgeMcpServerConfig[]>(MCP_STORAGE_KEY) ?? []
-    const entry = fresh.find(s => s.serverName === serverName)
-    if (entry !== undefined && entry.url === url) {
-      entry.status = 'error'
-      entry.lastError = error instanceof Error ? error.message : String(error)
-      entry.lastProbeAt = Date.now()
-      await storage.put(MCP_STORAGE_KEY, fresh)
+  const raw = storage.get<EdgeMcpServerConfig[]>(MCP_STORAGE_KEY)
+
+  const initPromise = raw.then(servers => {
+    if (!Array.isArray(servers) || servers.length === 0) return
+    for (const server of servers) {
+      if (!Array.isArray(server.cachedTools) || server.cachedTools.length === 0) {
+        if (server.cachedTools === undefined) {
+          console.log(`dsh-edge: MCP server "${server.serverName}" has no cached tools. Use POST /api/mcp-servers/${server.serverName}/probe to discover tools.`)
+        }
+        continue
+      }
+      try {
+        console.log(`dsh-edge: registering ${server.cachedTools.length} MCP tools for "${server.serverName}"`)
+        const disposers = registerCachedTools(ctx, server, storage)
+        serverDisposers.set(server.serverName, disposers)
+        console.log(`dsh-edge: registered MCP tools for "${server.serverName}" successfully`)
+      } catch (error) {
+        console.error(`dsh-edge: failed to register MCP tools for "${server.serverName}".`, error)
+      }
     }
-    throw error
+  })
+
+  function disposeServer(serverName: string): void {
+    const disposers = serverDisposers.get(serverName)
+    if (disposers !== undefined) {
+      for (const dispose of disposers.values()) dispose()
+      serverDisposers.delete(serverName)
+    }
   }
-  const fresh = await storage.get<EdgeMcpServerConfig[]>(MCP_STORAGE_KEY) ?? []
-  const entry = fresh.find(s => s.serverName === serverName)
-  if (entry !== undefined && entry.url === url) {
-    const capped = capCatalogSize(result.tools)
-    entry.cachedTools = capped
-    entry.status = 'connected'
-    entry.toolCount = capped.length
-    entry.lastProbeAt = Date.now()
-    entry.serverInfo = result.serverInfo
-    entry.instructions = result.instructions
-    delete entry.lastError
-    await storage.put(MCP_STORAGE_KEY, fresh)
+
+  async function syncServer(serverName: string): Promise<ProbeResult> {
+    await initPromise
+    const run = syncChain.then(async () => {
+      const servers = await storage.get<EdgeMcpServerConfig[]>(MCP_STORAGE_KEY) ?? []
+      const server = servers.find(s => s.serverName === serverName)
+      if (server === undefined) throw new Error(`Server "${serverName}" not found.`)
+
+      const auth = await resolveAuth(server, ctx, storage)
+      const url = server.url
+      let result: ProbeResult
+      try {
+        result = await probe(serverName, url, auth)
+      } catch (error) {
+        const fresh = await storage.get<EdgeMcpServerConfig[]>(MCP_STORAGE_KEY) ?? []
+        const entry = fresh.find(s => s.serverName === serverName)
+        if (entry !== undefined && entry.url === url) {
+          entry.status = 'error'
+          entry.lastError = scrubMcpErrorMessage(error instanceof Error ? error.message : String(error))
+          entry.lastProbeAt = Date.now()
+          await storage.put(MCP_STORAGE_KEY, fresh)
+        }
+        throw error
+      }
+
+      // Probe succeeded — persist, then dispose old → register new
+      const fresh = await storage.get<EdgeMcpServerConfig[]>(MCP_STORAGE_KEY) ?? []
+      const entry = fresh.find(s => s.serverName === serverName)
+      if (entry !== undefined && entry.url === url) {
+        const capped = capCatalogSize(result.tools)
+        entry.cachedTools = capped
+        entry.status = 'connected'
+        entry.toolCount = capped.length
+        entry.lastProbeAt = Date.now()
+        entry.serverInfo = result.serverInfo
+        entry.instructions = result.instructions
+        delete entry.lastError
+        await storage.put(MCP_STORAGE_KEY, fresh)
+
+        // Hot-swap: dispose old tools, register from fresh config
+        disposeServer(serverName)
+        const disposers = registerCachedTools(ctx, entry, storage)
+        serverDisposers.set(serverName, disposers)
+        console.log(`dsh-edge: hot-swapped ${disposers.size} MCP tools for "${serverName}"`)
+      }
+      return result
+    })
+    syncChain = run.then(() => {}, () => {})
+    return run
   }
-  return result
+
+  return {
+    ready: initPromise,
+    syncServer,
+    disposeServer,
+    disposeAll() {
+      for (const [, disposers] of serverDisposers) {
+        for (const dispose of disposers.values()) dispose()
+      }
+      serverDisposers.clear()
+    },
+  }
 }

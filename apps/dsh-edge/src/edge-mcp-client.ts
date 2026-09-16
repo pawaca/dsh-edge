@@ -6,6 +6,7 @@ import {
   type CachedMcpTool,
   type McpCallResult,
   publicToolName,
+  scrubMcpErrorMessage,
 } from './edge-mcp-tools.ts'
 import { DSH_EDGE_VERSION } from './release.ts'
 
@@ -55,9 +56,17 @@ export async function probe(
   auth?: McpAuth,
 ): Promise<ProbeResult> {
   const signal = AbortSignal.timeout(PROBE_TIMEOUT_MS)
-  const { client, close } = await connectClient(url, auth, signal)
+  let conn: Awaited<ReturnType<typeof connectClient>>
+  try {
+    conn = await connectClient(url, auth, signal)
+  } catch (error) {
+    throw new Error(scrubMcpErrorMessage(error instanceof Error ? error.message : String(error)))
+  }
+  const { client, close } = conn
   try {
     const tools: CachedMcpTool[] = []
+    const seenNames = new Set<string>()
+    const seenCursors = new Set<string>()
     let cursor: string | undefined
     for (let page = 0; page < MAX_CATALOG_PAGES; page++) {
       const result = await client.listTools(
@@ -66,9 +75,14 @@ export async function probe(
       )
       for (const tool of result.tools) {
         if (tools.length >= MAX_TOOLS_PER_SERVER) break
+        const publicName = publicToolName(serverName, tool.name)
+        if (seenNames.has(publicName)) {
+          throw new Error(`Server listed tool "${tool.name}" more than once`)
+        }
+        seenNames.add(publicName)
         tools.push({
           name: tool.name,
-          publicName: publicToolName(serverName, tool.name),
+          publicName,
           description: tool.description ?? '',
           inputSchema: (tool.inputSchema ?? { type: 'object' }) as Record<string, unknown>,
         })
@@ -76,6 +90,10 @@ export async function probe(
       if (tools.length >= MAX_TOOLS_PER_SERVER) break
       cursor = result.nextCursor ?? undefined
       if (cursor === undefined) break
+      if (seenCursors.has(cursor)) {
+        throw new Error(`Server repeated a tools/list continuation cursor`)
+      }
+      seenCursors.add(cursor)
     }
 
     const serverVersion = client.getServerVersion?.()
@@ -107,9 +125,14 @@ export async function callTool(
   const deadline = signal
     ? AbortSignal.any([signal, AbortSignal.timeout(effectiveTimeout)])
     : AbortSignal.timeout(effectiveTimeout)
-  const { client, close } = await connectClient(url, auth, deadline)
+  let client: Awaited<ReturnType<typeof connectClient>>
   try {
-    const result = await client.callTool(
+    client = await connectClient(url, auth, deadline)
+  } catch (error) {
+    throw new Error(scrubMcpErrorMessage(error instanceof Error ? error.message : String(error)))
+  }
+  try {
+    const result = await client.client.callTool(
       { name: rawToolName, arguments: args as Record<string, unknown> },
       undefined,
       { signal: deadline },
@@ -118,7 +141,9 @@ export async function callTool(
       content: (result.content ?? []) as McpCallResult['content'],
       isError: result.isError === true,
     }
+  } catch (error) {
+    throw new Error(scrubMcpErrorMessage(error instanceof Error ? error.message : String(error)))
   } finally {
-    await close()
+    await client.close()
   }
 }

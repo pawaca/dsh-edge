@@ -61,7 +61,6 @@ export interface EdgeSettingsState {
   mcpLoaded: boolean
   mcpSaving: boolean
   mcpError?: string
-  mcpRestartNeeded: boolean
 }
 
 /** Side-effect boundary used by the Edge settings controller. */
@@ -100,7 +99,7 @@ export class EdgeSettingsController {
   readonly store: SnapshotStore<EdgeSettingsState> = createSnapshotStore({
     status: 'idle', copied: false, signingOut: false,
     approvalMode: 'ask', approvalSaving: false, approvalSaved: false,
-    mcpServers: [], mcpLoaded: false, mcpSaving: false, mcpRestartNeeded: false,
+    mcpServers: [], mcpLoaded: false, mcpSaving: false,
   })
   private loadGeneration = 0
   private approvalGeneration = 0
@@ -165,12 +164,12 @@ export class EdgeSettingsController {
       try {
         const mcpResponse = await this.io.fetch('/api/mcp-servers', { credentials: 'same-origin' })
         if (mcpGen === this.mcpGeneration && mcpResponse.ok) {
-          const data = await mcpResponse.json() as { servers?: McpServerEntry[]; restartRequired?: boolean }
+          const data = await mcpResponse.json() as { servers?: McpServerEntry[] }
           if (mcpGen === this.mcpGeneration && Array.isArray(data.servers)) {
             this.store.update((state) => {
               state.mcpServers = data.servers as McpServerEntry[]
               state.mcpLoaded = true
-              state.mcpRestartNeeded = data.restartRequired === true
+
             })
           }
         }
@@ -240,12 +239,11 @@ export class EdgeSettingsController {
     try {
       const response = await this.io.fetch('/api/mcp-servers', { credentials: 'same-origin' })
       if (mcpGen === this.mcpGeneration && response.ok) {
-        const data = await response.json() as { servers?: McpServerEntry[]; restartRequired?: boolean }
+        const data = await response.json() as { servers?: McpServerEntry[] }
         if (mcpGen === this.mcpGeneration && Array.isArray(data.servers)) {
           this.store.update((state) => {
             state.mcpServers = data.servers as McpServerEntry[]
             state.mcpLoaded = true
-            state.mcpRestartNeeded = data.restartRequired === true
           })
         }
       }
@@ -266,7 +264,7 @@ export class EdgeSettingsController {
         const data = await response.json().catch(() => ({})) as { error?: string }
         throw new Error(data.error ?? `HTTP ${String(response.status)}`)
       }
-      const result = await response.json() as { servers?: McpServerEntry[]; restartRequired?: boolean }
+      const result = await response.json() as { servers?: McpServerEntry[] }
       const saved = result.servers ?? servers
       this.store.update((state) => {
         state.mcpServers = saved
@@ -288,7 +286,6 @@ export class EdgeSettingsController {
       }
       this.store.update((state) => {
         state.mcpSaving = false
-        state.mcpRestartNeeded = result.restartRequired === true
         if (probeErrors.length > 0) {
           state.mcpError = probeErrors.join('; ')
         }
@@ -368,12 +365,6 @@ export class EdgeSettingsController {
     await this.io.fetch(`/api/mcp-servers/${encodeURIComponent(serverName)}/token`, {
       method: 'DELETE', credentials: 'same-origin',
     }).catch(() => {})
-  }
-
-  /** Copy the matching channel upgrade command without affecting deployment state. */
-  async restartRuntime(): Promise<void> {
-    await this.io.fetch('/api/restart', { method: 'POST', credentials: 'same-origin' }).catch(() => {})
-    this.io.navigate(globalThis.location?.pathname ?? '/')
   }
 
   async copyUpgrade(): Promise<void> {

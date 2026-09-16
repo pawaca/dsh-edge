@@ -15,7 +15,6 @@ export interface EdgeSettingsInjected {
   saveMcpServers(servers: McpServerEntry[]): Promise<boolean>
   saveMcpToken(serverName: string, token: string): Promise<boolean>
   startOAuthConnect(serverName: string, serverUrl: string): Promise<string | undefined>
-  restartRuntime(): Promise<void>
 }
 
 export type EdgeSettingsSectionProps =
@@ -31,20 +30,17 @@ interface McpServersCardProps {
   servers: McpServerEntry[]
   saving: boolean
   error?: string | undefined
-  restartNeeded: boolean
   disabled: boolean
   onSave: (servers: McpServerEntry[]) => Promise<boolean>
   onSaveToken: (serverName: string, token: string) => Promise<boolean>
   onOAuthConnect: (serverName: string, serverUrl: string) => Promise<string | undefined>
-  onRestart: () => Promise<void>
   t: EdgeSettingsSectionProps['t']
 }
 
 function McpServersCard(props: McpServersCardProps): ReactNode {
-  const { servers, saving, disabled, error, restartNeeded } = props
+  const { servers, saving, disabled, error } = props
   const onSave = props.onSave
   const onSaveToken = props.onSaveToken
-  const onRestart = props.onRestart
   const t = props.t
   const [draft, setDraft] = useState<{ serverName: string; url: string; authType: McpAuthType; token: string }>({ serverName: '', url: '', authType: 'none', token: '' })
   const addServer = useCallback(() => {
@@ -55,12 +51,18 @@ function McpServersCard(props: McpServersCardProps): ReactNode {
       auth: { type: draft.authType },
     }
     void (async () => {
-      const ok = await onSave([...servers, entry])
-      if (!ok) return
+      // Validate locally before persisting credentials to avoid writing
+      // a token for an invalid or duplicate server name.
+      const name = draft.serverName.trim()
+      if (!/^[A-Za-z0-9_-]{1,32}$/u.test(name)) return
+      try { new URL(draft.url.trim()) } catch { return }
+      if (servers.some(s => s.serverName === name)) return
       if (draft.authType === 'bearer' && draft.token.trim() !== '') {
-        const tokenOk = await onSaveToken(draft.serverName.trim(), draft.token.trim())
+        const tokenOk = await onSaveToken(name, draft.token.trim())
         if (!tokenOk) return
       }
+      const ok = await onSave([...servers, entry])
+      if (!ok) return
       setDraft({ serverName: '', url: '', authType: 'none', token: '' })
     })()
   }, [draft, servers, onSave])
@@ -121,19 +123,13 @@ function McpServersCard(props: McpServersCardProps): ReactNode {
             || (draft.authType === 'bearer' && draft.token.trim() === '')}
           onClick={addServer}>{t('mcpAdd')}</Button>
       </div>
-      {restartNeeded ? (
-        <div className={css.restartBanner}>
-          <p>{t('mcpRestartNeeded')}</p>
-          <Button variant="outline" size="sm" onClick={() => { void onRestart() }}>{t('mcpRestart')}</Button>
-        </div>
-      ) : null}
       {error !== undefined ? <p className={css.error} role="alert">{error}</p> : null}
     </section>
   )
 }
 
 export function EdgeSettingsSection(props: EdgeSettingsSectionProps): ReactNode {
-  const { useEdgeSettings, load, copyUpgrade, signOut, setApprovalMode, saveMcpServers, saveMcpToken, startOAuthConnect, restartRuntime, t } = props
+  const { useEdgeSettings, load, copyUpgrade, signOut, setApprovalMode, saveMcpServers, saveMcpToken, startOAuthConnect, t } = props
   useEffect(() => { void load() }, [load])
   const state = useEdgeSettings(snapshot => snapshot)
   const deploymentDetails = state.status === 'idle' || state.status === 'loading'
@@ -204,12 +200,10 @@ export function EdgeSettingsSection(props: EdgeSettingsSectionProps): ReactNode 
         servers={state.mcpServers}
         saving={state.mcpSaving}
         error={state.mcpError}
-        restartNeeded={state.mcpRestartNeeded}
         disabled={state.status !== 'ready' || !state.mcpLoaded}
         onSave={saveMcpServers}
         onSaveToken={saveMcpToken}
         onOAuthConnect={startOAuthConnect}
-        onRestart={restartRuntime}
         t={t}
       />
       <section className={css.card} aria-labelledby="edge-owner-title">

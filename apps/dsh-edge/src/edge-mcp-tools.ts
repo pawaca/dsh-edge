@@ -27,6 +27,18 @@ export interface McpCallResult {
   isError?: boolean
 }
 
+const MAX_ERROR_MESSAGE_CHARS = 300
+
+/** Strip bearer tokens, URL query strings, and control chars from MCP error text. */
+export function scrubMcpErrorMessage(message: string): string {
+  return message
+    .replace(/Bearer\s+[^\s"']+/giu, 'Bearer ***')
+    .replace(/(https?:\/\/[^\s"'?]+)\?[^\s"']*/giu, '$1?***')
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/gu, '')
+    .slice(0, MAX_ERROR_MESSAGE_CHARS)
+}
+
 export function publicToolName(serverName: string, rawName: string): string {
   const joined = `mcp__${serverName}__${rawName}`
   const normalized = joined.replace(/[^A-Za-z0-9_-]/gu, '_')

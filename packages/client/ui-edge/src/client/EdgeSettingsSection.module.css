@@ -24,6 +24,4 @@
 .mcpStatus[data-status="needs_reauth"] { color: var(--dsw-alias-state-warning-primary, #d97706); }
 .mcpStatus[data-status="error"] { color: var(--dsw-alias-state-error-primary, #dc2626); }
 .mcpAdd { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
-.restartBanner { margin-top: 12px; padding: 10px 14px; border-radius: 8px; background: var(--dsw-alias-state-warning-background, #fff8e6); display: flex; align-items: center; gap: 12px; }
-.restartBanner p { margin: 0; flex: 1; color: var(--dsw-alias-state-warning-primary, #b45309); font-size: 13px; }
 @media (max-width: 560px) { .row { grid-template-columns: 1fr; gap: 4px; } .mcpAdd { flex-direction: column; } }
