@@ -1,5 +1,6 @@
 /** MCP tool naming and result mapping for the DSH tool runtime. */
 
+import { createHash } from 'node:crypto'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 
 const MAX_PUBLIC_NAME_LENGTH = 64
@@ -37,13 +38,7 @@ export function publicToolName(serverName: string, rawName: string): string {
 }
 
 function hashSuffix(serverName: string, rawName: string): string {
-  const input = `${serverName}\0${rawName}`
-  let h = 0x811c9dc5
-  for (let i = 0; i < input.length; i++) {
-    h ^= input.charCodeAt(i)
-    h = Math.imul(h, 0x01000193)
-  }
-  return (h >>> 0).toString(16).padStart(8, '0').slice(0, 12)
+  return createHash('sha256').update(`${serverName}\0${rawName}`).digest('hex').slice(0, 12)
 }
 
 export function mapMcpResultToContentBlocks(result: McpCallResult): ContentBlock[] {
