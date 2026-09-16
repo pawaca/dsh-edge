@@ -88,6 +88,14 @@ function buildHeaders(auth?: McpAuth): Record<string, string> {
 
 const cfWorkerValidator = new CfWorkerJsonSchemaValidator()
 
+const noRedirectFetch: typeof globalThis.fetch = async (input, init) => {
+  const res = await globalThis.fetch(input, { ...init, redirect: 'manual' })
+  if (res.status >= 300 && res.status < 400) {
+    throw new Error(`MCP server returned HTTP ${String(res.status)} redirect; redirects are blocked for security.`)
+  }
+  return res
+}
+
 async function connectClient(
   url: string,
   auth: McpAuth | undefined,
@@ -96,7 +104,7 @@ async function connectClient(
   assertSafeUrl(url)
   const transport = new StreamableHTTPClientTransport(
     new URL(url),
-    { requestInit: { headers: buildHeaders(auth), signal, redirect: 'error' } },
+    { requestInit: { headers: buildHeaders(auth), signal }, fetch: noRedirectFetch },
   )
   const client = new Client(
     { name: 'dsh-edge', version: DSH_EDGE_VERSION },
