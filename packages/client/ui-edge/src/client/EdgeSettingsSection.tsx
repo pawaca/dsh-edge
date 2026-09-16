@@ -14,6 +14,7 @@ export interface EdgeSettingsInjected {
   setApprovalMode(mode: ApprovalMode): Promise<void>
   saveMcpServers(servers: McpServerEntry[]): Promise<boolean>
   saveMcpToken(serverName: string, token: string): Promise<boolean>
+  startOAuthConnect(serverName: string, serverUrl: string): Promise<string | undefined>
   restartRuntime(): Promise<void>
 }
 
@@ -34,6 +35,7 @@ interface McpServersCardProps {
   disabled: boolean
   onSave: (servers: McpServerEntry[]) => Promise<boolean>
   onSaveToken: (serverName: string, token: string) => Promise<boolean>
+  onOAuthConnect: (serverName: string, serverUrl: string) => Promise<string | undefined>
   onRestart: () => Promise<void>
   t: EdgeSettingsSectionProps['t']
 }
@@ -76,6 +78,19 @@ function McpServersCard(props: McpServersCardProps): ReactNode {
             <li key={s.serverName} className={css.mcpItem}>
               <span className={css.mcpName}>{s.serverName}</span>
               <code className={css.mcpUrl}>{s.url}</code>
+              <span className={css.mcpStatus} data-status={s.status ?? 'unknown'}>
+                {s.status === 'connected' ? `${s.toolCount ?? 0} ${t('mcpTools')} · ${t('mcpConnected')}` :
+                 s.status === 'needs_reauth' ? t('mcpNeedsReauth') :
+                 s.status === 'error' ? t('mcpError') : ''}
+              </span>
+              {s.auth?.type === 'oauth' && s.status !== 'connected' ? (
+                <Button variant="outline" size="sm" disabled={saving || disabled}
+                  onClick={() => {
+                    void props.onOAuthConnect(s.serverName, s.url).then(authUrl => {
+                      if (authUrl !== undefined) globalThis.open(authUrl, '_blank', 'width=600,height=700')
+                    })
+                  }}>{s.status === 'needs_reauth' ? t('mcpReconnect') : t('mcpConnect')}</Button>
+              ) : null}
               <Button variant="outline" size="sm" disabled={saving || disabled}
                 onClick={() => removeServer(s.serverName)}>{t('mcpRemove')}</Button>
             </li>
@@ -94,6 +109,7 @@ function McpServersCard(props: McpServersCardProps): ReactNode {
           onChange={e => setDraft(d => ({ ...d, authType: e.target.value as McpAuthType }))}>
           <option value="none">{t('mcpAuthNone')}</option>
           <option value="bearer">{t('mcpAuthBearer')}</option>
+          <option value="oauth">{t('mcpAuthOAuth')}</option>
         </select>
         {draft.authType === 'bearer' ? (
           <input className={css.input} type="password" placeholder={t('mcpTokenPlaceholder')}
@@ -117,7 +133,7 @@ function McpServersCard(props: McpServersCardProps): ReactNode {
 }
 
 export function EdgeSettingsSection(props: EdgeSettingsSectionProps): ReactNode {
-  const { useEdgeSettings, load, copyUpgrade, signOut, setApprovalMode, saveMcpServers, saveMcpToken, restartRuntime, t } = props
+  const { useEdgeSettings, load, copyUpgrade, signOut, setApprovalMode, saveMcpServers, saveMcpToken, startOAuthConnect, restartRuntime, t } = props
   useEffect(() => { void load() }, [load])
   const state = useEdgeSettings(snapshot => snapshot)
   const deploymentDetails = state.status === 'idle' || state.status === 'loading'
@@ -192,6 +208,7 @@ export function EdgeSettingsSection(props: EdgeSettingsSectionProps): ReactNode 
         disabled={state.status !== 'ready' || !state.mcpLoaded}
         onSave={saveMcpServers}
         onSaveToken={saveMcpToken}
+        onOAuthConnect={startOAuthConnect}
         onRestart={restartRuntime}
         t={t}
       />

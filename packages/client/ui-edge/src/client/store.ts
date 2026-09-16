@@ -30,12 +30,14 @@ export interface EdgeHealth {
 
 export type ApprovalMode = 'ask' | 'never'
 
-export type McpAuthType = 'none' | 'bearer'
+export type McpAuthType = 'none' | 'bearer' | 'oauth'
 
 export interface McpServerEntry {
   serverName: string
   url: string
   auth?: { type: McpAuthType } | undefined
+  status?: 'unknown' | 'connected' | 'error' | 'needs_reauth' | undefined
+  toolCount?: number | undefined
   toolCallTimeoutMs?: number
 }
 
@@ -275,6 +277,47 @@ export class EdgeSettingsController {
         body: JSON.stringify({ token }),
       })
       return response.ok
+    } catch {
+      return false
+    }
+  }
+
+  async startOAuthConnect(serverName: string, serverUrl: string): Promise<string | undefined> {
+    const redirectUri = `${globalThis.location?.origin ?? ''}/api/mcp/oauth/callback`
+    try {
+      const response = await this.io.fetch('/api/mcp/oauth/start', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ serverName, serverUrl, redirectUri }),
+      })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({})) as { error?: string }
+        this.store.update((state) => { state.mcpError = data.error ?? 'OAuth start failed' })
+        return undefined
+      }
+      const result = await response.json() as { authorizationUrl?: string }
+      return result.authorizationUrl
+    } catch (error) {
+      this.store.update((state) => { state.mcpError = messageOf(error) })
+      return undefined
+    }
+  }
+
+  async completeOAuthConnect(code: string, state: string): Promise<boolean> {
+    try {
+      const response = await this.io.fetch('/api/mcp/oauth/complete', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ code, state }),
+      })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({})) as { error?: string }
+        this.store.update((state) => { state.mcpError = data.error ?? 'OAuth complete failed' })
+        return false
+      }
+      return true
     } catch {
       return false
     }

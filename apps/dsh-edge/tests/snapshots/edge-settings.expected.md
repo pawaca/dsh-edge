@@ -62,6 +62,7 @@
     - combobox "Auth type":
       - option "No auth" [selected]
       - option "Bearer"
+      - option "OAuth"
     - button "Add server" [disabled]
   - region "Owner session":
     - heading "Owner session" [level=3]

@@ -46,6 +46,7 @@ export function apply(ctx: Context): void {
     setApprovalMode: (mode) => controller.setApprovalMode(mode),
     saveMcpServers: (servers) => controller.saveMcpServers(servers),
     saveMcpToken: (name, token) => controller.saveMcpToken(name, token),
+    startOAuthConnect: (name, url) => controller.startOAuthConnect(name, url),
     restartRuntime: () => controller.restartRuntime(),
   })
   slots.inject('settings.section', () => slots.register({
