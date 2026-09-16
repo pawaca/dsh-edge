@@ -62,6 +62,7 @@ import * as SpillPolicy from '@deepseek-ai/dsh-spill-policy'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import ApprovalService from '@deepseek-ai/dsh-user-approval'
+import * as McpClient from '@deepseek-ai/dsh-mcp-client'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as ToolGoal from '@deepseek-ai/dsh-tool-goal'
 import * as ToolSkill from '@deepseek-ai/dsh-tool-skill'
@@ -286,12 +287,14 @@ export class EdgeSessionStore {
   private readonly publishesLateEvents: boolean
   private readonly residentAgents = new Map<SessionId, AgentHandle>()
   private approvalScope?: SettingsScope<EdgeApprovalSettings>
+  private readonly doStorage: DurableObjectStorage
   private readonly ready: Promise<void>
 
   constructor(
     storage: DurableObjectStorage,
     config: EdgeSessionStoreConfig,
   ) {
+    this.doStorage = storage
     this.modelSelections = new EdgeModelSelectionBridge(storage)
     this.publishesLateEvents = config.onLateSessionEvent !== undefined
     this.ready = this.initialize(storage, config)
@@ -549,6 +552,13 @@ export class EdgeSessionStore {
     this.approvalScope = installEdgeApprovalPolicy(this.context, {
       defaultMode: config.approvalDefaultMode,
     })
+    for (const server of await this.loadMcpServers(storage)) {
+      try {
+        await this.context.plugin(McpClient, server)
+      } catch (error) {
+        console.error(`dsh-edge: MCP server "${server.serverName}" failed to connect.`, error)
+      }
+    }
     await this.context.plugin(ToolFs)
     await this.context.plugin(ToolSkill)
     await this.context.plugin(GoalService)
@@ -856,6 +866,14 @@ export class EdgeSessionStore {
     return this.context.settings?.documentPath !== undefined
   }
 
+  private async loadMcpServers(
+    storage: DurableObjectStorage,
+  ): Promise<McpClient.Config[]> {
+    const raw = await storage.get<McpClient.Config[]>(EdgeSessionStore.MCP_STORAGE_KEY)
+    if (!Array.isArray(raw)) return []
+    return raw.filter(s => s.transport === 'streamable-http')
+  }
+
   async getApprovalMode(): Promise<EdgeApprovalMode> {
     await this.ready
     return this.approvalScope?.get().mode ?? 'ask'
@@ -865,6 +883,58 @@ export class EdgeSessionStore {
     await this.ready
     if (mode !== 'ask' && mode !== 'never') throw new Error('Invalid approval mode.')
     await this.approvalScope?.update({ mode })
+  }
+
+  private static readonly MCP_STORAGE_KEY = 'dsh-edge:mcp-servers'
+
+  async getMcpServers(): Promise<McpClient.StreamableHttpConfig[]> {
+    await this.ready
+    const raw = await this.doStorage.get<McpClient.StreamableHttpConfig[]>(
+      EdgeSessionStore.MCP_STORAGE_KEY,
+    )
+    if (!Array.isArray(raw)) return []
+    return raw.filter(s => s.transport === 'streamable-http')
+  }
+
+  async setMcpServers(servers: Partial<McpClient.StreamableHttpConfig>[]): Promise<void> {
+    await this.ready
+    const seen = new Set<string>()
+    const validated = servers.map(s => {
+      if (s.transport !== undefined && s.transport !== 'streamable-http') {
+        throw new Error('Only streamable-http transport is supported on Cloudflare Workers.')
+      }
+      if (typeof s.serverName !== 'string' || !/^[A-Za-z0-9_-]{1,32}$/u.test(s.serverName)) {
+        throw new Error('serverName must match [A-Za-z0-9_-]{1,32}.')
+      }
+      if (seen.has(s.serverName)) {
+        throw new Error(`Duplicate serverName "${s.serverName}".`)
+      }
+      seen.add(s.serverName)
+      if (typeof s.url !== 'string') {
+        throw new Error('url is required.')
+      }
+      let parsed: URL
+      try { parsed = new URL(s.url) } catch {
+        throw new Error('url must be a valid HTTP(S) URL.')
+      }
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        throw new Error('url must use http: or https: protocol.')
+      }
+      if (parsed.username.length > 0 || parsed.password.length > 0) {
+        throw new Error('url must not contain credentials; use the credential provider.')
+      }
+      if (s.toolCallTimeoutMs !== undefined
+        && (typeof s.toolCallTimeoutMs !== 'number' || !Number.isFinite(s.toolCallTimeoutMs) || s.toolCallTimeoutMs <= 0)) {
+        throw new Error('toolCallTimeoutMs must be a positive number.')
+      }
+      return {
+        transport: 'streamable-http' as const,
+        serverName: s.serverName,
+        url: s.url,
+        ...(s.toolCallTimeoutMs !== undefined ? { toolCallTimeoutMs: s.toolCallTimeoutMs } : {}),
+      }
+    })
+    await this.doStorage.put(EdgeSessionStore.MCP_STORAGE_KEY, validated)
   }
 
   /** Describe all registered settings namespaces with redacted secrets. */

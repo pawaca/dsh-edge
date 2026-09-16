@@ -31,6 +31,10 @@ const READY: EdgeSettingsState = {
   approvalMode: 'ask',
   approvalSaving: false,
   approvalSaved: false,
+  mcpServers: [],
+  mcpLoaded: true,
+  mcpSaving: false,
+  mcpRestartNeeded: false,
 }
 
 describe('Edge settings section', () => {
@@ -46,6 +50,8 @@ describe('Edge settings section', () => {
       copyUpgrade={vi.fn(() => Promise.resolve())}
       signOut={signOut}
       setApprovalMode={vi.fn(() => Promise.resolve())}
+      saveMcpServers={vi.fn(() => Promise.resolve(true))}
+      restartRuntime={vi.fn(() => Promise.resolve())}
     />)
     expect(screen.getByText('Isolated · Dynamic Worker')).toBeTruthy()
     expect(screen.getByText('deploy-123')).toBeTruthy()
@@ -66,11 +72,14 @@ describe('Edge settings section', () => {
       useEdgeSettings={selector => selector({
         status: 'error', error: 'private transport detail', copied: false, signingOut: false,
         approvalMode: 'ask', approvalSaving: false, approvalSaved: false,
+        mcpServers: [], mcpLoaded: false, mcpSaving: false, mcpRestartNeeded: false,
       })}
       load={load}
       copyUpgrade={vi.fn(() => Promise.resolve())}
       signOut={signOut}
       setApprovalMode={vi.fn(() => Promise.resolve())}
+      saveMcpServers={vi.fn(() => Promise.resolve(true))}
+      restartRuntime={vi.fn(() => Promise.resolve())}
     />)
     expect(screen.getByRole('alert').textContent).not.toContain('private transport detail')
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
