@@ -10,6 +10,32 @@ export interface CachedMcpTool {
   publicName: string
   description: string
   inputSchema: Record<string, unknown>
+  annotations?: { readOnlyHint?: boolean } | undefined
+}
+
+export type McpToolPolicyMode = 'allow_all' | 'read_only' | 'approve_all'
+
+export const DEFAULT_READ_ONLY_PATTERNS: readonly string[] = [
+  'get_*', 'list_*', 'read_*', 'search_*', 'find_*', 'fetch_*', 'describe_*',
+]
+
+function globToRegExp(pattern: string): RegExp {
+  const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/gu, ch => ch === '*' ? '\0' : `\\${ch}`)
+  return new RegExp(`^${escaped.replaceAll('\0', '.*')}$`)
+}
+
+export function evaluateMcpToolPolicy(
+  rawName: string,
+  mode: McpToolPolicyMode | undefined,
+  readOnlyHint?: boolean,
+): 'allow' | 'ask' {
+  const effective = mode ?? 'approve_all'
+  if (effective === 'allow_all') return 'allow'
+  if (effective === 'approve_all') return 'ask'
+  // read_only: three-layer decision
+  if (readOnlyHint === true) return 'allow'
+  if (readOnlyHint === false) return 'ask'
+  return DEFAULT_READ_ONLY_PATTERNS.some(p => globToRegExp(p).test(rawName)) ? 'allow' : 'ask'
 }
 
 export interface McpContentBlock {

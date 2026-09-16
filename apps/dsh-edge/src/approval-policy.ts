@@ -1,5 +1,6 @@
 /** Edge-owned tool approval policy: reads user preference from settings and
- *  gates external tool calls through the upstream tools/pre-execute waterfall. */
+ *  gates external tool calls through the upstream tools/pre-execute waterfall.
+ *  Per-connector MCP policy refines when the global mode is 'ask'. */
 
 import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
@@ -26,6 +27,7 @@ function needsApproval(exec: ToolExecution): boolean {
 
 export interface EdgeApprovalPolicyOptions {
   defaultMode?: EdgeApprovalMode | undefined
+  resolveMcpPolicy?: (publicName: string) => Promise<'allow' | 'ask' | undefined>
 }
 
 export function installEdgeApprovalPolicy(
@@ -40,11 +42,16 @@ export function installEdgeApprovalPolicy(
 
   const scope = ctx.settings.register(APPROVAL_SETTINGS_NAMESPACE, schema)
 
-  ctx.on('tools/pre-execute', (exec, next) => {
+  ctx.on('tools/pre-execute', async (exec, next) => {
     if (!needsApproval(exec)) return next()
     const { mode } = scope.get()
     if (mode === 'never') return next()
-    return Promise.resolve({ kind: 'ask' as const })
+    // Per-connector MCP policy: allow_all / read_only bypass approval
+    if (exec.name.startsWith('mcp__') && options?.resolveMcpPolicy !== undefined) {
+      const verdict = await options.resolveMcpPolicy(exec.name)
+      if (verdict === 'allow') return next()
+    }
+    return { kind: 'ask' as const }
   })
 
   return scope
