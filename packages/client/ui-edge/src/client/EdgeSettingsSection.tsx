@@ -87,7 +87,7 @@ function McpServersCard(props: McpServersCardProps): ReactNode {
                  s.status === 'needs_reauth' ? t('mcpNeedsReauth') :
                  s.status === 'error' ? t('mcpError') : ''}
               </span>
-              {s.status === 'connected' ? (
+              {s.status === 'connected' || (s.toolCount !== undefined && s.toolCount > 0) ? (
                 <select className={css.select} value={s.toolPolicy?.mode ?? 'approve_all'}
                   disabled={saving || disabled}
                   aria-label={t('mcpToolPolicy')}

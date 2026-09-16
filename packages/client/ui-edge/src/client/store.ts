@@ -308,7 +308,22 @@ export class EdgeSettingsController {
     const updated = current.map(s =>
       s.serverName === serverName ? { ...s, toolPolicy: { mode } } : s,
     )
-    return this.saveMcpServers(updated)
+    try {
+      const response = await this.io.fetch('/api/mcp-servers', {
+        method: 'PUT',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ servers: updated }),
+      })
+      if (!response.ok) return false
+      const result = await response.json() as { servers?: McpServerEntry[] }
+      if (Array.isArray(result.servers)) {
+        this.store.update((state) => { state.mcpServers = result.servers as McpServerEntry[] })
+      }
+      return true
+    } catch {
+      return false
+    }
   }
 
   async saveMcpToken(serverName: string, token: string): Promise<boolean> {
