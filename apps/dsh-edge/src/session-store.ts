@@ -62,7 +62,7 @@ import * as SpillPolicy from '@deepseek-ai/dsh-spill-policy'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import ApprovalService from '@deepseek-ai/dsh-user-approval'
-import * as McpClient from '@deepseek-ai/dsh-mcp-client'
+import { installEdgeMcpServers, type EdgeMcpServerConfig } from './edge-mcp-manager.ts'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as ToolGoal from '@deepseek-ai/dsh-tool-goal'
 import * as ToolSkill from '@deepseek-ai/dsh-tool-skill'
@@ -552,13 +552,7 @@ export class EdgeSessionStore {
     this.approvalScope = installEdgeApprovalPolicy(this.context, {
       defaultMode: config.approvalDefaultMode,
     })
-    for (const server of await this.loadMcpServers(storage)) {
-      try {
-        await this.context.plugin(McpClient, server)
-      } catch (error) {
-        console.error(`dsh-edge: MCP server "${server.serverName}" failed to connect.`, error)
-      }
-    }
+    await installEdgeMcpServers(this.context, storage)
     await this.context.plugin(ToolFs)
     await this.context.plugin(ToolSkill)
     await this.context.plugin(GoalService)
@@ -866,14 +860,6 @@ export class EdgeSessionStore {
     return this.context.settings?.documentPath !== undefined
   }
 
-  private async loadMcpServers(
-    storage: DurableObjectStorage,
-  ): Promise<McpClient.Config[]> {
-    const raw = await storage.get<McpClient.Config[]>(EdgeSessionStore.MCP_STORAGE_KEY)
-    if (!Array.isArray(raw)) return []
-    return raw.filter(s => s.transport === 'streamable-http')
-  }
-
   async getApprovalMode(): Promise<EdgeApprovalMode> {
     await this.ready
     return this.approvalScope?.get().mode ?? 'ask'
@@ -887,22 +873,19 @@ export class EdgeSessionStore {
 
   private static readonly MCP_STORAGE_KEY = 'dsh-edge:mcp-servers'
 
-  async getMcpServers(): Promise<McpClient.StreamableHttpConfig[]> {
+  async getMcpServers(): Promise<EdgeMcpServerConfig[]> {
     await this.ready
-    const raw = await this.doStorage.get<McpClient.StreamableHttpConfig[]>(
+    const raw = await this.doStorage.get<EdgeMcpServerConfig[]>(
       EdgeSessionStore.MCP_STORAGE_KEY,
     )
     if (!Array.isArray(raw)) return []
-    return raw.filter(s => s.transport === 'streamable-http')
+    return raw
   }
 
-  async setMcpServers(servers: Partial<McpClient.StreamableHttpConfig>[]): Promise<void> {
+  async setMcpServers(servers: Partial<EdgeMcpServerConfig>[]): Promise<void> {
     await this.ready
     const seen = new Set<string>()
     const validated = servers.map(s => {
-      if (s.transport !== undefined && s.transport !== 'streamable-http') {
-        throw new Error('Only streamable-http transport is supported on Cloudflare Workers.')
-      }
       if (typeof s.serverName !== 'string' || !/^[A-Za-z0-9_-]{1,32}$/u.test(s.serverName)) {
         throw new Error('serverName must match [A-Za-z0-9_-]{1,32}.')
       }
@@ -928,9 +911,9 @@ export class EdgeSessionStore {
         throw new Error('toolCallTimeoutMs must be a positive number.')
       }
       return {
-        transport: 'streamable-http' as const,
         serverName: s.serverName,
         url: s.url,
+        auth: s.auth ?? { type: 'none' as const },
         ...(s.toolCallTimeoutMs !== undefined ? { toolCallTimeoutMs: s.toolCallTimeoutMs } : {}),
       }
     })

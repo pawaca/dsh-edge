@@ -2,7 +2,7 @@
 
 import { initializeSchedules, nextSchedule, scheduleWakeTime, setScheduleRetry } from './schedule-store.ts'
 import { AsyncLocalStorage } from 'node:async_hooks'
-import type * as McpClient from '@deepseek-ai/dsh-mcp-client'
+import type { EdgeMcpServerConfig } from './edge-mcp-manager.ts'
 
 import {
   getWorkspace,
@@ -414,7 +414,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
             return jsonResponse({ error: 'body must contain a servers array' }, 400)
           }
           try {
-            await this.sessions.setMcpServers(body.servers as Partial<McpClient.StreamableHttpConfig>[])
+            await this.sessions.setMcpServers(body.servers as Partial<EdgeMcpServerConfig>[])
           } catch (error) {
             return jsonResponse({ error: error instanceof Error ? error.message : 'validation failed' }, 400)
           }
@@ -425,6 +425,19 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       if (url.pathname === '/api/restart' && request.method === 'POST') {
         this.ctx.abort('Restart requested')
         return jsonResponse({ ok: true })
+      }
+      if (url.pathname.startsWith('/api/mcp-servers/') && url.pathname.endsWith('/probe') && request.method === 'POST') {
+        const serverName = url.pathname.split('/')[3]
+        if (typeof serverName !== 'string' || serverName === '') {
+          return jsonResponse({ error: 'missing server name' }, 400)
+        }
+        try {
+          const { probeAndCache } = await import('./edge-mcp-manager.ts')
+          const result = await probeAndCache(this.ctx.storage, serverName)
+          return jsonResponse({ status: 'connected', toolCount: result.tools.length, tools: result.tools.map(t => t.publicName) })
+        } catch (error) {
+          return jsonResponse({ status: 'error', error: error instanceof Error ? error.message : 'probe failed' }, 502)
+        }
       }
       if (url.pathname.startsWith('/api/') && !url.pathname.startsWith('/api/sessions')) {
         const expected = request.headers.get('x-dsh-edge-turn-seq')
