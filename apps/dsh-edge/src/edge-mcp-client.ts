@@ -2,6 +2,7 @@
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
+import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/cfworker'
 import {
   type CachedMcpTool,
   type McpCallResult,
@@ -26,6 +27,58 @@ export interface McpAuth {
   token?: string | undefined
 }
 
+const BLOCKED_HOSTNAME_SUFFIXES = ['.internal', '.local', '.localhost']
+
+const PRIVATE_IPV4_PATTERNS = [
+  /^127\./u,
+  /^10\./u,
+  /^172\.(1[6-9]|2\d|3[01])\./u,
+  /^192\.168\./u,
+  /^0\./u,
+  /^169\.254\./u,
+]
+
+const PRIVATE_IPV6_PATTERNS = [
+  /^::1$/u,
+  /^fc/iu,
+  /^fd/iu,
+  /^fe80:/iu,
+]
+
+function isIpAddress(hostname: string): boolean {
+  return /^\d+\.\d+\.\d+\.\d+$/u.test(hostname) || hostname.includes(':')
+}
+
+export function assertSafeUrl(url: string): void {
+  const parsed = new URL(url)
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error('MCP server URL must use http: or https: protocol.')
+  }
+  const raw = parsed.hostname.toLowerCase()
+  // Strip IPv6 brackets: [fc00::1] → fc00::1
+  const hostname = raw.startsWith('[') && raw.endsWith(']') ? raw.slice(1, -1) : raw
+  if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1') {
+    return // allow localhost for development
+  }
+  for (const suffix of BLOCKED_HOSTNAME_SUFFIXES) {
+    if (hostname.endsWith(suffix)) {
+      throw new Error(`MCP server hostname "${hostname}" is blocked.`)
+    }
+  }
+  if (isIpAddress(hostname)) {
+    for (const pattern of PRIVATE_IPV4_PATTERNS) {
+      if (pattern.test(hostname)) {
+        throw new Error(`MCP server address "${hostname}" is a private IP and is blocked.`)
+      }
+    }
+    for (const pattern of PRIVATE_IPV6_PATTERNS) {
+      if (pattern.test(hostname)) {
+        throw new Error(`MCP server address "${hostname}" is a private IP and is blocked.`)
+      }
+    }
+  }
+}
+
 function buildHeaders(auth?: McpAuth): Record<string, string> {
   if (auth?.type === 'bearer' && auth.token !== undefined) {
     return { Authorization: `Bearer ${auth.token}` }
@@ -33,16 +86,22 @@ function buildHeaders(auth?: McpAuth): Record<string, string> {
   return {}
 }
 
+const cfWorkerValidator = new CfWorkerJsonSchemaValidator()
+
 async function connectClient(
   url: string,
   auth: McpAuth | undefined,
   signal: AbortSignal,
 ) {
+  assertSafeUrl(url)
   const transport = new StreamableHTTPClientTransport(
     new URL(url),
-    { requestInit: { headers: buildHeaders(auth), signal } },
+    { requestInit: { headers: buildHeaders(auth), signal, redirect: 'error' } },
   )
-  const client = new Client({ name: 'dsh-edge', version: DSH_EDGE_VERSION })
+  const client = new Client(
+    { name: 'dsh-edge', version: DSH_EDGE_VERSION },
+    { capabilities: {}, jsonSchemaValidator: cfWorkerValidator },
+  )
   await client.connect(transport as never)
   return {
     client,

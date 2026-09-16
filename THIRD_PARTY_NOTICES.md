@@ -35,7 +35,7 @@ SOFTWARE.
 
 ## Bundled component inventory
 
-The following 582 package versions form the conservative, platform-neutral production closure used to assemble the Web and Worker artifacts in this distribution. Platform-specific build binaries that are not distributed in those artifacts are excluded; tree shaking can omit additional code. The inventory and legal texts are generated during packaging rather than referring recipients to a source checkout. License expressions are SPDX identifiers supplied by each package. Dependencies installed separately by npm remain declared in this package's `package.json`.
+The following 583 package versions form the conservative, platform-neutral production closure used to assemble the Web and Worker artifacts in this distribution. Platform-specific build binaries that are not distributed in those artifacts are excluded; tree shaking can omit additional code. The inventory and legal texts are generated during packaging rather than referring recipients to a source checkout. License expressions are SPDX identifiers supplied by each package. Dependencies installed separately by npm remain declared in this package's `package.json`.
 
 | Component | License |
 | --- | --- |
@@ -69,6 +69,7 @@ The following 582 package versions form the conservative, platform-neutral produ
 | `@babel/helper-validator-identifier@7.29.7` | `MIT` |
 | `@babel/runtime@7.29.7` | `MIT` |
 | `@borewit/text-codec@0.2.2` | `MIT` |
+| `@cfworker/json-schema@4.1.1` | `MIT` |
 | `@cloudflare/computer@0.2.1` | `MIT` |
 | `@cloudflare/kv-asset-handler@0.5.0` | `MIT OR Apache-2.0` |
 | `@cloudflare/unenv-preset@2.16.1` | `MIT OR Apache-2.0` |
@@ -7856,6 +7857,40 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 The complete list of contributors can be found at:
 - https://github.com/garycourt/uri-js/graphs/contributors
+```
+
+### License/notice b01478b435fc
+
+Applies to:
+
+- `@cfworker/json-schema@4.1.1` (`package metadata fallback`)
+
+```text
+The published @cfworker/json-schema@4.1.1 package declared MIT but did not include a license or notice file. Attribution from its package metadata: Jeremy Danyow <jdanyow@gmail.com>. Repository: https://github.com/cfworker/cfworker.
+
+The MIT branch is reproduced for this distribution:
+
+MIT License
+
+Published package author: Jeremy Danyow <jdanyow@gmail.com>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 ```
 
 ### License/notice b079b743d39a
