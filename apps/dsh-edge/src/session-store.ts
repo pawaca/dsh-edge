@@ -62,6 +62,7 @@ import * as SpillPolicy from '@deepseek-ai/dsh-spill-policy'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import ApprovalService from '@deepseek-ai/dsh-user-approval'
+import { assertSafeUrl } from './edge-mcp-client.ts'
 import { installEdgeMcpServers, type EdgeMcpServerConfig, type McpToolManager } from './edge-mcp-manager.ts'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as ToolGoal from '@deepseek-ai/dsh-tool-goal'
@@ -1033,6 +1034,7 @@ export class EdgeSessionStore {
       if (parsed.username.length > 0 || parsed.password.length > 0) {
         throw new Error('url must not contain credentials; use the credential provider.')
       }
+      assertSafeUrl(s.url)
       if (s.toolCallTimeoutMs !== undefined
         && (typeof s.toolCallTimeoutMs !== 'number' || !Number.isFinite(s.toolCallTimeoutMs) || s.toolCallTimeoutMs <= 0)) {
         throw new Error('toolCallTimeoutMs must be a positive number.')

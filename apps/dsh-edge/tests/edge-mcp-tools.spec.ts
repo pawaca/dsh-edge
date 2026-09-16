@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { publicToolName, mapMcpResultToContentBlocks, scrubMcpErrorMessage, evaluateMcpToolPolicy } from '../src/edge-mcp-tools.ts'
+import { assertSafeUrl } from '../src/edge-mcp-client.ts'
 
 describe('edge-mcp-tools', () => {
   describe('publicToolName', () => {
@@ -141,6 +142,32 @@ describe('edge-mcp-tools', () => {
       expect(evaluateMcpToolPolicy('get_and_delete', 'read_only', false)).toBe('ask')
       // non-read name would ask, but explicit hint=true overrides
       expect(evaluateMcpToolPolicy('execute_trade', 'read_only', true)).toBe('allow')
+    })
+  })
+
+  describe('assertSafeUrl', () => {
+    it('allows public HTTPS URLs', () => {
+      expect(() => assertSafeUrl('https://mcp.example.com/api')).not.toThrow()
+    })
+
+    it('allows localhost for development', () => {
+      expect(() => assertSafeUrl('http://localhost:8787')).not.toThrow()
+      expect(() => assertSafeUrl('http://127.0.0.1:8787')).not.toThrow()
+    })
+
+    it('blocks private IPs', () => {
+      expect(() => assertSafeUrl('http://10.0.0.1/mcp')).toThrow('private IP')
+      expect(() => assertSafeUrl('http://172.16.0.1/mcp')).toThrow('private IP')
+      expect(() => assertSafeUrl('http://192.168.1.1/mcp')).toThrow('private IP')
+    })
+
+    it('blocks internal hostnames', () => {
+      expect(() => assertSafeUrl('http://service.internal/mcp')).toThrow('blocked')
+      expect(() => assertSafeUrl('http://db.local/mcp')).toThrow('blocked')
+    })
+
+    it('blocks non-HTTP protocols', () => {
+      expect(() => assertSafeUrl('ftp://example.com/mcp')).toThrow('protocol')
     })
   })
 })

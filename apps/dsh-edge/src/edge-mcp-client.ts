@@ -2,6 +2,7 @@
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
+import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/cfworker'
 import {
   type CachedMcpTool,
   type McpCallResult,
@@ -26,6 +27,42 @@ export interface McpAuth {
   token?: string | undefined
 }
 
+const BLOCKED_HOSTNAMES = new Set(['.internal', '.local', '.localhost'])
+
+const PRIVATE_IP_PATTERNS = [
+  /^127\./u,
+  /^10\./u,
+  /^172\.(1[6-9]|2\d|3[01])\./u,
+  /^192\.168\./u,
+  /^0\./u,
+  /^169\.254\./u,
+  /^::1$/u,
+  /^fc/iu,
+  /^fd/iu,
+  /^fe80:/iu,
+]
+
+export function assertSafeUrl(url: string): void {
+  const parsed = new URL(url)
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error('MCP server URL must use http: or https: protocol.')
+  }
+  const hostname = parsed.hostname.toLowerCase()
+  if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]') {
+    return // allow localhost for development
+  }
+  for (const suffix of BLOCKED_HOSTNAMES) {
+    if (hostname.endsWith(suffix)) {
+      throw new Error(`MCP server hostname "${hostname}" is blocked.`)
+    }
+  }
+  for (const pattern of PRIVATE_IP_PATTERNS) {
+    if (pattern.test(hostname)) {
+      throw new Error(`MCP server address "${hostname}" is a private IP and is blocked.`)
+    }
+  }
+}
+
 function buildHeaders(auth?: McpAuth): Record<string, string> {
   if (auth?.type === 'bearer' && auth.token !== undefined) {
     return { Authorization: `Bearer ${auth.token}` }
@@ -33,16 +70,22 @@ function buildHeaders(auth?: McpAuth): Record<string, string> {
   return {}
 }
 
+const cfWorkerValidator = new CfWorkerJsonSchemaValidator()
+
 async function connectClient(
   url: string,
   auth: McpAuth | undefined,
   signal: AbortSignal,
 ) {
+  assertSafeUrl(url)
   const transport = new StreamableHTTPClientTransport(
     new URL(url),
     { requestInit: { headers: buildHeaders(auth), signal } },
   )
-  const client = new Client({ name: 'dsh-edge', version: DSH_EDGE_VERSION })
+  const client = new Client(
+    { name: 'dsh-edge', version: DSH_EDGE_VERSION },
+    { capabilities: {}, jsonSchemaValidator: cfWorkerValidator },
+  )
   await client.connect(transport as never)
   return {
     client,
