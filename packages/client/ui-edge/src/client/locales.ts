@@ -45,7 +45,7 @@ export const en = {
   mcpAdd: 'Add server',
   mcpRemove: 'Remove',
   mcpAuthNone: 'No auth',
-  mcpAuthBearer: 'Bearer token',
+  mcpAuthBearer: 'Bearer',
   mcpTokenPlaceholder: 'Bearer token',
   mcpTokenSaved: 'Token saved',
   mcpRestartNeeded: 'Restart the runtime to apply MCP changes.',

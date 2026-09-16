@@ -61,7 +61,7 @@
     - textbox "Endpoint URL (e.g. https://mcp.example.com/sse)"
     - combobox "Auth type":
       - option "No auth" [selected]
-      - option "Bearer token"
+      - option "Bearer"
     - button "Add server" [disabled]
   - region "Owner session":
     - heading "Owner session" [level=3]
