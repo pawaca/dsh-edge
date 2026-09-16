@@ -44,6 +44,10 @@ export const en = {
   mcpUrlPlaceholder: 'Endpoint URL (e.g. https://mcp.example.com/sse)',
   mcpAdd: 'Add server',
   mcpRemove: 'Remove',
+  mcpAuthNone: 'No auth',
+  mcpAuthBearer: 'Bearer token',
+  mcpTokenPlaceholder: 'Bearer token',
+  mcpTokenSaved: 'Token saved',
   mcpRestartNeeded: 'Restart the runtime to apply MCP changes.',
   mcpRestart: 'Restart runtime',
 } as const
@@ -97,6 +101,10 @@ export const zh: Record<EdgeSettingsKey, string> = {
   mcpUrlPlaceholder: '端点 URL（如 https://mcp.example.com/sse）',
   mcpAdd: '添加服务器',
   mcpRemove: '移除',
+  mcpAuthNone: '无认证',
+  mcpAuthBearer: 'Bearer Token',
+  mcpTokenPlaceholder: 'Bearer Token',
+  mcpTokenSaved: 'Token 已保存',
   mcpRestartNeeded: '重启运行时以应用 MCP 配置变更。',
   mcpRestart: '重启运行时',
 }

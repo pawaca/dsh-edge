@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Button, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import type { ApprovalMode, McpServerEntry, EdgeSettingsState } from './store.ts'
+import type { ApprovalMode, McpAuthType, McpServerEntry, EdgeSettingsState } from './store.ts'
 import { DSH_EDGE_RELEASES_URL } from './store.ts'
 import css from './EdgeSettingsSection.module.css'
 
@@ -13,6 +13,7 @@ export interface EdgeSettingsInjected {
   signOut(): Promise<void>
   setApprovalMode(mode: ApprovalMode): Promise<void>
   saveMcpServers(servers: McpServerEntry[]): Promise<boolean>
+  saveMcpToken(serverName: string, token: string): Promise<boolean>
   restartRuntime(): Promise<void>
 }
 
@@ -32,6 +33,7 @@ interface McpServersCardProps {
   restartNeeded: boolean
   disabled: boolean
   onSave: (servers: McpServerEntry[]) => Promise<boolean>
+  onSaveToken: (serverName: string, token: string) => Promise<boolean>
   onRestart: () => Promise<void>
   t: EdgeSettingsSectionProps['t']
 }
@@ -39,16 +41,26 @@ interface McpServersCardProps {
 function McpServersCard(props: McpServersCardProps): ReactNode {
   const { servers, saving, disabled, error, restartNeeded } = props
   const onSave = props.onSave
+  const onSaveToken = props.onSaveToken
   const onRestart = props.onRestart
   // eslint-disable-next-line @typescript-eslint/unbound-method -- t is a bound translate function passed from props
   const t = props.t
-  const [draft, setDraft] = useState<{ serverName: string; url: string }>({ serverName: '', url: '' })
+  const [draft, setDraft] = useState<{ serverName: string; url: string; authType: McpAuthType; token: string }>({ serverName: '', url: '', authType: 'none', token: '' })
   const addServer = useCallback(() => {
     if (draft.serverName.trim() === '' || draft.url.trim() === '') return
-    void onSave([...servers, {
+    const entry: McpServerEntry = {
       serverName: draft.serverName.trim(),
       url: draft.url.trim(),
-    } as McpServerEntry]).then(ok => { if (ok) setDraft({ serverName: '', url: '' }) })
+      auth: { type: draft.authType },
+    }
+    void (async () => {
+      const ok = await onSave([...servers, entry])
+      if (!ok) return
+      if (draft.authType === 'bearer' && draft.token.trim() !== '') {
+        await onSaveToken(draft.serverName.trim(), draft.token.trim())
+      }
+      setDraft({ serverName: '', url: '', authType: 'none', token: '' })
+    })()
   }, [draft, servers, onSave])
   const removeServer = useCallback((name: string) => {
     void onSave(servers.filter(s => s.serverName !== name))
@@ -77,8 +89,20 @@ function McpServersCard(props: McpServersCardProps): ReactNode {
         <input className={css.input} placeholder={t('mcpUrlPlaceholder')}
           value={draft.url} disabled={saving || disabled}
           onChange={e => setDraft(d => ({ ...d, url: e.target.value }))} />
+        <select className={css.select} value={draft.authType} disabled={saving || disabled}
+          aria-label="Auth type"
+          onChange={e => setDraft(d => ({ ...d, authType: e.target.value as McpAuthType }))}>
+          <option value="none">{t('mcpAuthNone')}</option>
+          <option value="bearer">{t('mcpAuthBearer')}</option>
+        </select>
+        {draft.authType === 'bearer' ? (
+          <input className={css.input} type="password" placeholder={t('mcpTokenPlaceholder')}
+            value={draft.token} disabled={saving || disabled}
+            onChange={e => setDraft(d => ({ ...d, token: e.target.value }))} />
+        ) : null}
         <Button variant="outline" size="sm"
-          disabled={saving || disabled || draft.serverName.trim() === '' || draft.url.trim() === ''}
+          disabled={saving || disabled || draft.serverName.trim() === '' || draft.url.trim() === ''
+            || (draft.authType === 'bearer' && draft.token.trim() === '')}
           onClick={addServer}>{t('mcpAdd')}</Button>
       </div>
       {restartNeeded ? (
@@ -93,7 +117,7 @@ function McpServersCard(props: McpServersCardProps): ReactNode {
 }
 
 export function EdgeSettingsSection(props: EdgeSettingsSectionProps): ReactNode {
-  const { useEdgeSettings, load, copyUpgrade, signOut, setApprovalMode, saveMcpServers, restartRuntime, t } = props
+  const { useEdgeSettings, load, copyUpgrade, signOut, setApprovalMode, saveMcpServers, saveMcpToken, restartRuntime, t } = props
   useEffect(() => { void load() }, [load])
   const state = useEdgeSettings(snapshot => snapshot)
   const deploymentDetails = state.status === 'idle' || state.status === 'loading'
@@ -167,6 +191,7 @@ export function EdgeSettingsSection(props: EdgeSettingsSectionProps): ReactNode 
         restartNeeded={state.mcpRestartNeeded}
         disabled={state.status !== 'ready' || !state.mcpLoaded}
         onSave={saveMcpServers}
+        onSaveToken={saveMcpToken}
         onRestart={restartRuntime}
         t={t}
       />

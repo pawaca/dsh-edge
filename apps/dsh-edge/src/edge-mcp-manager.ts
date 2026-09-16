@@ -1,6 +1,7 @@
 /** MCP connection manager: registers cached tools at session init, executes calls per-request. */
 
 import type { Context } from '@deepseek-ai/cordis'
+import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import { callTool, probe, type McpAuth, type ProbeResult } from './edge-mcp-client.ts'
 import { type CachedMcpTool, mapMcpResultToContentBlocks } from './edge-mcp-tools.ts'
@@ -37,11 +38,15 @@ function capCatalogSize(tools: CachedMcpTool[]): CachedMcpTool[] {
   return capped.slice(0, limit)
 }
 
-function authFromConfig(config: EdgeMcpServerConfig): McpAuth {
-  if (config.auth?.type === 'bearer') {
-    const bearerAuth = config.auth as { token?: string | undefined }
-    if (bearerAuth.token !== undefined) {
-      return { type: 'bearer', token: bearerAuth.token }
+function mcpCredentialRefName(serverName: string): string {
+  return `MCP_TOKEN_${serverName.toUpperCase().replace(/[^A-Z0-9]/gu, '_')}`
+}
+
+async function resolveAuth(config: EdgeMcpServerConfig, ctx?: Context): Promise<McpAuth> {
+  if (config.auth?.type === 'bearer' && ctx?.credentials !== undefined) {
+    const resolved = await ctx.credentials.resolve(credentialRef(mcpCredentialRefName(config.serverName)))
+    if (resolved?.value !== undefined) {
+      return { type: 'bearer', token: resolved.value }
     }
   }
   return { type: 'none' }
@@ -86,7 +91,7 @@ function registerCachedTools(ctx: Context, server: EdgeMcpServerConfig): void {
         ),
       ),
       execute: async (args: Record<string, unknown>, exec: { signal: AbortSignal }) => {
-        const auth = authFromConfig(server)
+        const auth = await resolveAuth(server, ctx)
         const result = await callTool(server.url, cached.name, args, auth, exec.signal, server.toolCallTimeoutMs)
         if (result.isError) {
           const text = result.content
@@ -113,12 +118,13 @@ function registerCachedTools(ctx: Context, server: EdgeMcpServerConfig): void {
 export async function probeAndCache(
   storage: DurableObjectStorage,
   serverName: string,
+  ctx?: Context,
 ): Promise<ProbeResult> {
   const servers = await storage.get<EdgeMcpServerConfig[]>(MCP_STORAGE_KEY) ?? []
   const server = servers.find(s => s.serverName === serverName)
   if (server === undefined) throw new Error(`Server "${serverName}" not found.`)
 
-  const auth = authFromConfig(server)
+  const auth = await resolveAuth(server, ctx)
   const url = server.url
   let result: ProbeResult
   try {

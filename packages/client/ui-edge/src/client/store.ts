@@ -30,9 +30,12 @@ export interface EdgeHealth {
 
 export type ApprovalMode = 'ask' | 'never'
 
+export type McpAuthType = 'none' | 'bearer'
+
 export interface McpServerEntry {
   serverName: string
   url: string
+  auth?: { type: McpAuthType } | undefined
   toolCallTimeoutMs?: number
 }
 
@@ -261,6 +264,26 @@ export class EdgeSettingsController {
       })
       return false
     }
+  }
+
+  async saveMcpToken(serverName: string, token: string): Promise<boolean> {
+    try {
+      const response = await this.io.fetch(`/api/mcp-servers/${encodeURIComponent(serverName)}/token`, {
+        method: 'PUT',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ token }),
+      })
+      return response.ok
+    } catch {
+      return false
+    }
+  }
+
+  async clearMcpToken(serverName: string): Promise<void> {
+    await this.io.fetch(`/api/mcp-servers/${encodeURIComponent(serverName)}/token`, {
+      method: 'DELETE', credentials: 'same-origin',
+    }).catch(() => {})
   }
 
   /** Copy the matching channel upgrade command without affecting deployment state. */

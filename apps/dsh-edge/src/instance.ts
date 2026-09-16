@@ -422,6 +422,27 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
           return jsonResponse({ servers: saved, restartRequired: true })
         }
       }
+      if (url.pathname.startsWith('/api/mcp-servers/') && url.pathname.endsWith('/token')) {
+        const serverName = url.pathname.split('/')[3]
+        if (typeof serverName !== 'string' || serverName === '') {
+          return jsonResponse({ error: 'missing server name' }, 400)
+        }
+        if (request.method === 'PUT') {
+          let body: { token?: string }
+          try { body = await request.json() as { token?: string } } catch {
+            return jsonResponse({ error: 'invalid JSON body' }, 400)
+          }
+          if (body === null || typeof body !== 'object' || typeof body.token !== 'string' || body.token === '') {
+            return jsonResponse({ error: 'token must be a non-empty string' }, 400)
+          }
+          await this.sessions.setMcpToken(serverName, body.token)
+          return jsonResponse({ ok: true })
+        }
+        if (request.method === 'DELETE') {
+          await this.sessions.clearMcpToken(serverName)
+          return jsonResponse({ ok: true })
+        }
+      }
       if (url.pathname === '/api/restart' && request.method === 'POST') {
         this.ctx.abort('Restart requested')
         return jsonResponse({ ok: true })
@@ -433,7 +454,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         }
         try {
           const { probeAndCache } = await import('./edge-mcp-manager.ts')
-          const result = await probeAndCache(this.ctx.storage, serverName)
+          const result = await probeAndCache(this.ctx.storage, serverName, this.sessions.getContext())
           return jsonResponse({ status: 'connected', toolCount: result.tools.length, tools: result.tools.map(t => t.publicName) })
         } catch (error) {
           return jsonResponse({ status: 'error', error: error instanceof Error ? error.message : 'probe failed' }, 502)

@@ -860,6 +860,8 @@ export class EdgeSessionStore {
     return this.context.settings?.documentPath !== undefined
   }
 
+  getContext(): Context { return this.context }
+
   async getApprovalMode(): Promise<EdgeApprovalMode> {
     await this.ready
     return this.approvalScope?.get().mode ?? 'ask'
@@ -910,17 +912,37 @@ export class EdgeSessionStore {
         && (typeof s.toolCallTimeoutMs !== 'number' || !Number.isFinite(s.toolCallTimeoutMs) || s.toolCallTimeoutMs <= 0)) {
         throw new Error('toolCallTimeoutMs must be a positive number.')
       }
-      if (s.auth !== undefined && s.auth.type !== 'none') {
-        throw new Error('Only auth type "none" is supported. Bearer and OAuth require follow-up PRs.')
+      if (s.auth !== undefined && s.auth.type !== 'none' && s.auth.type !== 'bearer') {
+        throw new Error('Only auth types "none" and "bearer" are supported.')
       }
       return {
         serverName: s.serverName,
         url: s.url,
-        auth: { type: 'none' as const },
+        auth: (s.auth?.type === 'bearer') ? { type: 'bearer' as const } : { type: 'none' as const },
         ...(s.toolCallTimeoutMs !== undefined ? { toolCallTimeoutMs: s.toolCallTimeoutMs } : {}),
       }
     })
     await this.doStorage.put(EdgeSessionStore.MCP_STORAGE_KEY, validated)
+  }
+
+  private mcpCredentialRef(serverName: string) {
+    return credentialRef(`MCP_TOKEN_${serverName.toUpperCase().replace(/[^A-Z0-9]/gu, '_')}`)
+  }
+
+  async setMcpToken(serverName: string, token: string): Promise<void> {
+    await this.ready
+    await this.context.credentials.set(this.mcpCredentialRef(serverName), token)
+  }
+
+  async clearMcpToken(serverName: string): Promise<void> {
+    await this.ready
+    await this.context.credentials.unset(this.mcpCredentialRef(serverName))
+  }
+
+  async resolveMcpToken(serverName: string): Promise<string | undefined> {
+    await this.ready
+    const resolved = await this.context.credentials.resolve(this.mcpCredentialRef(serverName))
+    return resolved?.value
   }
 
   /** Describe all registered settings namespaces with redacted secrets. */
