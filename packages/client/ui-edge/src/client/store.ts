@@ -231,14 +231,28 @@ export class EdgeSettingsController {
       const saved = result.servers ?? servers
       this.store.update((state) => {
         state.mcpServers = saved
+      })
+      const probeErrors: string[] = []
+      for (const s of saved) {
+        try {
+          const probeRes = await this.io.fetch(`/api/mcp-servers/${encodeURIComponent(s.serverName)}/probe`, {
+            method: 'POST', credentials: 'same-origin',
+          })
+          if (!probeRes.ok) {
+            const data = await probeRes.json().catch(() => ({})) as { error?: string }
+            probeErrors.push(`${s.serverName}: ${data.error ?? 'probe failed'}`)
+          }
+        } catch {
+          probeErrors.push(`${s.serverName}: network error`)
+        }
+      }
+      this.store.update((state) => {
         state.mcpSaving = false
         state.mcpRestartNeeded = result.restartRequired === true
+        if (probeErrors.length > 0) {
+          state.mcpError = probeErrors.join('; ')
+        }
       })
-      for (const s of saved) {
-        await this.io.fetch(`/api/mcp-servers/${encodeURIComponent(s.serverName)}/probe`, {
-          method: 'POST', credentials: 'same-origin',
-        }).catch(() => {})
-      }
       return true
     } catch (error) {
       this.store.update((state) => {
