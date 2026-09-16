@@ -224,9 +224,9 @@ function oauthResultPage(ok: boolean, serverName?: string, toolCount?: number, e
   if (ok) {
     const name = esc(serverName ?? 'MCP server')
     const tools = toolCount !== undefined && toolCount > 0 ? `<p>${String(toolCount)} tools discovered.</p>` : ''
-    const postMsg = JSON.stringify({ type: 'mcp-oauth-complete', serverName: serverName ?? 'MCP server', toolCount: toolCount ?? 0 })
+    const postMsg = JSON.stringify({ type: 'mcp-oauth-complete', serverName: serverName ?? 'MCP server', toolCount: toolCount ?? 0 }).replace(/</gu, '\\u003c')
     return new Response(
-      `<!doctype html><html><head><title>Connected</title></head><body style="font-family:system-ui;text-align:center;padding:60px"><h2>Connected to ${name}</h2>${tools}<p>You can close this window.</p><script>window.opener?.postMessage(${esc(postMsg)},'*');window.opener?.focus()</script></body></html>`,
+      `<!doctype html><html><head><title>Connected</title></head><body style="font-family:system-ui;text-align:center;padding:60px"><h2>Connected to ${name}</h2>${tools}<p>You can close this window.</p><script>window.opener?.postMessage(${postMsg},'*');window.opener?.focus()</script></body></html>`,
       { headers: { 'content-type': 'text/html' } },
     )
   }

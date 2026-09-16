@@ -26,12 +26,17 @@ export interface EdgeMcpServerConfig {
 }
 
 function capCatalogSize(tools: CachedMcpTool[]): CachedMcpTool[] {
-  const capped = tools.map(t => ({
-    ...t,
-    description: t.description.length > MAX_DESCRIPTION_LENGTH
+  const maxPerTool = MAX_CATALOG_BYTES / 2
+  const capped = tools.map(t => {
+    const desc = t.description.length > MAX_DESCRIPTION_LENGTH
       ? t.description.slice(0, MAX_DESCRIPTION_LENGTH) + '…'
-      : t.description,
-  }))
+      : t.description
+    const toolJson = JSON.stringify({ ...t, description: desc })
+    if (toolJson.length > maxPerTool) {
+      return { ...t, description: desc, inputSchema: { type: 'object' } as Record<string, unknown> }
+    }
+    return { ...t, description: desc }
+  })
   const serialized = JSON.stringify(capped)
   if (serialized.length <= MAX_CATALOG_BYTES) return capped
   const ratio = MAX_CATALOG_BYTES / serialized.length
@@ -54,9 +59,11 @@ async function resolveAuth(config: EdgeMcpServerConfig, ctx?: Context, storage?:
         client: { clientId: string; clientSecret?: string }
       }>(MCP_REFRESH_PREFIX + config.serverName)
       if (refreshData !== undefined && refreshData.expiresAt !== undefined && Date.now() > refreshData.expiresAt - 120_000) {
-        try {
+        if (!refreshData.refreshToken) {
+          console.warn(`dsh-edge: OAuth token expired for "${config.serverName}" and no refresh token is available. Re-authenticate via Settings.`)
+        } else try {
           const { refreshToken } = await import('./edge-mcp-oauth.ts')
-          const tokens = await refreshToken(refreshData.tokenEndpoint, refreshData.client, refreshData.refreshToken)
+          const tokens = await refreshToken(refreshData.tokenEndpoint, refreshData.client, refreshData.refreshToken, config.url)
           await ctx.credentials.set(credentialRef(mcpCredentialRefName(config.serverName)), tokens.accessToken)
           if (tokens.refreshToken !== undefined) {
             await storage.put(MCP_REFRESH_PREFIX + config.serverName, {

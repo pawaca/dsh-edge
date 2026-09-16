@@ -55,12 +55,11 @@ function McpServersCard(props: McpServersCardProps): ReactNode {
       auth: { type: draft.authType },
     }
     void (async () => {
-      // Save bearer token first so the auto-probe can authenticate
+      const ok = await onSave([...servers, entry])
+      if (!ok) return
       if (draft.authType === 'bearer' && draft.token.trim() !== '') {
         await onSaveToken(draft.serverName.trim(), draft.token.trim())
       }
-      const ok = await onSave([...servers, entry])
-      if (!ok) return
       setDraft({ serverName: '', url: '', authType: 'none', token: '' })
     })()
   }, [draft, servers, onSave])

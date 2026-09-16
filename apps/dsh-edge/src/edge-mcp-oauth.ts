@@ -152,6 +152,7 @@ export async function exchangeCode(
   code: string,
   codeVerifier: string,
   redirectUri: string,
+  resource?: string,
 ): Promise<OAuthTokens> {
   const signal = AbortSignal.timeout(DISCOVERY_TIMEOUT_MS)
   const body = new URLSearchParams({
@@ -161,6 +162,7 @@ export async function exchangeCode(
     client_id: client.clientId,
     code_verifier: codeVerifier,
   })
+  if (resource !== undefined) body.set('resource', resource)
   if (client.clientSecret !== undefined) {
     body.set('client_secret', client.clientSecret)
   }
@@ -179,6 +181,7 @@ export async function refreshToken(
   tokenEndpoint: string,
   client: OAuthClient,
   currentRefreshToken: string,
+  resource?: string,
 ): Promise<OAuthTokens> {
   const signal = AbortSignal.timeout(DISCOVERY_TIMEOUT_MS)
   const body = new URLSearchParams({
@@ -186,6 +189,7 @@ export async function refreshToken(
     refresh_token: currentRefreshToken,
     client_id: client.clientId,
   })
+  if (resource !== undefined) body.set('resource', resource)
   if (client.clientSecret !== undefined) {
     body.set('client_secret', client.clientSecret)
   }

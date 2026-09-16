@@ -933,6 +933,7 @@ export class EdgeSessionStore {
       code,
       pending.codeVerifier,
       pending.redirectUri,
+      pending.serverUrl,
     )
 
     // Store tokens via credential provider
@@ -940,13 +941,14 @@ export class EdgeSessionStore {
       this.mcpCredentialRef(pending.serverName),
       tokens.accessToken,
     )
-    // Store refresh token separately
-    if (tokens.refreshToken !== undefined) {
+    // Store refresh/expiry metadata for token lifecycle
+    if (tokens.refreshToken !== undefined || tokens.expiresAt !== undefined) {
       await this.doStorage.put(`dsh-edge:mcp-refresh:${pending.serverName}`, {
-        refreshToken: tokens.refreshToken,
+        refreshToken: tokens.refreshToken ?? '',
         expiresAt: tokens.expiresAt,
         tokenEndpoint: oauthAuth.endpoints.token,
         client,
+        serverUrl: pending.serverUrl,
       })
     }
 
