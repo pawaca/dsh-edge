@@ -76,11 +76,12 @@ async function resolveAuth(config: EdgeMcpServerConfig, ctx?: Context, storage?:
               refreshToken: tokens.refreshToken,
               expiresAt: tokens.expiresAt,
             })
-          } else if (tokens.expiresAt !== undefined) {
+          } else {
             await storage.put(MCP_REFRESH_PREFIX + config.serverName, { ...refreshData, expiresAt: tokens.expiresAt })
           }
         } catch (e) {
           console.warn(`dsh-edge: OAuth token refresh failed for "${config.serverName}": ${e instanceof Error ? e.message : String(e)}`)
+          return { type: 'none' }
         }
       }
     }

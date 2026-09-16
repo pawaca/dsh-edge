@@ -311,7 +311,13 @@ export class EdgeSettingsController {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ token }),
       })
-      return response.ok
+      if (!response.ok) return false
+      // Probe the server now that the token is available, then refresh state
+      await this.io.fetch(`/api/mcp-servers/${encodeURIComponent(serverName)}/probe`, {
+        method: 'POST', credentials: 'same-origin',
+      }).catch(() => {})
+      await this.refreshMcpServers()
+      return true
     } catch {
       return false
     }
