@@ -862,6 +862,93 @@ export class EdgeSessionStore {
 
   getContext(): Context { return this.context }
 
+  private static readonly MCP_PENDING_FLOW_KEY = 'dsh-edge:mcp-pending-oauth'
+
+  async startOAuthFlow(
+    serverName: string,
+    serverUrl: string,
+    redirectUri: string,
+  ): Promise<{ authorizationUrl: string }> {
+    await this.ready
+    const {
+      discoverEndpoints,
+      registerClient,
+      buildAuthorizationUrl,
+    } = await import('./edge-mcp-oauth.ts')
+    const endpoints = await discoverEndpoints(serverUrl)
+    let client: import('./edge-mcp-oauth.ts').OAuthClient
+    if (endpoints.registration !== undefined) {
+      client = await registerClient(endpoints.registration, redirectUri, 'dsh-edge')
+    } else {
+      throw new Error('MCP server does not support Dynamic Client Registration. Provide a client ID manually.')
+    }
+    const { authorizationUrl, pendingFlow } = await buildAuthorizationUrl(
+      endpoints, client, redirectUri, serverName, serverUrl,
+    )
+    await this.doStorage.put(EdgeSessionStore.MCP_PENDING_FLOW_KEY, pendingFlow)
+    // Store endpoints + client on the server config for later use
+    const servers = await this.doStorage.get<EdgeMcpServerConfig[]>(EdgeSessionStore.MCP_STORAGE_KEY) ?? []
+    const entry = servers.find(s => s.serverName === serverName)
+    if (entry !== undefined) {
+      entry.auth = {
+        type: 'oauth' as const,
+        endpoints,
+        client,
+      } as never
+      await this.doStorage.put(EdgeSessionStore.MCP_STORAGE_KEY, servers)
+    }
+    return { authorizationUrl }
+  }
+
+  async completeOAuthFlow(
+    code: string,
+    state: string,
+  ): Promise<{ serverName: string; status: string }> {
+    await this.ready
+    const { exchangeCode } = await import('./edge-mcp-oauth.ts')
+    const pending = await this.doStorage.get<import('./edge-mcp-oauth.ts').PendingOAuthFlow>(
+      EdgeSessionStore.MCP_PENDING_FLOW_KEY,
+    )
+    if (pending === undefined || pending.state !== state) {
+      throw new Error('Invalid or expired OAuth state. Try connecting again.')
+    }
+    // Burn the pending flow (single-use)
+    await this.doStorage.delete(EdgeSessionStore.MCP_PENDING_FLOW_KEY)
+
+    const servers = await this.doStorage.get<EdgeMcpServerConfig[]>(EdgeSessionStore.MCP_STORAGE_KEY) ?? []
+    const entry = servers.find(s => s.serverName === pending.serverName)
+    const oauthAuth = entry?.auth as { type: string; endpoints?: { token?: string }; client?: { clientId: string; clientSecret?: string } } | undefined
+    if (oauthAuth?.type !== 'oauth' || oauthAuth.endpoints?.token === undefined || oauthAuth.client === undefined) {
+      throw new Error('OAuth config not found for this server.')
+    }
+
+    const client = pending.stagedClient ?? oauthAuth.client
+    const tokens = await exchangeCode(
+      oauthAuth.endpoints.token,
+      client,
+      code,
+      pending.codeVerifier,
+      pending.redirectUri,
+    )
+
+    // Store tokens via credential provider
+    await this.context.credentials.set(
+      this.mcpCredentialRef(pending.serverName),
+      tokens.accessToken,
+    )
+    // Store refresh token separately
+    if (tokens.refreshToken !== undefined) {
+      await this.doStorage.put(`dsh-edge:mcp-refresh:${pending.serverName}`, {
+        refreshToken: tokens.refreshToken,
+        expiresAt: tokens.expiresAt,
+        tokenEndpoint: oauthAuth.endpoints.token,
+        client,
+      })
+    }
+
+    return { serverName: pending.serverName, status: 'connected' }
+  }
+
   async getApprovalMode(): Promise<EdgeApprovalMode> {
     await this.ready
     return this.approvalScope?.get().mode ?? 'ask'
@@ -912,13 +999,15 @@ export class EdgeSessionStore {
         && (typeof s.toolCallTimeoutMs !== 'number' || !Number.isFinite(s.toolCallTimeoutMs) || s.toolCallTimeoutMs <= 0)) {
         throw new Error('toolCallTimeoutMs must be a positive number.')
       }
-      if (s.auth !== undefined && s.auth.type !== 'none' && s.auth.type !== 'bearer') {
-        throw new Error('Only auth types "none" and "bearer" are supported.')
+      if (s.auth !== undefined && s.auth.type !== 'none' && s.auth.type !== 'bearer' && s.auth.type !== 'oauth') {
+        throw new Error('Supported auth types: "none", "bearer", "oauth".')
       }
       return {
         serverName: s.serverName,
         url: s.url,
-        auth: (s.auth?.type === 'bearer') ? { type: 'bearer' as const } : { type: 'none' as const },
+        auth: s.auth?.type === 'oauth' ? { type: 'oauth' as const }
+          : s.auth?.type === 'bearer' ? { type: 'bearer' as const }
+          : { type: 'none' as const },
         ...(s.toolCallTimeoutMs !== undefined ? { toolCallTimeoutMs: s.toolCallTimeoutMs } : {}),
       }
     })

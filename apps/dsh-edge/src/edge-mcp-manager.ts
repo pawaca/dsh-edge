@@ -13,7 +13,7 @@ const MAX_DESCRIPTION_LENGTH = 512
 export interface EdgeMcpServerConfig {
   serverName: string
   url: string
-  auth?: { type: 'none' } | { type: 'bearer'; token?: string | undefined } | undefined
+  auth?: { type: 'none' } | { type: 'bearer'; token?: string | undefined } | { type: 'oauth'; endpoints?: unknown; client?: unknown } | undefined
   toolCallTimeoutMs?: number | undefined
   cachedTools?: CachedMcpTool[] | undefined
   status?: 'unknown' | 'connected' | 'error' | undefined
@@ -43,7 +43,7 @@ function mcpCredentialRefName(serverName: string): string {
 }
 
 async function resolveAuth(config: EdgeMcpServerConfig, ctx?: Context): Promise<McpAuth> {
-  if (config.auth?.type === 'bearer' && ctx?.credentials !== undefined) {
+  if ((config.auth?.type === 'bearer' || config.auth?.type === 'oauth') && ctx?.credentials !== undefined) {
     const resolved = await ctx.credentials.resolve(credentialRef(mcpCredentialRefName(config.serverName)))
     if (resolved?.value !== undefined) {
       return { type: 'bearer', token: resolved.value }

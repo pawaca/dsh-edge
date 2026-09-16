@@ -443,6 +443,36 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
           return jsonResponse({ ok: true })
         }
       }
+      if (url.pathname === '/api/mcp/oauth/start' && request.method === 'POST') {
+        let body: { serverName?: string; serverUrl?: string; redirectUri?: string }
+        try { body = await request.json() as typeof body } catch {
+          return jsonResponse({ error: 'invalid JSON' }, 400)
+        }
+        if (typeof body?.serverName !== 'string' || typeof body?.serverUrl !== 'string' || typeof body?.redirectUri !== 'string') {
+          return jsonResponse({ error: 'serverName, serverUrl, and redirectUri are required' }, 400)
+        }
+        try {
+          const result = await this.sessions.startOAuthFlow(body.serverName, body.serverUrl, body.redirectUri)
+          return jsonResponse(result)
+        } catch (error) {
+          return jsonResponse({ error: error instanceof Error ? error.message : 'OAuth start failed' }, 502)
+        }
+      }
+      if (url.pathname === '/api/mcp/oauth/complete' && request.method === 'POST') {
+        let body: { code?: string; state?: string }
+        try { body = await request.json() as typeof body } catch {
+          return jsonResponse({ error: 'invalid JSON' }, 400)
+        }
+        if (typeof body?.code !== 'string' || typeof body?.state !== 'string') {
+          return jsonResponse({ error: 'code and state are required' }, 400)
+        }
+        try {
+          const result = await this.sessions.completeOAuthFlow(body.code, body.state)
+          return jsonResponse(result)
+        } catch (error) {
+          return jsonResponse({ error: error instanceof Error ? error.message : 'OAuth complete failed' }, 400)
+        }
+      }
       if (url.pathname === '/api/restart' && request.method === 'POST') {
         this.ctx.abort('Restart requested')
         return jsonResponse({ ok: true })
