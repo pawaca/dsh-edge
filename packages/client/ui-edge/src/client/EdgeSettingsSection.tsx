@@ -51,8 +51,14 @@ function McpServersCard(props: McpServersCardProps): ReactNode {
       auth: { type: draft.authType },
     }
     void (async () => {
+      // Validate locally before persisting credentials to avoid writing
+      // a token for an invalid or duplicate server name.
+      const name = draft.serverName.trim()
+      if (!/^[A-Za-z0-9_-]{1,32}$/u.test(name)) return
+      try { new URL(draft.url.trim()) } catch { return }
+      if (servers.some(s => s.serverName === name)) return
       if (draft.authType === 'bearer' && draft.token.trim() !== '') {
-        await onSaveToken(draft.serverName.trim(), draft.token.trim())
+        await onSaveToken(name, draft.token.trim())
       }
       const ok = await onSave([...servers, entry])
       if (!ok) return

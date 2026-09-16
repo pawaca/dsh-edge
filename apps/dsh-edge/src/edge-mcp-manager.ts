@@ -219,10 +219,9 @@ export function installEdgeMcpServers(
         delete entry.lastError
         await storage.put(MCP_STORAGE_KEY, fresh)
 
-        // Hot-swap: dispose old tools, register new ones
+        // Hot-swap: dispose old tools, register from fresh config
         disposeServer(serverName)
-        const newServer = { ...server, cachedTools: capped }
-        const disposers = registerCachedTools(ctx, newServer, storage)
+        const disposers = registerCachedTools(ctx, entry, storage)
         serverDisposers.set(serverName, disposers)
         console.log(`dsh-edge: hot-swapped ${disposers.size} MCP tools for "${serverName}"`)
       }
