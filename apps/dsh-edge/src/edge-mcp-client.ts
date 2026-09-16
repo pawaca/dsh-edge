@@ -35,7 +35,7 @@ async function connectClient(
   url: string,
   auth: McpAuth | undefined,
   signal: AbortSignal,
-): Promise<{ client: Client; close: () => Promise<void> }> {
+) {
   const transport = new StreamableHTTPClientTransport(
     new URL(url),
     { requestInit: { headers: buildHeaders(auth), signal } },

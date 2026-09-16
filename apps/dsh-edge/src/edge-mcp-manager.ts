@@ -54,23 +54,12 @@ export async function installEdgeMcpServers(
   const raw = await storage.get<EdgeMcpServerConfig[]>(MCP_STORAGE_KEY)
   if (!Array.isArray(raw) || raw.length === 0) return
 
-  let dirty = false
   for (const server of raw) {
-    if (server.cachedTools === undefined) {
-      try {
-        const result = await probe(server.serverName, server.url, authFromConfig(server))
-        server.cachedTools = capCatalogSize(result.tools)
-        server.status = 'connected'
-        server.toolCount = result.tools.length
-        server.lastProbeAt = Date.now()
-        dirty = true
-      } catch (error) {
-        console.error(`dsh-edge: MCP probe failed for "${server.serverName}".`, error)
-        server.status = 'error'
-        server.lastError = error instanceof Error ? error.message : String(error)
-        dirty = true
-        continue
+    if (!Array.isArray(server.cachedTools) || server.cachedTools.length === 0) {
+      if (server.cachedTools === undefined) {
+        console.log(`dsh-edge: MCP server "${server.serverName}" has no cached tools. Use POST /api/mcp-servers/${server.serverName}/probe to discover tools.`)
       }
+      continue
     }
     try {
       registerCachedTools(ctx, server)
@@ -78,7 +67,6 @@ export async function installEdgeMcpServers(
       console.error(`dsh-edge: failed to register MCP tools for "${server.serverName}".`, error)
     }
   }
-  if (dirty) await storage.put(MCP_STORAGE_KEY, raw)
 }
 
 function registerCachedTools(ctx: Context, server: EdgeMcpServerConfig): void {
