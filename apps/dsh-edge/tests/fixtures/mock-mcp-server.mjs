@@ -6,6 +6,9 @@ import { createServer } from 'node:http'
 
 const SERVER_INFO = { name: 'mock-mcp-test', version: '1.0.0' }
 
+// 1x1 transparent PNG, 67 bytes base64
+const TINY_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
+
 const TOOLS = [
   {
     name: 'echo',
@@ -17,11 +20,31 @@ const TOOLS = [
     description: 'Adds two numbers.',
     inputSchema: { type: 'object', properties: { a: { type: 'number' }, b: { type: 'number' } }, required: ['a', 'b'] },
   },
+  {
+    name: 'get_status',
+    description: 'Returns server status (read-only).',
+    inputSchema: { type: 'object', properties: {} },
+    annotations: { readOnlyHint: true },
+  },
+  {
+    name: 'compute',
+    description: 'Compute with structured output.',
+    inputSchema: { type: 'object', properties: { expression: { type: 'string' } }, required: ['expression'] },
+    outputSchema: { type: 'object', properties: { result: { type: 'number' } }, required: ['result'] },
+  },
+  {
+    name: 'screenshot',
+    description: 'Returns a test PNG image.',
+    inputSchema: { type: 'object', properties: {} },
+  },
 ]
 
 function handleToolCall(name, args) {
   if (name === 'echo') return { content: [{ type: 'text', text: args.message ?? '' }] }
   if (name === 'add') return { content: [{ type: 'text', text: String(Number(args.a ?? 0) + Number(args.b ?? 0)) }] }
+  if (name === 'get_status') return { content: [{ type: 'text', text: 'OK' }] }
+  if (name === 'compute') return { content: [{ type: 'text', text: '42' }], structuredContent: { result: 42 } }
+  if (name === 'screenshot') return { content: [{ type: 'image', data: TINY_PNG, mimeType: 'image/png' }] }
   return { content: [{ type: 'text', text: `Unknown tool: ${name}` }], isError: true }
 }
 
