@@ -208,6 +208,9 @@ describe('edge-mcp-tools', () => {
     it('decodeImageBlock validates mime and base64', () => {
       expect(decodeImageBlock({ type: 'text', text: 'hi' })).toBeUndefined()
       expect(decodeImageBlock({ type: 'image', data: 'dGVzdA==', mimeType: 'image/png' })).toBeDefined()
+      expect(decodeImageBlock({ type: 'image', data: 'dGVzdA==', mimeType: 'image/jpeg' })).toBeDefined()
+      expect(decodeImageBlock({ type: 'image', data: 'dGVzdA==', mimeType: 'image/webp' })).toBeUndefined()
+      expect(decodeImageBlock({ type: 'image', data: 'dGVzdA==', mimeType: 'image/gif' })).toBeUndefined()
       expect(decodeImageBlock({ type: 'image', data: 'dGVzdA==', mimeType: 'text/plain' })).toBeUndefined()
       expect(decodeImageBlock({ type: 'image', data: '!!!', mimeType: 'image/png' })).toBeUndefined()
     })

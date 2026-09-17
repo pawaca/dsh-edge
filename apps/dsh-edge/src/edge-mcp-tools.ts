@@ -90,8 +90,8 @@ export function supportedOutputSchema(candidate: unknown): Record<string, unknow
   }
 }
 
-/** Raster formats supported by the durable attachment vocabulary. */
-const IMAGE_MEDIA_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
+/** Raster formats the Edge attachment backends can persist (png + jpeg only). */
+const IMAGE_MEDIA_TYPES = new Set(['image/png', 'image/jpeg'])
 const CANONICAL_BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u
 
 export function isImageMediaType(mimeType: string): boolean {
