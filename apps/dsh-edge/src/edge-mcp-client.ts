@@ -8,13 +8,10 @@ import {
   type McpCallResult,
   publicToolName,
   scrubMcpErrorMessage,
+  supportedOutputSchema,
 } from './edge-mcp-tools.ts'
+import { MCP_LIMITS } from './edge-mcp-limits.ts'
 import { DSH_EDGE_VERSION } from './release.ts'
-
-const PROBE_TIMEOUT_MS = 30_000
-const CALL_TIMEOUT_MS = 60_000
-const MAX_TOOLS_PER_SERVER = 128
-const MAX_CATALOG_PAGES = 10
 
 export interface ProbeResult {
   tools: CachedMcpTool[]
@@ -55,10 +52,9 @@ export function assertSafeUrl(url: string): void {
     throw new Error('MCP server URL must use http: or https: protocol.')
   }
   const raw = parsed.hostname.toLowerCase()
-  // Strip IPv6 brackets: [fc00::1] → fc00::1
   const hostname = raw.startsWith('[') && raw.endsWith(']') ? raw.slice(1, -1) : raw
   if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1') {
-    return // allow localhost for development
+    return
   }
   for (const suffix of BLOCKED_HOSTNAME_SUFFIXES) {
     if (hostname.endsWith(suffix)) {
@@ -122,7 +118,7 @@ export async function probe(
   url: string,
   auth?: McpAuth,
 ): Promise<ProbeResult> {
-  const signal = AbortSignal.timeout(PROBE_TIMEOUT_MS)
+  const signal = AbortSignal.timeout(MCP_LIMITS.probeTimeoutMs)
   let conn: Awaited<ReturnType<typeof connectClient>>
   try {
     conn = await connectClient(url, auth, signal)
@@ -135,28 +131,30 @@ export async function probe(
     const seenNames = new Set<string>()
     const seenCursors = new Set<string>()
     let cursor: string | undefined
-    for (let page = 0; page < MAX_CATALOG_PAGES; page++) {
+    for (let page = 0; page < MCP_LIMITS.maxCatalogPages; page++) {
       const result = await client.listTools(
         cursor === undefined ? undefined : { cursor },
         { signal },
       )
       for (const tool of result.tools) {
-        if (tools.length >= MAX_TOOLS_PER_SERVER) break
-        const publicName = publicToolName(serverName, tool.name)
-        if (seenNames.has(publicName)) {
+        if (tools.length >= MCP_LIMITS.maxToolsPerServer) break
+        const pName = publicToolName(serverName, tool.name)
+        if (seenNames.has(pName)) {
           throw new Error(`Server listed tool "${tool.name}" more than once`)
         }
-        seenNames.add(publicName)
+        seenNames.add(pName)
         const hint = (tool as { annotations?: { readOnlyHint?: boolean } }).annotations?.readOnlyHint
+        const outSchema = supportedOutputSchema((tool as { outputSchema?: unknown }).outputSchema)
         tools.push({
           name: tool.name,
-          publicName,
+          publicName: pName,
           description: tool.description ?? '',
           inputSchema: (tool.inputSchema ?? { type: 'object' }) as Record<string, unknown>,
+          ...(outSchema !== undefined ? { outputSchema: outSchema } : {}),
           ...(hint !== undefined ? { annotations: { readOnlyHint: hint } } : {}),
         })
       }
-      if (tools.length >= MAX_TOOLS_PER_SERVER) break
+      if (tools.length >= MCP_LIMITS.maxToolsPerServer) break
       cursor = result.nextCursor ?? undefined
       if (cursor === undefined) break
       if (seenCursors.has(cursor)) {
@@ -174,7 +172,7 @@ export async function probe(
         ? { name: serverVersion.name, version: serverVersion.version }
         : undefined,
       instructions: typeof instructions === 'string' && instructions.length > 0
-        ? instructions.slice(0, 1024)
+        ? instructions.slice(0, MCP_LIMITS.maxInstructionsLength)
         : undefined,
     }
   } finally {
@@ -190,7 +188,7 @@ export async function callTool(
   signal?: AbortSignal,
   timeoutMs?: number,
 ): Promise<McpCallResult> {
-  const effectiveTimeout = timeoutMs ?? CALL_TIMEOUT_MS
+  const effectiveTimeout = timeoutMs ?? MCP_LIMITS.callTimeoutMs
   const deadline = signal
     ? AbortSignal.any([signal, AbortSignal.timeout(effectiveTimeout)])
     : AbortSignal.timeout(effectiveTimeout)
@@ -208,6 +206,7 @@ export async function callTool(
     )
     return {
       content: (result.content ?? []) as McpCallResult['content'],
+      structuredContent: (result as { structuredContent?: unknown }).structuredContent,
       isError: result.isError === true,
     }
   } catch (error) {

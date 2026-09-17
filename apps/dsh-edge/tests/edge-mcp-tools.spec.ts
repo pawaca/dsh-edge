@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { publicToolName, mapMcpResultToContentBlocks, scrubMcpErrorMessage, evaluateMcpToolPolicy } from '../src/edge-mcp-tools.ts'
+import { publicToolName, mapMcpResultToContentBlocks, scrubMcpErrorMessage, evaluateMcpToolPolicy, supportedOutputSchema, decodeImageBlock, containsImage } from '../src/edge-mcp-tools.ts'
 import { assertSafeUrl } from '../src/edge-mcp-client.ts'
 
 describe('edge-mcp-tools', () => {
@@ -179,6 +179,40 @@ describe('edge-mcp-tools', () => {
 
     it('blocks non-HTTP protocols', () => {
       expect(() => assertSafeUrl('ftp://example.com/mcp')).toThrow('protocol')
+    })
+  })
+
+  describe('supportedOutputSchema', () => {
+    it('returns a valid object schema unchanged', () => {
+      const schema = { type: 'object', properties: { x: { type: 'number' } } }
+      expect(supportedOutputSchema(schema)).toBe(schema)
+    })
+
+    it('returns undefined for null/undefined', () => {
+      expect(supportedOutputSchema(undefined)).toBeUndefined()
+      expect(supportedOutputSchema(null)).toBeUndefined()
+    })
+
+    it('returns undefined for unsupported schema', () => {
+      expect(supportedOutputSchema({ type: 'invalid' })).toBeUndefined()
+    })
+  })
+
+  describe('image helpers', () => {
+    it('containsImage detects image blocks with data', () => {
+      expect(containsImage([{ type: 'text', text: 'hi' }])).toBe(false)
+      expect(containsImage([{ type: 'image', data: 'abc', mimeType: 'image/png' }])).toBe(true)
+      expect(containsImage([{ type: 'image' }])).toBe(false)
+    })
+
+    it('decodeImageBlock validates mime and base64', () => {
+      expect(decodeImageBlock({ type: 'text', text: 'hi' })).toBeUndefined()
+      expect(decodeImageBlock({ type: 'image', data: 'dGVzdA==', mimeType: 'image/png' })).toBeDefined()
+      expect(decodeImageBlock({ type: 'image', data: 'dGVzdA==', mimeType: 'image/jpeg' })).toBeDefined()
+      expect(decodeImageBlock({ type: 'image', data: 'dGVzdA==', mimeType: 'image/webp' })).toBeUndefined()
+      expect(decodeImageBlock({ type: 'image', data: 'dGVzdA==', mimeType: 'image/gif' })).toBeUndefined()
+      expect(decodeImageBlock({ type: 'image', data: 'dGVzdA==', mimeType: 'text/plain' })).toBeUndefined()
+      expect(decodeImageBlock({ type: 'image', data: '!!!', mimeType: 'image/png' })).toBeUndefined()
     })
   })
 })
