@@ -11,7 +11,7 @@
 .actions a { color: var(--dsw-alias-brand-primary); }
 .status { display: flex; align-items: center; gap: 8px; }
 .notice { color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary)); font-size: 13px; }
-.error { color: var(--dsw-alias-state-error-primary) !important; }
+.error { color: var(--dsw-alias-state-error-primary) !important; word-break: break-word; overflow-wrap: anywhere; font-size: 13px; }
 .select { border: 0.5px solid var(--dsw-alias-border-l4, var(--dsw-alias-border-subtle)); background: var(--dsw-alias-bg-layer-3, var(--dsw-alias-background-primary)); color: var(--dsw-alias-label-primary, var(--dsw-alias-text-primary)); border-radius: 8px; height: 34px; padding: 0 28px 0 10px; font: inherit; font-size: 13px; line-height: 1.5; appearance: none; background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23999' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 10px center; }
 .select:focus-visible { border-color: var(--dsw-alias-brand-primary); outline: none; }
 .input { border: 0.5px solid var(--dsw-alias-border-l4, var(--dsw-alias-border-subtle)); background: var(--dsw-alias-bg-layer-3, var(--dsw-alias-background-primary)); color: var(--dsw-alias-label-primary, var(--dsw-alias-text-primary)); height: 34px; font: inherit; border-radius: 8px; width: 100%; box-sizing: border-box; padding: 0 12px; font-size: 13px; line-height: 1.5; }
@@ -40,16 +40,26 @@
 .mcpBadge[data-status="unknown"] { background: var(--dsw-alias-background-secondary, #f3f4f6); color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary)); }
 
 /* Expanded card body — matches Plugins card body */
-.mcpCardBody { border-top: 0.5px solid var(--dsw-alias-border-l2, var(--dsw-alias-border-secondary)); margin: 0 16px; padding: 12px 0 8px; display: grid; gap: 12px; }
+.mcpCardBody { border-top: 0.5px solid var(--dsw-alias-border-l2, var(--dsw-alias-border-secondary)); margin: 0 16px; padding: 12px 0 8px; display: grid; gap: 12px; min-width: 0; }
 .mcpFieldRow { display: grid; grid-template-columns: 140px 1fr; gap: 12px; align-items: center; }
 .mcpFieldLabel { color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary)); font-size: 13px; line-height: 1.5; }
 .mcpFieldValue { color: var(--dsw-alias-label-primary, var(--dsw-alias-text-primary)); font-size: 13px; line-height: 1.5; }
+.mcpCardSuccess { color: var(--dsw-alias-state-success-primary, #16a34a); font-size: 12px; line-height: 1.4; margin: 0; padding: 4px 0; }
+.mcpCardError { color: var(--dsw-alias-state-error-primary, #dc2626); font-size: 12px; line-height: 1.4; margin: 0; padding: 4px 0; }
 .mcpCardActions { border-top: 0.5px solid var(--dsw-alias-border-l2, var(--dsw-alias-border-secondary)); justify-content: flex-end; align-items: center; gap: 8px; padding: 12px 0 4px; display: flex; }
 
 /* Add connector trigger — matches Models "Add provider" style */
 .mcpAddTrigger { appearance: none; width: 100%; font: inherit; cursor: pointer; background: none; border: 0.5px dashed var(--dsw-alias-border-l4, var(--dsw-alias-border-subtle)); border-radius: 16px; color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary)); padding: 14px 16px; font-size: 13px; line-height: 1.5; display: flex; align-items: center; justify-content: center; gap: 6px; transition: border-color 0.16s, color 0.16s; }
 .mcpAddTrigger:hover { border-color: var(--dsw-alias-label-dimmed, #bbb); color: var(--dsw-alias-label-primary, var(--dsw-alias-text-primary)); }
 .mcpAddTrigger:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: -2px; }
+
+/* Tool list within expanded card */
+.mcpToolList { display: flex; flex-direction: column; gap: 6px; }
+.mcpToolItems { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 0; max-height: 300px; overflow-y: auto; min-width: 0; }
+.mcpToolItem { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; padding: 6px 0; border-bottom: 0.5px solid var(--dsw-alias-border-l2, var(--dsw-alias-border-secondary)); }
+.mcpToolItem:last-child { border-bottom: none; }
+.mcpToolName { font-family: var(--ds-font-family-code, monospace); font-size: 12px; color: var(--dsw-alias-label-primary, var(--dsw-alias-text-primary)); }
+.mcpToolDesc { font-size: 12px; color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary)); width: 100%; line-height: 1.4; }
 
 /* Add form — dashed card with same radius/padding as connectors */
 .mcpAddForm { border: 0.5px solid var(--dsw-alias-border-l4, var(--dsw-alias-border-subtle)); border-radius: 16px; padding: 16px; display: grid; gap: 14px; }
