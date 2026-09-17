@@ -79,12 +79,15 @@ function hashSuffix(serverName: string, rawName: string): string {
   return createHash('sha256').update(`${serverName}\0${rawName}`).digest('hex').slice(0, 12)
 }
 
-/** Validate an MCP outputSchema against the DSH supported subset; return undefined if unsupported. */
+/** Validate an MCP outputSchema against the DSH supported subset; return undefined if unsupported.
+ *  JSON round-trip strips non-enumerable properties (e.g. __absolute_uri__ from @cfworker/json-schema)
+ *  that cause assertSupportedJsonSchema to reject the schema. */
 export function supportedOutputSchema(candidate: unknown): Record<string, unknown> | undefined {
   if (candidate === undefined || candidate === null || typeof candidate !== 'object') return undefined
   try {
-    assertSupportedJsonSchema(candidate)
-    return candidate as Record<string, unknown>
+    const clean = JSON.parse(JSON.stringify(candidate)) as Record<string, unknown>
+    assertSupportedJsonSchema(clean)
+    return clean
   } catch {
     return undefined
   }
