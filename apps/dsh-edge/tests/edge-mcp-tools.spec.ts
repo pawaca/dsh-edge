@@ -183,9 +183,9 @@ describe('edge-mcp-tools', () => {
   })
 
   describe('supportedOutputSchema', () => {
-    it('returns a valid object schema unchanged', () => {
+    it('returns a valid object schema', () => {
       const schema = { type: 'object', properties: { x: { type: 'number' } } }
-      expect(supportedOutputSchema(schema)).toBe(schema)
+      expect(supportedOutputSchema(schema)).toStrictEqual(schema)
     })
 
     it('returns undefined for null/undefined', () => {
@@ -195,6 +195,14 @@ describe('edge-mcp-tools', () => {
 
     it('returns undefined for unsupported schema', () => {
       expect(supportedOutputSchema({ type: 'invalid' })).toBeUndefined()
+    })
+
+    it('strips non-enumerable properties from cfworker-touched schemas', () => {
+      const schema = { type: 'object', properties: { x: { type: 'number' } } } as Record<string, unknown>
+      Object.defineProperty(schema, '__absolute_uri__', { value: 'https://example.com', enumerable: false })
+      const result = supportedOutputSchema(schema)
+      expect(result).toBeDefined()
+      expect(Object.getOwnPropertyNames(result!)).not.toContain('__absolute_uri__')
     })
   })
 
