@@ -64,6 +64,14 @@ export const en = {
   mcpCancel: 'Cancel',
   mcpAuthLabel: 'Authentication',
   mcpServerInfo: 'Server',
+  mcpConnecting: 'Connecting…',
+  mcpPopupBlocked: 'Pop-up blocked by browser. Please allow pop-ups for this site and try again.',
+  mcpConnectionFailed: 'Connection failed. Check the URL and authentication type.',
+  mcpRefresh: 'Refresh',
+  mcpProbing: 'Refreshing…',
+  mcpToolsLabel: 'Tools',
+  mcpRead: 'read',
+  mcpWrite: 'write',
 } as const
 
 /** Locale keys shared by the English source and translated Edge settings copy. */
@@ -135,4 +143,12 @@ export const zh: Record<EdgeSettingsKey, string> = {
   mcpCancel: '取消',
   mcpAuthLabel: '认证方式',
   mcpServerInfo: '服务器',
+  mcpConnecting: '连接中…',
+  mcpPopupBlocked: '弹窗被浏览器拦截，请允许此站点的弹窗后重试。',
+  mcpConnectionFailed: '连接失败，请检查 URL 和认证方式是否正确。',
+  mcpRefresh: '刷新',
+  mcpProbing: '刷新中…',
+  mcpToolsLabel: '工具',
+  mcpRead: '读取',
+  mcpWrite: '写入',
 }

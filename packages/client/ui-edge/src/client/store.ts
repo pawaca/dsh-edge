@@ -43,6 +43,14 @@ export interface McpServerEntry {
   toolCount?: number | undefined
   toolCallTimeoutMs?: number
   serverInfo?: { name?: string; version?: string } | undefined
+  lastError?: string | undefined
+}
+
+export interface McpToolEntry {
+  name: string
+  publicName: string
+  description: string
+  readOnly?: boolean | undefined
 }
 
 /** Browser-owned state for the Edge settings section. */
@@ -297,11 +305,9 @@ export class EdgeSettingsController {
           probeErrors.push(`${s.serverName}: network error`)
         }
       }
+      await this.refreshMcpServers()
       this.store.update((state) => {
         state.mcpSaving = false
-        if (probeErrors.length > 0) {
-          state.mcpError = probeErrors.join('; ')
-        }
       })
       return true
     } catch (error) {
@@ -337,6 +343,36 @@ export class EdgeSettingsController {
       return true
     } catch {
       return false
+    }
+  }
+
+  async probeMcpServer(serverName: string): Promise<boolean> {
+    try {
+      const response = await this.io.fetch(`/api/mcp-servers/${encodeURIComponent(serverName)}/probe`, {
+        method: 'POST', credentials: 'same-origin',
+      })
+      if (!response.ok) {
+        await this.refreshMcpServers()
+        return false
+      }
+      await this.refreshMcpServers()
+      return true
+    } catch {
+      await this.refreshMcpServers().catch(() => {})
+      return false
+    }
+  }
+
+  async getMcpTools(serverName: string): Promise<McpToolEntry[]> {
+    try {
+      const response = await this.io.fetch(`/api/mcp-servers/${encodeURIComponent(serverName)}/tools`, {
+        credentials: 'same-origin',
+      })
+      if (!response.ok) return []
+      const data = await response.json() as { tools?: McpToolEntry[] }
+      return data.tools ?? []
+    } catch {
+      return []
     }
   }
 
