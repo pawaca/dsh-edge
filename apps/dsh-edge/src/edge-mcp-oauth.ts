@@ -1,6 +1,8 @@
 /** MCP OAuth 2.1 primitives: discovery, DCR, PKCE, code exchange, token refresh.
  *  All functions are pure (storage-free) — the caller manages persistence. */
 
+import { assertSafeUrl, noRedirectFetch } from './edge-mcp-client.ts'
+
 const DISCOVERY_TIMEOUT_MS = 10_000
 
 export interface OAuthEndpoints {
@@ -55,7 +57,8 @@ export async function discoverEndpoints(
   // RFC 9728: Protected Resource Metadata — path-aware discovery
   const prmPath = url.pathname === '/' ? '/.well-known/oauth-protected-resource' : `/.well-known/oauth-protected-resource${url.pathname}`
   const prmUrl = new URL(prmPath, url.origin)
-  const prmRes = await fetch(prmUrl.href, { signal })
+  assertSafeUrl(prmUrl.href)
+  const prmRes = await noRedirectFetch(prmUrl.href, { signal })
   if (!prmRes.ok) throw new Error(`PRM discovery failed: HTTP ${prmRes.status}`)
   const prm = await prmRes.json() as { authorization_servers?: string[] }
   const asUrl = prm.authorization_servers?.[0]
@@ -65,7 +68,8 @@ export async function discoverEndpoints(
   const asIssuer = new URL(asUrl)
   const asMetaPath = asIssuer.pathname === '/' ? '/.well-known/oauth-authorization-server' : `/.well-known/oauth-authorization-server${asIssuer.pathname}`
   const asMetaUrl = new URL(asMetaPath, asIssuer.origin)
-  const asRes = await fetch(asMetaUrl.href, { signal })
+  assertSafeUrl(asMetaUrl.href)
+  const asRes = await noRedirectFetch(asMetaUrl.href, { signal })
   if (!asRes.ok) throw new Error(`AS metadata failed: HTTP ${asRes.status}`)
   const meta = await asRes.json() as {
     authorization_endpoint?: string
@@ -90,7 +94,8 @@ export async function registerClient(
   clientName: string,
 ): Promise<OAuthClient> {
   const signal = AbortSignal.timeout(DISCOVERY_TIMEOUT_MS)
-  const res = await fetch(registrationEndpoint, {
+  assertSafeUrl(registrationEndpoint)
+  const res = await noRedirectFetch(registrationEndpoint, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
@@ -169,7 +174,8 @@ export async function exchangeCode(
   if (client.clientSecret !== undefined) {
     body.set('client_secret', client.clientSecret)
   }
-  const res = await fetch(tokenEndpoint, {
+  assertSafeUrl(tokenEndpoint)
+  const res = await noRedirectFetch(tokenEndpoint, {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
     body: body.toString(),
@@ -196,7 +202,8 @@ export async function refreshToken(
   if (client.clientSecret !== undefined) {
     body.set('client_secret', client.clientSecret)
   }
-  const res = await fetch(tokenEndpoint, {
+  assertSafeUrl(tokenEndpoint)
+  const res = await noRedirectFetch(tokenEndpoint, {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
     body: body.toString(),
