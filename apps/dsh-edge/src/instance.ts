@@ -493,8 +493,8 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         const servers = await this.sessions.getMcpServers()
         const server = servers.find(s => s.serverName === serverName)
         if (server === undefined) return jsonResponse({ error: 'server not found' }, 404)
-        const tools = ((server as { cachedTools?: { name: string; publicName: string; description: string; annotations?: { readOnlyHint?: boolean } }[] }).cachedTools ?? [])
-          .map(t => ({ name: t.name, publicName: t.publicName, description: t.description, readOnly: t.annotations?.readOnlyHint }))
+        const cachedTools = await this.sessions.getMcpTools(serverName)
+        const tools = cachedTools.map(t => ({ name: t.name, publicName: t.publicName, description: t.description, readOnly: t.annotations?.readOnlyHint }))
         return jsonResponse({ tools })
       }
       if (url.pathname.startsWith('/api/') && !url.pathname.startsWith('/api/sessions')) {

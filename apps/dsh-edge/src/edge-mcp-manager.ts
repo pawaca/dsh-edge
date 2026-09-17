@@ -20,6 +20,7 @@ import { MCP_LIMITS } from './edge-mcp-limits.ts'
 import { registerMetaTools, buildServerSummary } from './edge-mcp-search.ts'
 
 const MCP_STORAGE_KEY = 'dsh-edge:mcp-servers'
+const MCP_TOOLS_PREFIX = 'dsh-edge:mcp-tools:'
 const MCP_REFRESH_PREFIX = 'dsh-edge:mcp-refresh:'
 
 export interface EdgeMcpServerConfig {
@@ -28,6 +29,7 @@ export interface EdgeMcpServerConfig {
   auth?: { type: 'none' } | { type: 'bearer'; token?: string | undefined } | { type: 'oauth'; endpoints?: unknown; client?: unknown } | undefined
   toolPolicy?: { mode: McpToolPolicyMode } | undefined
   toolCallTimeoutMs?: number | undefined
+  /** Populated on read by joining from the per-server tools key; NOT stored in MCP_STORAGE_KEY. */
   cachedTools?: CachedMcpTool[] | undefined
   status?: 'unknown' | 'connected' | 'error' | undefined
   toolCount?: number | undefined
@@ -35,6 +37,68 @@ export interface EdgeMcpServerConfig {
   serverInfo?: { name?: string | undefined; version?: string | undefined } | undefined
   instructions?: string | undefined
   lastError?: string | undefined
+}
+
+/** In-memory cache for server configs and per-server tool catalogs. */
+class McpStorageCache {
+  private configs: EdgeMcpServerConfig[] | null = null
+  private toolsByServer = new Map<string, CachedMcpTool[]>()
+
+  getConfigs(): EdgeMcpServerConfig[] | null { return this.configs }
+  getTools(serverName: string): CachedMcpTool[] | undefined { return this.toolsByServer.get(serverName) }
+
+  setConfigs(configs: EdgeMcpServerConfig[]): void { this.configs = configs }
+  clearConfigs(): void { this.configs = null }
+  setTools(serverName: string, tools: CachedMcpTool[]): void { this.toolsByServer.set(serverName, tools) }
+  deleteTools(serverName: string): void { this.toolsByServer.delete(serverName) }
+  clear(): void { this.configs = null; this.toolsByServer.clear() }
+}
+
+async function readConfigs(storage: DurableObjectStorage): Promise<EdgeMcpServerConfig[]> {
+  return await storage.get<EdgeMcpServerConfig[]>(MCP_STORAGE_KEY) ?? []
+}
+
+async function writeConfigs(storage: DurableObjectStorage, configs: EdgeMcpServerConfig[]): Promise<void> {
+  const stripped = configs.map(({ cachedTools: _ct, ...rest }) => rest)
+  await storage.put(MCP_STORAGE_KEY, stripped)
+}
+
+async function readTools(storage: DurableObjectStorage, serverName: string): Promise<CachedMcpTool[]> {
+  return await storage.get<CachedMcpTool[]>(MCP_TOOLS_PREFIX + serverName) ?? []
+}
+
+async function writeTools(storage: DurableObjectStorage, serverName: string, tools: CachedMcpTool[]): Promise<void> {
+  await storage.put(MCP_TOOLS_PREFIX + serverName, tools)
+}
+
+async function writeConfigsAndTools(storage: DurableObjectStorage, configs: EdgeMcpServerConfig[], serverName: string, tools: CachedMcpTool[]): Promise<void> {
+  const stripped = configs.map(({ cachedTools: _ct, ...rest }) => rest)
+  await storage.put({ [MCP_STORAGE_KEY]: stripped, [MCP_TOOLS_PREFIX + serverName]: tools } as Record<string, unknown>)
+}
+
+/** Read configs + join tools from separate keys, populating cachedTools.
+ *  Handles migration from the old format where cachedTools was embedded in the config key. */
+async function readConfigsWithTools(storage: DurableObjectStorage, cache: McpStorageCache): Promise<EdgeMcpServerConfig[]> {
+  const configs = await readConfigs(storage)
+  let needsConfigRewrite = false
+  for (const config of configs) {
+    let tools = cache.getTools(config.serverName)
+    if (tools === undefined) {
+      tools = await readTools(storage, config.serverName)
+      if (tools.length === 0 && Array.isArray(config.cachedTools) && config.cachedTools.length > 0) {
+        tools = config.cachedTools
+        await writeTools(storage, config.serverName, tools)
+      }
+      cache.setTools(config.serverName, tools)
+    }
+    if (config.cachedTools !== undefined) needsConfigRewrite = true
+    config.cachedTools = tools.length > 0 ? tools : undefined
+  }
+  if (needsConfigRewrite) {
+    await writeConfigs(storage, configs)
+  }
+  cache.setConfigs(configs)
+  return configs
 }
 
 export interface McpToolMeta {
@@ -50,6 +114,7 @@ export interface McpToolManager {
   disposeAll(): void
   resolveToolPolicy(publicName: string): Promise<'allow' | 'ask' | undefined>
   getServerSummary(): Promise<string | undefined>
+  invalidateConfigCache(): void
 }
 
 function capCatalogSize(tools: CachedMcpTool[]): CachedMcpTool[] {
@@ -87,9 +152,9 @@ async function resolveAuth(config: EdgeMcpServerConfig, ctx?: Context, storage?:
       if (refreshData !== undefined && refreshData.expiresAt !== undefined && Date.now() > refreshData.expiresAt - 120_000) {
         if (!refreshData.refreshToken) {
           console.warn(`dsh-edge: OAuth token expired for "${config.serverName}" and no refresh token is available.`)
-          const servers = await storage.get<EdgeMcpServerConfig[]>(MCP_STORAGE_KEY) ?? []
+          const servers = await readConfigs(storage)
           const srv = servers.find(s => s.serverName === config.serverName)
-          if (srv !== undefined) { srv.status = 'error'; srv.lastError = 'Token expired. Re-authenticate via Settings.'; await storage.put(MCP_STORAGE_KEY, servers) }
+          if (srv !== undefined) { srv.status = 'error'; srv.lastError = 'Token expired. Re-authenticate via Settings.'; await writeConfigs(storage, servers) }
           return { type: 'none' }
         } else try {
           const { refreshToken } = await import('./edge-mcp-oauth.ts')
@@ -106,9 +171,9 @@ async function resolveAuth(config: EdgeMcpServerConfig, ctx?: Context, storage?:
           }
         } catch (e) {
           console.warn(`dsh-edge: OAuth token refresh failed for "${config.serverName}": ${scrubMcpErrorMessage(e instanceof Error ? e.message : String(e))}`)
-          const servers = await storage.get<EdgeMcpServerConfig[]>(MCP_STORAGE_KEY) ?? []
+          const servers = await readConfigs(storage)
           const srv = servers.find(s => s.serverName === config.serverName)
-          if (srv !== undefined) { srv.status = 'error'; srv.lastError = 'Token refresh failed. Re-authenticate via Settings.'; await storage.put(MCP_STORAGE_KEY, servers) }
+          if (srv !== undefined) { srv.status = 'error'; srv.lastError = 'Token refresh failed. Re-authenticate via Settings.'; await writeConfigs(storage, servers) }
           return { type: 'none' }
         }
       }
@@ -308,14 +373,13 @@ export function installEdgeMcpServers(
 ): McpToolManager {
   const serverDisposers = new Map<string, Map<string, () => void>>()
   const toolMeta = new Map<string, McpToolMeta>()
+  const cache = new McpStorageCache()
   let syncChain = Promise.resolve()
-
-  const raw = storage.get<EdgeMcpServerConfig[]>(MCP_STORAGE_KEY)
 
   let useMetaTools = false
 
-  const initPromise = raw.then(servers => {
-    if (!Array.isArray(servers) || servers.length === 0) return
+  const initPromise = readConfigsWithTools(storage, cache).then(servers => {
+    if (servers.length === 0) return
     const totalTools = servers.reduce((sum, s) => sum + (s.cachedTools?.length ?? 0), 0)
     useMetaTools = totalTools > MCP_LIMITS.metaToolThreshold
 
@@ -331,7 +395,7 @@ export function installEdgeMcpServers(
           })
         }
       }
-      const metaDisposers = registerMetaTools(ctx, storage, toolMeta, config => resolveAuth(config, ctx, storage))
+      const metaDisposers = registerMetaTools(ctx, toolMeta, config => resolveAuth(config, ctx, storage), () => readConfigsWithTools(storage, cache))
       serverDisposers.set('__meta__', metaDisposers)
       return
     }
@@ -363,12 +427,13 @@ export function installEdgeMcpServers(
       }
       serverDisposers.delete(serverName)
     }
+    cache.deleteTools(serverName)
   }
 
   async function syncServer(serverName: string): Promise<ProbeResult> {
     await initPromise
     const run = syncChain.then(async () => {
-      const servers = await storage.get<EdgeMcpServerConfig[]>(MCP_STORAGE_KEY) ?? []
+      const servers = await readConfigs(storage)
       const server = servers.find(s => s.serverName === serverName)
       if (server === undefined) throw new Error(`Server "${serverName}" not found.`)
 
@@ -378,18 +443,19 @@ export function installEdgeMcpServers(
       try {
         result = await probe(serverName, url, auth)
       } catch (error) {
-        const fresh = await storage.get<EdgeMcpServerConfig[]>(MCP_STORAGE_KEY) ?? []
+        const fresh = await readConfigs(storage)
         const entry = fresh.find(s => s.serverName === serverName)
         if (entry !== undefined && entry.url === url) {
           entry.status = 'error'
           entry.lastError = scrubMcpErrorMessage(error instanceof Error ? error.message : String(error))
           entry.lastProbeAt = Date.now()
-          await storage.put(MCP_STORAGE_KEY, fresh)
+          await writeConfigs(storage, fresh)
+          cache.setConfigs(fresh)
         }
         throw error
       }
 
-      const fresh = await storage.get<EdgeMcpServerConfig[]>(MCP_STORAGE_KEY) ?? []
+      const fresh = await readConfigs(storage)
       const entry = fresh.find(s => s.serverName === serverName)
       if (entry !== undefined && entry.url === url) {
         const capped = capCatalogSize(result.tools)
@@ -400,10 +466,10 @@ export function installEdgeMcpServers(
         entry.serverInfo = result.serverInfo
         entry.instructions = result.instructions
         delete entry.lastError
-        await storage.put(MCP_STORAGE_KEY, fresh)
+        await writeConfigsAndTools(storage, fresh, serverName, capped)
+        cache.setConfigs(fresh)
 
         if (useMetaTools) {
-          // Meta-tool mode: just update toolMeta, mcp_search reads catalog from storage
           for (const cached of capped) {
             toolMeta.set(cached.publicName, {
               serverName: server.serverName,
@@ -411,9 +477,11 @@ export function installEdgeMcpServers(
               readOnlyHint: cached.annotations?.readOnlyHint,
             })
           }
+          cache.setTools(serverName, capped)
           console.log(`dsh-edge: updated ${capped.length} tool entries for "${serverName}" (meta-tool mode)`)
         } else {
           disposeServer(serverName)
+          cache.setTools(serverName, capped)
           const disposers = registerCachedTools(ctx, entry, storage, toolMeta)
           serverDisposers.set(serverName, disposers)
           console.log(`dsh-edge: hot-swapped ${disposers.size} MCP tools for "${serverName}"`)
@@ -429,7 +497,11 @@ export function installEdgeMcpServers(
     await initPromise
     const meta = toolMeta.get(publicName)
     if (meta === undefined) return undefined
-    const servers = await storage.get<EdgeMcpServerConfig[]>(MCP_STORAGE_KEY) ?? []
+    let servers = cache.getConfigs()
+    if (servers === null) {
+      servers = await readConfigs(storage)
+      cache.setConfigs(servers)
+    }
     const server = servers.find(s => s.serverName === meta.serverName)
     return evaluateMcpToolPolicy(meta.rawName, server?.toolPolicy?.mode, meta.readOnlyHint)
   }
@@ -437,7 +509,11 @@ export function installEdgeMcpServers(
   async function getServerSummary(): Promise<string | undefined> {
     await initPromise
     if (!useMetaTools) return undefined
-    const servers = await storage.get<EdgeMcpServerConfig[]>(MCP_STORAGE_KEY) ?? []
+    let servers = cache.getConfigs()
+    if (servers === null) {
+      servers = await readConfigs(storage)
+      cache.setConfigs(servers)
+    }
     return buildServerSummary(servers)
   }
 
@@ -447,12 +523,14 @@ export function installEdgeMcpServers(
     disposeServer,
     resolveToolPolicy,
     getServerSummary,
+    invalidateConfigCache() { cache.clearConfigs() },
     disposeAll() {
       for (const [, disposers] of serverDisposers) {
         for (const dispose of disposers.values()) dispose()
       }
       toolMeta.clear()
       serverDisposers.clear()
+      cache.clear()
     },
   }
 }
