@@ -289,6 +289,7 @@ export function EdgeMcpSection(props: EdgeMcpSectionProps): ReactNode {
         </div>
       )}
       {popupError !== null ? <p className={css.error} role="alert">{t('mcpPopupBlocked')}</p> : null}
+      {state.mcpError !== undefined && popupError === null ? <p className={css.error} role="alert">{state.mcpError}</p> : null}
     </div>
   )
 }
