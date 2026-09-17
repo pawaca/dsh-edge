@@ -269,9 +269,12 @@ function registerCachedTools(
         output: {
           schema: outputSchema,
           render(_args: unknown, value: unknown): ContentBlock[] {
-            const v = value as { content?: McpContentBlock[] }
-            if (v?.content !== undefined) {
+            const v = value as { content?: McpContentBlock[]; structuredContent?: unknown }
+            if (v?.content !== undefined && v.content.length > 0) {
               return mapMcpResultToContentBlocks({ content: v.content, isError: false })
+            }
+            if (v?.structuredContent !== undefined) {
+              return [{ type: 'text', text: JSON.stringify(v.structuredContent, null, 2) }]
             }
             return [{ type: 'text', text: '(empty MCP result)' }]
           },
