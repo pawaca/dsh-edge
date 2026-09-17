@@ -134,7 +134,7 @@ describe('dsh-edge native agent runtime', () => {
     expect(EDGE_SYSTEM_PROMPT).toContain('Cloudflare Worker')
     expect(EDGE_SYSTEM_PROMPT).toContain('just-bash')
     expect(EDGE_SYSTEM_PROMPT).toContain('mcp__<serverName>__<toolName>')
-    expect(EDGE_SYSTEM_PROMPT).toContain('full prefixed name')
+    expect(EDGE_SYSTEM_PROMPT).toContain('mcp_search')
     expect(EDGE_SYSTEM_PROMPT).toContain('subagent')
     expect(EDGE_SYSTEM_PROMPT).toContain('schedule')
   })

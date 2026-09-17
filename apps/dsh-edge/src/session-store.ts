@@ -557,6 +557,10 @@ export class EdgeSessionStore {
       resolveMcpPolicy: name => this.mcpToolManager!.resolveToolPolicy(name),
     })
     await this.mcpToolManager.ready
+    const mcpSummary = await this.mcpToolManager.getServerSummary()
+    if (mcpSummary !== undefined) {
+      this.context.systemPrompt.section({ name: 'mcp-servers', order: 50, text: mcpSummary })
+    }
     await this.context.plugin(ToolFs)
     await this.context.plugin(ToolSkill)
     await this.context.plugin(GoalService)
