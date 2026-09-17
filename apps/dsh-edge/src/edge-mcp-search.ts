@@ -45,12 +45,17 @@ function renderCompactDeclaration(schema: Record<string, unknown>): string {
   return `{ ${fields.join('; ')} }`
 }
 
+function sanitizeInstructions(text: string): string {
+  return text.replace(/[\n\r]+/gu, ' ').replace(/\s+/gu, ' ').trim().slice(0, 200)
+}
+
 export function buildServerSummary(servers: EdgeMcpServerConfig[]): string | undefined {
   const connected = servers.filter(s => s.status === 'connected' && s.cachedTools !== undefined)
   if (connected.length === 0) return undefined
   const lines = connected.map(s => {
     const count = s.toolCount ?? s.cachedTools?.length ?? 0
-    const desc = s.instructions ?? s.serverInfo?.name ?? ''
+    const raw = s.instructions ?? s.serverInfo?.name ?? ''
+    const desc = raw ? sanitizeInstructions(raw) : ''
     return desc ? `- ${s.serverName} (${count} tools): ${desc}` : `- ${s.serverName} (${count} tools)`
   })
   return `Connected MCP servers (use mcp_search to discover tools, mcp_call to invoke them):\n${lines.join('\n')}`
