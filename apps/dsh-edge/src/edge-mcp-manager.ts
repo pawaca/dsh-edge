@@ -71,6 +71,11 @@ async function writeTools(storage: DurableObjectStorage, serverName: string, too
   await storage.put(MCP_TOOLS_PREFIX + serverName, tools)
 }
 
+async function writeConfigsAndTools(storage: DurableObjectStorage, configs: EdgeMcpServerConfig[], serverName: string, tools: CachedMcpTool[]): Promise<void> {
+  const stripped = configs.map(({ cachedTools: _ct, ...rest }) => rest)
+  await storage.put({ [MCP_STORAGE_KEY]: stripped, [MCP_TOOLS_PREFIX + serverName]: tools } as Record<string, unknown>)
+}
+
 /** Read configs + join tools from separate keys, populating cachedTools.
  *  Handles migration from the old format where cachedTools was embedded in the config key. */
 async function readConfigsWithTools(storage: DurableObjectStorage, cache: McpStorageCache): Promise<EdgeMcpServerConfig[]> {
@@ -80,14 +85,13 @@ async function readConfigsWithTools(storage: DurableObjectStorage, cache: McpSto
     let tools = cache.getTools(config.serverName)
     if (tools === undefined) {
       tools = await readTools(storage, config.serverName)
-      // Migrate from old format: cachedTools embedded in config key
       if (tools.length === 0 && Array.isArray(config.cachedTools) && config.cachedTools.length > 0) {
         tools = config.cachedTools
         await writeTools(storage, config.serverName, tools)
-        needsConfigRewrite = true
       }
       cache.setTools(config.serverName, tools)
     }
+    if (config.cachedTools !== undefined) needsConfigRewrite = true
     config.cachedTools = tools.length > 0 ? tools : undefined
   }
   if (needsConfigRewrite) {
@@ -462,8 +466,7 @@ export function installEdgeMcpServers(
         entry.serverInfo = result.serverInfo
         entry.instructions = result.instructions
         delete entry.lastError
-        await writeConfigs(storage, fresh)
-        await writeTools(storage, serverName, capped)
+        await writeConfigsAndTools(storage, fresh, serverName, capped)
         cache.setConfigs(fresh)
 
         if (useMetaTools) {
@@ -494,7 +497,11 @@ export function installEdgeMcpServers(
     await initPromise
     const meta = toolMeta.get(publicName)
     if (meta === undefined) return undefined
-    const servers = cache.getConfigs() ?? await readConfigs(storage)
+    let servers = cache.getConfigs()
+    if (servers === null) {
+      servers = await readConfigs(storage)
+      cache.setConfigs(servers)
+    }
     const server = servers.find(s => s.serverName === meta.serverName)
     return evaluateMcpToolPolicy(meta.rawName, server?.toolPolicy?.mode, meta.readOnlyHint)
   }
@@ -502,7 +509,11 @@ export function installEdgeMcpServers(
   async function getServerSummary(): Promise<string | undefined> {
     await initPromise
     if (!useMetaTools) return undefined
-    const servers = cache.getConfigs() ?? await readConfigs(storage)
+    let servers = cache.getConfigs()
+    if (servers === null) {
+      servers = await readConfigs(storage)
+      cache.setConfigs(servers)
+    }
     return buildServerSummary(servers)
   }
 
