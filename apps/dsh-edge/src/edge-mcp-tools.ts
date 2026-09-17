@@ -2,14 +2,15 @@
 
 import { createHash } from 'node:crypto'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
-
-const MAX_PUBLIC_NAME_LENGTH = 64
+import { assertSupportedJsonSchema } from '@deepseek-ai/dsh-tools'
+import { MCP_LIMITS } from './edge-mcp-limits.ts'
 
 export interface CachedMcpTool {
   name: string
   publicName: string
   description: string
   inputSchema: Record<string, unknown>
+  outputSchema?: Record<string, unknown> | undefined
   annotations?: { readOnlyHint?: boolean } | undefined
 }
 
@@ -32,7 +33,6 @@ export function evaluateMcpToolPolicy(
   const effective = mode ?? 'approve_all'
   if (effective === 'allow_all') return 'allow'
   if (effective === 'approve_all') return 'ask'
-  // read_only: three-layer decision
   if (readOnlyHint === true) return 'allow'
   if (readOnlyHint === false) return 'ask'
   return DEFAULT_READ_ONLY_PATTERNS.some(p => globToRegExp(p).test(rawName)) ? 'allow' : 'ask'
@@ -50,10 +50,9 @@ export interface McpContentBlock {
 
 export interface McpCallResult {
   content: McpContentBlock[]
+  structuredContent?: unknown
   isError?: boolean
 }
-
-const MAX_ERROR_MESSAGE_CHARS = 300
 
 /** Strip bearer tokens, URL query strings, and control chars from MCP error text. */
 export function scrubMcpErrorMessage(message: string): string {
@@ -62,22 +61,53 @@ export function scrubMcpErrorMessage(message: string): string {
     .replace(/(https?:\/\/[^\s"'?]+)\?[^\s"']*/giu, '$1?***')
     // eslint-disable-next-line no-control-regex
     .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/gu, '')
-    .slice(0, MAX_ERROR_MESSAGE_CHARS)
+    .slice(0, MCP_LIMITS.maxErrorMessageChars)
 }
 
 export function publicToolName(serverName: string, rawName: string): string {
   const joined = `mcp__${serverName}__${rawName}`
   const normalized = joined.replace(/[^A-Za-z0-9_-]/gu, '_')
-  if (normalized === joined && normalized.length <= MAX_PUBLIC_NAME_LENGTH) {
+  if (normalized === joined && normalized.length <= MCP_LIMITS.maxPublicNameLength) {
     return normalized
   }
   const hash = hashSuffix(serverName, rawName)
-  const maxPrefix = MAX_PUBLIC_NAME_LENGTH - hash.length - 1
+  const maxPrefix = MCP_LIMITS.maxPublicNameLength - hash.length - 1
   return `${normalized.slice(0, maxPrefix)}_${hash}`
 }
 
 function hashSuffix(serverName: string, rawName: string): string {
   return createHash('sha256').update(`${serverName}\0${rawName}`).digest('hex').slice(0, 12)
+}
+
+/** Validate an MCP outputSchema against the DSH supported subset; return undefined if unsupported. */
+export function supportedOutputSchema(candidate: unknown): Record<string, unknown> | undefined {
+  if (candidate === undefined || candidate === null || typeof candidate !== 'object') return undefined
+  try {
+    assertSupportedJsonSchema(candidate)
+    return candidate as Record<string, unknown>
+  } catch {
+    return undefined
+  }
+}
+
+/** Raster formats supported by the durable attachment vocabulary. */
+const IMAGE_MEDIA_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
+const CANONICAL_BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u
+
+export function isImageMediaType(mimeType: string): boolean {
+  return IMAGE_MEDIA_TYPES.has(mimeType)
+}
+
+export function decodeImageBlock(block: McpContentBlock): { data: Uint8Array; mediaType: string } | undefined {
+  if (block.type !== 'image' || block.data === undefined || block.mimeType === undefined) return undefined
+  if (!isImageMediaType(block.mimeType)) return undefined
+  if (!CANONICAL_BASE64.test(block.data)) return undefined
+  const bytes = Uint8Array.from(atob(block.data), c => c.charCodeAt(0))
+  return { data: bytes, mediaType: block.mimeType }
+}
+
+export function containsImage(content: McpContentBlock[]): boolean {
+  return content.some(b => b.type === 'image' && b.data !== undefined)
 }
 
 export function mapMcpResultToContentBlocks(result: McpCallResult): ContentBlock[] {
