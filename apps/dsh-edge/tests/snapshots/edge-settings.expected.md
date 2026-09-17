@@ -13,6 +13,9 @@
     - button "Agent presets":
       - img
       - text: Agent presets
+    - button "MCP Connectors":
+      - img
+      - text: MCP Connectors
     - button "DSH Edge":
       - img
       - text: DSH Edge
@@ -48,22 +51,11 @@
       - code: dsh-edge@{{version}}/direct
   - region "Tool permissions":
     - heading "Tool permissions" [level=3]
-    - term: Web fetch and MCP tools
+    - term: Web fetch tools
     - definition:
-      - combobox "Web fetch and MCP tools":
-        - option "Always ask before running" [selected]
-        - option "Trust all (no confirmation)"
-  - region "MCP Servers":
-    - heading "MCP Servers" [level=3]
-    - paragraph: Connect external MCP tool servers via Streamable HTTP. Tools appear as mcp__<name>__<tool>.
-    - paragraph: No MCP servers configured.
-    - textbox "Server name (e.g. github)"
-    - textbox "Endpoint URL (e.g. https://mcp.example.com/sse)"
-    - combobox "Auth type":
-      - option "No auth" [selected]
-      - option "Bearer"
-      - option "OAuth"
-    - button "Add server" [disabled]
+      - combobox "Web fetch tools":
+        - option "Always ask before running"
+        - option "Trust all (no confirmation)" [selected]
   - region "Owner session":
     - heading "Owner session" [level=3]
     - paragraph: Signing out clears this browser’s owner session. Your deployment and data remain unchanged.
