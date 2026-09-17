@@ -64,6 +64,7 @@ import ToolRuntime from '@deepseek-ai/dsh-tools'
 import ApprovalService from '@deepseek-ai/dsh-user-approval'
 import { assertSafeUrl } from './edge-mcp-client.ts'
 import { installEdgeMcpServers, type EdgeMcpServerConfig, type McpToolManager } from './edge-mcp-manager.ts'
+import type { CachedMcpTool } from './edge-mcp-tools.ts'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as ToolGoal from '@deepseek-ai/dsh-tool-goal'
 import * as ToolSkill from '@deepseek-ai/dsh-tool-skill'
@@ -997,6 +998,7 @@ export class EdgeSessionStore {
   }
 
   private static readonly MCP_STORAGE_KEY = 'dsh-edge:mcp-servers'
+  private static readonly MCP_TOOLS_PREFIX = 'dsh-edge:mcp-tools:'
 
   async getMcpServers(): Promise<EdgeMcpServerConfig[]> {
     await this.ready
@@ -1011,6 +1013,11 @@ export class EdgeSessionStore {
       }
       return s
     })
+  }
+
+  async getMcpTools(serverName: string): Promise<CachedMcpTool[]> {
+    await this.ready
+    return await this.doStorage.get<CachedMcpTool[]>(EdgeSessionStore.MCP_TOOLS_PREFIX + serverName) ?? []
   }
 
   async setMcpServers(servers: Partial<EdgeMcpServerConfig>[]): Promise<void> {
@@ -1060,32 +1067,32 @@ export class EdgeSessionStore {
         ...(tp?.mode !== undefined ? { toolPolicy: { mode: tp.mode as 'allow_all' | 'read_only' | 'approve_all' } } : {}),
       }
     })
-    // Preserve cached tools for servers whose name+url+auth.type are unchanged
+    // Preserve status/toolCount/serverInfo for servers whose name+url+auth.type are unchanged
     const oldByName = new Map(oldServers.map(s => [s.serverName, s]))
     for (const v of validated) {
       const old = oldByName.get(v.serverName)
       if (old !== undefined && old.url === v.url && old.auth?.type === v.auth?.type) {
-        if (old.cachedTools !== undefined) {
-          (v as EdgeMcpServerConfig).cachedTools = old.cachedTools;
-          (v as EdgeMcpServerConfig).status = old.status;
-          (v as EdgeMcpServerConfig).toolCount = old.toolCount;
-          (v as EdgeMcpServerConfig).lastProbeAt = old.lastProbeAt;
-          (v as EdgeMcpServerConfig).serverInfo = old.serverInfo;
-          (v as EdgeMcpServerConfig).instructions = old.instructions
-        }
+        (v as EdgeMcpServerConfig).status = old.status;
+        (v as EdgeMcpServerConfig).toolCount = old.toolCount;
+        (v as EdgeMcpServerConfig).lastProbeAt = old.lastProbeAt;
+        (v as EdgeMcpServerConfig).serverInfo = old.serverInfo;
+        (v as EdgeMcpServerConfig).instructions = old.instructions;
+        (v as EdgeMcpServerConfig).lastError = old.lastError
         if (v.toolPolicy === undefined && old.toolPolicy !== undefined) {
           (v as EdgeMcpServerConfig).toolPolicy = old.toolPolicy
         }
       }
     }
     await this.doStorage.put(EdgeSessionStore.MCP_STORAGE_KEY, validated)
-    // Dispose tools and clear credentials for removed or changed servers
+    this.mcpToolManager?.invalidateConfigCache()
+    // Dispose tools and clear credentials/tools for removed or changed servers
     const newByName = new Map(validated.map(s => [s.serverName, s]))
     for (const old of oldServers) {
       const replacement = newByName.get(old.serverName)
       const changed = replacement === undefined || replacement.url !== old.url || replacement.auth?.type !== old.auth?.type
       if (changed) {
         this.disposeMcpServer(old.serverName)
+        await this.doStorage.delete(EdgeSessionStore.MCP_TOOLS_PREFIX + old.serverName).catch(() => {})
         if (old.auth?.type === 'bearer' || old.auth?.type === 'oauth') {
           await this.context.credentials.unset(this.mcpCredentialRef(old.serverName)).catch(() => {})
           await this.doStorage.delete(`dsh-edge:mcp-refresh:${old.serverName}`).catch(() => {})

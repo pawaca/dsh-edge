@@ -7,7 +7,6 @@ import type { CachedMcpTool, McpContentBlock } from './edge-mcp-tools.ts'
 import { mapMcpResultToContentBlocks, scrubMcpErrorMessage } from './edge-mcp-tools.ts'
 import type { EdgeMcpServerConfig, McpToolMeta } from './edge-mcp-manager.ts'
 
-const MCP_STORAGE_KEY = 'dsh-edge:mcp-servers'
 const SEARCH_DEFAULT_LIMIT = 5
 const SEARCH_MAX_OUTPUT_BYTES = 24 * 1024
 
@@ -50,10 +49,10 @@ function sanitizeInstructions(text: string): string {
 }
 
 export function buildServerSummary(servers: EdgeMcpServerConfig[]): string | undefined {
-  const connected = servers.filter(s => s.status === 'connected' && s.cachedTools !== undefined)
+  const connected = servers.filter(s => s.status === 'connected' && (s.toolCount ?? 0) > 0)
   if (connected.length === 0) return undefined
   const lines = connected.map(s => {
-    const count = s.toolCount ?? s.cachedTools?.length ?? 0
+    const count = s.toolCount ?? 0
     const raw = s.instructions ?? s.serverInfo?.name ?? ''
     const desc = raw ? sanitizeInstructions(raw) : ''
     return desc ? `- ${s.serverName} (${count} tools): ${desc}` : `- ${s.serverName} (${count} tools)`
@@ -110,9 +109,9 @@ function executeSearch(
 
 export function registerMetaTools(
   ctx: Context,
-  storage: DurableObjectStorage,
   toolMeta: Map<string, McpToolMeta>,
   resolveAuth: (config: EdgeMcpServerConfig) => Promise<McpAuth>,
+  getServers: () => Promise<EdgeMcpServerConfig[]>,
 ): Map<string, () => void> {
   const disposers = new Map<string, () => void>()
 
@@ -132,7 +131,7 @@ export function registerMetaTools(
         required: ['query'],
       },
       execute: async (args: Record<string, unknown>) => {
-        const servers = await storage.get<EdgeMcpServerConfig[]>(MCP_STORAGE_KEY) ?? []
+        const servers = await getServers()
         const result = executeSearch(args as unknown as McpSearchInput, servers)
         return { content: [{ type: 'text', text: result }] }
       },
@@ -179,7 +178,7 @@ export function registerMetaTools(
           throw new Error(`Tool "${toolName}" not found. Use mcp_search to discover available tools, then use the exact toolName from the results.`)
         }
 
-        const servers = await storage.get<EdgeMcpServerConfig[]>(MCP_STORAGE_KEY) ?? []
+        const servers = await getServers()
         const server = servers.find(s => s.serverName === meta.serverName)
         if (server === undefined) {
           throw new Error(`Server "${meta.serverName}" is no longer available.`)
