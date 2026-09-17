@@ -10,4 +10,5 @@ export const MCP_LIMITS = {
   maxErrorMessageChars: 300,
   maxPublicNameLength: 64,
   maxInstructionsLength: 1024,
+  metaToolThreshold: 20,
 } as const

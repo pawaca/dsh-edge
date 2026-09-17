@@ -17,6 +17,7 @@ import {
   scrubMcpErrorMessage,
 } from './edge-mcp-tools.ts'
 import { MCP_LIMITS } from './edge-mcp-limits.ts'
+import { registerMetaTools, buildServerSummary } from './edge-mcp-search.ts'
 
 const MCP_STORAGE_KEY = 'dsh-edge:mcp-servers'
 const MCP_REFRESH_PREFIX = 'dsh-edge:mcp-refresh:'
@@ -48,6 +49,7 @@ export interface McpToolManager {
   disposeServer(serverName: string): void
   disposeAll(): void
   resolveToolPolicy(publicName: string): Promise<'allow' | 'ask' | undefined>
+  getServerSummary(): Promise<string | undefined>
 }
 
 function capCatalogSize(tools: CachedMcpTool[]): CachedMcpTool[] {
@@ -310,8 +312,30 @@ export function installEdgeMcpServers(
 
   const raw = storage.get<EdgeMcpServerConfig[]>(MCP_STORAGE_KEY)
 
+  let useMetaTools = false
+
   const initPromise = raw.then(servers => {
     if (!Array.isArray(servers) || servers.length === 0) return
+    const totalTools = servers.reduce((sum, s) => sum + (s.cachedTools?.length ?? 0), 0)
+    useMetaTools = totalTools > MCP_LIMITS.metaToolThreshold
+
+    if (useMetaTools) {
+      console.log(`dsh-edge: ${totalTools} total MCP tools > ${MCP_LIMITS.metaToolThreshold} threshold, using meta-tool mode (mcp_search + mcp_call)`)
+      // Populate toolMeta for all tools (needed by mcp_call)
+      for (const server of servers) {
+        for (const cached of server.cachedTools ?? []) {
+          toolMeta.set(cached.publicName, {
+            serverName: server.serverName,
+            rawName: cached.name,
+            readOnlyHint: cached.annotations?.readOnlyHint,
+          })
+        }
+      }
+      const metaDisposers = registerMetaTools(ctx, storage, toolMeta, config => resolveAuth(config, ctx, storage))
+      serverDisposers.set('__meta__', metaDisposers)
+      return
+    }
+
     for (const server of servers) {
       if (!Array.isArray(server.cachedTools) || server.cachedTools.length === 0) {
         if (server.cachedTools === undefined) {
@@ -378,10 +402,22 @@ export function installEdgeMcpServers(
         delete entry.lastError
         await storage.put(MCP_STORAGE_KEY, fresh)
 
-        disposeServer(serverName)
-        const disposers = registerCachedTools(ctx, entry, storage, toolMeta)
-        serverDisposers.set(serverName, disposers)
-        console.log(`dsh-edge: hot-swapped ${disposers.size} MCP tools for "${serverName}"`)
+        if (useMetaTools) {
+          // Meta-tool mode: just update toolMeta, mcp_search reads catalog from storage
+          for (const cached of capped) {
+            toolMeta.set(cached.publicName, {
+              serverName: server.serverName,
+              rawName: cached.name,
+              readOnlyHint: cached.annotations?.readOnlyHint,
+            })
+          }
+          console.log(`dsh-edge: updated ${capped.length} tool entries for "${serverName}" (meta-tool mode)`)
+        } else {
+          disposeServer(serverName)
+          const disposers = registerCachedTools(ctx, entry, storage, toolMeta)
+          serverDisposers.set(serverName, disposers)
+          console.log(`dsh-edge: hot-swapped ${disposers.size} MCP tools for "${serverName}"`)
+        }
       }
       return result
     })
@@ -398,11 +434,19 @@ export function installEdgeMcpServers(
     return evaluateMcpToolPolicy(meta.rawName, server?.toolPolicy?.mode, meta.readOnlyHint)
   }
 
+  async function getServerSummary(): Promise<string | undefined> {
+    await initPromise
+    if (!useMetaTools) return undefined
+    const servers = await storage.get<EdgeMcpServerConfig[]>(MCP_STORAGE_KEY) ?? []
+    return buildServerSummary(servers)
+  }
+
   return {
     ready: initPromise,
     syncServer,
     disposeServer,
     resolveToolPolicy,
+    getServerSummary,
     disposeAll() {
       for (const [, disposers] of serverDisposers) {
         for (const dispose of disposers.values()) dispose()

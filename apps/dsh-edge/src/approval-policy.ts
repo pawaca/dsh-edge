@@ -22,7 +22,7 @@ const EdgeApprovalSchema: Schema<EdgeApprovalSettings> = Schema.object({
 })
 
 function needsApproval(exec: ToolExecution): boolean {
-  return GATED_TOOLS.has(exec.name) || exec.name.startsWith('mcp__')
+  return GATED_TOOLS.has(exec.name) || exec.name.startsWith('mcp__') || exec.name === 'mcp_call'
 }
 
 export interface EdgeApprovalPolicyOptions {
@@ -48,6 +48,15 @@ export function installEdgeApprovalPolicy(
     if (exec.name.startsWith('mcp__') && options?.resolveMcpPolicy !== undefined) {
       const verdict = await options.resolveMcpPolicy(exec.name)
       if (verdict === 'allow') return next()
+      return { kind: 'ask' as const }
+    }
+    // Meta-tool mode: resolve inner tool policy from mcp_call arguments
+    if (exec.name === 'mcp_call' && options?.resolveMcpPolicy !== undefined) {
+      const innerTool = (exec.arguments as { toolName?: string })?.toolName
+      if (typeof innerTool === 'string') {
+        const verdict = await options.resolveMcpPolicy(innerTool)
+        if (verdict === 'allow') return next()
+      }
       return { kind: 'ask' as const }
     }
     // Non-MCP gated tools (web_fetch): respect global mode
