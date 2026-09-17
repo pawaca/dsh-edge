@@ -117,8 +117,9 @@ describe('edge-mcp-tools', () => {
       expect(evaluateMcpToolPolicy('get_quote', 'approve_all', true)).toBe('ask')
     })
 
-    it('defaults to approve_all when undefined', () => {
-      expect(evaluateMcpToolPolicy('get_quote', undefined)).toBe('ask')
+    it('defaults to read_only when undefined', () => {
+      expect(evaluateMcpToolPolicy('get_quote', undefined)).toBe('allow')
+      expect(evaluateMcpToolPolicy('place_order', undefined)).toBe('ask')
     })
 
     it('read_only with readOnlyHint=true allows', () => {

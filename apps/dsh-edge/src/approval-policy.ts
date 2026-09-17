@@ -18,7 +18,7 @@ export interface EdgeApprovalSettings {
 }
 
 const EdgeApprovalSchema: Schema<EdgeApprovalSettings> = Schema.object({
-  mode: Schema.union([Schema.const('ask' as const), Schema.const('never' as const)]).default('ask' as const),
+  mode: Schema.union([Schema.const('ask' as const), Schema.const('never' as const)]).default('never' as const),
 })
 
 function needsApproval(exec: ToolExecution): boolean {

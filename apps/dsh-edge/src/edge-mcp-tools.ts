@@ -30,7 +30,7 @@ export function evaluateMcpToolPolicy(
   mode: McpToolPolicyMode | undefined,
   readOnlyHint?: boolean,
 ): 'allow' | 'ask' {
-  const effective = mode ?? 'approve_all'
+  const effective = mode ?? 'read_only'
   if (effective === 'allow_all') return 'allow'
   if (effective === 'approve_all') return 'ask'
   if (readOnlyHint === true) return 'allow'

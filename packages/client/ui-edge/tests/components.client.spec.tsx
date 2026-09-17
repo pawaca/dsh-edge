@@ -49,10 +49,6 @@ describe('Edge settings section', () => {
       copyUpgrade={vi.fn(() => Promise.resolve())}
       signOut={signOut}
       setApprovalMode={vi.fn(() => Promise.resolve())}
-      saveMcpServers={vi.fn(() => Promise.resolve(true))}
-      saveMcpToken={vi.fn(() => Promise.resolve(true))}
-      setMcpToolPolicy={vi.fn(() => Promise.resolve(true))}
-      startOAuthConnect={vi.fn(() => Promise.resolve(undefined))}
     />)
     expect(screen.getByText('Isolated · Dynamic Worker')).toBeTruthy()
     expect(screen.getByText('deploy-123')).toBeTruthy()
@@ -78,10 +74,6 @@ describe('Edge settings section', () => {
       copyUpgrade={vi.fn(() => Promise.resolve())}
       signOut={signOut}
       setApprovalMode={vi.fn(() => Promise.resolve())}
-      saveMcpServers={vi.fn(() => Promise.resolve(true))}
-      saveMcpToken={vi.fn(() => Promise.resolve(true))}
-      setMcpToolPolicy={vi.fn(() => Promise.resolve(true))}
-      startOAuthConnect={vi.fn(() => Promise.resolve(undefined))}
     />)
     expect(screen.getByRole('alert').textContent).not.toContain('private transport detail')
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }))

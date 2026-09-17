@@ -10,18 +10,50 @@
 .actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
 .actions a { color: var(--dsw-alias-brand-primary); }
 .status { display: flex; align-items: center; gap: 8px; }
-.notice { color: var(--dsw-alias-label-secondary); }
+.notice { color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary)); font-size: 13px; }
 .error { color: var(--dsw-alias-state-error-primary) !important; }
-.select { padding: 6px 10px; border: 1px solid var(--dsw-alias-border-subtle); border-radius: 8px; background: var(--dsw-alias-background-primary); color: var(--dsw-alias-text-primary); font-size: 14px; }
-.input { padding: 6px 10px; border: 1px solid var(--dsw-alias-border-subtle); border-radius: 8px; background: var(--dsw-alias-background-primary); color: var(--dsw-alias-text-primary); font-size: 14px; flex: 1; min-width: 0; }
-.mcpList { list-style: none; margin: 12px 0; padding: 0; display: grid; gap: 8px; }
-.mcpItem { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--dsw-alias-border-secondary); }
-.mcpItem:last-child { border-bottom: 0; }
-.mcpName { font-weight: 600; color: var(--dsw-alias-text-primary); min-width: 80px; }
-.mcpUrl { flex: 1; overflow-wrap: anywhere; color: var(--dsw-alias-label-secondary); font-size: 13px; }
-.mcpStatus { font-size: 12px; white-space: nowrap; }
-.mcpStatus[data-status="connected"] { color: var(--dsw-alias-state-success-primary, #16a34a); }
-.mcpStatus[data-status="needs_reauth"] { color: var(--dsw-alias-state-warning-primary, #d97706); }
-.mcpStatus[data-status="error"] { color: var(--dsw-alias-state-error-primary, #dc2626); }
-.mcpAdd { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
-@media (max-width: 560px) { .row { grid-template-columns: 1fr; gap: 4px; } .mcpAdd { flex-direction: column; } }
+.select { border: 0.5px solid var(--dsw-alias-border-l4, var(--dsw-alias-border-subtle)); background: var(--dsw-alias-bg-layer-3, var(--dsw-alias-background-primary)); color: var(--dsw-alias-label-primary, var(--dsw-alias-text-primary)); border-radius: 8px; height: 34px; padding: 0 28px 0 10px; font: inherit; font-size: 13px; line-height: 1.5; appearance: none; background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23999' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 10px center; }
+.select:focus-visible { border-color: var(--dsw-alias-brand-primary); outline: none; }
+.input { border: 0.5px solid var(--dsw-alias-border-l4, var(--dsw-alias-border-subtle)); background: var(--dsw-alias-bg-layer-3, var(--dsw-alias-background-primary)); color: var(--dsw-alias-label-primary, var(--dsw-alias-text-primary)); height: 34px; font: inherit; border-radius: 8px; width: 100%; box-sizing: border-box; padding: 0 12px; font-size: 13px; line-height: 1.5; }
+.input:focus-visible { border-color: var(--dsw-alias-brand-primary); outline: none; }
+
+/* MCP connector accordion cards — aligned with upstream Plugins card pattern */
+.mcpList { display: flex; flex-direction: column; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.mcpCard { border: 0.5px solid var(--dsw-alias-border-l4, var(--dsw-alias-border-subtle)); background: var(--dsw-alias-bg-layer-3, transparent); border-radius: 16px; list-style: none; transition: border-color 0.16s, background 0.16s; }
+.mcpCard:hover { border-color: var(--dsw-alias-label-dimmed, #bbb); }
+.mcpCardOpen { background: var(--dsw-alias-bg-layer-2, transparent); border-color: var(--dsw-alias-label-dimmed, #bbb); }
+.mcpCardHeader { appearance: none; width: 100%; font: inherit; color: inherit; text-align: left; cursor: pointer; background: none; border: 0; border-radius: 12px; align-items: center; gap: 12px; padding: 14px 16px; display: flex; }
+.mcpCardHeader:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: -2px; }
+.mcpAvatar { width: 32px; height: 32px; border-radius: 8px; background: var(--dsw-alias-brand-background, #eef2fe); color: var(--dsw-alias-brand-primary); display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 14px; flex-shrink: 0; }
+.mcpCardTitleGroup { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.mcpCardName { color: var(--dsw-alias-label-primary, var(--dsw-alias-text-primary)); font-size: 15px; font-weight: 600; line-height: 1.4; margin: 0; }
+.mcpCardSub { color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary)); align-items: center; gap: 8px; font-size: 13px; line-height: 1.5; display: flex; margin: 0; }
+.mcpChevron { color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary)); flex: none; transition: transform 0.16s; }
+.mcpChevronOpen { transform: rotate(180deg); }
+.mcpChevron svg { display: block; }
+
+/* Status badges */
+.mcpBadge { font-size: 11px; font-weight: 500; padding: 1px 6px; border-radius: 4px; }
+.mcpBadge[data-status="connected"] { background: var(--dsw-alias-state-success-background, #ecfdf3); color: var(--dsw-alias-state-success-primary, #16a34a); }
+.mcpBadge[data-status="error"] { background: var(--dsw-alias-state-error-background, #fff0f0); color: var(--dsw-alias-state-error-primary, #dc2626); }
+.mcpBadge[data-status="needs_reauth"] { background: var(--dsw-alias-state-warning-background, #fff8e6); color: var(--dsw-alias-state-warning-primary, #d97706); }
+.mcpBadge[data-status="unknown"] { background: var(--dsw-alias-background-secondary, #f3f4f6); color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary)); }
+
+/* Expanded card body — matches Plugins card body */
+.mcpCardBody { border-top: 0.5px solid var(--dsw-alias-border-l2, var(--dsw-alias-border-secondary)); margin: 0 16px; padding: 12px 0 8px; display: grid; gap: 12px; }
+.mcpFieldRow { display: grid; grid-template-columns: 140px 1fr; gap: 12px; align-items: center; }
+.mcpFieldLabel { color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary)); font-size: 13px; line-height: 1.5; }
+.mcpFieldValue { color: var(--dsw-alias-label-primary, var(--dsw-alias-text-primary)); font-size: 13px; line-height: 1.5; }
+.mcpCardActions { border-top: 0.5px solid var(--dsw-alias-border-l2, var(--dsw-alias-border-secondary)); justify-content: flex-end; align-items: center; gap: 8px; padding: 12px 0 4px; display: flex; }
+
+/* Add connector trigger — matches Models "Add provider" style */
+.mcpAddTrigger { appearance: none; width: 100%; font: inherit; cursor: pointer; background: none; border: 0.5px dashed var(--dsw-alias-border-l4, var(--dsw-alias-border-subtle)); border-radius: 16px; color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary)); padding: 14px 16px; font-size: 13px; line-height: 1.5; display: flex; align-items: center; justify-content: center; gap: 6px; transition: border-color 0.16s, color 0.16s; }
+.mcpAddTrigger:hover { border-color: var(--dsw-alias-label-dimmed, #bbb); color: var(--dsw-alias-label-primary, var(--dsw-alias-text-primary)); }
+.mcpAddTrigger:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: -2px; }
+
+/* Add form — dashed card with same radius/padding as connectors */
+.mcpAddForm { border: 0.5px solid var(--dsw-alias-border-l4, var(--dsw-alias-border-subtle)); border-radius: 16px; padding: 16px; display: grid; gap: 14px; }
+.mcpFormRow { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.mcpFormActions { justify-content: flex-end; gap: 8px; display: flex; }
+
+@media (max-width: 560px) { .row { grid-template-columns: 1fr; gap: 4px; } .mcpFormRow { grid-template-columns: 1fr; } .mcpFieldRow { grid-template-columns: 1fr; gap: 4px; } }
