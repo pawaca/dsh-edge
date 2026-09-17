@@ -18,7 +18,7 @@ export interface EdgeApprovalSettings {
 }
 
 const EdgeApprovalSchema: Schema<EdgeApprovalSettings> = Schema.object({
-  mode: Schema.union([Schema.const('ask' as const), Schema.const('never' as const)]).default('ask' as const),
+  mode: Schema.union([Schema.const('ask' as const), Schema.const('never' as const)]).default('never' as const),
 })
 
 function needsApproval(exec: ToolExecution): boolean {
@@ -44,13 +44,15 @@ export function installEdgeApprovalPolicy(
 
   ctx.on('tools/pre-execute', async (exec, next) => {
     if (!needsApproval(exec)) return next()
-    const { mode } = scope.get()
-    if (mode === 'never') return next()
-    // Per-connector MCP policy: allow_all / read_only bypass approval
+    // MCP tools: always consult per-connector policy (independent of global mode)
     if (exec.name.startsWith('mcp__') && options?.resolveMcpPolicy !== undefined) {
       const verdict = await options.resolveMcpPolicy(exec.name)
       if (verdict === 'allow') return next()
+      return { kind: 'ask' as const }
     }
+    // Non-MCP gated tools (web_fetch): respect global mode
+    const { mode } = scope.get()
+    if (mode === 'never') return next()
     return { kind: 'ask' as const }
   })
 

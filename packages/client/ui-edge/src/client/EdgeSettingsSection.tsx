@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { useEffect, type ReactNode } from 'react'
 import { Button, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import type { ApprovalMode, McpAuthType, McpToolPolicyMode, McpServerEntry, EdgeSettingsState } from './store.ts'
+import type { ApprovalMode, EdgeSettingsState } from './store.ts'
 import { DSH_EDGE_RELEASES_URL } from './store.ts'
 import css from './EdgeSettingsSection.module.css'
 
@@ -12,10 +12,6 @@ export interface EdgeSettingsInjected {
   copyUpgrade(): Promise<void>
   signOut(): Promise<void>
   setApprovalMode(mode: ApprovalMode): Promise<void>
-  saveMcpServers(servers: McpServerEntry[]): Promise<boolean>
-  saveMcpToken(serverName: string, token: string): Promise<boolean>
-  setMcpToolPolicy(serverName: string, mode: McpToolPolicyMode): Promise<boolean>
-  startOAuthConnect(serverName: string, serverUrl: string): Promise<string | undefined>
 }
 
 export type EdgeSettingsSectionProps =
@@ -27,121 +23,8 @@ function Row({ label, value }: { label: string; value: ReactNode }): ReactNode {
   return <div className={css.row}><dt>{label}</dt><dd>{value}</dd></div>
 }
 
-interface McpServersCardProps {
-  servers: McpServerEntry[]
-  saving: boolean
-  error?: string | undefined
-  disabled: boolean
-  onSave: (servers: McpServerEntry[]) => Promise<boolean>
-  onSaveToken: (serverName: string, token: string) => Promise<boolean>
-  onSetToolPolicy: (serverName: string, mode: McpToolPolicyMode) => Promise<boolean>
-  onOAuthConnect: (serverName: string, serverUrl: string) => Promise<string | undefined>
-  t: EdgeSettingsSectionProps['t']
-}
-
-function McpServersCard(props: McpServersCardProps): ReactNode {
-  const { servers, saving, disabled, error } = props
-  const onSave = props.onSave
-  const onSaveToken = props.onSaveToken
-  const t = props.t
-  const [draft, setDraft] = useState<{ serverName: string; url: string; authType: McpAuthType; token: string }>({ serverName: '', url: '', authType: 'none', token: '' })
-  const addServer = useCallback(() => {
-    if (draft.serverName.trim() === '' || draft.url.trim() === '') return
-    const entry: McpServerEntry = {
-      serverName: draft.serverName.trim(),
-      url: draft.url.trim(),
-      auth: { type: draft.authType },
-    }
-    void (async () => {
-      // Validate locally before persisting credentials to avoid writing
-      // a token for an invalid or duplicate server name.
-      const name = draft.serverName.trim()
-      if (!/^[A-Za-z0-9_-]{1,32}$/u.test(name)) return
-      try { new URL(draft.url.trim()) } catch { return }
-      if (servers.some(s => s.serverName === name)) return
-      if (draft.authType === 'bearer' && draft.token.trim() !== '') {
-        const tokenOk = await onSaveToken(name, draft.token.trim())
-        if (!tokenOk) return
-      }
-      const ok = await onSave([...servers, entry])
-      if (!ok) return
-      setDraft({ serverName: '', url: '', authType: 'none', token: '' })
-    })()
-  }, [draft, servers, onSave])
-  const removeServer = useCallback((name: string) => {
-    void onSave(servers.filter(s => s.serverName !== name))
-  }, [servers, onSave])
-
-  return (
-    <section className={css.card} aria-labelledby="edge-mcp-title">
-      <h3 id="edge-mcp-title">{t('mcpServers')}</h3>
-      <p>{t('mcpIntro')}</p>
-      {servers.length > 0 ? (
-        <ul className={css.mcpList}>
-          {servers.map(s => (
-            <li key={s.serverName} className={css.mcpItem}>
-              <span className={css.mcpName}>{s.serverName}</span>
-              <code className={css.mcpUrl}>{s.url}</code>
-              <span className={css.mcpStatus} data-status={s.status ?? 'unknown'}>
-                {s.status === 'connected' ? `${s.toolCount ?? 0} ${t('mcpTools')} · ${t('mcpConnected')}` :
-                 s.status === 'needs_reauth' ? t('mcpNeedsReauth') :
-                 s.status === 'error' ? t('mcpError') : ''}
-              </span>
-              {s.status === 'connected' || (s.toolCount !== undefined && s.toolCount > 0) ? (
-                <select className={css.select} value={s.toolPolicy?.mode ?? 'approve_all'}
-                  disabled={saving || disabled}
-                  aria-label={t('mcpToolPolicy')}
-                  onChange={e => { void props.onSetToolPolicy(s.serverName, e.target.value as McpToolPolicyMode) }}>
-                  <option value="approve_all">{t('mcpPolicyApproveAll')}</option>
-                  <option value="read_only">{t('mcpPolicyReadOnly')}</option>
-                  <option value="allow_all">{t('mcpPolicyAllowAll')}</option>
-                </select>
-              ) : null}
-              {s.auth?.type === 'oauth' && s.status !== 'connected' ? (
-                <Button variant="outline" size="sm" disabled={saving || disabled}
-                  onClick={() => {
-                    void props.onOAuthConnect(s.serverName, s.url).then(authUrl => {
-                      if (authUrl !== undefined) globalThis.open(authUrl, '_blank', 'width=600,height=700')
-                    })
-                  }}>{s.status === 'needs_reauth' ? t('mcpReconnect') : t('mcpConnect')}</Button>
-              ) : null}
-              <Button variant="outline" size="sm" disabled={saving || disabled}
-                onClick={() => removeServer(s.serverName)}>{t('mcpRemove')}</Button>
-            </li>
-          ))}
-        </ul>
-      ) : <p className={css.notice}>{t('mcpEmpty')}</p>}
-      <div className={css.mcpAdd}>
-        <input className={css.input} placeholder={t('mcpNamePlaceholder')}
-          value={draft.serverName} disabled={saving || disabled}
-          onChange={e => setDraft(d => ({ ...d, serverName: e.target.value }))} />
-        <input className={css.input} placeholder={t('mcpUrlPlaceholder')}
-          value={draft.url} disabled={saving || disabled}
-          onChange={e => setDraft(d => ({ ...d, url: e.target.value }))} />
-        <select className={css.select} value={draft.authType} disabled={saving || disabled}
-          aria-label="Auth type"
-          onChange={e => setDraft(d => ({ ...d, authType: e.target.value as McpAuthType }))}>
-          <option value="none">{t('mcpAuthNone')}</option>
-          <option value="bearer">{t('mcpAuthBearer')}</option>
-          <option value="oauth">{t('mcpAuthOAuth')}</option>
-        </select>
-        {draft.authType === 'bearer' ? (
-          <input className={css.input} type="password" placeholder={t('mcpTokenPlaceholder')}
-            value={draft.token} disabled={saving || disabled}
-            onChange={e => setDraft(d => ({ ...d, token: e.target.value }))} />
-        ) : null}
-        <Button variant="outline" size="sm"
-          disabled={saving || disabled || draft.serverName.trim() === '' || draft.url.trim() === ''
-            || (draft.authType === 'bearer' && draft.token.trim() === '')}
-          onClick={addServer}>{t('mcpAdd')}</Button>
-      </div>
-      {error !== undefined ? <p className={css.error} role="alert">{error}</p> : null}
-    </section>
-  )
-}
-
 export function EdgeSettingsSection(props: EdgeSettingsSectionProps): ReactNode {
-  const { useEdgeSettings, load, copyUpgrade, signOut, setApprovalMode, saveMcpServers, saveMcpToken, setMcpToolPolicy, startOAuthConnect, t } = props
+  const { useEdgeSettings, load, copyUpgrade, signOut, setApprovalMode, t } = props
   useEffect(() => { void load() }, [load])
   const state = useEdgeSettings(snapshot => snapshot)
   const deploymentDetails = state.status === 'idle' || state.status === 'loading'
@@ -208,17 +91,6 @@ export function EdgeSettingsSection(props: EdgeSettingsSectionProps): ReactNode 
         {state.approvalSaved ? <p className={css.status}>{t('approvalSaved')}</p> : null}
         {state.approvalError !== undefined ? <p className={css.error} role="alert">{t('approvalError')}</p> : null}
       </section>
-      <McpServersCard
-        servers={state.mcpServers}
-        saving={state.mcpSaving}
-        error={state.mcpError}
-        disabled={state.status !== 'ready' || !state.mcpLoaded}
-        onSave={saveMcpServers}
-        onSaveToken={saveMcpToken}
-        onSetToolPolicy={setMcpToolPolicy}
-        onOAuthConnect={startOAuthConnect}
-        t={t}
-      />
       <section className={css.card} aria-labelledby="edge-owner-title">
         <h3 id="edge-owner-title">{t('ownerSession')}</h3>
         <p>{t('ownerIntro')}</p>

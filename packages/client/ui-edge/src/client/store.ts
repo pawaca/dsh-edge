@@ -42,6 +42,7 @@ export interface McpServerEntry {
   status?: 'unknown' | 'connected' | 'error' | 'needs_reauth' | undefined
   toolCount?: number | undefined
   toolCallTimeoutMs?: number
+  serverInfo?: { name?: string; version?: string } | undefined
 }
 
 /** Browser-owned state for the Edge settings section. */
@@ -101,7 +102,7 @@ export class EdgeSettingsController {
   /** Observable settings state consumed by the client runtime. */
   readonly store: SnapshotStore<EdgeSettingsState> = createSnapshotStore({
     status: 'idle', copied: false, signingOut: false,
-    approvalMode: 'ask', approvalSaving: false, approvalSaved: false,
+    approvalMode: 'never', approvalSaving: false, approvalSaved: false,
     mcpServers: [], mcpLoaded: false, mcpSaving: false,
   })
   private loadGeneration = 0

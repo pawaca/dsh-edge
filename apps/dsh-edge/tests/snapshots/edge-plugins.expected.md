@@ -13,6 +13,9 @@
     - button "Agent presets":
       - img
       - text: Agent presets
+    - button "MCP Connectors":
+      - img
+      - text: MCP Connectors
     - button "DSH Edge":
       - img
       - text: DSH Edge

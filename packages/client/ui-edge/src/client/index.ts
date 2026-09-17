@@ -4,10 +4,12 @@ import { writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import { EdgeSettingsSection, type EdgeSettingsInjected } from './EdgeSettingsSection.tsx'
+import { EdgeMcpSection, type EdgeMcpInjected } from './EdgeMcpSection.tsx'
 import { EdgeSettingsController } from './store.ts'
 import { en, zh, type EdgeSettingsKey } from './locales.ts'
 
 export type { EdgeSettingsInjected, EdgeSettingsSectionProps } from './EdgeSettingsSection.tsx'
+export type { EdgeMcpInjected, EdgeMcpSectionProps } from './EdgeMcpSection.tsx'
 export type { EdgeSettingsKey } from './locales.ts'
 export type { ApprovalMode, McpAuthType, McpServerEntry, EdgeSettingsState, EdgeHealth } from './store.ts'
 
@@ -38,12 +40,16 @@ export function apply(ctx: Context): void {
     },
     navigate: (path) => { globalThis.location.assign(path) },
   })
-  const injected = (): EdgeSettingsInjected => ({
+  const edgeInjected = (): EdgeSettingsInjected => ({
     hooks: { edgeSettings: controller.store },
     load: () => controller.load(),
     copyUpgrade: () => controller.copyUpgrade(),
     signOut: () => controller.signOut(),
     setApprovalMode: (mode) => controller.setApprovalMode(mode),
+  })
+  const mcpInjected = (): EdgeMcpInjected => ({
+    hooks: { edgeSettings: controller.store },
+    load: () => controller.load(),
     saveMcpServers: (servers) => controller.saveMcpServers(servers),
     saveMcpToken: (name, token) => controller.saveMcpToken(name, token),
     setMcpToolPolicy: (name, mode) => controller.setMcpToolPolicy(name, mode),
@@ -55,8 +61,16 @@ export function apply(ctx: Context): void {
     order: 90,
     label: () => ctx.locale.bind('settings.edge')('nav'),
     locale: 'settings.edge',
-    inject: injected,
+    inject: edgeInjected,
   }, EdgeSettingsSection))
+  slots.inject('settings.section', () => slots.register({
+    name: 'settings.section',
+    id: 'mcp-connectors',
+    order: 55,
+    label: () => ctx.locale.bind('settings.edge')('mcpNav'),
+    locale: 'settings.edge',
+    inject: mcpInjected,
+  }, EdgeMcpSection))
   // Upstream `dsh-client-ui-chat` opens a conversation file link through the
   // generated `ctx.remote.session.openWorkspacePath` Remote, whose Host side
   // hands the path to a native desktop opener that Cloudflare Workers cannot
@@ -110,8 +124,6 @@ export async function downloadWorkspaceFile(path: string): Promise<RemoteResult<
   try {
     anchor.click()
   } finally {
-    // Firefox and Safari cancel a download whose blob URL is revoked in the
-    // same task as the click; release it on a later macrotask instead.
     setTimeout(() => { URL.revokeObjectURL(blobUrl) }, 0)
   }
   return { ok: true, value: { opened: true } }
