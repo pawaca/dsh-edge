@@ -51,7 +51,7 @@ function McpConnectorCard({ server: s, saving, disabled, expanded, onToggle, onR
   const authLabel = s.auth?.type === 'oauth' ? 'OAuth 2.1' : s.auth?.type === 'bearer' ? 'Bearer Token' : t('mcpAuthNone')
   return (
     <div className={`${css.mcpCard}${expanded ? ` ${css.mcpCardOpen}` : ''}`}>
-      <button type="button" className={css.mcpCardHeader} onClick={onToggle}>
+      <button type="button" className={css.mcpCardHeader} aria-expanded={expanded} onClick={onToggle}>
         <div className={css.mcpAvatar}>{s.serverName.charAt(0).toUpperCase()}</div>
         <div className={css.mcpCardTitleGroup}>
           <p className={css.mcpCardName}>{s.serverName}</p>
