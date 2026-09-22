@@ -129,12 +129,15 @@ function capCatalogSize(tools: CachedMcpTool[]): CachedMcpTool[] {
     }
     return { ...t, description: desc }
   })
-  const serialized = JSON.stringify(capped)
-  const byteLength = new TextEncoder().encode(serialized).byteLength
+  const encoder = new TextEncoder()
+  const byteLength = encoder.encode(JSON.stringify(capped)).byteLength
   if (byteLength <= MCP_LIMITS.maxCatalogBytes) return capped
   const ratio = MCP_LIMITS.maxCatalogBytes / byteLength
-  const limit = Math.max(1, Math.floor(capped.length * ratio))
-  return capped.slice(0, limit)
+  let trimmed = capped.slice(0, Math.max(1, Math.floor(capped.length * ratio)))
+  while (trimmed.length > 1 && encoder.encode(JSON.stringify(trimmed)).byteLength > MCP_LIMITS.maxCatalogBytes) {
+    trimmed = trimmed.slice(0, -1)
+  }
+  return trimmed
 }
 
 function mcpCredentialRefName(serverName: string): string {
