@@ -130,8 +130,9 @@ function capCatalogSize(tools: CachedMcpTool[]): CachedMcpTool[] {
     return { ...t, description: desc }
   })
   const serialized = JSON.stringify(capped)
-  if (serialized.length <= MCP_LIMITS.maxCatalogBytes) return capped
-  const ratio = MCP_LIMITS.maxCatalogBytes / serialized.length
+  const byteLength = new TextEncoder().encode(serialized).byteLength
+  if (byteLength <= MCP_LIMITS.maxCatalogBytes) return capped
+  const ratio = MCP_LIMITS.maxCatalogBytes / byteLength
   const limit = Math.max(1, Math.floor(capped.length * ratio))
   return capped.slice(0, limit)
 }

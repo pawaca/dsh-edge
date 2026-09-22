@@ -39,8 +39,20 @@ const PRIVATE_IPV6_PATTERNS = [
   /^::1$/u,
   /^fc/iu,
   /^fd/iu,
-  /^fe80:/iu,
+  /^fe[89ab][0-9a-f]:/iu,
 ]
+
+function extractMappedIPv4(hostname: string): string | undefined {
+  const dotted = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/iu.exec(hostname)
+  if (dotted !== null) return dotted[1]
+  const hex = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/iu.exec(hostname)
+  if (hex !== null) {
+    const hi = parseInt(hex[1]!, 16)
+    const lo = parseInt(hex[2]!, 16)
+    return `${String(hi >> 8)}.${String(hi & 0xff)}.${String(lo >> 8)}.${String(lo & 0xff)}`
+  }
+  return undefined
+}
 
 function isIpAddress(hostname: string): boolean {
   return /^\d+\.\d+\.\d+\.\d+$/u.test(hostname) || hostname.includes(':')
@@ -62,14 +74,18 @@ export function assertSafeUrl(url: string): void {
     }
   }
   if (isIpAddress(hostname)) {
+    const mapped = extractMappedIPv4(hostname)
+    const ipv4Target = mapped ?? hostname
     for (const pattern of PRIVATE_IPV4_PATTERNS) {
-      if (pattern.test(hostname)) {
+      if (pattern.test(ipv4Target)) {
         throw new Error(`MCP server address "${hostname}" is a private IP and is blocked.`)
       }
     }
-    for (const pattern of PRIVATE_IPV6_PATTERNS) {
-      if (pattern.test(hostname)) {
-        throw new Error(`MCP server address "${hostname}" is a private IP and is blocked.`)
+    if (mapped === undefined) {
+      for (const pattern of PRIVATE_IPV6_PATTERNS) {
+        if (pattern.test(hostname)) {
+          throw new Error(`MCP server address "${hostname}" is a private IP and is blocked.`)
+        }
       }
     }
   }
