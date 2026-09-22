@@ -130,12 +130,15 @@ function capCatalogSize(tools: CachedMcpTool[]): CachedMcpTool[] {
     return { ...t, description: desc }
   })
   const encoder = new TextEncoder()
-  const byteLength = encoder.encode(JSON.stringify(capped)).byteLength
-  if (byteLength <= MCP_LIMITS.maxCatalogBytes) return capped
-  const ratio = MCP_LIMITS.maxCatalogBytes / byteLength
+  const measure = (arr: CachedMcpTool[]) => encoder.encode(JSON.stringify(arr)).byteLength
+  if (measure(capped) <= MCP_LIMITS.maxCatalogBytes) return capped
+  const ratio = MCP_LIMITS.maxCatalogBytes / measure(capped)
   let trimmed = capped.slice(0, Math.max(1, Math.floor(capped.length * ratio)))
-  while (trimmed.length > 1 && encoder.encode(JSON.stringify(trimmed)).byteLength > MCP_LIMITS.maxCatalogBytes) {
+  while (trimmed.length > 1 && measure(trimmed) > MCP_LIMITS.maxCatalogBytes) {
     trimmed = trimmed.slice(0, -1)
+  }
+  if (trimmed.length === 1 && measure(trimmed) > MCP_LIMITS.maxCatalogBytes) {
+    trimmed = [{ ...trimmed[0]!, inputSchema: { type: 'object' } as Record<string, unknown>, outputSchema: undefined }]
   }
   return trimmed
 }
@@ -474,6 +477,9 @@ export function installEdgeMcpServers(
         cache.setConfigs(fresh)
 
         if (useMetaTools) {
+          for (const [publicName, meta] of toolMeta) {
+            if (meta.serverName === server.serverName) toolMeta.delete(publicName)
+          }
           for (const cached of capped) {
             toolMeta.set(cached.publicName, {
               serverName: server.serverName,
