@@ -434,6 +434,9 @@ export function installEdgeMcpServers(
       }
       serverDisposers.delete(serverName)
     }
+    for (const [publicName, meta] of toolMeta) {
+      if (meta.serverName === serverName) toolMeta.delete(publicName)
+    }
     cache.deleteTools(serverName)
   }
 

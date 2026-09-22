@@ -64,7 +64,8 @@ export function assertSafeUrl(url: string): void {
     throw new Error('MCP server URL must use http: or https: protocol.')
   }
   const raw = parsed.hostname.toLowerCase()
-  const hostname = raw.startsWith('[') && raw.endsWith(']') ? raw.slice(1, -1) : raw
+  const stripped = raw.endsWith('.') ? raw.slice(0, -1) : raw
+  const hostname = stripped.startsWith('[') && stripped.endsWith(']') ? stripped.slice(1, -1) : stripped
   if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1') {
     return
   }

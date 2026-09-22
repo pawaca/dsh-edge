@@ -195,6 +195,12 @@ describe('edge-mcp-tools', () => {
       expect(() => assertSafeUrl('http://db.local/mcp')).toThrow('blocked')
     })
 
+    it('blocks FQDN-form internal hostnames with trailing dot', () => {
+      expect(() => assertSafeUrl('http://service.internal./mcp')).toThrow('blocked')
+      expect(() => assertSafeUrl('http://db.local./mcp')).toThrow('blocked')
+      expect(() => assertSafeUrl('http://host.localhost./mcp')).toThrow('blocked')
+    })
+
     it('blocks non-HTTP protocols', () => {
       expect(() => assertSafeUrl('ftp://example.com/mcp')).toThrow('protocol')
     })
