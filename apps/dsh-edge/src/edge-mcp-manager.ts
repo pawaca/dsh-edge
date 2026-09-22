@@ -129,11 +129,18 @@ function capCatalogSize(tools: CachedMcpTool[]): CachedMcpTool[] {
     }
     return { ...t, description: desc }
   })
-  const serialized = JSON.stringify(capped)
-  if (serialized.length <= MCP_LIMITS.maxCatalogBytes) return capped
-  const ratio = MCP_LIMITS.maxCatalogBytes / serialized.length
-  const limit = Math.max(1, Math.floor(capped.length * ratio))
-  return capped.slice(0, limit)
+  const encoder = new TextEncoder()
+  const measure = (arr: CachedMcpTool[]) => encoder.encode(JSON.stringify(arr)).byteLength
+  if (measure(capped) <= MCP_LIMITS.maxCatalogBytes) return capped
+  const ratio = MCP_LIMITS.maxCatalogBytes / measure(capped)
+  let trimmed = capped.slice(0, Math.max(1, Math.floor(capped.length * ratio)))
+  while (trimmed.length > 1 && measure(trimmed) > MCP_LIMITS.maxCatalogBytes) {
+    trimmed = trimmed.slice(0, -1)
+  }
+  if (trimmed.length === 1 && measure(trimmed) > MCP_LIMITS.maxCatalogBytes) {
+    trimmed = [{ ...trimmed[0]!, inputSchema: { type: 'object' } as Record<string, unknown>, outputSchema: undefined }]
+  }
+  return trimmed
 }
 
 function mcpCredentialRefName(serverName: string): string {
@@ -427,6 +434,9 @@ export function installEdgeMcpServers(
       }
       serverDisposers.delete(serverName)
     }
+    for (const [publicName, meta] of toolMeta) {
+      if (meta.serverName === serverName) toolMeta.delete(publicName)
+    }
     cache.deleteTools(serverName)
   }
 
@@ -470,6 +480,9 @@ export function installEdgeMcpServers(
         cache.setConfigs(fresh)
 
         if (useMetaTools) {
+          for (const [publicName, meta] of toolMeta) {
+            if (meta.serverName === server.serverName) toolMeta.delete(publicName)
+          }
           for (const cached of capped) {
             toolMeta.set(cached.publicName, {
               serverName: server.serverName,

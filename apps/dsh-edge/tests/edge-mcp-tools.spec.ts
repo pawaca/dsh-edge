@@ -168,6 +168,23 @@ describe('edge-mcp-tools', () => {
       expect(() => assertSafeUrl('http://[fe80::1]/mcp')).toThrow('private IP')
     })
 
+    it('blocks full fe80::/10 link-local range', () => {
+      expect(() => assertSafeUrl('http://[fe80::1]/mcp')).toThrow('private IP')
+      expect(() => assertSafeUrl('http://[fe9a::1]/mcp')).toThrow('private IP')
+      expect(() => assertSafeUrl('http://[feaf::1]/mcp')).toThrow('private IP')
+      expect(() => assertSafeUrl('http://[febf::1]/mcp')).toThrow('private IP')
+    })
+
+    it('blocks IPv4-mapped IPv6 addresses', () => {
+      expect(() => assertSafeUrl('http://[::ffff:10.0.0.1]/mcp')).toThrow('private IP')
+      expect(() => assertSafeUrl('http://[::ffff:192.168.1.1]/mcp')).toThrow('private IP')
+      expect(() => assertSafeUrl('http://[::ffff:172.16.0.1]/mcp')).toThrow('private IP')
+    })
+
+    it('allows IPv4-mapped IPv6 with public addresses', () => {
+      expect(() => assertSafeUrl('http://[::ffff:8.8.8.8]/mcp')).not.toThrow()
+    })
+
     it('allows hostnames starting with fc/fd (not IPs)', () => {
       expect(() => assertSafeUrl('https://fdic.gov/mcp')).not.toThrow()
       expect(() => assertSafeUrl('https://fcontoso.example.com/mcp')).not.toThrow()
@@ -176,6 +193,12 @@ describe('edge-mcp-tools', () => {
     it('blocks internal hostnames', () => {
       expect(() => assertSafeUrl('http://service.internal/mcp')).toThrow('blocked')
       expect(() => assertSafeUrl('http://db.local/mcp')).toThrow('blocked')
+    })
+
+    it('blocks FQDN-form internal hostnames with trailing dot', () => {
+      expect(() => assertSafeUrl('http://service.internal./mcp')).toThrow('blocked')
+      expect(() => assertSafeUrl('http://db.local./mcp')).toThrow('blocked')
+      expect(() => assertSafeUrl('http://host.localhost./mcp')).toThrow('blocked')
     })
 
     it('blocks non-HTTP protocols', () => {
