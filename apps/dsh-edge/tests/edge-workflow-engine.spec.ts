@@ -114,6 +114,8 @@ class FakeLoader {
   entrypointOptions: unknown[] = []
   bridges: Bridge[] = []
   disposed = 0
+  /** When set, getEntrypoint() throws it (a worker that fails to initialize). */
+  entrypointError: Error | undefined
 
   load(code: LoadCall) {
     this.loads.push(code)
@@ -146,6 +148,7 @@ class FakeLoader {
     }
     return {
       getEntrypoint: (_name?: string, options?: unknown) => {
+        if (this.entrypointError !== undefined) throw this.entrypointError
         this.entrypointOptions.push(options)
         return entrypoint
       },
@@ -332,6 +335,15 @@ describe('edge workflow engine', () => {
     handle.cancel('test')
     await expect(handle.result).resolves.toMatchObject({ stopReason: 'cancelled', error: 'workflow run cancelled: test' })
     await handle.dispose()
+  })
+
+  it('disposes the worker when its entrypoint cannot be created', async () => {
+    const { engine, loader } = await setup()
+    loader.entrypointError = new Error('worker failed to initialize')
+    const result = await run(engine, 'return 1')
+    expect(result).toMatchObject({ stopReason: 'error', error: 'worker failed to initialize' })
+    expect(loader.loads).toHaveLength(1)
+    expect(loader.disposed).toBe(1)
   })
 
   it('does not load an isolate when the start signal is already aborted', async () => {

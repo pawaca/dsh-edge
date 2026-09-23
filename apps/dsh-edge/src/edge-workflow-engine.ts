@@ -296,10 +296,12 @@ class EdgeWorkflowRun implements WorkflowRun {
         limits,
         globalOutbound: null,
       })
+      // Held before getEntrypoint() so a failure there still disposes the worker.
+      this.isolate = { worker, entrypoint: undefined }
       const entrypoint = worker.getEntrypoint(undefined, { limits }) as {
         evaluate(host: WorkflowBridge, input: { args: unknown, maxItemsPerCall: number }): Promise<unknown>
       }
-      this.isolate = { worker, entrypoint }
+      this.isolate.entrypoint = entrypoint
       evaluation = Promise.resolve(entrypoint.evaluate(new WorkflowBridge(this), {
         args: this.args,
         maxItemsPerCall: this.limits.maxItemsPerCall,
@@ -384,6 +386,7 @@ class EdgeWorkflowRun implements WorkflowRun {
     this.isolate = undefined
     if (isolate === undefined) return
     for (const handle of [isolate.entrypoint, isolate.worker]) {
+      if (handle === undefined) continue
       try {
         (handle as { [Symbol.dispose]?: () => void })[Symbol.dispose]?.()
       } catch (error) {
