@@ -295,6 +295,10 @@ describe('workflow script sandbox', () => {
       'Object.freeze(Date)',
       'Object.setPrototypeOf(JSON, null)',
       'Object.getPrototypeOf([]).push = null',
+      'const it = [][Symbol.iterator](); Object.getPrototypeOf(it).next = null',
+      'Object.getPrototypeOf(new Map().entries())',
+      'Object.getPrototypeOf("x"[Symbol.iterator]())',
+      'Object.getPrototypeOf({})',
       'Object.getOwnPropertyDescriptors(Array)',
       'Object.x = 1',
       'Object.defineProperty.x = 1',
@@ -317,6 +321,7 @@ describe('workflow script sandbox', () => {
     for (const script of ['[JSON.parse] = [null]', '({ a: Math.min } = { a: null })', 'for (Math.abs of [1]) {}']) {
       await expect(evaluate(script), script).rejects.toThrow()
     }
+    expect(Array.from(new Set([1, 2]).values())).toEqual([1, 2])
     expect(JSON.parse('1')).toBe(1)
     expect(typeof Math.min).toBe('function')
     expect(typeof Math.abs).toBe('function')

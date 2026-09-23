@@ -9,11 +9,14 @@
  *
  * The interpreter shares the Durable Object's builtins (there is no separate
  * realm), so a mutated builtin would persist for every session until eviction.
- * The invariant this module maintains is: a script can mutate only objects it
- * created. It enforces that in four layers:
+ * The invariants this module maintains are: a script never obtains a
+ * reference to a prototype object, and it can mutate only objects it created.
+ * Prototypes include intrinsics no global reaches, such as the shared iterator
+ * prototypes, so every route to them is closed rather than their set listed:
  * - the global scope holds only ECMAScript data builtins, with `Object`
- *   replaced by a facade whose mutators refuse builtin targets and whose
- *   reflection refuses builtin objects;
+ *   replaced by a facade whose mutators refuse builtin targets, whose
+ *   `getPrototypeOf` always refuses, and whose descriptor reflection refuses
+ *   builtin objects (no `Reflect`, no `__proto__`);
  * - every assignment, update, and `delete` target passes through a check that
  *   throws for any builtin reachable from those globals (constructors,
  *   prototypes, and their methods);
@@ -73,8 +76,8 @@ const OBJECT_MUTATORS = new Set([
   'defineProperty', 'defineProperties', 'assign', 'setPrototypeOf', 'freeze', 'seal', 'preventExtensions',
 ])
 
-/** `Object` statics that could hand a script a builtin prototype or descriptor. */
-const OBJECT_REFLECTORS = new Set(['getPrototypeOf', 'getOwnPropertyDescriptor', 'getOwnPropertyDescriptors'])
+/** `Object` statics that could hand a script a builtin method through a descriptor. */
+const OBJECT_REFLECTORS = new Set(['getOwnPropertyDescriptor', 'getOwnPropertyDescriptors'])
 
 const LOOP_TYPES = new Set([
   'WhileStatement', 'DoWhileStatement', 'ForStatement', 'ForInStatement', 'ForOfStatement',
@@ -262,6 +265,9 @@ function objectFacade(): ObjectConstructor {
       return result
     }))
   }
+  // Builtin factories produce prototypes no global reaches (%ArrayIteratorPrototype% and
+  // friends), so prototype reflection is refused outright rather than filtered.
+  wrappers.set('getPrototypeOf', Object.freeze(() => refuse('read prototypes with Object.getPrototypeOf')))
   const readOnly = () => refuse('modify built-in objects')
   facade = new Proxy(Object, {
     get: (target, key, receiver) => wrappers.has(key) ? wrappers.get(key) : Reflect.get(target, key, receiver) as unknown,
