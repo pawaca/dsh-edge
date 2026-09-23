@@ -6,7 +6,10 @@ vi.mock('cloudflare:workers', () => ({ RpcTarget: class {} }))
 
 const { default: EdgeWorkflowEngine, WORKFLOW_COMPATIBILITY_DATE, materialize, validateMeta } = await import('../src/edge-workflow-engine.ts')
 const {
+  MAX_AGENT_REQUEST_BYTES,
+  MAX_PROGRESS_CHARS,
   MAX_PROGRESS_IN_FLIGHT,
+  MAX_RESULT_BYTES,
   WORKFLOW_BODY_MODULE,
   WORKFLOW_ENTRY_MODULE,
   WORKFLOW_RUNTIME_MODULE,
@@ -239,6 +242,33 @@ describe('edge workflow engine', () => {
     expect(result).toMatchObject({ stopReason: 'completed', value: 997 })
     expect(loader.agentCalls).toBe(3)
     expect(subagents.children).toHaveLength(3)
+  })
+
+  it('bounds the bytes of every bridge path in the isolate', async () => {
+    const big = await setup()
+    const request = await run(big.engine, `return await agent('x'.repeat(${MAX_AGENT_REQUEST_BYTES}))`)
+    expect(request).toMatchObject({ stopReason: 'error' })
+    expect(request.error).toContain('agent() request is')
+    expect(big.loader.agentCalls).toBe(0)
+    const result = await run(big.engine, `return 'z'.repeat(${MAX_RESULT_BYTES} + 1)`)
+    expect(result.stopReason).toBe('error')
+    expect(result.error).toContain('the workflow result is')
+    const progress = await setup()
+    await run(progress.engine, `log('y'.repeat(${MAX_PROGRESS_CHARS} * 3)); phase('p'.repeat(${MAX_PROGRESS_CHARS} * 3)); return 1`)
+    const texts = progress.events.filter(event => event[0] === 'workflow/log' || event[0] === 'workflow/phase').map(event => event[1] as string)
+    expect(texts.map(text => text.length)).toEqual([MAX_PROGRESS_CHARS + 1, MAX_PROGRESS_CHARS + 1])
+  })
+
+  it('re-checks request bytes on the host side of the bridge', async () => {
+    const { engine, loader, subagents } = await setup()
+    subagents.auto = undefined
+    const handle = engine.start(request(`return await agent('hold')`))
+    await new Promise(resolve => setTimeout(resolve, 5))
+    const reply = await loader.bridges[0]!.agent('x'.repeat(MAX_AGENT_REQUEST_BYTES), null, null)
+    expect(reply).toMatchObject({ ok: false, code: 'INVALID_ARGUMENT' })
+    expect(subagents.children).toHaveLength(1)
+    handle.cancel('done')
+    await handle.dispose()
   })
 
   it('bounds progress narration in the isolate and on the host', async () => {

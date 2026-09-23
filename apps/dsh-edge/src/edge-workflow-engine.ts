@@ -43,6 +43,9 @@ import type { SubagentRun } from '@deepseek-ai/dsh-subagent'
 import { JsonSchemaError, assertObjectJsonSchema } from '@deepseek-ai/dsh-tools'
 import type { ObjectJsonSchema } from '@deepseek-ai/dsh-tools'
 import {
+  MAX_AGENT_REQUEST_BYTES,
+  MAX_PROGRESS_CHARS,
+  MAX_RESULT_BYTES,
   WORKFLOW_BODY_MODULE,
   WORKFLOW_ENTRY_MODULE,
   WORKFLOW_ENTRY_SOURCE,
@@ -359,8 +362,13 @@ class EdgeWorkflowRun implements WorkflowRun {
         try {
           // The runtime wraps the script's value because RPC adds a disposer to the returned object.
           const raw = (envelope as { value?: unknown } | null | undefined)?.value
+          const value = raw === undefined ? null : materializeResult(raw)
+          const size = jsonBytes(value)
+          if (size > MAX_RESULT_BYTES) {
+            return this.errorResult(`the workflow result is ${size} bytes, over the ${MAX_RESULT_BYTES}-byte limit`)
+          }
           return {
-            value: raw === undefined ? null : materializeResult(raw),
+            value,
             stopReason: 'completed',
             agentsStarted: this.started,
           } satisfies WorkflowResult
@@ -402,6 +410,10 @@ class EdgeWorkflowRun implements WorkflowRun {
 
   /** Bridge entry for `agent()`: a reply object, because only data crosses RPC reliably. */
   async bridgeAgent(prompt: unknown, opts: unknown, scriptPhase: unknown): Promise<BridgeReply> {
+    const size = jsonBytes([prompt, opts, scriptPhase])
+    if (size > MAX_AGENT_REQUEST_BYTES) {
+      return { ok: false, code: 'INVALID_ARGUMENT', message: `agent() request is ${size} bytes, over the ${MAX_AGENT_REQUEST_BYTES}-byte limit` }
+    }
     try {
       const phase = typeof scriptPhase === 'string' && scriptPhase.length > 0 ? scriptPhase : undefined
       return { ok: true, value: await this.agent(prompt, opts ?? undefined, phase) }
@@ -415,13 +427,13 @@ class EdgeWorkflowRun implements WorkflowRun {
   /** Bridge entry for `phase()`: progress narration only; the isolate tracks its current phase. */
   bridgePhase(title: unknown): void {
     if (typeof title !== 'string' || title.length === 0 || !this.admitProgress()) return
-    this.observer.phase(title)
+    this.observer.phase(clipProgress(title))
   }
 
   /** Bridge entry for `log()`. */
   bridgeLog(message: unknown): void {
     if (typeof message !== 'string' || !this.admitProgress()) return
-    this.observer.log(message)
+    this.observer.log(clipProgress(message))
   }
 
   /** Whether one more progress event may be emitted (live run, under the per-run cap). */
@@ -835,7 +847,21 @@ export function materialize(value: unknown, path: string, seen = new Set<object>
   }
 }
 
-/** Render a thrown value without ever throwing; interpreter stacks are internal, so the message is used. */
+/** UTF-8 size of a value's JSON encoding; values JSON cannot encode count as unbounded. */
+function jsonBytes(value: unknown): number {
+  try {
+    const text = JSON.stringify(value)
+    return text === undefined ? 0 : new TextEncoder().encode(text).byteLength
+  } catch {
+    return Number.POSITIVE_INFINITY
+  }
+}
+
+function clipProgress(text: string): string {
+  return text.length > MAX_PROGRESS_CHARS ? `${text.slice(0, MAX_PROGRESS_CHARS)}…` : text
+}
+
+/** Render a thrown value without ever throwing; the message is used because isolate stacks point at generated modules. */
 function renderThrown(error: unknown): string {
   try {
     const message = (error as { message?: unknown } | null | undefined)?.message
