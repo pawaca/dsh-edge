@@ -141,7 +141,6 @@ interface EdgeSessionStoreConfig {
   withWorkspaceFiles<T>(read: (files: EdgeWorkspaceFiles) => Promise<T>): Promise<T>
   onLateSessionEvent?: (sessionId: SessionId, event: SessionEvent) => void
   onProjectionChanged?: (sessionId: SessionId, key: string, value: unknown, seq: number) => void
-  approvalDefaultMode?: EdgeApprovalMode
 }
 
 interface TurnDeliveryItem {
@@ -554,7 +553,6 @@ export class EdgeSessionStore {
     this.context.systemPrompt.suppressRuntimeContext()
     this.mcpToolManager = installEdgeMcpServers(this.context, storage)
     this.approvalScope = installEdgeApprovalPolicy(this.context, {
-      defaultMode: config.approvalDefaultMode,
       resolveMcpPolicy: name => this.mcpToolManager!.resolveToolPolicy(name),
     })
     await this.mcpToolManager.ready

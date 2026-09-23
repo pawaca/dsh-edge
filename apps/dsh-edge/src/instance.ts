@@ -268,9 +268,6 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       ...(this.env as unknown as Record<string, unknown>).IMAGES === undefined
         ? {}
         : { images: (this.env as unknown as Record<string, unknown>).IMAGES },
-      ...((this.env as unknown as Record<string, string>).DSH_EDGE_APPROVAL_MODE === 'never'
-        ? { approvalDefaultMode: 'never' as const }
-        : {}),
       withWorkspaceFiles: read => this.withWorkspaceFiles(read),
       onLateSessionEvent: (sessionId, event) => {
         this.publishSessionEvent(sessionId, event)
