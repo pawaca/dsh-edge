@@ -1,9 +1,15 @@
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { WorkflowEngine, WorkflowResult, WorkflowStartRequest } from '@deepseek-ai/dsh-workflow'
-import { WorkflowError } from '@deepseek-ai/dsh-workflow'
-import { describe, expect, it } from 'vitest'
-import EdgeWorkflowEngine, { materialize, validateMeta } from '../src/edge-workflow-engine.ts'
-import { compileWorkflowScript } from '../src/edge-workflow-script.ts'
+import { describe, expect, it, vi } from 'vitest'
+
+vi.mock('cloudflare:workers', () => ({ RpcTarget: class {} }))
+
+const { default: EdgeWorkflowEngine, WORKFLOW_COMPATIBILITY_DATE, materialize, validateMeta } = await import('../src/edge-workflow-engine.ts')
+const {
+  WORKFLOW_BODY_MODULE,
+  WORKFLOW_ENTRY_MODULE,
+  WORKFLOW_RUNTIME_MODULE,
+} = await import('../src/edge-workflow-runtime.ts')
 
 interface FakeChild {
   prompt: string
@@ -75,10 +81,75 @@ class FakeSubagents extends Service {
   }
 }
 
+interface LoadCall {
+  compatibilityDate: string
+  mainModule: string
+  modules: Record<string, string>
+  limits?: { cpuMs?: number }
+  globalOutbound?: null
+}
+
+interface Bridge {
+  agent(prompt: unknown, opts: unknown, phase: unknown): Promise<unknown>
+  phase(title: unknown): void
+  log(message: unknown): void
+}
+
+/**
+ * A Worker Loader stand-in: evaluates the generated runtime and body modules in
+ * this process, cloning every value that crosses the bridge the way Workers
+ * RPC does, and rejects the pending evaluation when the isolate is disposed.
+ */
+class FakeLoader {
+  loads: LoadCall[] = []
+  entrypointOptions: unknown[] = []
+  bridges: Bridge[] = []
+  disposed = 0
+
+  load(code: LoadCall) {
+    this.loads.push(code)
+    const disposal = Promise.withResolvers<never>()
+    disposal.promise.catch(() => {})
+    const dispose = () => {
+      this.disposed += 1
+      disposal.reject(new Error('isolate disposed'))
+    }
+    const entrypoint = {
+      evaluate: async (bridge: Bridge, input: unknown) => {
+        this.bridges.push(bridge)
+        // The fake stands in for the isolate, so it evaluates the generated modules in-process.
+        // eslint-disable-next-line typescript/no-implied-eval, typescript/no-unsafe-call
+        const runtime = new Function(`${code.modules[WORKFLOW_RUNTIME_MODULE]!.replace('export async function runWorkflow', 'async function runWorkflow')}\nreturn runWorkflow`)() as
+          (host: unknown, input: unknown, workflow: unknown) => Promise<unknown>
+        // eslint-disable-next-line typescript/no-implied-eval, typescript/no-unsafe-call
+        const workflow = new Function(`${code.modules[WORKFLOW_BODY_MODULE]!.replace('export default async function workflow', 'return async function workflow')}`)() as unknown
+        const host = {
+          agent: async (...args: unknown[]) => structuredClone(await bridge.agent(...(structuredClone(args) as [unknown, unknown, unknown]))),
+          phase: async (title: unknown) => { bridge.phase(structuredClone(title)) },
+          log: async (message: unknown) => { bridge.log(structuredClone(message)) },
+        }
+        return Promise.race([
+          runtime(host, structuredClone(input), workflow).then(value => structuredClone(value)),
+          disposal.promise,
+        ])
+      },
+      [Symbol.dispose]: dispose,
+    }
+    return {
+      getEntrypoint: (_name?: string, options?: unknown) => {
+        this.entrypointOptions.push(options)
+        return entrypoint
+      },
+      [Symbol.dispose]: dispose,
+    }
+  }
+}
+
 async function setup(config: Record<string, unknown> = {}) {
   const ctx = new Context()
+  const loader = new FakeLoader()
   await ctx.plugin(FakeSubagents)
-  await ctx.plugin(EdgeWorkflowEngine, config as never)
+  await ctx.plugin(EdgeWorkflowEngine, { loader, ...config } as never)
   const engine = ctx.get('workflowEngine') as WorkflowEngine
   const subagents = ctx.get('subagents') as unknown as FakeSubagents
   const events: unknown[][] = []
@@ -86,7 +157,7 @@ async function setup(config: Record<string, unknown> = {}) {
     'workflow/agent-start', 'workflow/agent-end', 'workflow/end'] as const) {
     ctx.on(name, (...args: unknown[]) => { events.push([name, ...args.slice(1)]) })
   }
-  return { engine, subagents, events }
+  return { engine, subagents, events, loader }
 }
 
 function request(script: string, extra: Partial<WorkflowStartRequest> = {}): WorkflowStartRequest {
@@ -106,13 +177,13 @@ async function run(engine: WorkflowEngine, script: string, extra: Partial<Workfl
 }
 
 describe('edge workflow engine', () => {
-  it('runs agents through pipeline and parallel and returns JSON data', async () => {
-    const { engine, subagents, events } = await setup()
+  it('runs the script in a Dynamic Worker without network and returns JSON data', async () => {
+    const { engine, subagents, events, loader } = await setup()
     const result = await run(engine, `
       phase('Scan')
       log('scanning ' + args.files.length)
       const scanned = await pipeline(args.files, f => agent('scan ' + f), (prev, f) => prev + '!')
-      const both = await parallel([() => agent('a', { label: 'first' }), () => agent('b')])
+      const both = await parallel([() => agent('a', { label: 'first' }), () => agent('b', { phase: 'Other' })])
       return { scanned, both }
     `, { args: { files: ['x', 'y'] } })
     expect(result).toEqual({
@@ -120,6 +191,13 @@ describe('edge workflow engine', () => {
       stopReason: 'completed',
       agentsStarted: 4,
     })
+    expect(loader.loads).toHaveLength(1)
+    const load = loader.loads[0]!
+    expect(load).toMatchObject({ mainModule: WORKFLOW_ENTRY_MODULE, globalOutbound: null, limits: { cpuMs: 30_000 } })
+    expect(Object.keys(load.modules).sort()).toEqual([WORKFLOW_BODY_MODULE, WORKFLOW_ENTRY_MODULE, WORKFLOW_RUNTIME_MODULE].sort())
+    expect(load.modules[WORKFLOW_ENTRY_MODULE]).toContain('extends WorkerEntrypoint')
+    expect(loader.entrypointOptions[0]).toEqual({ limits: { cpuMs: 30_000 } })
+    expect(loader.disposed).toBeGreaterThan(0)
     expect(subagents.children.map(child => child.label)).toEqual(['scan x', 'scan y', 'first', 'b'])
     expect(subagents.children.every(child => child.disposed)).toBe(true)
     const names = events.map(event => event[0])
@@ -129,11 +207,20 @@ describe('edge workflow engine', () => {
     expect(names.filter(name => name === 'workflow/agent-end')).toHaveLength(4)
     expect(events).toContainEqual(['workflow/phase', 'Scan'])
     expect(events).toContainEqual(['workflow/log', 'scanning 2'])
-    const firstStart = events.find(event => event[0] === 'workflow/agent-start')
-    expect(firstStart?.[1]).toMatchObject({ seq: 1, label: 'scan x', phase: 'Scan', childId: 'child-1' })
+    const starts = events.filter(event => event[0] === 'workflow/agent-start').map(event => event[1])
+    expect(starts[0]).toMatchObject({ seq: 1, label: 'scan x', phase: 'Scan', childId: 'child-1' })
+    expect(starts.find(info => (info as { label: string }).label === 'b')).toMatchObject({ phase: 'Other' })
   })
 
-  it('caps concurrent children', async () => {
+  it('exposes only agent, phase, and log on the bridge', async () => {
+    const { engine, loader } = await setup()
+    await run(engine, 'return 1')
+    const bridge = loader.bridges[0]!
+    expect(Object.getOwnPropertyNames(Object.getPrototypeOf(bridge)).sort()).toEqual(['agent', 'constructor', 'log', 'phase'])
+    expect(Object.keys(bridge)).toEqual([])
+  })
+
+  it('caps concurrent children on the host', async () => {
     const { engine, subagents } = await setup({ maxConcurrentAgents: 2 })
     const result = await run(engine, `return await parallel([1,2,3,4,5].map(i => () => agent('n' + i)))`)
     expect(result.stopReason).toBe('completed')
@@ -154,11 +241,18 @@ describe('edge workflow engine', () => {
     expect(subagents.children[1]!.schema).toMatchObject({ type: 'object' })
   })
 
-  it('keeps fatal hook errors fatal inside combinators', async () => {
+  it('keeps host-side fatal errors fatal inside combinators', async () => {
     const { engine } = await setup()
     const result = await run(engine, `return await parallel([() => agent('x', { effort: 'high' })])`)
     expect(result.stopReason).toBe('error')
     expect(result.error).toContain('agent() option "effort" is deferred')
+  })
+
+  it('treats arguments the bridge cannot carry as fatal', async () => {
+    const { engine } = await setup()
+    const result = await run(engine, `return await parallel([() => agent('x', { label: () => 1 })])`)
+    expect(result.stopReason).toBe('error')
+    expect(result.error).toContain('agent() arguments must be plain JSON data')
   })
 
   it('drops an ordinary stage throw to null', async () => {
@@ -167,48 +261,21 @@ describe('edge workflow engine', () => {
     expect(result.value).toEqual([null, 2])
   })
 
-  it('stops a synchronous hot loop with the step budget, even when caught', async () => {
-    const { engine } = await setup({ maxSteps: 1000 })
-    const result = await run(engine, `
-      try { while (true) {} } catch (e) {}
-      return 'escaped'
-    `)
-    expect(result.stopReason).toBe('error')
-    expect(result.error).toContain('step budget')
-  })
-
-  it('settles as soon as the step budget is exhausted, even if the script then parks', async () => {
-    const { engine, subagents, events } = await setup({ maxSteps: 1000 })
-    subagents.auto = undefined
-    const result = await run(engine, `
-      const child = agent('slow')
-      const stuck = new Promise(() => {})
-      try { while (true) {} } catch (e) {}
-      await stuck
-      return await child
-    `)
-    expect(result.stopReason).toBe('error')
-    expect(result.error).toContain('step budget')
-    expect(subagents.children.every(child => child.signal.aborted && child.disposed)).toBe(true)
-    const starts = events.filter(event => event[0] === 'workflow/agent-start').length
-    expect(events.filter(event => event[0] === 'workflow/agent-end')).toHaveLength(starts)
-  })
-
-  it('stops runaway recursion with the step budget', async () => {
-    const { engine } = await setup({ maxSteps: 1000 })
-    const result = await run(engine, `const f = n => f(n + 1); return f(0)`)
-    expect(result.stopReason).toBe('error')
-  })
-
-  it('enforces the total agent cap', async () => {
+  it('enforces the total agent cap on the host', async () => {
     const { engine } = await setup({ maxTotalAgents: 2 })
     const result = await run(engine, `for (let i = 0; i < 3; i++) await agent('x' + i); return 1`)
     expect(result.stopReason).toBe('error')
     expect(result.error).toContain('total agent cap (2)')
   })
 
-  it('cancels running children and pairs every agent-start with an end', async () => {
-    const { engine, subagents, events } = await setup()
+  it('reports a script error as the run error', async () => {
+    const { engine } = await setup()
+    const result = await run(engine, `throw new Error('script broke')`)
+    expect(result).toMatchObject({ stopReason: 'error', error: 'script broke' })
+  })
+
+  it('cancels by terminating the isolate and pairs every agent-start with an end', async () => {
+    const { engine, subagents, events, loader } = await setup()
     subagents.auto = undefined
     const controller = new AbortController()
     const handle = engine.start(request(`return await parallel([() => agent('a'), () => agent('b')])`, {
@@ -220,36 +287,29 @@ describe('edge workflow engine', () => {
     const result = await handle.result
     await handle.dispose()
     expect(result.stopReason).toBe('cancelled')
+    expect(loader.disposed).toBeGreaterThan(0)
     expect(subagents.children.every(child => child.signal.aborted && child.disposed)).toBe(true)
     const ends = events.filter(event => event[0] === 'workflow/agent-end')
     expect(ends).toHaveLength(2)
     expect(ends.every(event => (event[1] as { outcome: string }).outcome === 'cancelled')).toBe(true)
   })
 
-  it('force-settles a script parked on a promise no hook owns', async () => {
+  it('settles a script parked on a promise no hook owns once it is cancelled', async () => {
     const { engine } = await setup({ disposeGraceMs: 10 })
     const handle = engine.start(request(`await new Promise(() => {}); return 1`))
     await new Promise(resolve => setTimeout(resolve, 5))
     handle.cancel('test')
-    const result = await handle.result
-    expect(result).toMatchObject({ stopReason: 'cancelled', error: 'workflow run cancelled: test' })
+    await expect(handle.result).resolves.toMatchObject({ stopReason: 'cancelled', error: 'workflow run cancelled: test' })
     await handle.dispose()
   })
 
-  it('settles when a script reaches for engine hooks through this', async () => {
-    const { engine } = await setup()
-    const forged = await run(engine, `this['__dsh' + 'Settle'](1); return null`)
-    expect(forged.stopReason).toBe('error')
-    await expect(run(engine, `return 'ok'`)).resolves.toMatchObject({ stopReason: 'completed', value: 'ok' })
-  })
-
-  it('does not run the body when the start signal is already aborted', async () => {
-    const { engine, subagents } = await setup()
+  it('does not load an isolate when the start signal is already aborted', async () => {
+    const { engine, loader } = await setup()
     const controller = new AbortController()
     controller.abort()
     const result = await run(engine, `await agent('never'); return 1`, { signal: controller.signal })
     expect(result.stopReason).toBe('cancelled')
-    expect(subagents.children).toHaveLength(0)
+    expect(loader.loads).toHaveLength(0)
   })
 
   it('rejects non-JSON return values', async () => {
@@ -259,168 +319,27 @@ describe('edge workflow engine', () => {
     expect(result.error).toContain('not plain JSON data')
   })
 
-  it('throws synchronously for bad meta, bad syntax, and unknown providers', async () => {
-    const { engine } = await setup()
+  it('throws synchronously for bad meta, bad syntax, wrapper escapes, and unknown providers', async () => {
+    const { engine, loader } = await setup()
     expect(() => engine.start({ ...request('return 1'), meta: { name: '' } as never }))
       .toThrow(expect.objectContaining({ code: 'META_INVALID' }) as Error)
     expect(() => engine.start(request('return (')))
       .toThrow(expect.objectContaining({ code: 'SCRIPT_PARSE' }) as Error)
     expect(() => engine.start(request('export const meta = {}\nreturn 1')))
       .toThrow(/meta rides the `meta` request field/u)
+    expect(() => engine.start(request('}\nexport const escaped = 1\nfunction rest() {')))
+      .toThrow(/must not close its wrapper/u)
     expect(() => engine.start(request('return 1', { subagentProvider: 'missing' })))
       .toThrow(expect.objectContaining({ code: 'AGENT_START' }) as Error)
+    expect(loader.loads).toHaveLength(0)
   })
 })
 
-describe('workflow script sandbox', () => {
-  async function evaluate(body: string): Promise<unknown> {
-    const program = compileWorkflowScript(body, 'probe')
-    const noop = () => undefined
-    return program.run({ agent: noop, parallel: noop, pipeline: noop, phase: noop, log: noop, args: undefined, tick: noop })
-  }
-
-  it('exposes only ECMAScript data builtins', async () => {
-    await expect(evaluate(`return [typeof fetch, typeof setTimeout, typeof globalThis.fetch,
-      typeof process, typeof console, typeof Function, typeof eval, typeof globalThis.globalThis]`))
-      .resolves.toEqual(Array(8).fill('undefined'))
-    await expect(evaluate(`return [typeof Array, typeof JSON, typeof Promise, typeof Map]`))
-      .resolves.toEqual(['function', 'object', 'function', 'function'])
-    expect(typeof globalThis.fetch).toBe('function')
-  })
-
-  it('refuses constructor and prototype paths and reserved identifiers at parse time', () => {
-    for (const script of [
-      'Array.prototype.map = null',
-      '({}).__proto__.x = 1',
-      `({})['prototype']`,
-      '[].constructor.isArray = null',
-      'const { prototype } = Array',
-      `const { 'constructor': C } = []`,
-      'JSON.__defineGetter__("parse", () => 1)',
-      'with (Math) { max = 1 }',
-      '[].push.call(...[JSON], 1)',
-    ]) {
-      expect(() => compileWorkflowScript(script, 'probe'), script).toThrow(WorkflowError)
-    }
-    expect(() => compileWorkflowScript('__dshSettle(Promise.resolve(1))', 'probe')).toThrow(/reserved/u)
-    expect(() => compileWorkflowScript('__dshWritable(JSON).x = 1', 'probe')).toThrow(/reserved/u)
-  })
-
-  it('refuses every run-time path that would mutate a shared builtin', async () => {
-    const hostStringify = JSON.stringify
-    const hostIsArray = Array.isArray
-    for (const script of [
-      'JSON.stringify = null',
-      'Array.isArray = () => false',
-      'Math.max++',
-      'delete Math.max',
-      'Object.defineProperty(JSON, "parse", { value: null })',
-      'Object.assign(Math, { max: null })',
-      'Object.freeze(Date)',
-      'Object.setPrototypeOf(JSON, null)',
-      'Object.getPrototypeOf([]).push = null',
-      'const it = [][Symbol.iterator](); Object.getPrototypeOf(it).next = null',
-      'Object.getPrototypeOf(new Map().entries())',
-      'Object.getPrototypeOf("x"[Symbol.iterator]())',
-      'Object.getPrototypeOf({})',
-      'Object.getOwnPropertyDescriptors(Array)',
-      'Object.x = 1',
-      'Object.defineProperty.x = 1',
-      `const k = 'proto' + 'type'; Array[k].map = null`,
-      `const k = 'constr' + 'uctor'; const { [k]: C } = []`,
-      '[].push.call(JSON, 1)',
-      'String.fromCharCode.apply(Math, [65])',
-      'const bound = [].push.bind(Map); bound(1)',
-      'const x = [Error]; x[0].stackTraceLimit = 0',
-    ]) {
-      let failure: unknown
-      try {
-        await evaluate(script)
-      } catch (error) {
-        failure = error
-      }
-      expect(failure, script).toBeInstanceOf(WorkflowError)
-    }
-    // The interpreter rejects destructuring into member targets outright.
-    for (const script of ['[JSON.parse] = [null]', '({ a: Math.min } = { a: null })', 'for (Math.abs of [1]) {}']) {
-      await expect(evaluate(script), script).rejects.toThrow()
-    }
-    expect(Array.from(new Set([1, 2]).values())).toEqual([1, 2])
-    expect(JSON.parse('1')).toBe(1)
-    expect(typeof Math.min).toBe('function')
-    expect(typeof Math.abs).toBe('function')
-    expect(JSON.stringify).toBe(hostStringify)
-    expect(Array.isArray).toBe(hostIsArray)
-    expect(JSON.stringify({ ok: [1] })).toBe('{"ok":[1]}')
-    expect(Object.isFrozen(Date)).toBe(false)
-    expect('parse' in Object.getOwnPropertyDescriptors(JSON)).toBe(true)
-    expect((Error as { stackTraceLimit?: number }).stackTraceLimit).not.toBe(0)
-  })
-
-  it('keeps script-owned objects fully usable', async () => {
-    await expect(evaluate(`
-      const o = { a: 1 }
-      const key = 'b'
-      o[key] = 2
-      o.c = 3
-      delete o.a
-      Object.defineProperty(o, 'd', { value: 4, enumerable: true })
-      Object.assign(o, { e: 5 })
-      const arr = [3, 1, 2]
-      arr.sort()
-      arr[arr.length] = 4
-      const pushed = []
-      ;[].push.call(pushed, 'x')
-      class Box { constructor(v) { this.v = v } get twice() { return this.v * 2 } }
-      const box = new Box(2)
-      let n = 0
-      for (const item of arr) n += item
-      const { c, ...rest } = o
-      return { o: Object.freeze(o), arr, pushed, twice: box.twice, isObject: o instanceof Object, n, c, rest,
-        keys: Object.keys(o), entries: Object.entries({ z: 1 }) }
-    `)).resolves.toEqual({
-      o: { b: 2, c: 3, d: 4, e: 5 },
-      arr: [1, 2, 3, 4],
-      pushed: ['x'],
-      twice: 4,
-      isObject: true,
-      n: 10,
-      c: 3,
-      rest: { b: 2, d: 4, e: 5 },
-      keys: ['b', 'c', 'd', 'e'],
-      entries: [['z', 1]],
-    })
-  })
-
-  it('leaves no engine hook reachable from the script scope', async () => {
-    await expect(evaluate(`
-      const scopes = [this, globalThis]
-      const found = []
-      for (const scope of scopes) {
-        for (const name of Object.getOwnPropertyNames(scope)) {
-          if (name.startsWith('__dsh') && scope[name] !== undefined) found.push(name)
-        }
-        for (const [name, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(scope))) {
-          if (name.startsWith('__dsh') && descriptor.value !== undefined) found.push(name)
-        }
-      }
-      return found
-    `)).resolves.toEqual([])
-  })
-
-  it('refuses a body that closes its wrapper function early', () => {
-    expect(() => compileWorkflowScript('})(); agent("escaped"); (async () => {', 'probe'))
-      .toThrow(/must not close its wrapper/u)
-  })
-
-  it('reports parse errors as SCRIPT_PARSE', () => {
-    try {
-      compileWorkflowScript('let = ;', 'probe')
-      expect.unreachable()
-    } catch (error) {
-      expect(error).toBeInstanceOf(WorkflowError)
-      expect((error as WorkflowError).code).toBe('SCRIPT_PARSE')
-    }
+describe('workflow isolate configuration', () => {
+  it('runs the isolate with the deployment compatibility date', async () => {
+    const { readFile } = await import('node:fs/promises')
+    const wrangler = await readFile(new URL('../wrangler.jsonc', import.meta.url), 'utf8')
+    expect(wrangler).toContain(`"compatibility_date": "${WORKFLOW_COMPATIBILITY_DATE}"`)
   })
 })
 

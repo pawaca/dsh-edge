@@ -1,26 +1,31 @@
 /**
- * Edge provider for the upstream `ctx.workflowEngine` seam.
+ * Edge provider for the upstream `ctx.workflowEngine` seam, offered only where
+ * the Dynamic Worker runtime provider is available (the Worker Loader binding).
  *
  * The published `@deepseek-ai/dsh-workflow-worker-thread` engine needs
- * `node:vm` and `node:worker_threads`, neither of which workerd provides. This
+ * `node:vm` and `node:worker_threads`, which workerd does not provide. This
  * engine keeps that engine's script contract (hooks, caps, fatal-error
- * discipline, event pairing, never-rejecting result) but evaluates the script
- * with the interpreter in `./edge-workflow-script.ts` on the Durable Object's
- * own event loop. `agent()` calls go straight to `ctx.subagents`; no message
- * protocol is needed because script and host share one isolate.
- *
- * Differences from the worker-thread engine, each forced by the runtime:
- * - A step budget replaces the vm's synchronous timeout.
- * - Cancellation cannot terminate a thread. Every hook and step check throws
- *   after cancel, and a grace timer force-settles a script parked on a
- *   promise no hook owns.
- * - Default caps are sized for Durable Object limits: at most six concurrent
- *   outbound connections per invocation, and SQLite row writes for each child
- *   session.
+ * discipline, event pairing, never-rejecting result) and replaces the worker
+ * thread with a Dynamic Worker per run:
+ * - the script runs in its own isolate with no outbound network, so it can
+ *   neither reach nor corrupt the Durable Object's realm;
+ * - the Worker Loader `cpuMs` custom limit makes the isolate throw once its
+ *   synchronous work (native builtins included) exceeds the budget; the
+ *   Cloudflare runtime enforces it, local workerd does not. Disposing the
+ *   isolate ends it on cancellation, and a grace timer settles the run if the
+ *   pending evaluation never observes that;
+ * - `agent()`, `phase()`, and `log()` cross an RPC bridge, and every check that
+ *   protects the Durable Object (arguments, caps, concurrency, child
+ *   lifecycle, events) runs on the host side of that bridge.
+ * Default caps are sized for Durable Object limits: at most six concurrent
+ * outbound connections per invocation, and SQLite row writes for each child
+ * session.
  */
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import WorkflowEngine, { WorkflowError, WorkflowRunId, isFatalWorkflowError } from '@deepseek-ai/dsh-workflow'
+import { parse } from 'acorn'
+import { RpcTarget } from 'cloudflare:workers'
+import WorkflowEngine, { WorkflowError, WorkflowRunId } from '@deepseek-ai/dsh-workflow'
 import type {
   WorkflowAgentEndInfo,
   WorkflowAgentInfo,
@@ -37,10 +42,34 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SubagentRun } from '@deepseek-ai/dsh-subagent'
 import { JsonSchemaError, assertObjectJsonSchema } from '@deepseek-ai/dsh-tools'
 import type { ObjectJsonSchema } from '@deepseek-ai/dsh-tools'
-import { compileWorkflowScript } from './edge-workflow-script.ts'
-import type { WorkflowProgram } from './edge-workflow-script.ts'
+import {
+  WORKFLOW_BODY_MODULE,
+  WORKFLOW_ENTRY_MODULE,
+  WORKFLOW_ENTRY_SOURCE,
+  WORKFLOW_RUNTIME_MODULE,
+  WORKFLOW_RUNTIME_SOURCE,
+  workflowBodySource,
+} from './edge-workflow-runtime.ts'
+
+/** The Worker Loader surface a run needs (the `worker_loaders` binding). */
+export interface WorkflowLoader {
+  load(code: {
+    compatibilityDate: string
+    mainModule: string
+    modules: Record<string, string>
+    limits?: { cpuMs?: number }
+    globalOutbound?: null
+  }): { getEntrypoint(name?: string, options?: { limits?: { cpuMs?: number } }): unknown }
+}
+
+/** Compatibility date the workflow isolate runs with; a test keeps it equal to `wrangler.jsonc`. */
+export const WORKFLOW_COMPATIBILITY_DATE = '2026-08-14'
 
 export interface EdgeWorkflowEngineConfig {
+  /** Worker Loader that creates one isolate per run. */
+  loader: WorkflowLoader
+  /** CPU budget of one run's isolate; bounds every synchronous computation in the script. */
+  cpuMs: number
   /** Subagent provider every `agent()` call starts its child on. */
   provider: string
   /** Children allowed to run at once; keep below the Workers six-connection limit. */
@@ -49,8 +78,6 @@ export interface EdgeWorkflowEngineConfig {
   maxTotalAgents: number
   /** Items one `parallel()`/`pipeline()` call may receive. */
   maxItemsPerCall: number
-  /** Loop iterations plus function entries the script may execute. */
-  maxSteps: number
   /** How long cancellation and disposal wait for the script and children to settle. */
   disposeGraceMs: number
 }
@@ -63,11 +90,12 @@ export default class EdgeWorkflowEngine extends WorkflowEngine {
   static inject = ['subagents']
 
   static Config: z<EdgeWorkflowEngineConfig> = z.object({
+    loader: z.any().required() as z<WorkflowLoader>,
+    cpuMs: z.natural().min(1).default(30_000),
     provider: z.string().default('spawn'),
     maxConcurrentAgents: z.natural().min(1).default(4),
     maxTotalAgents: z.natural().min(1).default(100),
     maxItemsPerCall: z.natural().min(1).default(1024),
-    maxSteps: z.natural().min(1).default(500_000),
     disposeGraceMs: z.natural().default(5_000),
   })
 
@@ -82,11 +110,11 @@ export default class EdgeWorkflowEngine extends WorkflowEngine {
    */
   start(request: WorkflowStartRequest): WorkflowRun {
     const meta = validateMeta(request.meta)
-    const program = compileWorkflowScript(request.script, meta.name)
+    assertBodyParses(request.script, meta.name)
     const provider = this.resolveProvider(request.subagentProvider)
     const maxTotalAgents = resolveMaxTotalAgents(request.maxTotalAgents, this.config.maxTotalAgents)
     const info: WorkflowRunInfo = { id: WorkflowRunId(crypto.randomUUID()), meta }
-    const run = new EdgeWorkflowRun(this.ctx, info, program, request, provider, {
+    const run = new EdgeWorkflowRun(this.ctx, info, request, provider, {
       ...this.config,
       maxTotalAgents,
     }, {
@@ -103,7 +131,7 @@ export default class EdgeWorkflowEngine extends WorkflowEngine {
         agentsStarted: settled.agentsStarted,
       })
     })
-    // The script starts after start() returns, as with the worker-thread engine,
+    // The isolate starts after start() returns, as with the worker-thread engine,
     // so the caller can attach its recorder before any hook fires.
     queueMicrotask(() => { run.begin() })
     return run
@@ -118,6 +146,59 @@ export default class EdgeWorkflowEngine extends WorkflowEngine {
       throw new WorkflowError(`no subagent provider registered for "${provider}"`, 'AGENT_START')
     }
     return provider
+  }
+}
+
+type BridgeReply = { ok: true, value: unknown } | { ok: false, code: string, message: string }
+
+/**
+ * The only host object the isolate can reach. RPC exposes its prototype
+ * methods; the run itself stays in a private field.
+ */
+class WorkflowBridge extends RpcTarget {
+  readonly #run: EdgeWorkflowRun
+
+  constructor(run: EdgeWorkflowRun) {
+    super()
+    this.#run = run
+  }
+
+  agent(prompt: unknown, opts: unknown, phase: unknown): Promise<BridgeReply> {
+    return this.#run.bridgeAgent(prompt, opts, phase)
+  }
+
+  phase(title: unknown): void {
+    this.#run.bridgePhase(title)
+  }
+
+  log(message: unknown): void {
+    this.#run.bridgeLog(message)
+  }
+}
+
+/** A body that still carries the Claude Code-style meta header (meta rides the request as data). */
+const META_STATEMENT = /^\s*export\s+const\s+meta\b/u
+
+/**
+ * Parse the body exactly as the isolate will load it, so `start()` keeps the
+ * seam's synchronous `SCRIPT_PARSE` throw (the isolate compiles only after
+ * `start()` returns).
+ */
+function assertBodyParses(body: string, name: string): void {
+  if (META_STATEMENT.test(body)) {
+    throw new WorkflowError(
+      'workflow meta rides the `meta` request field, not the script: remove the `export const meta = {...}` statement from the body',
+      'SCRIPT_PARSE',
+    )
+  }
+  let program: { body: { type: string }[] }
+  try {
+    program = parse(workflowBodySource(body), { ecmaVersion: 'latest', sourceType: 'module' }) as unknown as typeof program
+  } catch (error) {
+    throw new WorkflowError(`workflow script "${name}" does not parse: ${String(error)}`, 'SCRIPT_PARSE', { cause: error })
+  }
+  if (program.body.length !== 1 || program.body[0]?.type !== 'ExportDefaultDeclaration') {
+    throw new WorkflowError(`workflow script "${name}" must not close its wrapper function`, 'SCRIPT_PARSE')
   }
 }
 
@@ -147,16 +228,15 @@ class EdgeWorkflowRun implements WorkflowRun {
   readonly result: Promise<WorkflowResult>
 
   private readonly parent: Agent
+  private readonly script: string
   private readonly args: unknown
   private settleResolve!: (result: WorkflowResult) => void
   private settled = false
   private began = false
   private started = 0
-  private steps = 0
-  private budgetExhausted = false
   private activeSlots = 0
   private readonly slotWaiters: { resolve(): void, reject(error: unknown): void }[] = []
-  private currentPhase: string | undefined
+  private isolate: { worker: unknown, entrypoint: unknown } | undefined
   private cancelReason: string | undefined
   private cancelError: WorkflowError | undefined
   private graceTimer: ReturnType<typeof setTimeout> | undefined
@@ -172,7 +252,6 @@ class EdgeWorkflowRun implements WorkflowRun {
   constructor(
     private readonly ctx: Context,
     info: WorkflowRunInfo,
-    private readonly program: WorkflowProgram,
     request: WorkflowStartRequest,
     private readonly provider: string,
     private readonly limits: EdgeWorkflowEngineConfig,
@@ -181,6 +260,7 @@ class EdgeWorkflowRun implements WorkflowRun {
     this.id = info.id
     this.meta = info.meta
     this.parent = request.parent
+    this.script = request.script
     // args is plain JSON by the seam contract; the copy keeps script mutation away from the caller.
     this.args = request.args === undefined ? undefined : JSON.parse(JSON.stringify(request.args)) as unknown
     this.result = new Promise(resolve => { this.settleResolve = resolve })
@@ -193,7 +273,7 @@ class EdgeWorkflowRun implements WorkflowRun {
     }
   }
 
-  /** Run the script body once. Called by the engine after `start()` returns. */
+  /** Load the run's isolate and evaluate the script once. Called by the engine after `start()` returns. */
   begin(): void {
     if (this.began) return
     this.began = true
@@ -202,22 +282,32 @@ class EdgeWorkflowRun implements WorkflowRun {
       this.settle(this.cancelledResult())
       return
     }
-    let completion: Promise<unknown>
+    let evaluation: Promise<unknown>
     try {
-      completion = this.program.run({
-        agent: (prompt, opts) => contain(this.agent(prompt, opts)),
-        parallel: thunks => contain(this.parallel(thunks)),
-        pipeline: (items, ...stages) => contain(this.pipeline(items, stages)),
-        phase: title => { this.phase(title) },
-        log: message => { this.log(message) },
-        args: this.args,
-        tick: () => { this.tick() },
+      const limits = { cpuMs: this.limits.cpuMs }
+      const worker = this.limits.loader.load({
+        compatibilityDate: WORKFLOW_COMPATIBILITY_DATE,
+        mainModule: WORKFLOW_ENTRY_MODULE,
+        modules: {
+          [WORKFLOW_ENTRY_MODULE]: WORKFLOW_ENTRY_SOURCE,
+          [WORKFLOW_RUNTIME_MODULE]: WORKFLOW_RUNTIME_SOURCE,
+          [WORKFLOW_BODY_MODULE]: workflowBodySource(this.script),
+        },
+        limits,
+        globalOutbound: null,
       })
+      const entrypoint = worker.getEntrypoint(undefined, { limits }) as {
+        evaluate(host: WorkflowBridge, input: { args: unknown, maxItemsPerCall: number }): Promise<unknown>
+      }
+      this.isolate = { worker, entrypoint }
+      evaluation = Promise.resolve(entrypoint.evaluate(new WorkflowBridge(this), {
+        args: this.args,
+        maxItemsPerCall: this.limits.maxItemsPerCall,
+      }))
     } catch (error) {
-      this.finish(Promise.reject(error))
-      return
+      evaluation = Promise.reject(error)
     }
-    this.finish(completion)
+    this.finish(evaluation)
   }
 
   cancel(reason?: string): void {
@@ -226,7 +316,9 @@ class EdgeWorkflowRun implements WorkflowRun {
     this.cancelError = new WorkflowError(`workflow run cancelled: ${this.cancelReason}`, 'CANCELLED')
     for (const waiter of this.slotWaiters.splice(0)) waiter.reject(this.cancelError)
     this.abortChildren()
-    // A script parked on a promise no hook owns never settles by itself.
+    // Terminating the isolate rejects the pending evaluation, which settles the run.
+    this.terminateIsolate()
+    // Backstop in case the evaluation promise never observes the termination.
     this.graceTimer = setTimeout(() => {
       this.endStrandedAgents()
       this.settle(this.cancelledResult())
@@ -255,10 +347,11 @@ class EdgeWorkflowRun implements WorkflowRun {
 
   private finish(completion: Promise<unknown>): void {
     completion.then(
-      raw => {
+      envelope => {
         if (this.isCancelled()) return this.cancelledResult()
-        if (this.budgetExhausted) return this.errorResult(this.budgetMessage())
         try {
+          // The runtime wraps the script's value because RPC adds a disposer to the returned object.
+          const raw = (envelope as { value?: unknown } | null | undefined)?.value
           return {
             value: raw === undefined ? null : materializeResult(raw),
             stopReason: 'completed',
@@ -270,61 +363,70 @@ class EdgeWorkflowRun implements WorkflowRun {
       },
       (error: unknown) => {
         if (this.isCancelled()) return this.cancelledResult()
-        if (this.budgetExhausted) return this.errorResult(this.budgetMessage())
         return this.errorResult(renderThrown(error))
       },
     ).then(result => {
       this.endStrandedAgents()
       this.settle(result)
       this.reapChildren()
+      this.terminateIsolate()
     }, (error: unknown) => {
       /* Defensive: the handlers above never throw, but result must never stay pending. */
       this.settle(this.errorResult(renderThrown(error)))
       this.reapChildren()
+      this.terminateIsolate()
     })
   }
 
-  private tick(): void {
-    this.throwIfCancelled()
-    if (++this.steps > this.limits.maxSteps) {
-      this.budgetExhausted = true
-      // Terminal: settle now instead of trusting the script to reach its end. A
-      // script that catches this error could otherwise park on a promise forever.
-      this.terminate(this.errorResult(this.budgetMessage()))
-      // The seam's closed code union has no step cap; ITEM_CAP is its resource-cap family.
-      throw new WorkflowError(this.budgetMessage(), 'ITEM_CAP')
+  /** Dispose the entrypoint and the Dynamic Worker, ending any code still running in it. */
+  private terminateIsolate(): void {
+    const isolate = this.isolate
+    this.isolate = undefined
+    if (isolate === undefined) return
+    for (const handle of [isolate.entrypoint, isolate.worker]) {
+      try {
+        (handle as { [Symbol.dispose]?: () => void })[Symbol.dispose]?.()
+      } catch (error) {
+        this.ctx.logger.warn(`edge-workflow: isolate dispose failed: ${renderThrown(error)}`)
+      }
     }
   }
 
-  /**
-   * Settle a run the engine has declared dead, without waiting for the script:
-   * queued `agent()` calls reject, children are aborted and disposed, and every
-   * later hook or step check throws because the run is settled.
-   */
-  private terminate(result: WorkflowResult): void {
-    if (this.settled) return
-    const error = new WorkflowError('workflow run already settled', 'CANCELLED')
-    for (const waiter of this.slotWaiters.splice(0)) waiter.reject(error)
-    this.endStrandedAgents()
-    this.settle(result)
-    this.reapChildren()
+  /** Bridge entry for `agent()`: a reply object, because only data crosses RPC reliably. */
+  async bridgeAgent(prompt: unknown, opts: unknown, scriptPhase: unknown): Promise<BridgeReply> {
+    try {
+      const phase = typeof scriptPhase === 'string' && scriptPhase.length > 0 ? scriptPhase : undefined
+      return { ok: true, value: await this.agent(prompt, opts ?? undefined, phase) }
+    } catch (error) {
+      return error instanceof WorkflowError
+        ? { ok: false, code: error.code, message: error.message }
+        : { ok: false, code: 'AGENT_RESULT', message: renderThrown(error) }
+    }
   }
 
-  private budgetMessage(): string {
-    return `workflow script exceeded its step budget (${this.limits.maxSteps} loop iterations and function calls); the script should coordinate agents, not compute`
+  /** Bridge entry for `phase()`: progress narration only; the isolate tracks its current phase. */
+  bridgePhase(title: unknown): void {
+    if (this.settled || this.isCancelled() || typeof title !== 'string' || title.length === 0) return
+    this.observer.phase(title)
+  }
+
+  /** Bridge entry for `log()`. */
+  bridgeLog(message: unknown): void {
+    if (this.settled || this.isCancelled() || typeof message !== 'string') return
+    this.observer.log(message)
   }
 
   private isCancelled(): boolean {
     return this.cancelReason !== undefined
   }
 
-  /** Every hook and step check refuses work once the run is cancelled or already settled. */
+  /** Every bridge call refuses work once the run is cancelled or already settled. */
   private throwIfCancelled(): void {
     if (this.cancelError !== undefined) throw this.cancelError
     if (this.settled) throw new WorkflowError('workflow run already settled', 'CANCELLED')
   }
 
-  private async agent(rawPrompt: unknown, rawOpts: unknown): Promise<unknown> {
+  private async agent(rawPrompt: unknown, rawOpts: unknown, scriptPhase: string | undefined): Promise<unknown> {
     this.throwIfCancelled()
     if (typeof rawPrompt !== 'string' || rawPrompt.length === 0) {
       throw new WorkflowError('agent() requires a non-empty prompt string', 'INVALID_ARGUMENT')
@@ -339,7 +441,7 @@ class EdgeWorkflowRun implements WorkflowRun {
     this.started += 1
     const seq = this.started
     const label = opts.label ?? defaultLabel(rawPrompt)
-    const phase = opts.phase ?? this.currentPhase
+    const phase = opts.phase ?? scriptPhase
     await this.acquireSlot()
     try {
       this.throwIfCancelled()
@@ -423,81 +525,6 @@ class EdgeWorkflowRun implements WorkflowRun {
       throw this.cancelError ?? new WorkflowError('workflow run already settled', 'CANCELLED')
     }
     return run
-  }
-
-  private async parallel(rawThunks: unknown): Promise<unknown[]> {
-    this.throwIfCancelled()
-    if (!Array.isArray(rawThunks)) {
-      throw new WorkflowError('parallel() requires an array of zero-argument functions', 'INVALID_ARGUMENT')
-    }
-    this.assertItemCap(rawThunks.length, 'parallel()')
-    const thunks = rawThunks.map((thunk: unknown, index) => {
-      if (typeof thunk !== 'function') {
-        throw new WorkflowError(`parallel() item ${index} is not a function`, 'INVALID_ARGUMENT')
-      }
-      return thunk as () => unknown
-    })
-    return Promise.all(thunks.map(async thunk => {
-      try {
-        return await thunk()
-      } catch (error) {
-        if (isFatalWorkflowError(error)) throw error
-        return null
-      }
-    }))
-  }
-
-  private async pipeline(rawItems: unknown, rawStages: unknown[]): Promise<unknown[]> {
-    this.throwIfCancelled()
-    if (!Array.isArray(rawItems)) {
-      throw new WorkflowError('pipeline() requires an items array', 'INVALID_ARGUMENT')
-    }
-    this.assertItemCap(rawItems.length, 'pipeline()')
-    if (rawStages.length === 0) {
-      throw new WorkflowError('pipeline() requires at least one stage function', 'INVALID_ARGUMENT')
-    }
-    const stages = rawStages.map((stage, index) => {
-      if (typeof stage !== 'function') {
-        throw new WorkflowError(`pipeline() stage ${index} is not a function`, 'INVALID_ARGUMENT')
-      }
-      return stage as (previous: unknown, item: unknown, index: number) => unknown
-    })
-    return Promise.all((rawItems as unknown[]).map(async (item, index) => {
-      let value = item
-      try {
-        for (const stage of stages) value = await stage(value, item, index)
-        return value
-      } catch (error) {
-        if (isFatalWorkflowError(error)) throw error
-        return null
-      }
-    }))
-  }
-
-  private phase(title: unknown): void {
-    this.throwIfCancelled()
-    if (typeof title !== 'string' || title.length === 0) {
-      throw new WorkflowError('phase() requires a non-empty title string', 'INVALID_ARGUMENT')
-    }
-    this.currentPhase = title
-    this.observer.phase(title)
-  }
-
-  private log(message: unknown): void {
-    this.throwIfCancelled()
-    if (typeof message !== 'string') {
-      throw new WorkflowError('log() requires a message string', 'INVALID_ARGUMENT')
-    }
-    this.observer.log(message)
-  }
-
-  private assertItemCap(length: number, hook: string): void {
-    if (length > this.limits.maxItemsPerCall) {
-      throw new WorkflowError(
-        `${hook} received ${length} items — over the per-call cap (${this.limits.maxItemsPerCall}); split the work`,
-        'ITEM_CAP',
-      )
-    }
   }
 
   private acquireSlot(): Promise<void> {
@@ -593,12 +620,6 @@ class EdgeWorkflowRun implements WorkflowRun {
     clearTimeout(this.graceTimer)
     this.settleResolve(result)
   }
-}
-
-/** Attach a rejection consumer without changing what an awaiting script observes. */
-function contain<T>(promise: Promise<T>): Promise<T> {
-  promise.catch(() => {})
-  return promise
 }
 
 function outputText(blocks: readonly ContentBlock[]): string {

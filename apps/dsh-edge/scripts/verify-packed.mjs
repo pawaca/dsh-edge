@@ -59,7 +59,7 @@ export function verifyPacked(input) {
       name.startsWith('@deepseek-ai/')
       || name === '@cloudflare/computer'
       || name === 'just-bash'
-      || name === 'sval'
+      || name === 'acorn'
     ))
     if (sourceRuntimeDependency !== undefined) {
       throw new Error(`packed dsh-edge still installs bundled source dependency ${sourceRuntimeDependency}`)

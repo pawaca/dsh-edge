@@ -160,11 +160,11 @@
     "@deepseek-ai/schemastery": "3.18.2",
     "@mixmark-io/domino": "2.2.0",
     "@modelcontextprotocol/sdk": "1.30.0",
+    "acorn": "8.18.0",
     "fast-png": "8.0.0",
     "jpeg-js": "0.4.4",
     "just-bash": "3.4.2",
     "playwright": "^1.49.0",
-    "sval": "0.6.12",
     "typescript": "^6.0.3",
     "vitest": "^4.1.8",
     "ws": "^8.21.0"

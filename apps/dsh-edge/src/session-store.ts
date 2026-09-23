@@ -107,6 +107,7 @@ import {
   type SettingsPathOp,
 } from '@deepseek-ai/dsh-settings'
 import DurableObjectSettingsProvider from './do-settings-provider.ts'
+import type { WorkflowLoader } from './edge-workflow-engine.ts'
 import EdgeCredentialProvider from './edge-credentials.ts'
 import DurableObjectSessionPersistence, {
   EDGE_HISTORY_PAGE_LIMITS,
@@ -137,6 +138,8 @@ interface EdgeSessionStoreConfig {
   maxTokens?: string
   reasoningEffort?: string
   streamIdleTimeoutMs?: string
+  /** Worker Loader for workflow isolates; present only when the Dynamic Worker provider is available. */
+  workflowLoader?: WorkflowLoader
   /** Run one bounded Computer workspace operation outside a turn (`@file` completion, directory browsing). */
   withWorkspaceFiles<T>(read: (files: EdgeWorkspaceFiles) => Promise<T>): Promise<T>
   onLateSessionEvent?: (sessionId: SessionId, event: SessionEvent) => void
@@ -616,10 +619,11 @@ export class EdgeSessionStore {
         enableRunInBackground: true,
       })
     }
-    {
-      // Interpreted workflow engine: workerd has no node:vm or worker_threads for the upstream one.
+    if (config.workflowLoader !== undefined) {
+      // Provider-gated: each run executes in its own Dynamic Worker, so only
+      // deployments with the Worker Loader binding offer the workflow tool.
       const { default: EdgeWorkflowEngine } = await import('./edge-workflow-engine.ts')
-      await this.context.plugin(EdgeWorkflowEngine)
+      await this.context.plugin(EdgeWorkflowEngine, { loader: config.workflowLoader } as never)
       // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
       const ToolWorkflow = await import(
         '@deepseek-ai/dsh-tool-workflow' as string
