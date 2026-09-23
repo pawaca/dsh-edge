@@ -5,10 +5,11 @@
  * the Durable Object (argument validation, agent caps, concurrency, child
  * lifecycle, events) runs on the host behind the bridge the entrypoint
  * receives, so a script that tampers with this runtime only affects its own
- * isolate. Every path across the bridge (agent requests, progress messages,
- * and the result) is bounded here in both count and bytes, so the isolate
- * never sends more than the host would accept; the host re-checks every
- * bound and stays the authority. The hook semantics mirror the published worker-thread engine:
+ * isolate. Every path across the bridge is bounded in both count and bytes:
+ * agent requests, progress messages, and the result are copied into fresh
+ * plain data with primitives captured before the script loads, measured while
+ * copied, and only the copy is sent; the host re-checks every bound, caps the
+ * child results it replies with, and stays the authority. The hook semantics mirror the published worker-thread engine:
  * fatal `WorkflowError`s propagate through `parallel()` and `pipeline()`,
  * while ordinary failures become per-item `null`.
  */
@@ -26,6 +27,8 @@ export const MAX_AGENT_REQUEST_BYTES = 256 * 1024
 export const MAX_PROGRESS_CHARS = 4096
 /** Largest JSON-encoded script result that may cross the bridge. */
 export const MAX_RESULT_BYTES = 1024 * 1024
+/** Largest JSON-encoded child result the host sends back to the isolate. */
+export const MAX_AGENT_REPLY_BYTES = 2 * 1024 * 1024
 
 /** Main module: a WorkerEntrypoint whose `evaluate` runs the script against the host bridge. */
 export const WORKFLOW_ENTRY_SOURCE = `import { WorkerEntrypoint } from 'cloudflare:workers'
@@ -61,23 +64,104 @@ function unwrap(reply) {
   throw new WorkflowError(reply.message, reply.code)
 }
 
-const encoder = new TextEncoder()
+// Captured when this module loads, before the body module evaluates, so a
+// script that replaces JSON, Object, Array, or String members cannot change
+// how bridge payloads are copied and measured.
+const captured = {
+  keys: Object.keys,
+  getPrototypeOf: Object.getPrototypeOf,
+  symbols: Object.getOwnPropertySymbols,
+  defineProperty: Object.defineProperty,
+  isArray: Array.isArray,
+  charCodeAt: Function.prototype.call.bind(String.prototype.charCodeAt),
+  slice: Function.prototype.call.bind(String.prototype.slice),
+}
 
-function assertBytes(value, limit, what, code) {
-  let text
-  try {
-    text = JSON.stringify(value)
-  } catch (error) {
-    throw new WorkflowError(what + ' must be plain JSON data — ' + String(error?.message ?? error), code)
+function utf8Length(text) {
+  let size = 0
+  for (let index = 0; index < text.length; index += 1) {
+    const code = captured.charCodeAt(text, index)
+    if (code < 0x80) size += 1
+    else if (code < 0x800) size += 2
+    else if (code >= 0xd800 && code <= 0xdbff && index + 1 < text.length) {
+      size += 4
+      index += 1
+    } else size += 3
   }
-  const size = text === undefined ? 0 : encoder.encode(text).byteLength
-  if (size > limit) {
-    throw new WorkflowError(what + ' is ' + size + ' bytes, over the ' + limit + '-byte limit; pass smaller inputs or references', code)
+  return size
+}
+
+/**
+ * Return a copier that turns values into fresh plain JSON data within one
+ * byte budget. Only the copy crosses the bridge: every property is read once,
+ * so getters, proxies, and toJSON hooks cannot change what was measured.
+ */
+function boundedCopier(limit, what, code) {
+  let left = limit
+  const fail = (path, reason) => {
+    throw new WorkflowError(what + ' ' + path + ': ' + reason, code)
   }
+  const spend = amount => {
+    left -= amount
+    if (left < 0) throw new WorkflowError(what + ' is over the ' + limit + '-byte limit; pass smaller inputs or references', code)
+  }
+  const copy = (item, path, ancestors) => {
+    switch (typeof item) {
+      case 'string':
+        spend(utf8Length(item) + 2)
+        return item
+      case 'number':
+        if (item !== item || item === Infinity || item === -Infinity) fail(path, 'non-finite numbers are not JSON data')
+        spend(('' + item).length)
+        return item
+      case 'boolean':
+        spend(5)
+        return item
+      case 'object':
+        break
+      default:
+        fail(path, typeof item + ' values are not JSON data')
+    }
+    if (item === null) {
+      spend(4)
+      return null
+    }
+    for (let node = ancestors; node !== null; node = node.parent) {
+      if (node.item === item) fail(path, 'circular references are not JSON data')
+    }
+    if (captured.symbols(item).length > 0) fail(path, 'symbol-keyed properties are not JSON data')
+    const chain = { item, parent: ancestors }
+    const define = (target, key, value) => {
+      captured.defineProperty(target, key, { value, writable: true, enumerable: true, configurable: true })
+    }
+    if (captured.isArray(item)) {
+      const length = item.length
+      const out = []
+      spend(2)
+      for (let index = 0; index < length; index += 1) {
+        if (!(index in item)) fail(path + '[' + index + ']', 'sparse arrays are not JSON data')
+        define(out, index, copy(item[index], path + '[' + index + ']', chain))
+        spend(1)
+      }
+      return out
+    }
+    const proto = captured.getPrototypeOf(item)
+    if (proto !== null && captured.getPrototypeOf(proto) !== null) fail(path, 'only plain objects and arrays are JSON data')
+    const out = {}
+    spend(2)
+    const keys = captured.keys(item)
+    for (let index = 0; index < keys.length; index += 1) {
+      const key = keys[index]
+      spend(utf8Length(key) + 4)
+      define(out, key, copy(item[key], path + '.' + key, chain))
+    }
+    return out
+  }
+  return value => copy(value, '', null)
 }
 
 function clip(text) {
-  return text.length > ${MAX_PROGRESS_CHARS} ? text.slice(0, ${MAX_PROGRESS_CHARS}) + '…' : text
+  return text.length > ${MAX_PROGRESS_CHARS} ? captured.slice(text, 0, ${MAX_PROGRESS_CHARS}) + '…' : text
 }
 
 export async function runWorkflow(host, input, workflow) {
@@ -91,15 +175,17 @@ export async function runWorkflow(host, input, workflow) {
     if (accepted >= maxTotalAgents) {
       throw new WorkflowError('this run reached its total agent cap (' + maxTotalAgents + ') — a runaway-loop backstop; split the work across runs if the scale is intentional', 'AGENT_CAP')
     }
-    const request = [prompt, opts === undefined ? null : opts, currentPhase ?? null]
-    assertBytes(request, ${MAX_AGENT_REQUEST_BYTES}, 'agent() request', 'INVALID_ARGUMENT')
+    // Only these fresh copies cross the bridge, measured against one request budget.
+    const copy = boundedCopier(${MAX_AGENT_REQUEST_BYTES}, 'agent() request', 'INVALID_ARGUMENT')
+    const sentPrompt = copy(prompt)
+    const sentOpts = opts === undefined ? null : copy(opts)
+    const sentPhase = currentPhase === undefined ? null : copy(currentPhase)
     accepted += 1
     let reply
     try {
-      reply = await host.agent(...request)
+      reply = await host.agent(sentPrompt, sentOpts, sentPhase)
     } catch (error) {
-      // The bridge could not carry the arguments (functions, class instances).
-      throw new WorkflowError('agent() arguments must be plain JSON data — ' + String(error?.message ?? error), 'INVALID_ARGUMENT')
+      throw new WorkflowError('agent() request could not cross the bridge — ' + String(error?.message ?? error), 'INVALID_ARGUMENT')
     }
     return unwrap(reply)
   }
@@ -168,9 +254,8 @@ export async function runWorkflow(host, input, workflow) {
 
   const value = await workflow({ agent, parallel, pipeline, phase, log, args })
   // Wrapped: Workers RPC attaches a disposer to the top-level returned object only.
-  const envelope = { value: value === undefined ? null : value }
-  assertBytes(envelope.value, ${MAX_RESULT_BYTES}, 'the workflow result', 'RESULT_UNSERIALIZABLE')
-  return envelope
+  const result = boundedCopier(${MAX_RESULT_BYTES}, 'the workflow result', 'RESULT_UNSERIALIZABLE')(value === undefined ? null : value)
+  return { value: result }
 }
 `
 

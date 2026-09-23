@@ -43,6 +43,7 @@ import type { SubagentRun } from '@deepseek-ai/dsh-subagent'
 import { JsonSchemaError, assertObjectJsonSchema } from '@deepseek-ai/dsh-tools'
 import type { ObjectJsonSchema } from '@deepseek-ai/dsh-tools'
 import {
+  MAX_AGENT_REPLY_BYTES,
   MAX_AGENT_REQUEST_BYTES,
   MAX_PROGRESS_CHARS,
   MAX_RESULT_BYTES,
@@ -416,7 +417,16 @@ class EdgeWorkflowRun implements WorkflowRun {
     }
     try {
       const phase = typeof scriptPhase === 'string' && scriptPhase.length > 0 ? scriptPhase : undefined
-      return { ok: true, value: await this.agent(prompt, opts ?? undefined, phase) }
+      const value = await this.agent(prompt, opts ?? undefined, phase)
+      const replySize = jsonBytes(value)
+      if (replySize > MAX_AGENT_REPLY_BYTES) {
+        return {
+          ok: false,
+          code: 'AGENT_RESULT',
+          message: `child result is ${replySize} bytes, over the ${MAX_AGENT_REPLY_BYTES}-byte bridge limit; ask the agent for a shorter answer or a schema`,
+        }
+      }
+      return { ok: true, value }
     } catch (error) {
       return error instanceof WorkflowError
         ? { ok: false, code: error.code, message: error.message }

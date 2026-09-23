@@ -1,11 +1,13 @@
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { WorkflowEngine, WorkflowResult, WorkflowStartRequest } from '@deepseek-ai/dsh-workflow'
+import { createContext, runInContext } from 'node:vm'
 import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('cloudflare:workers', () => ({ RpcTarget: class {} }))
 
 const { default: EdgeWorkflowEngine, WORKFLOW_COMPATIBILITY_DATE, materialize, validateMeta } = await import('../src/edge-workflow-engine.ts')
 const {
+  MAX_AGENT_REPLY_BYTES,
   MAX_AGENT_REQUEST_BYTES,
   MAX_PROGRESS_CHARS,
   MAX_PROGRESS_IN_FLIGHT,
@@ -133,12 +135,17 @@ class FakeLoader {
     const entrypoint = {
       evaluate: async (bridge: Bridge, input: unknown) => {
         this.bridges.push(bridge)
-        // The fake stands in for the isolate, so it evaluates the generated modules in-process.
-        // eslint-disable-next-line typescript/no-implied-eval, typescript/no-unsafe-call
-        const runtime = new Function(`${code.modules[WORKFLOW_RUNTIME_MODULE]!.replace('export async function runWorkflow', 'async function runWorkflow')}\nreturn runWorkflow`)() as
-          (host: unknown, input: unknown, workflow: unknown) => Promise<unknown>
-        // eslint-disable-next-line typescript/no-implied-eval, typescript/no-unsafe-call
-        const workflow = new Function(`${code.modules[WORKFLOW_BODY_MODULE]!.replace('export default async function workflow', 'return async function workflow')}`)() as unknown
+        // Each load gets its own realm, like a Dynamic Worker, so a script that
+        // rewrites its builtins cannot reach this test process.
+        const context = createContext({})
+        const runtime = runInContext(
+          `${code.modules[WORKFLOW_RUNTIME_MODULE]!.replace('export async function runWorkflow', 'async function runWorkflow')}\nrunWorkflow`,
+          context,
+        ) as (host: unknown, input: unknown, workflow: unknown) => Promise<unknown>
+        const workflow = runInContext(
+          `(${code.modules[WORKFLOW_BODY_MODULE]!.replace('export default async function workflow', 'async function workflow')})`,
+          context,
+        ) as unknown
         const host = {
           agent: async (...args: unknown[]) => {
             this.agentCalls += 1
@@ -259,6 +266,41 @@ describe('edge workflow engine', () => {
     expect(texts.map(text => text.length)).toEqual([MAX_PROGRESS_CHARS + 1, MAX_PROGRESS_CHARS + 1])
   })
 
+  it('measures only a fresh copy, so script hooks cannot smuggle bytes across the bridge', async () => {
+    const hooked = await setup()
+    const smuggled = await run(hooked.engine, `
+      const payload = { huge: 'x'.repeat(${MAX_RESULT_BYTES}) }
+      Object.defineProperty(payload, 'toJSON', { value: () => null })
+      return payload
+    `)
+    expect(smuggled.stopReason).toBe('error')
+    expect(smuggled.error).toContain('the workflow result is over')
+    const replaced = await run(hooked.engine, `
+      JSON.stringify = () => '1'
+      Object.keys = () => []
+      return await agent('x'.repeat(${MAX_AGENT_REQUEST_BYTES}))
+    `)
+    expect(replaced.stopReason).toBe('error')
+    expect(replaced.error).toContain('agent() request is over')
+    expect(hooked.loader.agentCalls).toBe(0)
+    const getter = await run(hooked.engine, `
+      let reads = 0
+      const opts = {}
+      Object.defineProperty(opts, 'label', { enumerable: true, get: () => (reads += 1) === 1 ? 'small' : 'y'.repeat(1e6) })
+      return await agent('p', opts)
+    `)
+    expect(getter).toMatchObject({ stopReason: 'completed', value: 'P' })
+    expect(hooked.subagents.children.at(-1)!.label).toBe('small')
+  })
+
+  it('caps the child results the host sends back to the isolate', async () => {
+    const { engine, subagents } = await setup()
+    subagents.auto = child => { child.finish({ output: 'y'.repeat(MAX_AGENT_REPLY_BYTES) }) }
+    const result = await run(engine, `return await agent('verbose')`)
+    expect(result.stopReason).toBe('error')
+    expect(result.error).toContain('child result is')
+  })
+
   it('re-checks request bytes on the host side of the bridge', async () => {
     const { engine, loader, subagents } = await setup()
     subagents.auto = undefined
@@ -321,7 +363,7 @@ describe('edge workflow engine', () => {
     const { engine } = await setup()
     const result = await run(engine, `return await parallel([() => agent('x', { label: () => 1 })])`)
     expect(result.stopReason).toBe('error')
-    expect(result.error).toContain('agent() arguments must be plain JSON data')
+    expect(result.error).toContain('function values are not JSON data')
   })
 
   it('drops an ordinary stage throw to null', async () => {
@@ -416,7 +458,7 @@ describe('edge workflow engine', () => {
     const { engine } = await setup()
     const result = await run(engine, `return { when: new Date(0) }`)
     expect(result.stopReason).toBe('error')
-    expect(result.error).toContain('not plain JSON data')
+    expect(result.error).toContain('only plain objects and arrays are JSON data')
   })
 
   it('throws synchronously for bad meta, bad syntax, wrapper escapes, and unknown providers', async () => {
