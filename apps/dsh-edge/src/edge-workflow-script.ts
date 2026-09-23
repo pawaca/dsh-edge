@@ -7,20 +7,28 @@
  * tree-walked by `sval`, a pure-JavaScript interpreter, inside the Durable
  * Object isolate. That keeps Direct and Dynamic Loader deployments aligned.
  *
- * Containment, not a security boundary (the upstream engine takes the same
- * stance): the interpreter shares the host realm's builtins, so this module
- * narrows the script's global scope to plain ECMAScript data builtins, rejects
- * prototype writes by name, and injects a step check into every loop and
- * function body. The step check is the only way to stop a synchronous hot loop:
- * Workers freeze `Date.now()` during synchronous execution, so a wall-clock
- * deadline cannot fire, and there is no thread to terminate.
+ * The interpreter shares the Durable Object's builtins (there is no separate
+ * realm), so a mutated builtin would persist for every session until eviction.
+ * The invariant this module maintains is: a script can mutate only objects it
+ * created. It enforces that in four layers:
+ * - the global scope holds only ECMAScript data builtins, with `Object`
+ *   replaced by a facade whose mutators refuse builtin targets and whose
+ *   reflection refuses builtin objects;
+ * - every assignment, update, and `delete` target passes through a check that
+ *   throws for any builtin reachable from those globals (constructors,
+ *   prototypes, and their methods);
+ * - member names that reach a constructor or prototype (`constructor`,
+ *   `prototype`, `__proto__`, the legacy accessor helpers) are refused at
+ *   parse time when static and checked at run time when computed;
+ * - `.call`/`.apply`/`.bind` refuse a builtin receiver.
+ * Residual gap: a receiver-rebinding call reached through a computed key
+ * built at run time (`fn[name](builtin)`) is not checked.
  *
- * Residual risk, larger than the upstream vm realm's: the name-based
- * prototype check does not see indirect paths such as
- * `Object.getPrototypeOf([])` or computed keys, and a builtin mutation made
- * that way persists for every session in the Durable Object until eviction.
- * Scripts are written by the owner's own model; treat them as trusted input
- * with guard rails, not as isolated code.
+ * A step check injected into every loop and function body is the only way to
+ * stop a synchronous hot loop: Workers freeze `Date.now()` during synchronous
+ * execution, so a wall-clock deadline cannot fire, and there is no thread to
+ * terminate. Containment, not a security boundary (the upstream engine takes
+ * the same stance): scripts come from the owner's own model.
  */
 import Sval from 'sval'
 import { WorkflowError } from '@deepseek-ai/dsh-workflow'
@@ -30,6 +38,9 @@ const RESERVED_PREFIX = '__dsh'
 const TICK = `${RESERVED_PREFIX}Tick`
 const SETTLE = `${RESERVED_PREFIX}Settle`
 const CAPTURE = `${RESERVED_PREFIX}Capture`
+const WRITABLE = `${RESERVED_PREFIX}Writable`
+const KEY = `${RESERVED_PREFIX}Key`
+const RECEIVER = `${RESERVED_PREFIX}Receiver`
 
 /** A body that still carries the Claude Code-style meta header (meta rides the request as data). */
 const META_STATEMENT = /^\s*export\s+const\s+meta\b/u
@@ -48,8 +59,22 @@ const ALLOWED_GLOBALS = new Set([
   'encodeURI', 'decodeURI',
 ])
 
-/** Member names whose use would let a script mutate shared host builtins. */
-const FORBIDDEN_MEMBERS = new Set(['prototype', '__proto__'])
+/** Member names that lead from a value to a shared constructor or prototype. */
+const FORBIDDEN_MEMBERS = new Set([
+  'prototype', '__proto__', 'constructor',
+  '__defineGetter__', '__defineSetter__', '__lookupGetter__', '__lookupSetter__',
+])
+
+/** Methods that run with a caller-chosen receiver. */
+const RECEIVER_METHODS = new Set(['call', 'apply', 'bind'])
+
+/** `Object` statics that mutate their first argument. */
+const OBJECT_MUTATORS = new Set([
+  'defineProperty', 'defineProperties', 'assign', 'setPrototypeOf', 'freeze', 'seal', 'preventExtensions',
+])
+
+/** `Object` statics that could hand a script a builtin prototype or descriptor. */
+const OBJECT_REFLECTORS = new Set(['getPrototypeOf', 'getOwnPropertyDescriptor', 'getOwnPropertyDescriptors'])
 
 const LOOP_TYPES = new Set([
   'WhileStatement', 'DoWhileStatement', 'ForStatement', 'ForInStatement', 'ForOfStatement',
@@ -132,7 +157,10 @@ export function compileWorkflowScript(body: string, name: string): WorkflowProgr
         log: bindings.log,
         args: bindings.args,
         [TICK]: bindings.tick,
-        [SETTLE]: (promise: Promise<unknown>) => { completion = promise },
+        [WRITABLE]: assertWritable,
+        [KEY]: assertKey,
+        [RECEIVER]: assertReceiver,
+        [SETTLE]: (promise: Promise<unknown>) => { completion ??= promise },
       })
       interpreter.run(program as never)
       if (completion === undefined) throw new Error('workflow script did not produce a completion promise')
@@ -156,6 +184,95 @@ function restrictGlobals(interpreter: Sval): void {
   for (const key of Object.getOwnPropertyNames(global)) {
     if (!ALLOWED_GLOBALS.has(key) && key !== CAPTURE) delete global[key]
   }
+  global.Object = objectFacade()
+}
+
+let builtins: WeakSet<object> | undefined
+let facade: ObjectConstructor | undefined
+
+/** Every object reachable from the allowlisted globals: constructors, prototypes, methods, accessors. */
+function sharedBuiltins(): WeakSet<object> {
+  if (builtins !== undefined) return builtins
+  const seen = new WeakSet<object>()
+  const queue: unknown[] = [...ALLOWED_GLOBALS].map(name => (globalThis as Record<string, unknown>)[name])
+  while (queue.length > 0) {
+    const value = queue.pop()
+    if ((typeof value !== 'object' && typeof value !== 'function') || value === null || seen.has(value)) continue
+    seen.add(value)
+    queue.push(Object.getPrototypeOf(value))
+    for (const key of Reflect.ownKeys(value)) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, key)
+      if (descriptor === undefined) continue
+      // Accessor functions are collected as values, never invoked.
+      const { value: data, get: getter, set: setter } = descriptor as { value?: unknown, get?: unknown, set?: unknown }
+      queue.push(data, getter, setter)
+    }
+  }
+  builtins = seen
+  return seen
+}
+
+function isBuiltin(value: unknown): boolean {
+  return (typeof value === 'object' || typeof value === 'function') && value !== null
+    && sharedBuiltins().has(value)
+}
+
+function refuse(what: string): never {
+  throw new WorkflowError(`workflow scripts cannot ${what}; build and change your own objects instead`, 'INVALID_ARGUMENT')
+}
+
+/** Write-target guard: returns the object unchanged unless it is a shared builtin. */
+function assertWritable<T>(target: T): T {
+  if (isBuiltin(target)) refuse('modify built-in objects')
+  return target
+}
+
+/** Computed-key guard: resolves the key once and refuses names that reach a constructor or prototype. */
+function assertKey(key: unknown): unknown {
+  const resolved = typeof key === 'symbol' ? key : String(key)
+  if (typeof resolved === 'string' && FORBIDDEN_MEMBERS.has(resolved)) refuse(`access "${resolved}"`)
+  return resolved
+}
+
+/** Receiver guard for `.call`/`.apply`/`.bind`. */
+function assertReceiver<T>(receiver: T): T {
+  if (isBuiltin(receiver)) refuse('call a method on a built-in object')
+  return receiver
+}
+
+/**
+ * The script's `Object`: the real constructor behind a proxy whose mutators
+ * refuse builtin targets and whose reflection refuses builtin objects.
+ * Shared across runs, so it and its wrappers are themselves protected.
+ */
+function objectFacade(): ObjectConstructor {
+  if (facade !== undefined) return facade
+  const shared = sharedBuiltins()
+  const wrappers = new Map<PropertyKey, unknown>()
+  for (const name of OBJECT_MUTATORS) {
+    const original = (Object as unknown as Record<string, (...args: unknown[]) => unknown>)[name]!
+    wrappers.set(name, Object.freeze((...args: unknown[]) => original(assertWritable(args[0]), ...args.slice(1))))
+  }
+  for (const name of OBJECT_REFLECTORS) {
+    const original = (Object as unknown as Record<string, (...args: unknown[]) => unknown>)[name]!
+    wrappers.set(name, Object.freeze((...args: unknown[]) => {
+      if (isBuiltin(args[0])) refuse(`inspect built-in objects with Object.${name}`)
+      const result = original(...args)
+      if (isBuiltin(result)) refuse(`reach built-in prototypes with Object.${name}`)
+      return result
+    }))
+  }
+  const readOnly = () => refuse('modify built-in objects')
+  facade = new Proxy(Object, {
+    get: (target, key, receiver) => wrappers.has(key) ? wrappers.get(key) : Reflect.get(target, key, receiver) as unknown,
+    set: readOnly,
+    defineProperty: readOnly,
+    deleteProperty: readOnly,
+    setPrototypeOf: readOnly,
+  })
+  shared.add(facade)
+  for (const wrapper of wrappers.values()) shared.add(wrapper as object)
+  return facade
 }
 
 /** Return the first refused construct, or undefined when the script is acceptable. */
@@ -170,22 +287,81 @@ function findViolation(root: AstNode): string | undefined {
       found = `identifiers starting with "${RESERVED_PREFIX}" are reserved (${node.name})`
       return
     }
-    if (node.type === 'MemberExpression') {
-      const property = node.property as AstNode
-      const key = node.computed === true
-        ? (property.type === 'Literal' ? String(property.value) : undefined)
-        : (property.type === 'Identifier' ? property.name as string : undefined)
-      if (key !== undefined && FORBIDDEN_MEMBERS.has(key)) {
-        found = `access to "${key}" is not available in workflow scripts`
+    if (node.type === 'WithStatement') {
+      found = '`with` statements are not available in workflow scripts'
+      return
+    }
+    const keys: (string | undefined)[] = []
+    if (node.type === 'MemberExpression') keys.push(staticKey(node.property as AstNode, node.computed === true))
+    if (node.type === 'ObjectPattern') {
+      for (const property of node.properties as AstNode[]) {
+        if (property.type === 'Property') keys.push(staticKey(property.key as AstNode, property.computed === true))
       }
+    }
+    const forbidden = keys.find(key => key !== undefined && FORBIDDEN_MEMBERS.has(key))
+    if (forbidden !== undefined) {
+      found = `access to "${forbidden}" is not available in workflow scripts`
+      return
+    }
+    if (node.type === 'CallExpression' && isReceiverCall(node)
+      && (node.arguments as AstNode[])[0]?.type === 'SpreadElement') {
+      found = 'spreading the receiver argument of call/apply/bind is not available in workflow scripts'
     }
   })
   return found
 }
 
-/** Insert a step check at the head of every loop iteration and function body. */
+/** The name a non-computed or literal key denotes, or undefined for a key known only at run time. */
+function staticKey(key: AstNode, computed: boolean): string | undefined {
+  if (!computed) return key.type === 'Identifier' ? key.name as string : String(key.value)
+  return key.type === 'Literal' ? String(key.value) : undefined
+}
+
+function isReceiverCall(node: AstNode): boolean {
+  const callee = node.callee as AstNode
+  if (callee.type !== 'MemberExpression') return false
+  const key = staticKey(callee.property as AstNode, callee.computed === true)
+  return key !== undefined && RECEIVER_METHODS.has(key)
+}
+
+/**
+ * Insert a step check at the head of every loop iteration and function body,
+ * and route write targets, run-time computed keys, and call/apply/bind
+ * receivers through their guards.
+ */
 function instrument(root: AstNode): void {
   walk(root, node => {
+    switch (node.type) {
+      case 'AssignmentExpression':
+        guardWriteTarget(node.left as AstNode)
+        break
+      case 'UpdateExpression':
+        guardWriteTarget(node.argument as AstNode)
+        break
+      case 'UnaryExpression':
+        if (node.operator === 'delete') guardWriteTarget(node.argument as AstNode)
+        break
+      case 'ForInStatement':
+      case 'ForOfStatement':
+        guardWriteTarget(node.left as AstNode)
+        break
+      case 'MemberExpression':
+        if (node.computed === true && (node.property as AstNode).type !== 'Literal') {
+          node.property = guardCall(KEY, node.property as AstNode)
+        }
+        break
+      case 'Property':
+        if (node.computed === true && (node.key as AstNode).type !== 'Literal') {
+          node.key = guardCall(KEY, node.key as AstNode)
+        }
+        break
+      case 'CallExpression':
+        if (isReceiverCall(node)) {
+          const args = node.arguments as AstNode[]
+          if (args[0] !== undefined) args[0] = guardCall(RECEIVER, args[0])
+        }
+        break
+    }
     if (LOOP_TYPES.has(node.type)) {
       node.body = block([tickStatement(), node.body as AstNode])
       return
@@ -199,6 +375,38 @@ function instrument(root: AstNode): void {
       node.expression = false
     }
   })
+}
+
+/** Wrap the object of every member expression a pattern writes to. */
+function guardWriteTarget(target: AstNode): void {
+  switch (target.type) {
+    case 'MemberExpression':
+      if ((target.object as AstNode).type !== 'Super') target.object = guardCall(WRITABLE, target.object as AstNode)
+      break
+    case 'ObjectPattern':
+      for (const property of target.properties as AstNode[]) {
+        guardWriteTarget(property.type === 'Property' ? property.value as AstNode : property)
+      }
+      break
+    case 'ArrayPattern':
+      for (const element of target.elements as (AstNode | null)[]) if (element !== null) guardWriteTarget(element)
+      break
+    case 'RestElement':
+      guardWriteTarget(target.argument as AstNode)
+      break
+    case 'AssignmentPattern':
+      guardWriteTarget(target.left as AstNode)
+      break
+  }
+}
+
+function guardCall(guard: string, argument: AstNode): AstNode {
+  return {
+    type: 'CallExpression',
+    callee: { type: 'Identifier', name: guard },
+    arguments: [argument],
+    optional: false,
+  }
 }
 
 function tickStatement(): AstNode {

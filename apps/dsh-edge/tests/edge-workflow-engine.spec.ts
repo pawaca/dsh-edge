@@ -264,11 +264,103 @@ describe('workflow script sandbox', () => {
     expect(typeof globalThis.fetch).toBe('function')
   })
 
-  it('refuses prototype access and reserved identifiers', () => {
-    expect(() => compileWorkflowScript('Array.prototype.map = null', 'probe')).toThrow(/"prototype"/u)
-    expect(() => compileWorkflowScript('({}).__proto__.x = 1', 'probe')).toThrow(/"__proto__"/u)
-    expect(() => compileWorkflowScript(`({})['prototype']`, 'probe')).toThrow(/"prototype"/u)
+  it('refuses constructor and prototype paths and reserved identifiers at parse time', () => {
+    for (const script of [
+      'Array.prototype.map = null',
+      '({}).__proto__.x = 1',
+      `({})['prototype']`,
+      '[].constructor.isArray = null',
+      'const { prototype } = Array',
+      `const { 'constructor': C } = []`,
+      'JSON.__defineGetter__("parse", () => 1)',
+      'with (Math) { max = 1 }',
+      '[].push.call(...[JSON], 1)',
+    ]) {
+      expect(() => compileWorkflowScript(script, 'probe'), script).toThrow(WorkflowError)
+    }
     expect(() => compileWorkflowScript('__dshSettle(Promise.resolve(1))', 'probe')).toThrow(/reserved/u)
+    expect(() => compileWorkflowScript('__dshWritable(JSON).x = 1', 'probe')).toThrow(/reserved/u)
+  })
+
+  it('refuses every run-time path that would mutate a shared builtin', async () => {
+    const hostStringify = JSON.stringify
+    const hostIsArray = Array.isArray
+    for (const script of [
+      'JSON.stringify = null',
+      'Array.isArray = () => false',
+      'Math.max++',
+      'delete Math.max',
+      'Object.defineProperty(JSON, "parse", { value: null })',
+      'Object.assign(Math, { max: null })',
+      'Object.freeze(Date)',
+      'Object.setPrototypeOf(JSON, null)',
+      'Object.getPrototypeOf([]).push = null',
+      'Object.getOwnPropertyDescriptors(Array)',
+      'Object.x = 1',
+      'Object.defineProperty.x = 1',
+      `const k = 'proto' + 'type'; Array[k].map = null`,
+      `const k = 'constr' + 'uctor'; const { [k]: C } = []`,
+      '[].push.call(JSON, 1)',
+      'String.fromCharCode.apply(Math, [65])',
+      'const bound = [].push.bind(Map); bound(1)',
+      'const x = [Error]; x[0].stackTraceLimit = 0',
+    ]) {
+      let failure: unknown
+      try {
+        await evaluate(script)
+      } catch (error) {
+        failure = error
+      }
+      expect(failure, script).toBeInstanceOf(WorkflowError)
+    }
+    // The interpreter rejects destructuring into member targets outright.
+    for (const script of ['[JSON.parse] = [null]', '({ a: Math.min } = { a: null })', 'for (Math.abs of [1]) {}']) {
+      await expect(evaluate(script), script).rejects.toThrow()
+    }
+    expect(JSON.parse('1')).toBe(1)
+    expect(typeof Math.min).toBe('function')
+    expect(typeof Math.abs).toBe('function')
+    expect(JSON.stringify).toBe(hostStringify)
+    expect(Array.isArray).toBe(hostIsArray)
+    expect(JSON.stringify({ ok: [1] })).toBe('{"ok":[1]}')
+    expect(Object.isFrozen(Date)).toBe(false)
+    expect('parse' in Object.getOwnPropertyDescriptors(JSON)).toBe(true)
+    expect((Error as { stackTraceLimit?: number }).stackTraceLimit).not.toBe(0)
+  })
+
+  it('keeps script-owned objects fully usable', async () => {
+    await expect(evaluate(`
+      const o = { a: 1 }
+      const key = 'b'
+      o[key] = 2
+      o.c = 3
+      delete o.a
+      Object.defineProperty(o, 'd', { value: 4, enumerable: true })
+      Object.assign(o, { e: 5 })
+      const arr = [3, 1, 2]
+      arr.sort()
+      arr[arr.length] = 4
+      const pushed = []
+      ;[].push.call(pushed, 'x')
+      class Box { constructor(v) { this.v = v } get twice() { return this.v * 2 } }
+      const box = new Box(2)
+      let n = 0
+      for (const item of arr) n += item
+      const { c, ...rest } = o
+      return { o: Object.freeze(o), arr, pushed, twice: box.twice, isObject: o instanceof Object, n, c, rest,
+        keys: Object.keys(o), entries: Object.entries({ z: 1 }) }
+    `)).resolves.toEqual({
+      o: { b: 2, c: 3, d: 4, e: 5 },
+      arr: [1, 2, 3, 4],
+      pushed: ['x'],
+      twice: 4,
+      isObject: true,
+      n: 10,
+      c: 3,
+      rest: { b: 2, d: 4, e: 5 },
+      keys: ['b', 'c', 'd', 'e'],
+      entries: [['z', 1]],
+    })
   })
 
   it('reports parse errors as SCRIPT_PARSE', () => {
