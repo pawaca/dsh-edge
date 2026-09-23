@@ -8,22 +8,12 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { execa } from 'execa'
 import { writePrebuiltModeWranglerConfig } from './wrangler-config.mjs'
+import { isRuntimeMode, RUNTIME_MODES } from './runtime-providers.mjs'
+
+export { RUNTIME_MODES }
 
 export const DEFAULT_WORKER_NAME = 'dsh-edge'
 export const LOGIN_PROFILE = 'dsh-edge-install'
-export const RUNTIME_MODES = Object.freeze({
-  direct: Object.freeze({
-    environment: '',
-    expectedShell: 'just-bash-direct',
-    label: 'Free — Direct Shell',
-  }),
-  isolated: Object.freeze({
-    environment: 'isolated',
-    expectedShell: 'just-bash-isolated',
-    label: 'Isolated — Dynamic Worker',
-  }),
-})
-
 const appDirectory = fileURLToPath(new URL('..', import.meta.url))
 const require = createRequire(import.meta.url)
 const WRANGLER_CLI = require.resolve('wrangler')
@@ -163,7 +153,7 @@ class R2SubscriptionUnavailableError extends Error {
 export function accountChoices(mode, accounts, command = 'install') {
   requireRuntimeMode(mode)
   const choices = []
-  if (mode === 'direct' && command === 'install') {
+  if (!RUNTIME_MODES[mode].paid && command === 'install') {
     choices.push({
       value: 'temporary',
       label: 'Temporary account — no Cloudflare login',
@@ -340,7 +330,7 @@ export function wranglerDeployArgs({
   temporary = false,
 }) {
   requireRuntimeMode(mode)
-  if (temporary && mode !== 'direct') {
+  if (temporary && RUNTIME_MODES[mode].paid) {
     throw new Error('Temporary accounts support only the Free direct runtime.')
   }
   const args = [
@@ -564,7 +554,7 @@ export async function installEdge({
     if (temporary && command === 'upgrade') {
       throw new Error('Temporary accounts cannot be upgraded before they are claimed.')
     }
-    if (temporary && mode !== 'direct') {
+    if (temporary && RUNTIME_MODES[mode].paid) {
       throw new Error('Temporary accounts support only the Free direct runtime.')
     }
     const account = temporary
@@ -646,7 +636,7 @@ export async function installEdge({
       modeLabel: RUNTIME_MODES[mode].label,
       accountLabel: temporary ? 'Temporary account' : account.name,
       workerName,
-      paid: mode === 'isolated',
+      paid: RUNTIME_MODES[mode].paid,
       temporary,
       attachmentStorage,
     })
@@ -1261,7 +1251,7 @@ function pickEnvironment(environment, keys) {
 }
 
 function requireRuntimeMode(mode) {
-  if (!Object.hasOwn(RUNTIME_MODES, mode)) {
+  if (!isRuntimeMode(mode)) {
     throw new Error(`Unsupported runtime mode: ${String(mode)}`)
   }
 }
@@ -1329,7 +1319,7 @@ function formatDeployFailure(mode, result) {
       : `Cloudflare did not accept the Worker upload${code === undefined ? '' : ` (code ${code})`}: ${firstError}`
   }
   const failure = `${detail} Run the command again with --verbose to inspect Wrangler output.`
-  if (mode !== 'isolated') return failure
+  if (RUNTIME_MODES[mode]?.paid !== true) return failure
   return `${failure}\nThe isolated runtime requires the Workers Paid plan (starting at $5/month). `
     + 'Enable Workers Paid for this account or install the Free direct runtime.'
 }

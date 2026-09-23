@@ -9,10 +9,7 @@ import {
   withWorkspace,
   type DurableObjectStorageLike,
 } from '@cloudflare/computer'
-import {
-  WorkerShellBackend,
-  type WorkerShellLoader,
-} from '@cloudflare/computer/backends/worker-shell'
+import type { WorkerShellLoader } from '@cloudflare/computer/backends/worker-shell'
 import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { SessionListMetadata, QueueAction } from '@deepseek-ai/dsh-api-session-controller/types'
@@ -32,7 +29,7 @@ import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { normalizeSessionTitle } from '@deepseek-ai/dsh-session-title'
 import { DurableObject } from 'cloudflare:workers'
 import { OWNER_SESSION_EXPIRY_HEADER } from './auth.ts'
-import { DirectShellBackend } from './direct-shell.ts'
+import { resolveEdgeRuntimeBackends } from './runtime-backends.ts'
 import {
   resolveEdgeModel,
 } from './deepseek.ts'
@@ -195,21 +192,13 @@ export interface EdgeEnv {
 
 class DshEdgeObjectBase extends DurableObject<EdgeEnv> {
   workspaceOptions() {
-    const backend = this.env.LOADER === undefined
-      ? new DirectShellBackend()
-      : new WorkerShellBackend({
-        loader: this.env.LOADER,
-        workspace: {
-          binding: 'DSH_EDGE_INSTANCE',
-          id: this.ctx.id.toString(),
-        },
-        ctx: this.ctx,
-      })
+    // Backends bind when the Durable Object is constructed, before settings
+    // load, so this resolves each layer's default provider for the deployment.
     return {
       // Computer's preview storage facade and Workers' generated SQL generic
       // differ only in their type parameter; both expose the same runtime API.
       storage: this.ctx.storage as unknown as DurableObjectStorageLike,
-      backends: [backend],
+      backends: resolveEdgeRuntimeBackends({ env: this.env, ctx: this.ctx }),
     }
   }
 }

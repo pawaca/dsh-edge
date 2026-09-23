@@ -12,6 +12,7 @@ import {
   InstallerOutputError,
   installEdge,
 } from './install.mjs'
+import { runtimeModeChoices } from './runtime-providers.mjs'
 
 const INTERRUPT_EXIT_CODES = new Map([
   ['SIGHUP', 129],
@@ -93,18 +94,7 @@ export function createInstallerUi(
         message: 'Choose a runtime',
         signal,
         initialValue: 'direct',
-        options: [
-          {
-            value: 'direct',
-            label: 'Free — Direct Shell',
-            hint: 'recommended; runs on Workers Free',
-          },
-          {
-            value: 'isolated',
-            label: 'Isolated — Dynamic Worker',
-            hint: 'requires Workers Paid (starting at $5/month)',
-          },
-        ],
+        options: runtimeModeChoices(),
       })))
     },
     async selectAccount(choices) {

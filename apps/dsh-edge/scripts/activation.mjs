@@ -1,5 +1,6 @@
 import { setTimeout as sleep } from 'node:timers/promises'
 import edgePackage from '../package.json' with { type: 'json' }
+import { isRuntimeMode, RUNTIME_MODES } from './runtime-providers.mjs'
 
 export const ACTIVATION_WAIT_MS = 45_000
 export const ACTIVATION_REQUEST_TIMEOUT_MS = 4_000
@@ -21,7 +22,7 @@ export async function observePublicActivation({
   sleepImpl = sleep,
   waitMs = ACTIVATION_WAIT_MS,
 } = {}) {
-  if (mode !== 'direct' && mode !== 'isolated') throw new Error('A runtime mode is required.')
+  if (!isRuntimeMode(mode)) throw new Error('A runtime mode is required.')
   if (!Number.isFinite(waitMs) || waitMs < 0) throw new Error('Activation wait must be non-negative.')
   if (!Number.isFinite(requestTimeoutMs) || requestTimeoutMs <= 0) {
     throw new Error('Activation request timeout must be positive.')
@@ -33,7 +34,7 @@ export async function observePublicActivation({
   const expected = {
     workerVersionId: versionId,
     deploymentId: `dsh-edge@${edgePackage.version}/${mode}`,
-    shell: mode === 'direct' ? 'just-bash-direct' : 'just-bash-isolated',
+    shell: RUNTIME_MODES[mode].expectedShell,
   }
   const startedAt = now()
   const deadline = startedAt + waitMs
