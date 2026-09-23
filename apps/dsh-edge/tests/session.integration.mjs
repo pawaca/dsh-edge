@@ -810,6 +810,23 @@ try {
     kind: 'success',
     text: 'Plan mode is already inactive.',
   })
+  // Workflow end to end: the interpreted engine runs the model's script inside
+  // the Durable Object, fans out two spawn children through pipeline(), and
+  // returns the script's JSON value as the tool result.
+  const workflowEvents = await turn(sessionId, 'run a workflow over the items')
+  assert.equal(workflowEvents.find(event => event.type === 'tool/call')?.data.name, 'workflow')
+  const workflowResultText = toolResultText(workflowEvents.find(event => event.type === 'tool/result'))
+  assert.match(workflowResultText, /^workflow "fan-out-check" completed \(2 agents\)\./u)
+  assert.deepEqual(JSON.parse(workflowResultText.slice(workflowResultText.indexOf('{'))), {
+    out: ['remembered-alpha!', 'remembered-alpha!'],
+    total: 34,
+  })
+  assert.ok(workflowEvents.some(event => event.type === 'tool-workflow/run-start'))
+  assert.equal(workflowEvents.filter(event => event.type === 'tool-workflow/agent-end').length, 2)
+  assert.deepEqual(
+    workflowEvents.filter(event => event.type === 'tool-workflow/run-end').map(event => event.data.stopReason),
+    ['completed'],
+  )
   remoteMux.send({ type: 'cancel', streamId: 'events-1' })
   remoteMux.close()
   const preset = await rpc('agentPreset.read', { agentPreset: 'dsh-edge' })
@@ -1739,8 +1756,9 @@ try {
   // Promoting the queued prompt to steering folds it into the active turn
   // instead of starting the extra follow-up request exercised previously; the
   // ask_user_question and exit_plan_mode turns each add a tool-call request
-  // and its continuation.
-  assert.equal(turnRequests().length, 24)
+  // and its continuation; the workflow turn adds a tool-call request, its two
+  // children, and its continuation.
+  assert.equal(turnRequests().length, 28)
   await worker.stop()
   worker = undefined
   const { physicalRows, writeBatches } = sessionEventStorageStats(batchedSessionId)

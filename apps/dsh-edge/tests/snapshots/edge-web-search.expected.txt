@@ -112,6 +112,7 @@ Cite the relevant URLs above as markdown links in your answer.",
     "update_goal",
     "web_fetch",
     "web_search",
+    "workflow",
     "write",
   ],
 }

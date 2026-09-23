@@ -311,6 +311,42 @@ export async function startMockDeepSeek(port = 0) {
         return
       }
 
+      if (prompt.includes('run a workflow') && !hasToolResult) {
+        sendEvents(response, [
+          { choices: [{ delta: { role: 'assistant', content: null, reasoning_content: '' } }] },
+          {
+            choices: [{
+              delta: {
+                tool_calls: [{
+                  index: 0,
+                  id: 'call_mock_workflow',
+                  type: 'function',
+                  function: {
+                    name: 'workflow',
+                    arguments: JSON.stringify({
+                      meta: { name: 'fan-out-check', description: 'Fan out two children.' },
+                      args: { items: ['a', 'b'] },
+                      script: [
+                        "phase('Fan out')",
+                        "const out = await pipeline(args.items, item => agent('workflow child ' + item, { label: item }), text => text + '!')",
+                        'let total = 0',
+                        'for (const text of out) total += text.length',
+                        'return { out, total }',
+                      ].join('\n'),
+                    }),
+                  },
+                }],
+              },
+            }],
+          },
+          {
+            choices: [{ delta: {}, finish_reason: 'tool_calls' }],
+            usage: { prompt_tokens: 8, completion_tokens: 3 },
+          },
+        ])
+        return
+      }
+
       if (prompt.includes('web fetch') && !hasToolResult) {
         sendEvents(response, [
           { choices: [{ delta: { role: 'assistant', content: null, reasoning_content: '' } }] },
@@ -349,7 +385,9 @@ export async function startMockDeepSeek(port = 0) {
               ? `question-finished:${messageText(toolResults[0])}`
               : prompt.includes('plan the')
                 ? `plan-finished:${messageText(toolResults[0])}`
-                : 'tool-finished'
+                : prompt.includes('run a workflow')
+                  ? `workflow-finished:${messageText(toolResults[0])}`
+                  : 'tool-finished'
       }
       if (prompt.includes('continue released fixture')) {
         const hasReleasedPrompt = messages.some(message =>

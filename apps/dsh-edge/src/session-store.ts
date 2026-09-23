@@ -616,6 +616,16 @@ export class EdgeSessionStore {
         enableRunInBackground: true,
       })
     }
+    {
+      // Interpreted workflow engine: workerd has no node:vm or worker_threads for the upstream one.
+      const { default: EdgeWorkflowEngine } = await import('./edge-workflow-engine.ts')
+      await this.context.plugin(EdgeWorkflowEngine)
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+      const ToolWorkflow = await import(
+        '@deepseek-ai/dsh-tool-workflow' as string
+      )
+      await this.context.plugin(ToolWorkflow)
+    }
     this.context.on('agent/created', ({ agent }) => {
       if (this.context.agents.roots().includes(agent)) {
         agent.ctx.effect(() => installScheduleTools(this.context, agent, storage), 'dsh-edge: schedule tools')

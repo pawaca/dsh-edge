@@ -95,6 +95,7 @@
     "@deepseek-ai/dsh-tool-skill": "0.1.5-rc.2",
     "@deepseek-ai/dsh-tool-subagent": "0.1.5-rc.2",
     "@deepseek-ai/dsh-tool-web": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-tool-workflow": "0.1.5-rc.2",
     "@deepseek-ai/dsh-tools": "0.1.5-rc.2",
     "@deepseek-ai/dsh-typert-protocol": "0.1.5-rc.2",
     "@deepseek-ai/dsh-typert-registry": "0.1.5-rc.2",
@@ -107,6 +108,7 @@
     "@deepseek-ai/dsh-web-fetch-http": "0.1.5-rc.2",
     "@deepseek-ai/dsh-web-frontend": "0.1.5-rc.2",
     "@deepseek-ai/dsh-web-search-deepseek": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-workflow": "0.1.5-rc.2",
     "@deepseek-ai/dsh-workspace": "0.1.5-rc.2",
     "@deepseek-ai/schemastery": "3.18.2",
     "@mixmark-io/domino": "2.2.0",
@@ -117,6 +119,7 @@
     "jpeg-js": "0.4.4",
     "jsonc-parser": "3.3.1",
     "just-bash": "3.4.2",
+    "sval": "0.6.12",
     "wrangler": "4.129.0"
   },
   "devDependencies": {
