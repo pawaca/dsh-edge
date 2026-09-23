@@ -5,7 +5,10 @@
  * the Durable Object (argument validation, agent caps, concurrency, child
  * lifecycle, events) runs on the host behind the bridge the entrypoint
  * receives, so a script that tampers with this runtime only affects its own
- * isolate. The hook semantics mirror the published worker-thread engine:
+ * isolate. Every bridge method is also bounded here, so the isolate can
+ * never queue more RPCs than the host would accept: `agent()` counts
+ * accepted calls against the run's agent cap, and `phase()`/`log()` keep a
+ * fixed number in flight. The hook semantics mirror the published worker-thread engine:
  * fatal `WorkflowError`s propagate through `parallel()` and `pipeline()`,
  * while ordinary failures become per-item `null`.
  */
@@ -53,10 +56,17 @@ function unwrap(reply) {
 }
 
 export async function runWorkflow(host, input, workflow) {
-  const { args, maxItemsPerCall } = input
+  const { args, maxItemsPerCall, maxTotalAgents } = input
   let currentPhase
+  let accepted = 0
 
   const agent = async (prompt, opts) => {
+    // Mirrors the host cap (the authority) so a loop of unawaited calls issues
+    // at most maxTotalAgents bridge RPCs.
+    if (accepted >= maxTotalAgents) {
+      throw new WorkflowError('this run reached its total agent cap (' + maxTotalAgents + ') — a runaway-loop backstop; split the work across runs if the scale is intentional', 'AGENT_CAP')
+    }
+    accepted += 1
     let reply
     try {
       reply = await host.agent(prompt, opts === undefined ? null : opts, currentPhase ?? null)

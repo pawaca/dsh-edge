@@ -114,6 +114,7 @@ class FakeLoader {
   loads: LoadCall[] = []
   entrypointOptions: unknown[] = []
   bridges: Bridge[] = []
+  agentCalls = 0
   disposed = 0
   /** When set, getEntrypoint() throws it (a worker that fails to initialize). */
   entrypointError: Error | undefined
@@ -136,7 +137,10 @@ class FakeLoader {
         // eslint-disable-next-line typescript/no-implied-eval, typescript/no-unsafe-call
         const workflow = new Function(`${code.modules[WORKFLOW_BODY_MODULE]!.replace('export default async function workflow', 'return async function workflow')}`)() as unknown
         const host = {
-          agent: async (...args: unknown[]) => structuredClone(await bridge.agent(...(structuredClone(args) as [unknown, unknown, unknown]))),
+          agent: async (...args: unknown[]) => {
+            this.agentCalls += 1
+            return structuredClone(await bridge.agent(...(structuredClone(args) as [unknown, unknown, unknown])))
+          },
           phase: async (title: unknown) => { bridge.phase(structuredClone(title)) },
           log: async (message: unknown) => { bridge.log(structuredClone(message)) },
         }
@@ -223,6 +227,18 @@ describe('edge workflow engine', () => {
     const starts = events.filter(event => event[0] === 'workflow/agent-start').map(event => event[1])
     expect(starts[0]).toMatchObject({ seq: 1, label: 'scan x', phase: 'Scan', childId: 'child-1' })
     expect(starts.find(info => (info as { label: string }).label === 'b')).toMatchObject({ phase: 'Other' })
+  })
+
+  it('issues no agent RPC beyond the run cap, even for unawaited calls', async () => {
+    const { engine, loader, subagents } = await setup({ maxTotalAgents: 3 })
+    const result = await run(engine, `
+      const calls = []
+      for (let i = 0; i < 1000; i++) calls.push(agent('x' + i).catch(error => error.code))
+      return (await Promise.all(calls)).filter(value => value === 'AGENT_CAP').length
+    `)
+    expect(result).toMatchObject({ stopReason: 'completed', value: 997 })
+    expect(loader.agentCalls).toBe(3)
+    expect(subagents.children).toHaveLength(3)
   })
 
   it('bounds progress narration in the isolate and on the host', async () => {
