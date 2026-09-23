@@ -286,12 +286,28 @@ class EdgeWorkflowRun implements WorkflowRun {
 
   private tick(): void {
     this.throwIfCancelled()
-    if (this.budgetExhausted || ++this.steps > this.limits.maxSteps) {
-      // Sticky: a script that catches this error still fails at its next step and at settlement.
+    if (++this.steps > this.limits.maxSteps) {
       this.budgetExhausted = true
+      // Terminal: settle now instead of trusting the script to reach its end. A
+      // script that catches this error could otherwise park on a promise forever.
+      this.terminate(this.errorResult(this.budgetMessage()))
       // The seam's closed code union has no step cap; ITEM_CAP is its resource-cap family.
       throw new WorkflowError(this.budgetMessage(), 'ITEM_CAP')
     }
+  }
+
+  /**
+   * Settle a run the engine has declared dead, without waiting for the script:
+   * queued `agent()` calls reject, children are aborted and disposed, and every
+   * later hook or step check throws because the run is settled.
+   */
+  private terminate(result: WorkflowResult): void {
+    if (this.settled) return
+    const error = new WorkflowError('workflow run already settled', 'CANCELLED')
+    for (const waiter of this.slotWaiters.splice(0)) waiter.reject(error)
+    this.endStrandedAgents()
+    this.settle(result)
+    this.reapChildren()
   }
 
   private budgetMessage(): string {

@@ -177,6 +177,23 @@ describe('edge workflow engine', () => {
     expect(result.error).toContain('step budget')
   })
 
+  it('settles as soon as the step budget is exhausted, even if the script then parks', async () => {
+    const { engine, subagents, events } = await setup({ maxSteps: 1000 })
+    subagents.auto = undefined
+    const result = await run(engine, `
+      const child = agent('slow')
+      const stuck = new Promise(() => {})
+      try { while (true) {} } catch (e) {}
+      await stuck
+      return await child
+    `)
+    expect(result.stopReason).toBe('error')
+    expect(result.error).toContain('step budget')
+    expect(subagents.children.every(child => child.signal.aborted && child.disposed)).toBe(true)
+    const starts = events.filter(event => event[0] === 'workflow/agent-start').length
+    expect(events.filter(event => event[0] === 'workflow/agent-end')).toHaveLength(starts)
+  })
+
   it('stops runaway recursion with the step budget', async () => {
     const { engine } = await setup({ maxSteps: 1000 })
     const result = await run(engine, `const f = n => f(n + 1); return f(0)`)
