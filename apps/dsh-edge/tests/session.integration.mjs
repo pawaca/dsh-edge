@@ -1898,7 +1898,6 @@ async function startWorker(overrides = {}) {
       DSH_EDGE_DEFAULT_COMMAND_TIMEOUT_MS: '180000',
       DSH_EDGE_MAX_COMMAND_TIMEOUT_MS: '240000',
       DSH_EDGE_ACCESS_KEY: ACCESS_KEY,
-      DSH_EDGE_APPROVAL_MODE: 'never',
       ...overrides,
     },
     logLevel: 'error',

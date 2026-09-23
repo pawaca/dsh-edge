@@ -26,7 +26,6 @@ function needsApproval(exec: ToolExecution): boolean {
 }
 
 export interface EdgeApprovalPolicyOptions {
-  defaultMode?: EdgeApprovalMode | undefined
   resolveMcpPolicy?: (publicName: string) => Promise<'allow' | 'ask' | undefined>
 }
 
@@ -34,13 +33,7 @@ export function installEdgeApprovalPolicy(
   ctx: Context,
   options?: EdgeApprovalPolicyOptions,
 ): SettingsScope<EdgeApprovalSettings> {
-  const schema = options?.defaultMode === 'never'
-    ? Schema.object({
-      mode: Schema.union([Schema.const('ask' as const), Schema.const('never' as const)]).default('never' as const),
-    }) as Schema<EdgeApprovalSettings>
-    : EdgeApprovalSchema
-
-  const scope = ctx.settings.register(APPROVAL_SETTINGS_NAMESPACE, schema)
+  const scope = ctx.settings.register(APPROVAL_SETTINGS_NAMESPACE, EdgeApprovalSchema)
 
   ctx.on('tools/pre-execute', async (exec, next) => {
     if (!needsApproval(exec)) return next()
