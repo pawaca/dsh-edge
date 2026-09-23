@@ -810,6 +810,28 @@ try {
     kind: 'success',
     text: 'Plan mode is already inactive.',
   })
+  // Workflow is provider-gated: the isolated build runs each script in its own
+  // Dynamic Worker, fans out five spawn children through pipeline() (more than
+  // the engine's four concurrent slots), and returns the script's JSON value;
+  // the Direct build does not offer the tool at all.
+  if (runtimeMode === 'isolated') {
+    const workflowEvents = await turn(sessionId, 'run a workflow over the items')
+    assert.equal(workflowEvents.find(event => event.type === 'tool/call')?.data.name, 'workflow')
+    const workflowResultText = toolResultText(workflowEvents.find(event => event.type === 'tool/result'))
+    assert.match(workflowResultText, /^workflow "fan-out-check" completed \(5 agents\)\./u)
+    assert.deepEqual(JSON.parse(workflowResultText.slice(workflowResultText.indexOf('{'))), {
+      out: Array(5).fill('remembered-alpha!'),
+      total: 85,
+    })
+    assert.ok(workflowEvents.some(event => event.type === 'tool-workflow/run-start'))
+    assert.equal(workflowEvents.filter(event => event.type === 'tool-workflow/agent-end').length, 5)
+    assert.deepEqual(
+      workflowEvents.filter(event => event.type === 'tool-workflow/run-end').map(event => event.data.stopReason),
+      ['completed'],
+    )
+  }
+  const offeredTools = (turnRequests().at(-1).tools ?? []).map(tool => tool.function?.name)
+  assert.equal(offeredTools.includes('workflow'), runtimeMode === 'isolated')
   remoteMux.send({ type: 'cancel', streamId: 'events-1' })
   remoteMux.close()
   const preset = await rpc('agentPreset.read', { agentPreset: 'dsh-edge' })
@@ -1739,8 +1761,9 @@ try {
   // Promoting the queued prompt to steering folds it into the active turn
   // instead of starting the extra follow-up request exercised previously; the
   // ask_user_question and exit_plan_mode turns each add a tool-call request
-  // and its continuation.
-  assert.equal(turnRequests().length, 24)
+  // and its continuation; in the isolated build the workflow turn adds a
+  // tool-call request, its five children, and its continuation.
+  assert.equal(turnRequests().length, runtimeMode === 'isolated' ? 31 : 24)
   await worker.stop()
   worker = undefined
   const { physicalRows, writeBatches } = sessionEventStorageStats(batchedSessionId)

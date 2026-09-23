@@ -253,6 +253,9 @@ importers:
       '@deepseek-ai/dsh-tool-web':
         specifier: 0.1.5-rc.2
         version: 0.1.5-rc.2(patch_hash=7d7832bfa9a137d65ce4b5ede0744a802eaa15981011b1bdd5497a6455fe3d49)(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-llm@0.1.5-rc.2(patch_hash=57dc9cc50ac7e83f36920a75987dcebb89d72273b06578a641c522b2638c3556)(@deepseek-ai/cordis@4.0.2))(@deepseek-ai/dsh-system-prompt@0.1.5-rc.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.5-rc.2(@deepseek-ai/cordis@4.0.2))(@deepseek-ai/dsh-llm@0.1.5-rc.2(patch_hash=57dc9cc50ac7e83f36920a75987dcebb89d72273b06578a641c522b2638c3556)(@deepseek-ai/cordis@4.0.2))(@deepseek-ai/dsh-scope@0.1.5-rc.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.5-rc.2(@deepseek-ai/cordis@4.0.2))))(@deepseek-ai/dsh-tools@0.1.5-rc.2(1292af2869b5eff1174086c984ac66f4))(@deepseek-ai/dsh-web@0.1.5-rc.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-llm@0.1.5-rc.2(patch_hash=57dc9cc50ac7e83f36920a75987dcebb89d72273b06578a641c522b2638c3556)(@deepseek-ai/cordis@4.0.2)))
+      '@deepseek-ai/dsh-tool-workflow':
+        specifier: 0.1.5-rc.2
+        version: 0.1.5-rc.2(bb05e124fd46c3a33f3dd07dc914ef9c)
       '@deepseek-ai/dsh-tools':
         specifier: 0.1.5-rc.2
         version: 0.1.5-rc.2(1292af2869b5eff1174086c984ac66f4)
@@ -289,6 +292,9 @@ importers:
       '@deepseek-ai/dsh-web-search-deepseek':
         specifier: 0.1.5-rc.2
         version: 0.1.5-rc.2(patch_hash=8fc8fbf566dc108b9d2526ce27516a815102ac9599c28f14ecb909aef021e248)(e75031931970e28d0eb8fe76b860011b)
+      '@deepseek-ai/dsh-workflow':
+        specifier: 0.1.5-rc.2
+        version: 0.1.5-rc.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-agent@0.1.5-rc.2(e730e212c94a1068ae118cad0892c9d2))(@deepseek-ai/dsh-brand@0.1.5-rc.2(@deepseek-ai/cordis@4.0.2))(@deepseek-ai/dsh-invariants@0.1.5-rc.2(@deepseek-ai/cordis@4.0.2))(@deepseek-ai/dsh-llm@0.1.5-rc.2(patch_hash=57dc9cc50ac7e83f36920a75987dcebb89d72273b06578a641c522b2638c3556)(@deepseek-ai/cordis@4.0.2))(@deepseek-ai/dsh-session@0.1.5-rc.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-scope@0.1.5-rc.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.5-rc.2(@deepseek-ai/cordis@4.0.2))))
       '@deepseek-ai/dsh-workspace':
         specifier: 0.1.5-rc.2
         version: 0.1.5-rc.2(patch_hash=cdfd9e126ca667ec18e3cbb49f005c09569a9d4b5959b0ae62a05387a5be0b4c)(2faf0849fbdc6ac5919de8226950d80c)
@@ -301,6 +307,9 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: 1.30.0
         version: 1.30.0(@cfworker/json-schema@4.1.1)(zod@4.4.3)
+      acorn:
+        specifier: 8.18.0
+        version: 8.18.0
       compare-versions:
         specifier: 6.1.1
         version: 6.1.1

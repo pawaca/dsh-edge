@@ -30,6 +30,8 @@ import { normalizeSessionTitle } from '@deepseek-ai/dsh-session-title'
 import { DurableObject } from 'cloudflare:workers'
 import { OWNER_SESSION_EXPIRY_HEADER } from './auth.ts'
 import { resolveEdgeRuntimeBackends } from './runtime-backends.ts'
+import { DYNAMIC_WORKER_RUNTIME_PROVIDER } from './runtime-provider.ts'
+import type { WorkflowLoader } from './edge-workflow-engine.ts'
 import {
   resolveEdgeModel,
 } from './deepseek.ts'
@@ -257,6 +259,9 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       ...(this.env as unknown as Record<string, unknown>).IMAGES === undefined
         ? {}
         : { images: (this.env as unknown as Record<string, unknown>).IMAGES },
+      ...DYNAMIC_WORKER_RUNTIME_PROVIDER.probe(this.env) === 'available'
+        ? { workflowLoader: this.env.LOADER as unknown as WorkflowLoader }
+        : {},
       withWorkspaceFiles: read => this.withWorkspaceFiles(read),
       onLateSessionEvent: (sessionId, event) => {
         this.publishSessionEvent(sessionId, event)

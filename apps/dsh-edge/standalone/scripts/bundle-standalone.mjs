@@ -90,7 +90,7 @@ async function publishedPackageAliases() {
     .map(escapeRegExpLiteral)
     .join('|')
   const specifierPattern = new RegExp(
-    `['"]((?:${scopePattern})\/[^'"]+|(?:just-bash|fast-png|jpeg-js)(?:\/[^'"]*)?)['"]`,
+    `['"]((?:${scopePattern})\/[^'"]+|(?:just-bash|fast-png|jpeg-js|acorn)(?:\/[^'"]*)?)['"]`,
     'g',
   )
   for (const path of await sourceFiles(join(appDirectory, 'src'))) {
@@ -239,6 +239,7 @@ async function requirePublishedDependencyInputs(metafilePath) {
       || path.includes('just-bash')
       || path.includes('fast-png')
       || path.includes('jpeg-js')
+      || path.includes('/acorn/') || path.includes('acorn@')
     if (isPinnedRuntimeDependency
       && !path.includes('/apps/dsh-edge/standalone/node_modules/')) {
       throw new Error(`Standalone Worker resolved a runtime dependency outside its lock: ${path}`)
