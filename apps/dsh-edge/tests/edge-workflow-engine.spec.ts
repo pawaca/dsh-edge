@@ -6,6 +6,7 @@ vi.mock('cloudflare:workers', () => ({ RpcTarget: class {} }))
 
 const { default: EdgeWorkflowEngine, WORKFLOW_COMPATIBILITY_DATE, materialize, validateMeta } = await import('../src/edge-workflow-engine.ts')
 const {
+  MAX_PROGRESS_IN_FLIGHT,
   WORKFLOW_BODY_MODULE,
   WORKFLOW_ENTRY_MODULE,
   WORKFLOW_RUNTIME_MODULE,
@@ -222,6 +223,16 @@ describe('edge workflow engine', () => {
     const starts = events.filter(event => event[0] === 'workflow/agent-start').map(event => event[1])
     expect(starts[0]).toMatchObject({ seq: 1, label: 'scan x', phase: 'Scan', childId: 'child-1' })
     expect(starts.find(info => (info as { label: string }).label === 'b')).toMatchObject({ phase: 'Other' })
+  })
+
+  it('bounds progress narration in the isolate and on the host', async () => {
+    const burst = await setup()
+    await run(burst.engine, `for (let i = 0; i < 10000; i++) log('x'); return 1`)
+    expect(burst.events.filter(event => event[0] === 'workflow/log')).toHaveLength(MAX_PROGRESS_IN_FLIGHT)
+    const paced = await setup({ maxProgressEvents: 50 })
+    await run(paced.engine, `for (let i = 0; i < 200; i++) { log('x' + i); phase('p' + i); await null } return 1`)
+    const progress = paced.events.filter(event => event[0] === 'workflow/log' || event[0] === 'workflow/phase')
+    expect(progress).toHaveLength(50)
   })
 
   it('exposes only agent, phase, and log on the bridge', async () => {

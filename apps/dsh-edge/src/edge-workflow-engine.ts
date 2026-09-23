@@ -76,6 +76,8 @@ export interface EdgeWorkflowEngineConfig {
   maxConcurrentAgents: number
   /** Children one run may start over its lifetime (bounds child-session row writes). */
   maxTotalAgents: number
+  /** `phase()`/`log()` events one run may emit; later ones are ignored. */
+  maxProgressEvents: number
   /** Items one `parallel()`/`pipeline()` call may receive. */
   maxItemsPerCall: number
   /** How long cancellation and disposal wait for the script and children to settle. */
@@ -96,6 +98,7 @@ export default class EdgeWorkflowEngine extends WorkflowEngine {
     maxConcurrentAgents: z.natural().min(1).default(4),
     maxTotalAgents: z.natural().min(1).default(100),
     maxItemsPerCall: z.natural().min(1).default(1024),
+    maxProgressEvents: z.natural().default(1_000),
     disposeGraceMs: z.natural().default(5_000),
   })
 
@@ -234,6 +237,7 @@ class EdgeWorkflowRun implements WorkflowRun {
   private settled = false
   private began = false
   private started = 0
+  private progressEvents = 0
   private activeSlots = 0
   private readonly slotWaiters: { resolve(): void, reject(error: unknown): void }[] = []
   private isolate: { worker: unknown, entrypoint: unknown } | undefined
@@ -409,14 +413,21 @@ class EdgeWorkflowRun implements WorkflowRun {
 
   /** Bridge entry for `phase()`: progress narration only; the isolate tracks its current phase. */
   bridgePhase(title: unknown): void {
-    if (this.settled || this.isCancelled() || typeof title !== 'string' || title.length === 0) return
+    if (typeof title !== 'string' || title.length === 0 || !this.admitProgress()) return
     this.observer.phase(title)
   }
 
   /** Bridge entry for `log()`. */
   bridgeLog(message: unknown): void {
-    if (this.settled || this.isCancelled() || typeof message !== 'string') return
+    if (typeof message !== 'string' || !this.admitProgress()) return
     this.observer.log(message)
+  }
+
+  /** Whether one more progress event may be emitted (live run, under the per-run cap). */
+  private admitProgress(): boolean {
+    if (this.settled || this.isCancelled() || this.progressEvents >= this.limits.maxProgressEvents) return false
+    this.progressEvents += 1
+    return true
   }
 
   private isCancelled(): boolean {

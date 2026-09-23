@@ -15,6 +15,9 @@ export const WORKFLOW_ENTRY_MODULE = 'workflow-entry.js'
 export const WORKFLOW_RUNTIME_MODULE = 'workflow-runtime.js'
 export const WORKFLOW_BODY_MODULE = 'workflow-body.js'
 
+/** Progress RPCs (`phase`/`log`) the isolate keeps in flight at once; extra calls are dropped. */
+export const MAX_PROGRESS_IN_FLIGHT = 64
+
 /** Main module: a WorkerEntrypoint whose `evaluate` runs the script against the host bridge. */
 export const WORKFLOW_ENTRY_SOURCE = `import { WorkerEntrypoint } from 'cloudflare:workers'
 import { runWorkflow } from '${WORKFLOW_RUNTIME_MODULE}'
@@ -105,15 +108,24 @@ export async function runWorkflow(host, input, workflow) {
     }))
   }
 
+  // Progress narration is fire-and-forget; bound the RPCs in flight so a
+  // loop cannot flood the host (the host also caps the events it emits).
+  let progressInFlight = 0
+  const report = send => {
+    if (progressInFlight >= ${MAX_PROGRESS_IN_FLIGHT}) return
+    progressInFlight += 1
+    send().catch(() => {}).finally(() => { progressInFlight -= 1 })
+  }
+
   const phase = title => {
     if (typeof title !== 'string' || title.length === 0) throw new WorkflowError('phase() requires a non-empty title string', 'INVALID_ARGUMENT')
     currentPhase = title
-    host.phase(title).catch(() => {})
+    report(() => host.phase(title))
   }
 
   const log = message => {
     if (typeof message !== 'string') throw new WorkflowError('log() requires a message string', 'INVALID_ARGUMENT')
-    host.log(message).catch(() => {})
+    report(() => host.log(message))
   }
 
   const value = await workflow({ agent, parallel, pipeline, phase, log, args })
