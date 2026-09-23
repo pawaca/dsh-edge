@@ -324,8 +324,8 @@ export async function startMockDeepSeek(port = 0) {
                   function: {
                     name: 'workflow',
                     arguments: JSON.stringify({
-                      meta: { name: 'fan-out-check', description: 'Fan out two children.' },
-                      args: { items: ['a', 'b'] },
+                      meta: { name: 'fan-out-check', description: 'Fan out five children.' },
+                      args: { items: ['a', 'b', 'c', 'd', 'e'] },
                       script: [
                         "phase('Fan out')",
                         "const out = await pipeline(args.items, item => agent('workflow child ' + item, { label: item }), text => text + '!')",

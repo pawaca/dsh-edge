@@ -14,6 +14,13 @@
  * function body. The step check is the only way to stop a synchronous hot loop:
  * Workers freeze `Date.now()` during synchronous execution, so a wall-clock
  * deadline cannot fire, and there is no thread to terminate.
+ *
+ * Residual risk, larger than the upstream vm realm's: the name-based
+ * prototype check does not see indirect paths such as
+ * `Object.getPrototypeOf([])` or computed keys, and a builtin mutation made
+ * that way persists for every session in the Durable Object until eviction.
+ * Scripts are written by the owner's own model; treat them as trusted input
+ * with guard rails, not as isolated code.
  */
 import Sval from 'sval'
 import { WorkflowError } from '@deepseek-ai/dsh-workflow'
