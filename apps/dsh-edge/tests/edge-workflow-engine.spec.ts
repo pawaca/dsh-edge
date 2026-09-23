@@ -36,12 +36,18 @@ class FakeSubagents extends Service {
     return name === 'spawn' ? {} : undefined
   }
 
+  /** When set, start() waits for it before publishing the child. */
+  startGate: Promise<void> | undefined
+  /** When set, a child's dispose() waits for it. */
+  disposeGate: Promise<void> | undefined
+
   async start(_provider: string, request: {
     label?: string
     prompt: { type: 'text', text: string }[]
     signal: AbortSignal
     outputSchema?: unknown
   }) {
+    if (this.startGate !== undefined) await this.startGate
     const settled = Promise.withResolvers<unknown>()
     const index = this.children.length
     this.active += 1
@@ -76,7 +82,10 @@ class FakeSubagents extends Service {
       id: `child-${index + 1}`,
       localAgent: undefined,
       result: settled.promise,
-      dispose: async () => { child.disposed = true },
+      dispose: async () => {
+        if (this.disposeGate !== undefined) await this.disposeGate
+        child.disposed = true
+      },
     }
   }
 }
@@ -292,6 +301,28 @@ describe('edge workflow engine', () => {
     const ends = events.filter(event => event[0] === 'workflow/agent-end')
     expect(ends).toHaveLength(2)
     expect(ends.every(event => (event[1] as { outcome: string }).outcome === 'cancelled')).toBe(true)
+  })
+
+  it('waits for a child whose start was pending at disposal', async () => {
+    const { engine, subagents } = await setup({ disposeGraceMs: 1_000 })
+    subagents.auto = undefined
+    const start = Promise.withResolvers<void>()
+    const cleanup = Promise.withResolvers<void>()
+    subagents.startGate = start.promise
+    subagents.disposeGate = cleanup.promise
+    const handle = engine.start(request(`return await agent('slow start')`))
+    await new Promise(resolve => setTimeout(resolve, 5))
+    let disposed = false
+    const disposal = handle.dispose().then(() => { disposed = true })
+    // The race window: the run has settled and disposal waits only on the pending start.
+    await expect(handle.result).resolves.toMatchObject({ stopReason: 'cancelled' })
+    start.resolve()
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(subagents.children).toHaveLength(1)
+    expect(disposed).toBe(false)
+    cleanup.resolve()
+    await disposal
+    expect(subagents.children[0]!.disposed).toBe(true)
   })
 
   it('settles a script parked on a promise no hook owns once it is cancelled', async () => {

@@ -512,6 +512,8 @@ class EdgeWorkflowRun implements WorkflowRun {
             }
           : {},
       })
+      // Registered before the pending count drops, so quiescence always waits for its disposal.
+      this.children.set(run, undefined)
     } catch (error) {
       if (this.isCancelled()) throw this.cancelError!
       throw new WorkflowError(`agent() could not start a child: ${renderThrown(error)}`, 'AGENT_START', { cause: error })
@@ -519,7 +521,6 @@ class EdgeWorkflowRun implements WorkflowRun {
       this.pendingStarts -= 1
       this.notifyQuiescence()
     }
-    this.children.set(run, undefined)
     if (this.isCancelled() || this.settled) {
       await this.disposeChild(run)
       throw this.cancelError ?? new WorkflowError('workflow run already settled', 'CANCELLED')
