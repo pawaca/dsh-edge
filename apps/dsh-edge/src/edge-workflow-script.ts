@@ -28,10 +28,15 @@
  * built at run time (`fn[name](builtin)`) is not checked.
  *
  * A step check injected into every loop and function body is the only way to
- * stop a synchronous hot loop: Workers freeze `Date.now()` during synchronous
+ * stop an interpreted hot loop: Workers freeze `Date.now()` during synchronous
  * execution, so a wall-clock deadline cannot fire, and there is no thread to
- * terminate. Containment, not a security boundary (the upstream engine takes
- * the same stance): scripts come from the owner's own model.
+ * terminate. Work inside a single native builtin call (regex backtracking, a
+ * huge `Array(n).fill()` or `repeat()`) is not step-counted; only the Workers
+ * CPU and memory limits bound it, and the Durable Object's interrupted-work
+ * recovery handles the resulting reset. Bounding it needs a separately
+ * terminable isolate, which is the planned Dynamic Worker engine. Containment,
+ * not a security boundary (the upstream engine takes the same stance): scripts
+ * come from the owner's own model.
  */
 import Sval from 'sval'
 import { WorkflowError } from '@deepseek-ai/dsh-workflow'
