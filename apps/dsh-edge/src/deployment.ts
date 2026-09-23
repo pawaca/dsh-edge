@@ -15,6 +15,7 @@ import {
 } from './workspace.ts'
 import { DSH_EDGE_UPSTREAM_VERSION, DSH_EDGE_VERSION } from './release.ts'
 import type { EdgeAttachmentStorage } from './edge-attachment-store.ts'
+import { resolveEdgeRuntimeShell, type EdgeRuntimeProviderDescriptor } from './runtime-provider.ts'
 
 declare const __DSH_EDGE_DEPLOYMENT_ID__: string | undefined
 
@@ -49,7 +50,7 @@ export interface EdgeDeploymentConfig {
 
 /** Secret-free deployment facts safe to project to the authenticated owner. */
 export interface EdgeDeploymentProfile {
-  shell: 'just-bash-direct' | 'just-bash-isolated'
+  shell: EdgeRuntimeProviderDescriptor['shell']
   storage: 'durable-object-sqlite-vfs'
   attachmentStorage: 'private-r2' | 'temporary-do'
   deploymentId: string
@@ -113,7 +114,7 @@ export function resolveEdgeDeploymentProfile(
   attachmentStorage?: EdgeAttachmentStorage,
 ): EdgeDeploymentProfile {
   return {
-    shell: source.LOADER === undefined ? 'just-bash-direct' : 'just-bash-isolated',
+    shell: resolveEdgeRuntimeShell(source),
     storage: 'durable-object-sqlite-vfs',
     attachmentStorage: attachmentStorage ?? (source.DSH_EDGE_ATTACHMENTS === undefined
       ? 'temporary-do'

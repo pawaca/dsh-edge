@@ -1,4 +1,7 @@
-export type RuntimeMode = 'direct' | 'isolated'
+import type { RuntimeMode } from './runtime-providers.mjs'
+
+export type { RuntimeMode }
+export { RUNTIME_MODES } from './runtime-providers.mjs'
 export type InstallerCommand = 'install' | 'upgrade'
 export type AttachmentStorage = 'private-r2' | 'temporary-do'
 
@@ -77,11 +80,6 @@ export interface InstallResult {
 
 export const DEFAULT_WORKER_NAME: string
 export const LOGIN_PROFILE: string
-export const RUNTIME_MODES: Readonly<Record<RuntimeMode, Readonly<{
-  environment: string
-  expectedShell: string
-  label: string
-}>>>
 export class InstallCancelledError extends Error {}
 export class InstallerOutputError extends Error {
   readonly stream: 'stderr' | 'stdout'
