@@ -219,6 +219,13 @@ describe('edge workflow engine', () => {
     await handle.dispose()
   })
 
+  it('settles when a script reaches for engine hooks through this', async () => {
+    const { engine } = await setup()
+    const forged = await run(engine, `this['__dsh' + 'Settle'](1); return null`)
+    expect(forged.stopReason).toBe('error')
+    await expect(run(engine, `return 'ok'`)).resolves.toMatchObject({ stopReason: 'completed', value: 'ok' })
+  })
+
   it('does not run the body when the start signal is already aborted', async () => {
     const { engine, subagents } = await setup()
     const controller = new AbortController()
@@ -366,6 +373,27 @@ describe('workflow script sandbox', () => {
       keys: ['b', 'c', 'd', 'e'],
       entries: [['z', 1]],
     })
+  })
+
+  it('leaves no engine hook reachable from the script scope', async () => {
+    await expect(evaluate(`
+      const scopes = [this, globalThis]
+      const found = []
+      for (const scope of scopes) {
+        for (const name of Object.getOwnPropertyNames(scope)) {
+          if (name.startsWith('__dsh') && scope[name] !== undefined) found.push(name)
+        }
+        for (const [name, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(scope))) {
+          if (name.startsWith('__dsh') && descriptor.value !== undefined) found.push(name)
+        }
+      }
+      return found
+    `)).resolves.toEqual([])
+  })
+
+  it('refuses a body that closes its wrapper function early', () => {
+    expect(() => compileWorkflowScript('})(); agent("escaped"); (async () => {', 'probe'))
+      .toThrow(/must not close its wrapper/u)
   })
 
   it('reports parse errors as SCRIPT_PARSE', () => {

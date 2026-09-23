@@ -49,6 +49,9 @@ const CAPTURE = `${RESERVED_PREFIX}Capture`
 const WRITABLE = `${RESERVED_PREFIX}Writable`
 const KEY = `${RESERVED_PREFIX}Key`
 const RECEIVER = `${RESERVED_PREFIX}Receiver`
+const SEAL = `${RESERVED_PREFIX}Seal`
+/** Engine hooks: passed into the program as parameters, never left readable as globals. */
+const HOOKS = [SETTLE, TICK, WRITABLE, KEY, RECEIVER] as const
 
 /** A body that still carries the Claude Code-style meta header (meta rides the request as data). */
 const META_STATEMENT = /^\s*export\s+const\s+meta\b/u
@@ -133,7 +136,7 @@ export function compileWorkflowScript(body: string, name: string): WorkflowProgr
     )
   }
   // No newline before the body keeps parser line numbers aligned with the model's script.
-  const source = `${SETTLE}((async () => {${body}\n})())`
+  const source = `(async () => {${body}\n})()`
   let program: AstNode
   try {
     program = createInterpreter().parse(source) as unknown as AstNode
@@ -149,6 +152,7 @@ export function compileWorkflowScript(body: string, name: string): WorkflowProgr
     throw new WorkflowError(`workflow script "${name}" is not supported: ${violation}`, 'SCRIPT_PARSE')
   }
   instrument(program)
+  const hosted = hostProgram(program)
   let consumed = false
   return {
     run(bindings) {
@@ -169,10 +173,17 @@ export function compileWorkflowScript(body: string, name: string): WorkflowProgr
         [KEY]: assertKey,
         [RECEIVER]: assertReceiver,
         [SETTLE]: (promise: Promise<unknown>) => { completion ??= promise },
+        // Imported globals are properties of the object the script sees as `this` and
+        // `globalThis`; clear every hook before the body runs so none is reachable.
+        [SEAL]: () => {
+          interpreter.import(Object.fromEntries([...HOOKS, SEAL].map(hook => [hook, undefined])))
+        },
       })
-      interpreter.run(program as never)
-      if (completion === undefined) throw new Error('workflow script did not produce a completion promise')
-      return completion
+      interpreter.run(hosted as never)
+      if (typeof (completion as { then?: unknown } | undefined)?.then !== 'function') {
+        throw new Error('workflow script did not produce a completion promise')
+      }
+      return completion!
     },
   }
 }
@@ -286,14 +297,41 @@ function objectFacade(): ObjectConstructor {
   return facade
 }
 
+/**
+ * Wrap the instrumented body call so the hooks arrive as parameters of an
+ * outer arrow, whose first statement clears them from the global scope:
+ * `((__dshSettle, __dshTick, …) => { __dshSeal(); __dshSettle(<body call>) })(__dshSettle, __dshTick, …)`.
+ */
+function hostProgram(program: AstNode): AstNode {
+  const bodyCall = ((program.body as AstNode[])[0]?.expression) as AstNode
+  const identifier = (name: string): AstNode => ({ type: 'Identifier', name })
+  const call = (callee: AstNode, args: AstNode[]): AstNode => ({ type: 'CallExpression', callee, arguments: args, optional: false })
+  const statement = (expression: AstNode): AstNode => ({ type: 'ExpressionStatement', expression })
+  const host: AstNode = {
+    type: 'ArrowFunctionExpression',
+    id: null,
+    params: HOOKS.map(identifier),
+    body: block([statement(call(identifier(SEAL), [])), statement(call(identifier(SETTLE), [bodyCall]))]),
+    expression: false,
+    async: false,
+    generator: false,
+  }
+  return { type: 'Program', sourceType: 'script', body: [statement(call(host, HOOKS.map(identifier)))] }
+}
+
 /** Return the first refused construct, or undefined when the script is acceptable. */
 function findViolation(root: AstNode): string | undefined {
-  // The wrapper's own settle callee is the only reserved identifier allowed.
-  const wrapper = ((root.body as AstNode[])[0]?.expression as AstNode | undefined)?.callee
+  const statements = root.body as AstNode[]
+  const only = statements[0]?.expression as AstNode | undefined
+  // A body that closes the wrapper early would run code outside it.
+  if (statements.length !== 1 || only?.type !== 'CallExpression'
+    || (only.callee as AstNode).type !== 'ArrowFunctionExpression') {
+    return 'the script body must not close its wrapper function'
+  }
   let found: string | undefined
   walk(root, node => {
     if (found !== undefined) return
-    if (node.type === 'Identifier' && node !== wrapper && typeof node.name === 'string'
+    if (node.type === 'Identifier' && typeof node.name === 'string'
       && node.name.startsWith(RESERVED_PREFIX)) {
       found = `identifiers starting with "${RESERVED_PREFIX}" are reserved (${node.name})`
       return
