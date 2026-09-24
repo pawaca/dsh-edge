@@ -815,7 +815,23 @@ try {
   // the engine's four concurrent slots), and returns the script's JSON value;
   // the Direct build does not offer the tool at all.
   if (runtimeMode === 'isolated') {
+    const revisionsBeforeWorkflow = sessionRevisions()
     const workflowEvents = await turn(sessionId, 'run a workflow over the items')
+    // Guard DO write amplification: the parent's progress events and each
+    // child's streamed turn must persist in a few append batches, not one
+    // write per progress event or delta.
+    const revisionsAfterWorkflow = sessionRevisions()
+    const parentWorkflowBatches = revisionsAfterWorkflow.get(sessionId).revision
+      - revisionsBeforeWorkflow.get(sessionId).revision
+    const workflowChildren = [...revisionsAfterWorkflow]
+      .filter(([id, row]) => row.parentSession === sessionId && !revisionsBeforeWorkflow.has(id))
+    assert.equal(workflowChildren.length, 5)
+    const childWorkflowBatches = workflowChildren.map(([, row]) => row.revision)
+    assert.ok(parentWorkflowBatches <= 8, `Workflow turn caused ${parentWorkflowBatches} parent persistence batches`)
+    for (const batches of childWorkflowBatches) {
+      assert.ok(batches <= 6, `Workflow child caused ${batches} persistence batches`)
+    }
+    console.log(`${runtimeMode} workflow storage: ${parentWorkflowBatches} parent write batches, children ${childWorkflowBatches.join('/')}`)
     assert.equal(workflowEvents.find(event => event.type === 'tool/call')?.data.name, 'workflow')
     const workflowResultText = toolResultText(workflowEvents.find(event => event.type === 'tool/result'))
     assert.match(workflowResultText, /^workflow "fan-out-check" completed \(5 agents\)\./u)
@@ -1872,6 +1888,25 @@ function sessionEventStorageStats(sessionId) {
     }
   }
   throw new Error(`No persisted event rows found for ${sessionId}.`)
+}
+
+function sessionRevisions() {
+  const sessions = new Map()
+  for (const path of sqliteFiles(persistedState)) {
+    const database = new DatabaseSync(path, { readOnly: true })
+    try {
+      const hasSessions = database.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'dsh_sessions'",
+      ).get()
+      if (hasSessions === undefined) continue
+      for (const row of database.prepare('SELECT id, parent_session, revision FROM dsh_sessions').all()) {
+        sessions.set(row.id, { parentSession: row.parent_session, revision: Number(row.revision) })
+      }
+    } finally {
+      database.close()
+    }
+  }
+  return sessions
 }
 
 function sqliteFiles(root) {
