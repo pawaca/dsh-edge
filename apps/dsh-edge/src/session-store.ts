@@ -654,7 +654,7 @@ export class EdgeSessionStore {
       agent.ctx.effect(() => release, 'dsh-edge: subagent shell binding')
     })
     this.context.effect(
-      () => this.context.tools.register(createEdgeBashTool(this.shells)),
+      () => this.context.tools.register(createEdgeBashTool(this.shells, config.shell)),
       'dsh-edge: bash tool',
     )
     if (config.onLateSessionEvent !== undefined) {

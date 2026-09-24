@@ -84,10 +84,16 @@ export class EdgeShellBindings {
 }
 
 /** Native DSH tool definition whose body is the Cloudflare Computer adapter. */
-export function createEdgeBashTool(bindings: EdgeShellBindings): ToolDefinition {
+export function createEdgeBashTool(
+  bindings: EdgeShellBindings,
+  shell: EdgeRuntimeProviderDescriptor['shell'] = 'just-bash-direct',
+): ToolDefinition {
   return defineTool({
     name: 'bash',
-    description: 'Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in the session working directory unless workdir is supplied.',
+    description: (shell === 'linux-container'
+      ? 'Execute a bash command in the Linux container, where /workspace is persistent.'
+      : 'Execute a just-bash command against the persistent /workspace virtual filesystem.')
+      + ' Each call starts in the session working directory unless workdir is supplied.',
     parameters: {
       command: {
         type: 'string',

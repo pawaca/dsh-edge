@@ -138,6 +138,12 @@ describe('dsh-edge native agent runtime', () => {
     expect(EDGE_SYSTEM_PROMPT).toContain('mcp_search')
     expect(EDGE_SYSTEM_PROMPT).toContain('subagent')
     expect(EDGE_SYSTEM_PROMPT).toContain('schedule')
+    const shells = new EdgeShellBindings()
+    expect(createEdgeBashTool(shells, 'just-bash-isolated').description)
+      .toBe('Execute a just-bash command against the persistent /workspace virtual filesystem. '
+        + 'Each call starts in the session working directory unless workdir is supplied.')
+    expect(createEdgeBashTool(shells, 'linux-container').description).toMatch(/^Execute a bash command in the Linux container/u)
+    expect(createEdgeBashTool(shells, 'linux-container').description).not.toContain('just-bash')
     const container = edgeSystemPrompt('linux-container')
     expect(container).toContain('Linux container')
     expect(container).not.toContain('native binaries and background processes are unavailable')
