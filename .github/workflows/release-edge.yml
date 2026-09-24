@@ -112,7 +112,7 @@ jobs:
             echo "Release tag moved from $RELEASE_COMMIT to $actual" >&2
             exit 1
           fi
-      - uses: pnpm/setup@v2
+      - uses: pnpm/setup@v3
         with:
           install: false
       - uses: actions/setup-node@v7
