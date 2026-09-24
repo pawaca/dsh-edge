@@ -50,7 +50,8 @@ export const DIRECT_RUNTIME_PROVIDER = Object.freeze<EdgeRuntimeProviderDescript
 /** just-bash dispatched into a Dynamic Worker through the Worker Loader binding. */
 export const DYNAMIC_WORKER_RUNTIME_PROVIDER = Object.freeze<EdgeRuntimeProviderDescriptor>({
   id: 'dynamic-worker',
-  capabilities: Object.freeze<EdgeRuntimeCapability[]>(['bash']),
+  // coding: `run_code` runs each program in its own Dynamic Worker.
+  capabilities: Object.freeze<EdgeRuntimeCapability[]>(['bash', 'coding']),
   plan: 'paid',
   shell: 'just-bash-isolated',
   probe: source => source.LOADER === undefined ? 'needs-binding' : 'available',

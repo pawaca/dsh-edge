@@ -830,8 +830,19 @@ try {
       ['completed'],
     )
   }
+  // run_code (PTC) is provider-gated the same way: the isolated build runs the
+  // program in its own Dynamic Worker and dispatches its nested tool calls.
+  if (runtimeMode === 'isolated') {
+    const codeEvents = await turn(sessionId, 'run some code that echoes a marker')
+    assert.equal(codeEvents.find(event => event.type === 'tool/call')?.data.name, 'run_code')
+    const codeResultText = toolResultText(codeEvents.find(event => event.type === 'tool/result'))
+    assert.match(codeResultText, /ptc-ok/u)
+    assert.match(codeResultText, /ran bash/u)
+    assert.ok(codeEvents.some(event => event.type === 'tool/ptc-dispatch'))
+  }
   const offeredTools = (turnRequests().at(-1).tools ?? []).map(tool => tool.function?.name)
   assert.equal(offeredTools.includes('workflow'), runtimeMode === 'isolated')
+  assert.equal(offeredTools.includes('run_code'), runtimeMode === 'isolated')
   remoteMux.send({ type: 'cancel', streamId: 'events-1' })
   remoteMux.close()
   const preset = await rpc('agentPreset.read', { agentPreset: 'dsh-edge' })
@@ -1762,8 +1773,9 @@ try {
   // instead of starting the extra follow-up request exercised previously; the
   // ask_user_question and exit_plan_mode turns each add a tool-call request
   // and its continuation; in the isolated build the workflow turn adds a
-  // tool-call request, its five children, and its continuation.
-  assert.equal(turnRequests().length, runtimeMode === 'isolated' ? 31 : 24)
+  // tool-call request, its five children, and its continuation, and the
+  // run_code turn adds a tool-call request and its continuation.
+  assert.equal(turnRequests().length, runtimeMode === 'isolated' ? 33 : 24)
   await worker.stop()
   worker = undefined
   const { physicalRows, writeBatches } = sessionEventStorageStats(batchedSessionId)

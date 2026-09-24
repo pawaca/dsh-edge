@@ -311,6 +311,39 @@ export async function startMockDeepSeek(port = 0) {
         return
       }
 
+      if (prompt.includes('run some code') && !hasToolResult) {
+        sendEvents(response, [
+          { choices: [{ delta: { role: 'assistant', content: null, reasoning_content: '' } }] },
+          {
+            choices: [{
+              delta: {
+                tool_calls: [{
+                  index: 0,
+                  id: 'call_mock_run_code',
+                  type: 'function',
+                  function: {
+                    name: 'run_code',
+                    arguments: JSON.stringify({
+                      description: 'Print a marker through bash',
+                      code: [
+                        'const out = await tools.bash({ command: "echo ptc-ok", description: "Print a marker" })',
+                        'console.log("ran bash")',
+                        'return out',
+                      ].join('\n'),
+                    }),
+                  },
+                }],
+              },
+            }],
+          },
+          {
+            choices: [{ delta: {}, finish_reason: 'tool_calls' }],
+            usage: { prompt_tokens: 8, completion_tokens: 3 },
+          },
+        ])
+        return
+      }
+
       if (prompt.includes('run a workflow') && !hasToolResult) {
         sendEvents(response, [
           { choices: [{ delta: { role: 'assistant', content: null, reasoning_content: '' } }] },
@@ -387,7 +420,9 @@ export async function startMockDeepSeek(port = 0) {
                 ? `plan-finished:${messageText(toolResults[0])}`
                 : prompt.includes('run a workflow')
                   ? `workflow-finished:${messageText(toolResults[0])}`
-                  : 'tool-finished'
+                  : prompt.includes('run some code')
+                    ? `code-finished:${messageText(toolResults[0])}`
+                    : 'tool-finished'
       }
       if (prompt.includes('continue released fixture')) {
         const hasReleasedPrompt = messages.some(message =>

@@ -60,6 +60,7 @@ export function verifyPacked(input) {
       || name === '@cloudflare/computer'
       || name === 'just-bash'
       || name === 'acorn'
+      || name === 'sucrase'
     ))
     if (sourceRuntimeDependency !== undefined) {
       throw new Error(`packed dsh-edge still installs bundled source dependency ${sourceRuntimeDependency}`)

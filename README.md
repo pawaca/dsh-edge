@@ -39,7 +39,7 @@ The installer guides you through every choice and deploys the Worker. You can tr
 | **Try now** | No existing Cloudflare login; claim within 60 minutes to keep it | Exploring the complete experience with the lowest friction |
 | **Keep it** | An existing or new Cloudflare account with R2 enabled | A long-lived personal deployment |
 
-The default **Free — Direct Shell** runtime works on Cloudflare Workers Free. The optional **Isolated — Dynamic Worker** runtime executes commands in a separate Worker and requires Workers Paid. Both modes use the same product UI, conversations, workspace, images, and tools, except the `workflow` multi-agent orchestration tool, which needs the Dynamic Worker runtime and is offered only by the Isolated mode. Direct Shell is a sandboxed shell runtime, not a Linux container.
+The default **Free — Direct Shell** runtime works on Cloudflare Workers Free. The optional **Isolated — Dynamic Worker** runtime executes commands in a separate Worker and requires Workers Paid. Both modes use the same product UI, conversations, workspace, images, and tools, except two tools that need the Dynamic Worker runtime and are offered only by the Isolated mode: `workflow` (multi-agent orchestration) and `run_code` (a TypeScript program that calls the other tools). Direct Shell is a sandboxed shell runtime, not a Linux container.
 
 ## Upgrade
 

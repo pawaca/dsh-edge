@@ -14,7 +14,7 @@ export const RUNTIME_PROVIDERS = Object.freeze({
   }),
   'dynamic-worker': Object.freeze({
     id: 'dynamic-worker',
-    capabilities: Object.freeze(['bash']),
+    capabilities: Object.freeze(['bash', 'coding']),
     plan: 'paid',
     shell: 'just-bash-isolated',
   }),

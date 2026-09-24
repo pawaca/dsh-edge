@@ -88,6 +88,7 @@
     "@deepseek-ai/dsh-attachment": "0.1.5-rc.2",
     "@deepseek-ai/dsh-brand": "0.1.5-rc.2",
     "@deepseek-ai/dsh-client-store": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-code-runtime": "0.1.5-rc.2",
     "@deepseek-ai/dsh-commands": "0.1.5-rc.2",
     "@deepseek-ai/dsh-compaction": "0.1.5-rc.2",
     "@deepseek-ai/dsh-compaction-basic": "0.1.5-rc.2",
@@ -165,6 +166,7 @@
     "jpeg-js": "0.4.4",
     "just-bash": "3.4.2",
     "playwright": "^1.49.0",
+    "sucrase": "3.35.1",
     "typescript": "^6.0.3",
     "vitest": "^4.1.8",
     "ws": "^8.21.0"
