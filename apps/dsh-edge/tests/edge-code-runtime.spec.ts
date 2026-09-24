@@ -215,6 +215,15 @@ describe('edge code runtime', () => {
     expect(empty).toEqual({ logs: [] })
   })
 
+  it('measures completion bytes the way JSON encodes them', async () => {
+    const { runtime } = await setup({ maxOutputBytes: 4096 })
+    // Raw length 1000 fits; JSON escaping (\\u0000 is 6 bytes each) does not.
+    await expect(runtime.run({ program: `return '\\u0000'.repeat(1000)`, bindings: [] }))
+      .resolves.toMatchObject({ error: { kind: 'output-limit', message: 'program completion exceeded 4096 bytes' } })
+    const escaped = await runtime.run({ program: `return 'quote " backslash \\\\ lone \\ud800 pair 😀'`, bindings: [] })
+    expect(escaped.value).toBe('quote " backslash \\ lone \ud800 pair 😀')
+  })
+
   it('reports type-strip and wrapper failures as exceptions without loading an isolate', async () => {
     const { runtime, loader } = await setup()
     await expect(runtime.run({ program: `return (`, bindings: [] }))

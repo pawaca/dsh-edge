@@ -19,16 +19,25 @@ const captured = {
   slice: Function.prototype.call.bind(String.prototype.slice),
 }
 
-function utf8Length(text) {
+// UTF-8 bytes of the text as JSON.stringify writes it (without the quotes):
+// quote and backslash take 2, control characters 2 or 6, and a lone
+// surrogate the 6-byte \\uXXXX escape, so isolate and host budgets agree.
+function jsonTextBytes(text) {
   let size = 0
   for (let index = 0; index < text.length; index += 1) {
     const code = captured.charCodeAt(text, index)
-    if (code < 0x80) size += 1
+    if (code === 0x22 || code === 0x5c) size += 2
+    else if (code < 0x20) size += code === 0x08 || code === 0x09 || code === 0x0a || code === 0x0c || code === 0x0d ? 2 : 6
+    else if (code < 0x80) size += 1
     else if (code < 0x800) size += 2
-    else if (code >= 0xd800 && code <= 0xdbff && index + 1 < text.length) {
-      size += 4
-      index += 1
-    } else size += 3
+    else if (code >= 0xd800 && code <= 0xdbff) {
+      const next = index + 1 < text.length ? captured.charCodeAt(text, index + 1) : 0
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        size += 4
+        index += 1
+      } else size += 6
+    } else if (code >= 0xdc00 && code <= 0xdfff) size += 6
+    else size += 3
   }
   return size
 }
@@ -48,7 +57,7 @@ function boundedCopier(limit, what, raise) {
   const copy = (item, path, ancestors) => {
     switch (typeof item) {
       case 'string':
-        spend(utf8Length(item) + 2)
+        spend(jsonTextBytes(item) + 2)
         return item
       case 'number':
         if (item !== item || item === Infinity || item === -Infinity) fail(path, 'non-finite numbers are not JSON data')
@@ -92,7 +101,7 @@ function boundedCopier(limit, what, raise) {
     const keys = captured.keys(item)
     for (let index = 0; index < keys.length; index += 1) {
       const key = keys[index]
-      spend(utf8Length(key) + 4)
+      spend(jsonTextBytes(key) + 4)
       define(out, key, copy(item[key], path + '.' + key, chain))
     }
     return out
