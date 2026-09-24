@@ -56,9 +56,9 @@ export class ShortToolPool {
 
 }
 
-// The subagent tool runs a child agent that owns its own turn budget;
-// applying the short-tool execution deadline would kill it at 60 s.
-const LONG_TOOLS = new Set(['subagent'])
+// The subagent and workflow tools run child agents that own their own turn
+// budgets; applying the short-tool execution deadline would kill them at 60 s.
+const LONG_TOOLS = new Set(['subagent', 'workflow'])
 
 /** Own one root permit; nested dispatch inherits its deadline instead of deadlocking. */
 export function installShortToolPool(ctx: Context): ShortToolPool {

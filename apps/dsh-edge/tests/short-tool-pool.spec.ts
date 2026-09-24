@@ -1,6 +1,6 @@
 import { Context } from '@deepseek-ai/cordis'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { ShortToolPool, installShortToolPool } from '../src/short-tool-pool.ts'
 const tick = () => new Promise(resolve => setTimeout(resolve, 0))
 describe('short tool pool', () => {
@@ -79,15 +79,25 @@ describe('installShortToolPool middleware', () => {
     } finally { await ctx.fiber.dispose() }
   })
 
-  it('subagent tool does not acquire a pool permit', async () => {
+  it.each(['subagent', 'workflow'])('%s tool skips the permit and the 60 s execution deadline', async name => {
+    vi.useFakeTimers()
     const { ctx, pool, dispatch, mockExec } = poolHarness()
     const gate = Promise.withResolvers<void>()
+    const exec = mockExec(name)
+    let observed: AbortSignal | undefined
     try {
-      const running = dispatch(ctx, 'tools/execute', mockExec('subagent'), () => gate.promise)
-      await tick()
+      const running = dispatch(ctx, 'tools/execute', exec, async () => {
+        observed = exec.signal
+        await gate.promise
+        return observed.aborted
+      })
+      await vi.advanceTimersByTimeAsync(61_000)
       expect(pool.snapshot.active).toBe(0)
       gate.resolve()
-      await running
-    } finally { await ctx.fiber.dispose() }
+      await expect(running).resolves.toBe(false)
+    } finally {
+      vi.useRealTimers()
+      await ctx.fiber.dispose()
+    }
   })
 })
