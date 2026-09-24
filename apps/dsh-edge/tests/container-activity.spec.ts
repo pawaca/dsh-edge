@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { ContainerActivity } from '../src/container-activity.ts'
 
 function tracker(sleepAfterMs = 1_000) {
@@ -47,5 +47,44 @@ describe('container idle tracking', () => {
     const settled = now()
     advance(400)
     expect(activity.deadline()).toBe(settled + 1_000)
+  })
+
+  it('moves a failed stop one full window out instead of leaving a past deadline', async () => {
+    const { activity, advance, now } = tracker()
+    activity.begin()()
+    advance(5_000)
+    expect(activity.deadline()).toBeLessThan(now())
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    await expect(activity.stopIfIdle(() => Promise.reject(new Error('stop refused')))).resolves.toBe('failed')
+    expect(error).toHaveBeenCalledOnce()
+    error.mockRestore()
+    expect(activity.idle()).toBe(false)
+    expect(activity.deadline()).toBe(now() + 1_000)
+  })
+
+  it('does not stop a busy container', async () => {
+    const { activity } = tracker()
+    activity.begin()
+    const destroy = vi.fn(() => Promise.resolve())
+    await expect(activity.stopIfIdle(destroy)).resolves.toBe('busy')
+    expect(destroy).not.toHaveBeenCalled()
+  })
+
+  it('holds a command that arrives during a stop until the stop settles', async () => {
+    const { activity } = tracker()
+    let finish!: () => void
+    const stop = activity.stopIfIdle(() => new Promise<void>(resolve => { finish = resolve }))
+    let admitted = false
+    const admission = activity.admit().then(release => { admitted = true; return release })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(admitted).toBe(false)
+    await expect(activity.stopIfIdle(() => Promise.resolve())).resolves.toBe('busy')
+    finish()
+    await expect(stop).resolves.toBe('stopped')
+    const release = await admission
+    expect(admitted).toBe(true)
+    expect(activity.idle()).toBe(false)
+    release()
   })
 })

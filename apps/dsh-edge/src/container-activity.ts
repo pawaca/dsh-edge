@@ -13,11 +13,21 @@ export const CONTAINER_SLEEP_AFTER_MS = 10 * 60_000
 export class ContainerActivity {
   private inFlight = 0
   private lastActivity: number | undefined
+  private stopping: Promise<void> | undefined
 
   constructor(
     private readonly sleepAfterMs = CONTAINER_SLEEP_AFTER_MS,
     private readonly now: () => number = Date.now,
   ) {}
+
+  /**
+   * Admit one command: wait out an in-flight idle stop (which would otherwise
+   * destroy the container underneath it), then mark it running.
+   */
+  async admit(): Promise<() => void> {
+    while (this.stopping !== undefined) await this.stopping
+    return this.begin()
+  }
 
   /** Mark one command running; the returned release is idempotent. */
   begin(): () => void {
@@ -30,6 +40,27 @@ export class ContainerActivity {
       this.inFlight -= 1
       this.lastActivity = this.now()
     }
+  }
+
+  /**
+   * Stop the container with `destroy` when idle. A failed stop restarts the
+   * idle window so the next attempt is one window out, not an immediate retry.
+   */
+  async stopIfIdle(destroy: () => Promise<void>): Promise<'stopped' | 'busy' | 'failed'> {
+    if (!this.idle() || this.stopping !== undefined) return 'busy'
+    let outcome: 'stopped' | 'failed' = 'stopped'
+    const stopping = destroy().catch((error: unknown) => {
+      outcome = 'failed'
+      this.lastActivity = this.now()
+      console.error('dsh-edge idle container stop failed.', error)
+    })
+    this.stopping = stopping
+    try {
+      await stopping
+    } finally {
+      this.stopping = undefined
+    }
+    return outcome
   }
 
   /** The earliest time an idle check can stop the container. */

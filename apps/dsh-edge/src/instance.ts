@@ -958,7 +958,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
    */
   private async trackContainerActivity<T>(run: () => Promise<T>): Promise<T> {
     if (this.containerBackend() === undefined) return run()
-    const release = this.containerActivity.begin()
+    const release = await this.containerActivity.admit()
     try {
       return await run()
     } finally {
@@ -971,12 +971,8 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
 
   private async stopIdleContainer(): Promise<void> {
     const container = this.ctx.container
-    if (container?.running !== true || !this.containerActivity.idle()) return
-    try {
-      await container.destroy()
-    } catch (error) {
-      console.error('dsh-edge idle container stop failed.', error)
-    }
+    if (container?.running !== true) return
+    await this.containerActivity.stopIfIdle(() => container.destroy())
   }
 
   /** Run one bounded Computer workspace operation outside an agent turn. */
