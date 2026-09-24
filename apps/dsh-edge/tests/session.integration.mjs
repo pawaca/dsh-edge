@@ -838,6 +838,8 @@ try {
     const codeResultText = toolResultText(codeEvents.find(event => event.type === 'tool/result'))
     assert.match(codeResultText, /ptc-ok/u)
     assert.match(codeResultText, /ran bash/u)
+    assert.doesNotMatch(codeResultText, /only available during an active turn/u)
+    assert.equal(codeEvents.filter(event => event.type === 'tool/ptc-dispatch').length, 2)
     assert.ok(codeEvents.some(event => event.type === 'tool/ptc-dispatch'))
   }
   const offeredTools = (turnRequests().at(-1).tools ?? []).map(tool => tool.function?.name)
