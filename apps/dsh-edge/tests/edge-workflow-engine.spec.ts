@@ -1,5 +1,6 @@
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { WorkflowEngine, WorkflowResult, WorkflowStartRequest } from '@deepseek-ai/dsh-workflow'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { createContext, runInContext } from 'node:vm'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -42,6 +43,8 @@ class FakeSubagents extends Service {
     return name === 'spawn' ? {} : undefined
   }
 
+  /** Called as each child starts, in the caller's async context. */
+  onStart: (() => void) | undefined
   /** When set, start() waits for it before publishing the child. */
   startGate: Promise<void> | undefined
   /** When set, a child's dispose() waits for it. */
@@ -53,6 +56,7 @@ class FakeSubagents extends Service {
     signal: AbortSignal
     outputSchema?: unknown
   }) {
+    this.onStart?.()
     if (this.startGate !== undefined) await this.startGate
     const settled = Promise.withResolvers<unknown>()
     const index = this.children.length
@@ -121,6 +125,8 @@ class FakeLoader {
   bridges: Bridge[] = []
   agentCalls = 0
   disposed = 0
+  /** Runs each bridge call the way a real RPC arrives: outside the caller's async context. */
+  escape: <T>(fn: () => T) => T = fn => fn()
   /** When set, getEntrypoint() throws it (a worker that fails to initialize). */
   entrypointError: Error | undefined
 
@@ -149,7 +155,8 @@ class FakeLoader {
         const host = {
           agent: async (...args: unknown[]) => {
             this.agentCalls += 1
-            return structuredClone(await bridge.agent(...(structuredClone(args) as [unknown, unknown, unknown])))
+            const cloned = structuredClone(args) as [unknown, unknown, unknown]
+            return structuredClone(await this.escape(() => bridge.agent(...cloned)))
           },
           phase: async (title: unknown) => { bridge.phase(structuredClone(title)) },
           log: async (message: unknown) => { bridge.log(structuredClone(message)) },
@@ -330,6 +337,17 @@ describe('edge workflow engine', () => {
     await run(paced.engine, `for (let i = 0; i < 200; i++) { log('x' + i); phase('p' + i); await null } return 1`)
     const progress = paced.events.filter(event => event[0] === 'workflow/log' || event[0] === 'workflow/phase')
     expect(progress).toHaveLength(50)
+  })
+
+  it('starts children inside the async context of the workflow call', async () => {
+    const { engine, loader, subagents } = await setup()
+    const turn = new AsyncLocalStorage<string>()
+    loader.escape = fn => turn.exit(fn)
+    const seen: (string | undefined)[] = []
+    subagents.onStart = () => { seen.push(turn.getStore()) }
+    const result = await turn.run('turn-1', () => run(engine, `return await parallel([() => agent('a'), () => agent('b')])`))
+    expect(result.stopReason).toBe('completed')
+    expect(seen).toEqual(['turn-1', 'turn-1'])
   })
 
   it('exposes only agent, phase, and log on the bridge', async () => {

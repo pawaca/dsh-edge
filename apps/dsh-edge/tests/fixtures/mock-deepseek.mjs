@@ -326,9 +326,12 @@ export async function startMockDeepSeek(port = 0) {
                     arguments: JSON.stringify({
                       description: 'Print a marker through bash',
                       code: [
-                        'const out = await tools.bash({ command: "echo ptc-ok", description: "Print a marker" })',
+                        'const out = await tools.bash({ command: "echo ptc-ok > ptc-marker.txt && cat ptc-marker.txt", description: "Write a marker" })',
                         'console.log("ran bash")',
-                        'return out',
+                        // A file tool needs the turn's filesystem binding, so this call proves
+                        // nested dispatches run inside the run_code call's async context.
+                        'const read = await tools.read({ file_path: "ptc-marker.txt" })',
+                        'return { out, read }',
                       ].join('\n'),
                     }),
                   },

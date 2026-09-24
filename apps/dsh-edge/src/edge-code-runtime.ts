@@ -18,6 +18,7 @@
  *   dispatch with its own session events) and the argument and reply bytes,
  *   and snapshots every value as lossless JSON.
  */
+import { AsyncLocalStorage } from 'node:async_hooks'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { parse } from 'acorn'
@@ -224,6 +225,13 @@ class CodeRun {
   private isolate: { worker: unknown, entrypoint: unknown } | undefined
   private wallTimer: ReturnType<typeof setTimeout> | undefined
   private readonly onAbort = () => { this.settle({ kind: 'abort', message: String(this.signal?.reason) }) }
+  /**
+   * The async context of the `run_code` call that started this run. Bridge
+   * calls arrive from the isolate as fresh RPC invocations, outside it, so
+   * nested tool dispatches re-enter it (the turn's filesystem binding and
+   * every other AsyncLocalStorage store live there).
+   */
+  private readonly turnContext = AsyncLocalStorage.snapshot()
 
   constructor(
     private readonly ctx: Context,
@@ -283,8 +291,12 @@ class CodeRun {
     )
   }
 
-  /** Bridge entry for one binding call. */
-  async bridgeCall(global: unknown, name: unknown, args: unknown): Promise<BridgeReply> {
+  /** Bridge entry for one binding call, run inside the starting call's async context. */
+  bridgeCall(global: unknown, name: unknown, args: unknown): Promise<BridgeReply> {
+    return this.turnContext(() => this.dispatchCall(global, name, args))
+  }
+
+  private async dispatchCall(global: unknown, name: unknown, args: unknown): Promise<BridgeReply> {
     if (this.settled) return { ok: false, message: 'the run has finished' }
     if (typeof global !== 'string' || typeof name !== 'string') return { ok: false, message: 'malformed binding call' }
     if (this.calls >= this.config.maxBindingCalls) {

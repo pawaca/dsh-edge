@@ -21,6 +21,7 @@
  * outbound connections per invocation, and SQLite row writes for each child
  * session.
  */
+import { AsyncLocalStorage } from 'node:async_hooks'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { parse } from 'acorn'
@@ -255,6 +256,13 @@ class EdgeWorkflowRun implements WorkflowRun {
   private readonly liveAgents = new Map<number, WorkflowAgentInfo>()
   private inputSignal: AbortSignal | undefined
   private readonly onInputAbort = () => { this.cancel('workflow signal aborted') }
+  /**
+   * The async context of the `workflow` call that started this run. Bridge
+   * calls arrive from the isolate as fresh RPC invocations, outside it, so
+   * child starts and lifecycle events re-enter it (the turn's filesystem
+   * binding and every other AsyncLocalStorage store live there).
+   */
+  private readonly turnContext = AsyncLocalStorage.snapshot()
   private disposed: Promise<void> | undefined
 
   constructor(
@@ -410,7 +418,11 @@ class EdgeWorkflowRun implements WorkflowRun {
   }
 
   /** Bridge entry for `agent()`: a reply object, because only data crosses RPC reliably. */
-  async bridgeAgent(prompt: unknown, opts: unknown, scriptPhase: unknown): Promise<BridgeReply> {
+  bridgeAgent(prompt: unknown, opts: unknown, scriptPhase: unknown): Promise<BridgeReply> {
+    return this.turnContext(() => this.dispatchAgent(prompt, opts, scriptPhase))
+  }
+
+  private async dispatchAgent(prompt: unknown, opts: unknown, scriptPhase: unknown): Promise<BridgeReply> {
     const size = jsonBytes([prompt, opts, scriptPhase])
     if (size > MAX_AGENT_REQUEST_BYTES) {
       return { ok: false, code: 'INVALID_ARGUMENT', message: `agent() request is ${size} bytes, over the ${MAX_AGENT_REQUEST_BYTES}-byte limit` }
@@ -436,12 +448,20 @@ class EdgeWorkflowRun implements WorkflowRun {
 
   /** Bridge entry for `phase()`: progress narration only; the isolate tracks its current phase. */
   bridgePhase(title: unknown): void {
+    this.turnContext(() => { this.emitPhase(title) })
+  }
+
+  private emitPhase(title: unknown): void {
     if (typeof title !== 'string' || title.length === 0 || !this.admitProgress()) return
     this.observer.phase(clipProgress(title))
   }
 
   /** Bridge entry for `log()`. */
   bridgeLog(message: unknown): void {
+    this.turnContext(() => { this.emitLog(message) })
+  }
+
+  private emitLog(message: unknown): void {
     if (typeof message !== 'string' || !this.admitProgress()) return
     this.observer.log(clipProgress(message))
   }

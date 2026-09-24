@@ -1,5 +1,6 @@
 import { Context } from '@deepseek-ai/cordis'
 import type { CodeBindingNamespace, CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { createContext, runInContext } from 'node:vm'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -38,6 +39,8 @@ class FakeLoader {
   calls = 0
   disposed = 0
   entrypointError: Error | undefined
+  /** Runs each bridge call the way a real RPC arrives: outside the caller's async context. */
+  escape: <T>(fn: () => T) => T = fn => fn()
   /** Delay before a log RPC reaches the host, like a real cross-isolate call. */
   logDelayMs = 0
 
@@ -64,7 +67,8 @@ class FakeLoader {
         const host = {
           call: async (...args: unknown[]) => {
             this.calls += 1
-            return structuredClone(await bridge.call(...(structuredClone(args) as [unknown, unknown, unknown])))
+            const cloned = structuredClone(args) as [unknown, unknown, unknown]
+            return structuredClone(await this.escape(() => bridge.call(...cloned)))
           },
           log: async (text: unknown) => {
             if (this.logDelayMs > 0) await new Promise(resolve => setTimeout(resolve, this.logDelayMs))
@@ -130,6 +134,19 @@ describe('edge code runtime', () => {
     expect(loader.disposed).toBeGreaterThan(0)
     const bridge = loader.bridges[0]!
     expect(Object.getOwnPropertyNames(Object.getPrototypeOf(bridge)).sort()).toEqual(['call', 'constructor', 'log'])
+  })
+
+  it('runs binding calls inside the async context of the run_code call', async () => {
+    const { runtime, loader } = await setup()
+    const turn = new AsyncLocalStorage<string>()
+    loader.escape = fn => turn.exit(fn)
+    const seen: (string | undefined)[] = []
+    const result = await turn.run('turn-1', () => runtime.run({
+      program: `return await tools.where({})`,
+      bindings: [tools({ where: async () => { seen.push(turn.getStore()); return turn.getStore() ?? null } })],
+    }))
+    expect(result.value).toBe('turn-1')
+    expect(seen).toEqual(['turn-1'])
   })
 
   it('rejects failed binding calls with the namespace error class', async () => {
