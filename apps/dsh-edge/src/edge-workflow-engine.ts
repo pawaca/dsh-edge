@@ -477,8 +477,10 @@ class EdgeWorkflowRun implements WorkflowRun {
     }
     this.started += 1
     const seq = this.started
-    const label = opts.label ?? defaultLabel(rawPrompt)
-    const phase = opts.phase ?? scriptPhase
+    // Both land in persisted events (recorder rows, the child session label), so keep them short.
+    const label = clipMetadata(opts.label ?? defaultLabel(rawPrompt))
+    const rawPhase = opts.phase ?? scriptPhase
+    const phase = rawPhase === undefined ? undefined : clipMetadata(rawPhase)
     await this.acquireSlot()
     try {
       this.throwIfCancelled()
@@ -866,6 +868,13 @@ function jsonBytes(value: unknown): number {
   } catch {
     return Number.POSITIVE_INFINITY
   }
+}
+
+/** Longest `label`/`phase` recorded per agent. */
+const MAX_AGENT_METADATA_CHARS = 256
+
+function clipMetadata(text: string): string {
+  return text.length > MAX_AGENT_METADATA_CHARS ? `${text.slice(0, MAX_AGENT_METADATA_CHARS)}…` : text
 }
 
 function clipProgress(text: string): string {

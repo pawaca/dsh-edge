@@ -293,6 +293,15 @@ describe('edge workflow engine', () => {
     expect(hooked.subagents.children.at(-1)!.label).toBe('small')
   })
 
+  it('clips agent label and phase before they reach persisted events', async () => {
+    const { engine, events, subagents } = await setup()
+    await run(engine, `return await agent('p', { label: 'l'.repeat(100000), phase: 'f'.repeat(100000) })`)
+    const start = events.find(event => event[0] === 'workflow/agent-start')![1] as { label: string, phase: string }
+    expect(start.label.length).toBe(257)
+    expect(start.phase.length).toBe(257)
+    expect(subagents.children[0]!.label!.length).toBe(257)
+  })
+
   it('caps the child results the host sends back to the isolate', async () => {
     const { engine, subagents } = await setup()
     subagents.auto = child => { child.finish({ output: 'y'.repeat(MAX_AGENT_REPLY_BYTES) }) }
