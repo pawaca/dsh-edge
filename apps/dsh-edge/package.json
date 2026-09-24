@@ -73,7 +73,7 @@
   },
   "devDependencies": {
     "@cfworker/json-schema": "^4.1.1",
-    "@cloudflare/computer": "0.2.1",
+    "@cloudflare/computer": "0.3.1",
     "@cloudflare/workers-types": "5.20260904.1",
     "@deepseek-ai/cordis": "4.0.2",
     "@deepseek-ai/dsh-agent": "0.1.5-rc.2",

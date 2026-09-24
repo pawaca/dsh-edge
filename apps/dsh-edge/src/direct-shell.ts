@@ -218,6 +218,7 @@ function workspaceFs(host: DirectBackendHost): WorkspaceFs {
     writeFile: (path, content, options) => fs.writeFile(path, content, options),
     mkdir: (path, options) => fs.mkdir(path, options),
     rm: (path, options) => fs.rm(path, options),
+    rename: (oldPath, newPath) => fs.rename(oldPath, newPath),
     chmod: (path, mode) => fs.chmod(path, mode),
     symlink: (target, path) => fs.symlink(target, path),
   }

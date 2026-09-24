@@ -20,8 +20,8 @@ importers:
   .:
     dependencies:
       '@cloudflare/computer':
-        specifier: 0.2.1
-        version: 0.2.1(zod@4.4.3)
+        specifier: 0.3.1
+        version: 0.3.1(zod@4.4.3)
       '@deepseek-ai/cordis':
         specifier: 4.0.2
         version: 4.0.2(@deepseek-ai/cordis-plugin-include@1.0.6)(@deepseek-ai/cordis-plugin-loader@1.0.2)
@@ -483,8 +483,8 @@ packages:
   '@cfworker/json-schema@4.1.1':
     resolution: {integrity: sha512-gAmrUZSGtKc3AiBL71iNWxDsyUC5uMaKKGdvzYsBoTW/xi42JQHl7eKV2OYzCUqvc+D2RCcf7EXY2iCyFIk6og==}
 
-  '@cloudflare/computer@0.2.1':
-    resolution: {integrity: sha512-jh0pa1csAExPItUYzrzBrZO1vCBjsQ6jX+aunrnKe2VSC9i8mEziQYZUL3IZId4GpceRL+v8HIzVr4kjbmQXPw==}
+  '@cloudflare/computer@0.3.1':
+    resolution: {integrity: sha512-am79tH9IukXidlJZTXeMAs7rvy4KgdlbBoOM1HgLBdxrlpeP1aQf2YLvXhxKGzSh6PkV/NmxSz0R2BcwSoRzPA==}
     peerDependencies:
       '@platformatic/vfs': '*'
       ai: ^6.0.196 || ^7.0.0
@@ -3661,8 +3661,8 @@ packages:
     resolution: {integrity: sha512-+ys997U96po4Kx/ABpBCqhA9EuxJaQWDQg7295H4hBphv3IZg0boBKuwYpt4YXp6MZ5AmZQnU/tyMTlRpaSejg==}
     engines: {node: '>= 0.4'}
 
-  capnweb@0.8.0:
-    resolution: {integrity: sha512-BK/TuXUiyfLSKsmjojn70yN7oYG/JJzoURZ3tckjg5Zj2KcygPm0A5jyOlswK7SYB4f0Gh9tt+RZ132b80iLfA==}
+  capnweb@0.10.0:
+    resolution: {integrity: sha512-lQ2nlzaifkqBeNfs8RLErn7NZ8FNf3vn1W7J3nSH73edWG+0B5nHZGR51S2S9HMZEuZcEypOO469dZRY/BluFA==}
 
   chokidar@4.0.3:
     resolution: {integrity: sha512-Qgzu8kfBvo+cA4962jnP1KkS6Dop5NS6g7R5LFYJr4b8Ub94PPQXUksCw9PvXoeXPRRddRNC5C1JQUR2SMGtnA==}
@@ -5131,10 +5131,10 @@ snapshots:
 
   '@cfworker/json-schema@4.1.1': {}
 
-  '@cloudflare/computer@0.2.1(zod@4.4.3)':
+  '@cloudflare/computer@0.3.1(zod@4.4.3)':
     dependencies:
       acorn: 8.18.0
-      capnweb: 0.8.0
+      capnweb: 0.10.0
       just-bash: 3.4.2
     optionalDependencies:
       zod: 4.4.3
@@ -8165,7 +8165,7 @@ snapshots:
       call-bind-apply-helpers: 1.0.2
       get-intrinsic: 1.3.0
 
-  capnweb@0.8.0: {}
+  capnweb@0.10.0: {}
 
   chokidar@4.0.3:
     dependencies:

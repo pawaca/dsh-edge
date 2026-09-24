@@ -258,6 +258,23 @@ try {
   assert.equal(firstFreshShell.body.status, 'completed')
   assert.equal(firstFreshShell.body.stdout, 'fresh-shell-ok')
 
+  // `mv` goes through the workspace `rename` primitive (Computer 0.3): a file
+  // and a directory tree both move, and their sources disappear.
+  const movedEntries = await jsonRequest('/api/workspace/exec', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      command: 'mkdir -p /workspace/mv-src/nested && printf moved > /workspace/mv-src/nested/a.txt'
+        + ' && mv /workspace/first.txt /workspace/renamed.txt'
+        + ' && mv /workspace/mv-src /workspace/mv-dest'
+        + ' && cat /workspace/renamed.txt /workspace/mv-dest/nested/a.txt'
+        + ' && test ! -e /workspace/first.txt && test ! -e /workspace/mv-src && echo " gone"',
+    }),
+  })
+  assert.equal(movedEntries.response.status, 200)
+  assert.equal(movedEntries.body.status, 'completed', movedEntries.body.stderr)
+  assert.equal(movedEntries.body.stdout, 'fresh-shell-okmoved gone\n')
+
   const disabledNetwork = await jsonRequest('/api/workspace/exec', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
