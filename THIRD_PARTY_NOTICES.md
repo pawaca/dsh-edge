@@ -70,7 +70,7 @@ The following 596 package versions form the conservative, platform-neutral produ
 | `@babel/runtime@7.29.7` | `MIT` |
 | `@borewit/text-codec@0.2.2` | `MIT` |
 | `@cfworker/json-schema@4.1.1` | `MIT` |
-| `@cloudflare/computer@0.2.1` | `MIT` |
+| `@cloudflare/computer@0.3.1` | `MIT` |
 | `@cloudflare/kv-asset-handler@0.5.0` | `MIT OR Apache-2.0` |
 | `@cloudflare/unenv-preset@2.16.1` | `MIT OR Apache-2.0` |
 | `@cspotcode/source-map-support@0.8.1` | `MIT` |
@@ -379,7 +379,7 @@ The following 596 package versions form the conservative, platform-neutral produ
 | `bytes@3.1.2` | `MIT` |
 | `call-bind-apply-helpers@1.0.2` | `MIT` |
 | `call-bound@1.0.4` | `MIT` |
-| `capnweb@0.8.0` | `MIT` |
+| `capnweb@0.10.0` | `MIT` |
 | `chokidar@4.0.3` | `MIT` |
 | `chokidar@5.0.0` | `MIT` |
 | `chownr@1.1.4` | `ISC` |
@@ -911,7 +911,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 Applies to:
 
-- `capnweb@0.8.0` (`LICENSE.txt`)
+- `capnweb@0.10.0` (`LICENSE.txt`)
 
 ```text
 MIT License
@@ -6023,40 +6023,6 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### License/notice 8533b3e58b15
-
-Applies to:
-
-- `@cloudflare/computer@0.2.1` (`package metadata fallback`)
-
-```text
-The published @cloudflare/computer@0.2.1 package declared MIT but did not include a license or notice file. Attribution from its package metadata: contributors to @cloudflare/computer. Repository: git+https://github.com/cloudflare/computer.git.
-
-The MIT branch is reproduced for this distribution:
-
-MIT License
-
-Published package author: contributors to @cloudflare/computer
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-```
-
 ### License/notice 8694aa57bec3
 
 Applies to:
@@ -6738,6 +6704,40 @@ NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
 LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+```
+
+### License/notice 8f56920dec6e
+
+Applies to:
+
+- `@cloudflare/computer@0.3.1` (`package metadata fallback`)
+
+```text
+The published @cloudflare/computer@0.3.1 package declared MIT but did not include a license or notice file. Attribution from its package metadata: contributors to @cloudflare/computer. Repository: git+https://github.com/cloudflare/computer.git.
+
+The MIT branch is reproduced for this distribution:
+
+MIT License
+
+Published package author: contributors to @cloudflare/computer
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 ```
 
 ### License/notice 9116bd624634
