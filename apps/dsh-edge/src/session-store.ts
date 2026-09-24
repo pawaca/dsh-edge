@@ -138,8 +138,8 @@ interface EdgeSessionStoreConfig {
   maxTokens?: string
   reasoningEffort?: string
   streamIdleTimeoutMs?: string
-  /** Worker Loader for workflow isolates; present only when the Dynamic Worker provider is available. */
-  workflowLoader?: WorkflowLoader
+  /** Worker Loader for workflow and code-run isolates; present only when the Dynamic Worker provider is available. */
+  workerLoader?: WorkflowLoader
   /** Run one bounded Computer workspace operation outside a turn (`@file` completion, directory browsing). */
   withWorkspaceFiles<T>(read: (files: EdgeWorkspaceFiles) => Promise<T>): Promise<T>
   onLateSessionEvent?: (sessionId: SessionId, event: SessionEvent) => void
@@ -372,7 +372,11 @@ export class EdgeSessionStore {
     await this.context.plugin(SystemPrompt, { personaPrefix: EDGE_SYSTEM_PROMPT })
     await this.context.plugin(EdgeVfsSpillStore)
     await this.context.plugin(EdgeFileSystem)
-    await this.context.plugin(ToolRuntime)
+    // With isolates available, `run_code` (PTC) joins the native tools; its
+    // nested calls stay below the Workers six-connection limit.
+    await this.context.plugin(ToolRuntime, config.workerLoader === undefined
+      ? {}
+      : { mode: 'both', maxParallelSubCalls: 4 })
     await this.context.plugin(SkillRegistry)
     await this.context.plugin(EdgeSkillProvider, { storage })
     await this.context.plugin(TypertRegistry)
@@ -619,11 +623,14 @@ export class EdgeSessionStore {
         enableRunInBackground: true,
       })
     }
-    if (config.workflowLoader !== undefined) {
+    if (config.workerLoader !== undefined) {
       // Provider-gated: each run executes in its own Dynamic Worker, so only
       // deployments with the Worker Loader binding offer the workflow tool.
       const { default: EdgeWorkflowEngine } = await import('./edge-workflow-engine.ts')
-      await this.context.plugin(EdgeWorkflowEngine, { loader: config.workflowLoader } as never)
+      await this.context.plugin(EdgeWorkflowEngine, { loader: config.workerLoader } as never)
+      // The executor behind `run_code`; ToolRuntime reads ctx.codeRuntime lazily.
+      const { default: EdgeCodeRuntime } = await import('./edge-code-runtime.ts')
+      await this.context.plugin(EdgeCodeRuntime, { loader: config.workerLoader } as never)
       // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
       const ToolWorkflow = await import(
         '@deepseek-ai/dsh-tool-workflow' as string

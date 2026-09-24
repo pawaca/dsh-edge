@@ -36,6 +36,7 @@
     "@deepseek-ai/dsh-client-ui-approval": "0.1.5-rc.2",
     "@deepseek-ai/dsh-client-ui-directory-picker-browse": "0.1.5-rc.2",
     "@deepseek-ai/dsh-client-ui-settings-models": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-code-runtime": "0.1.5-rc.2",
     "@deepseek-ai/dsh-commands": "0.1.5-rc.2",
     "@deepseek-ai/dsh-compaction": "0.1.5-rc.2",
     "@deepseek-ai/dsh-compaction-basic": "0.1.5-rc.2",
@@ -120,6 +121,7 @@
     "jpeg-js": "0.4.4",
     "jsonc-parser": "3.3.1",
     "just-bash": "3.4.2",
+    "sucrase": "3.35.1",
     "wrangler": "4.129.0"
   },
   "devDependencies": {

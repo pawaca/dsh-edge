@@ -14,6 +14,8 @@
  * while ordinary failures become per-item `null`.
  */
 
+import { ISOLATE_COPY_SOURCE } from './edge-isolate-copy.ts'
+
 /** Module names inside the workflow isolate. */
 export const WORKFLOW_ENTRY_MODULE = 'workflow-entry.js'
 export const WORKFLOW_RUNTIME_MODULE = 'workflow-runtime.js'
@@ -64,100 +66,12 @@ function unwrap(reply) {
   throw new WorkflowError(reply.message, reply.code)
 }
 
-// Captured when this module loads, before the body module evaluates, so a
-// script that replaces JSON, Object, Array, or String members cannot change
-// how bridge payloads are copied and measured.
-const captured = {
-  keys: Object.keys,
-  getPrototypeOf: Object.getPrototypeOf,
-  symbols: Object.getOwnPropertySymbols,
-  defineProperty: Object.defineProperty,
-  isArray: Array.isArray,
-  charCodeAt: Function.prototype.call.bind(String.prototype.charCodeAt),
-  slice: Function.prototype.call.bind(String.prototype.slice),
-}
+${ISOLATE_COPY_SOURCE}
 
-function utf8Length(text) {
-  let size = 0
-  for (let index = 0; index < text.length; index += 1) {
-    const code = captured.charCodeAt(text, index)
-    if (code < 0x80) size += 1
-    else if (code < 0x800) size += 2
-    else if (code >= 0xd800 && code <= 0xdbff && index + 1 < text.length) {
-      size += 4
-      index += 1
-    } else size += 3
+function raiseAs(code) {
+  return message => {
+    throw new WorkflowError(message, code)
   }
-  return size
-}
-
-/**
- * Return a copier that turns values into fresh plain JSON data within one
- * byte budget. Only the copy crosses the bridge: every property is read once,
- * so getters, proxies, and toJSON hooks cannot change what was measured.
- */
-function boundedCopier(limit, what, code) {
-  let left = limit
-  const fail = (path, reason) => {
-    throw new WorkflowError(what + ' ' + path + ': ' + reason, code)
-  }
-  const spend = amount => {
-    left -= amount
-    if (left < 0) throw new WorkflowError(what + ' is over the ' + limit + '-byte limit; pass smaller inputs or references', code)
-  }
-  const copy = (item, path, ancestors) => {
-    switch (typeof item) {
-      case 'string':
-        spend(utf8Length(item) + 2)
-        return item
-      case 'number':
-        if (item !== item || item === Infinity || item === -Infinity) fail(path, 'non-finite numbers are not JSON data')
-        spend(('' + item).length)
-        return item
-      case 'boolean':
-        spend(5)
-        return item
-      case 'object':
-        break
-      default:
-        fail(path, typeof item + ' values are not JSON data')
-    }
-    if (item === null) {
-      spend(4)
-      return null
-    }
-    for (let node = ancestors; node !== null; node = node.parent) {
-      if (node.item === item) fail(path, 'circular references are not JSON data')
-    }
-    if (captured.symbols(item).length > 0) fail(path, 'symbol-keyed properties are not JSON data')
-    const chain = { item, parent: ancestors }
-    const define = (target, key, value) => {
-      captured.defineProperty(target, key, { value, writable: true, enumerable: true, configurable: true })
-    }
-    if (captured.isArray(item)) {
-      const length = item.length
-      const out = []
-      spend(2)
-      for (let index = 0; index < length; index += 1) {
-        if (!(index in item)) fail(path + '[' + index + ']', 'sparse arrays are not JSON data')
-        define(out, index, copy(item[index], path + '[' + index + ']', chain))
-        spend(1)
-      }
-      return out
-    }
-    const proto = captured.getPrototypeOf(item)
-    if (proto !== null && captured.getPrototypeOf(proto) !== null) fail(path, 'only plain objects and arrays are JSON data')
-    const out = {}
-    spend(2)
-    const keys = captured.keys(item)
-    for (let index = 0; index < keys.length; index += 1) {
-      const key = keys[index]
-      spend(utf8Length(key) + 4)
-      define(out, key, copy(item[key], path + '.' + key, chain))
-    }
-    return out
-  }
-  return value => copy(value, '', null)
 }
 
 function clip(text) {
@@ -176,7 +90,7 @@ export async function runWorkflow(host, input, workflow) {
       throw new WorkflowError('this run reached its total agent cap (' + maxTotalAgents + ') — a runaway-loop backstop; split the work across runs if the scale is intentional', 'AGENT_CAP')
     }
     // Only these fresh copies cross the bridge, measured against one request budget.
-    const copy = boundedCopier(${MAX_AGENT_REQUEST_BYTES}, 'agent() request', 'INVALID_ARGUMENT')
+    const copy = boundedCopier(${MAX_AGENT_REQUEST_BYTES}, 'agent() request', raiseAs('INVALID_ARGUMENT'))
     const sentPrompt = copy(prompt)
     const sentOpts = opts === undefined ? null : copy(opts)
     const sentPhase = currentPhase === undefined ? null : copy(currentPhase)
@@ -254,7 +168,7 @@ export async function runWorkflow(host, input, workflow) {
 
   const value = await workflow({ agent, parallel, pipeline, phase, log, args })
   // Wrapped: Workers RPC attaches a disposer to the top-level returned object only.
-  const result = boundedCopier(${MAX_RESULT_BYTES}, 'the workflow result', 'RESULT_UNSERIALIZABLE')(value === undefined ? null : value)
+  const result = boundedCopier(${MAX_RESULT_BYTES}, 'the workflow result', raiseAs('RESULT_UNSERIALIZABLE'))(value === undefined ? null : value)
   return { value: result }
 }
 `

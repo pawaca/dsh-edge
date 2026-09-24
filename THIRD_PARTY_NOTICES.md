@@ -35,7 +35,7 @@ SOFTWARE.
 
 ## Bundled component inventory
 
-The following 583 package versions form the conservative, platform-neutral production closure used to assemble the Web and Worker artifacts in this distribution. Platform-specific build binaries that are not distributed in those artifacts are excluded; tree shaking can omit additional code. The inventory and legal texts are generated during packaging rather than referring recipients to a source checkout. License expressions are SPDX identifiers supplied by each package. Dependencies installed separately by npm remain declared in this package's `package.json`.
+The following 596 package versions form the conservative, platform-neutral production closure used to assemble the Web and Worker artifacts in this distribution. Platform-specific build binaries that are not distributed in those artifacts are excluded; tree shaking can omit additional code. The inventory and legal texts are generated during packaging rather than referring recipients to a source checkout. License expressions are SPDX identifiers supplied by each package. Dependencies installed separately by npm remain declared in this package's `package.json`.
 
 | Component | License |
 | --- | --- |
@@ -302,8 +302,10 @@ The following 583 package versions form the conservative, platform-neutral produ
 | `@jitl/quickjs-wasmfile-release-asyncify@0.32.0` | `MIT` |
 | `@jitl/quickjs-wasmfile-release-sync@0.32.0` | `MIT` |
 | `@joplin/turndown-plugin-gfm@1.0.67` | `MIT` |
+| `@jridgewell/gen-mapping@0.3.13` | `MIT` |
 | `@jridgewell/resolve-uri@3.1.2` | `MIT` |
 | `@jridgewell/sourcemap-codec@1.5.5` | `MIT` |
+| `@jridgewell/trace-mapping@0.3.31` | `MIT` |
 | `@jridgewell/trace-mapping@0.3.9` | `MIT` |
 | `@mixmark-io/domino@2.2.0` | `BSD-2-Clause` |
 | `@modelcontextprotocol/sdk@1.30.0` | `MIT` |
@@ -360,6 +362,7 @@ The following 583 package versions form the conservative, platform-neutral produ
 | `agent-base@7.1.4` | `MIT` |
 | `ajv@8.20.0` | `MIT` |
 | `ajv-formats@3.0.1` | `MIT` |
+| `any-promise@1.3.0` | `MIT` |
 | `anynum@1.0.1` | `MIT` |
 | `argparse@2.0.1` | `Python-2.0` |
 | `balanced-match@4.0.4` | `MIT` |
@@ -381,6 +384,7 @@ The following 583 package versions form the conservative, platform-neutral produ
 | `chokidar@5.0.0` | `MIT` |
 | `chownr@1.1.4` | `ISC` |
 | `commander@15.0.0` | `MIT` |
+| `commander@4.1.1` | `MIT` |
 | `commander@6.2.1` | `MIT` |
 | `compare-versions@6.1.1` | `MIT` |
 | `compressible@2.0.18` | `MIT` |
@@ -430,6 +434,7 @@ The following 583 package versions form the conservative, platform-neutral produ
 | `fast-uri@3.1.7` | `BSD-3-Clause` |
 | `fast-xml-builder@1.3.1` | `MIT` |
 | `fast-xml-parser@5.11.0` | `MIT` |
+| `fdir@6.5.0` | `MIT` |
 | `fetch-blob@3.2.0` | `MIT` |
 | `fflate@0.8.3` | `MIT` |
 | `figures@6.1.0` | `MIT` |
@@ -489,6 +494,7 @@ The following 583 package versions form the conservative, platform-neutral produ
 | `jws@4.0.1` | `MIT` |
 | `kleur@4.1.5` | `MIT` |
 | `koffi@3.1.6` | `MIT` |
+| `lines-and-columns@1.2.4` | `MIT` |
 | `long@5.3.2` | `Apache-2.0` |
 | `math-intrinsics@1.1.0` | `MIT` |
 | `media-typer@1.1.1` | `MIT` |
@@ -503,6 +509,7 @@ The following 583 package versions form the conservative, platform-neutral produ
 | `modern-tar@0.7.7` | `MIT` |
 | `ms@2.0.0` | `MIT` |
 | `ms@2.1.3` | `MIT` |
+| `mz@2.7.0` | `MIT` |
 | `napi-build-utils@2.0.0` | `MIT` |
 | `negotiator@0.6.4` | `MIT` |
 | `negotiator@1.1.0` | `MIT` |
@@ -535,6 +542,7 @@ The following 583 package versions form the conservative, platform-neutral produ
 | `pathe@2.0.3` | `MIT` |
 | `picocolors@1.1.1` | `ISC` |
 | `picomatch@4.0.7` | `MIT` |
+| `pirates@4.0.7` | `MIT` |
 | `pkce-challenge@5.0.1` | `MIT` |
 | `powershell-utils@0.1.0` | `MIT` |
 | `powershell-utils@0.2.0` | `MIT` |
@@ -586,12 +594,17 @@ The following 583 package versions form the conservative, platform-neutral produ
 | `strip-json-comments@2.0.1` | `MIT` |
 | `strnum@2.4.2` | `MIT` |
 | `strtok3@10.3.5` | `MIT` |
+| `sucrase@3.35.1` | `MIT` |
 | `supports-color@10.2.2` | `MIT` |
 | `tar-fs@2.1.5` | `MIT` |
 | `tar-stream@2.2.0` | `MIT` |
+| `thenify@3.3.1` | `MIT` |
+| `thenify-all@1.6.0` | `MIT` |
+| `tinyglobby@0.2.17` | `MIT` |
 | `toidentifier@1.0.1` | `MIT` |
 | `token-types@6.1.2` | `MIT` |
 | `ts-algebra@2.0.0` | `MIT` |
+| `ts-interface-checker@0.1.13` | `Apache-2.0` |
 | `tslib@2.8.1` | `0BSD` |
 | `tunnel-agent@0.6.0` | `Apache-2.0` |
 | `turndown@7.2.4` | `MIT` |
@@ -764,6 +777,36 @@ SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
 CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```
+
+### License/notice 0371d7e49a54
+
+Applies to:
+
+- `thenify@3.3.1` (`LICENSE`)
+
+```text
+The MIT License (MIT)
+
+Copyright (c) 2014-2016 Jonathan Ong me@jongleberry.com and contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
 ```
 
 ### License/notice 04acffac8ee6
@@ -983,6 +1026,36 @@ ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
 WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR
 IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+```
+
+### License/notice 0ccfcc479458
+
+Applies to:
+
+- `mz@2.7.0` (`LICENSE`)
+
+```text
+The MIT License (MIT)
+
+Copyright (c) 2014-2016 Jonathan Ong me@jongleberry.com and Contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
 ```
 
 ### License/notice 0e8d2550baea
@@ -1266,6 +1339,52 @@ PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
 LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
 NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```
+
+### License/notice 15e7786c7e68
+
+Applies to:
+
+- `fdir@6.5.0` (`LICENSE`)
+
+```text
+Copyright 2023 Abdullah Atta
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+```
+
+### License/notice 1b31e7ac2b89
+
+Applies to:
+
+- `sucrase@3.35.1` (`LICENSE`)
+
+```text
+The MIT License (MIT)
+
+Copyright (c) 2012-2018 various contributors (see AUTHORS)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 ```
 
 ### License/notice 1d660eff8965
@@ -2916,6 +3035,36 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
+### License/notice 4918b99deb04
+
+Applies to:
+
+- `tinyglobby@0.2.17` (`LICENSE`)
+
+```text
+MIT License
+
+Copyright (c) 2024 Madeline Gurriarán
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
 ### License/notice 49e71b973753
 
 Applies to:
@@ -3165,6 +3314,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 Applies to:
 
 - `commander@15.0.0` (`LICENSE`)
+- `commander@4.1.1` (`LICENSE`)
 - `commander@6.2.1` (`LICENSE`)
 
 ```text
@@ -4351,6 +4501,7 @@ Applies to:
 - `@aws-crypto/sha256-js@5.2.0` (`LICENSE`)
 - `@aws-crypto/util@5.2.0` (`LICENSE`)
 - `detect-libc@2.1.2` (`LICENSE`)
+- `ts-interface-checker@0.1.13` (`LICENSE`)
 
 ```text
 Apache License
@@ -5242,6 +5393,34 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+```
+
+### License/notice 7b3e0db83c00
+
+Applies to:
+
+- `any-promise@1.3.0` (`LICENSE`)
+
+```text
+Copyright (C) 2014-2016 Kevin Beaty
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
 ```
 
 ### License/notice 7bc07978a66d
@@ -6498,6 +6677,36 @@ MIT License
     SOFTWARE
 ```
 
+### License/notice 8ecd0fb4cd2c
+
+Applies to:
+
+- `lines-and-columns@1.2.4` (`LICENSE`)
+
+```text
+The MIT License (MIT)
+
+Copyright (c) 2015 Brian Donovan
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+```
+
 ### License/notice 8f08c824b2bb
 
 Applies to:
@@ -6686,7 +6895,9 @@ SOFTWARE.
 
 Applies to:
 
+- `@jridgewell/gen-mapping@0.3.13` (`LICENSE`)
 - `@jridgewell/sourcemap-codec@1.5.5` (`LICENSE`)
+- `@jridgewell/trace-mapping@0.3.31` (`LICENSE`)
 
 ```text
 Copyright 2024 Justin Ridgewell <justin@ridgewell.name>
@@ -8422,6 +8633,36 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+### License/notice c0c5f371c09e
+
+Applies to:
+
+- `pirates@4.0.7` (`LICENSE`)
+
+```text
+MIT License
+
+Copyright (c) 2016-2018 Ari Porad
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
 ### License/notice c216320ffa9b
 
 Applies to:
@@ -9121,6 +9362,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 Applies to:
 
 - `ee-first@1.1.1` (`LICENSE`)
+- `thenify-all@1.6.0` (`LICENSE`)
 
 ```text
 The MIT License (MIT)

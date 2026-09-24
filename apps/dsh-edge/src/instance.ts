@@ -260,7 +260,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         ? {}
         : { images: (this.env as unknown as Record<string, unknown>).IMAGES },
       ...DYNAMIC_WORKER_RUNTIME_PROVIDER.probe(this.env) === 'available'
-        ? { workflowLoader: this.env.LOADER as unknown as WorkflowLoader }
+        ? { workerLoader: this.env.LOADER as unknown as WorkflowLoader }
         : {},
       withWorkspaceFiles: read => this.withWorkspaceFiles(read),
       onLateSessionEvent: (sessionId, event) => {
