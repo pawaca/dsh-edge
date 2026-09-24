@@ -120,7 +120,7 @@ describe('installer runtime catalog', () => {
         environment: 'isolated',
         expectedShell: 'just-bash-isolated',
         label: 'Isolated — Dynamic Worker',
-        hint: 'requires Workers Paid (starting at $5/month)',
+        hint: 'requires Workers Paid (starting at $5/month); adds workflow and run_code',
         paid: true,
         providers: ['dynamic-worker'],
       },
@@ -133,7 +133,7 @@ describe('installer runtime catalog', () => {
       {
         value: 'isolated',
         label: 'Isolated — Dynamic Worker',
-        hint: 'requires Workers Paid (starting at $5/month)',
+        hint: 'requires Workers Paid (starting at $5/month); adds workflow and run_code',
       },
     ])
     expect(isRuntimeMode('direct')).toBe(true)

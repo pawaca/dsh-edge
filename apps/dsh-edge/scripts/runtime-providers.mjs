@@ -31,7 +31,7 @@ const RUNTIME_MODE_DEFINITIONS = Object.freeze({
     environment: 'isolated',
     providers: ['dynamic-worker'],
     label: 'Isolated — Dynamic Worker',
-    hint: 'requires Workers Paid (starting at $5/month)',
+    hint: 'requires Workers Paid (starting at $5/month); adds workflow and run_code',
   },
 })
 
