@@ -379,6 +379,13 @@ describe('edge workflow engine', () => {
     expect(result.error).toContain('total agent cap (2)')
   })
 
+  it('clips an oversized script error before it becomes the tool result', async () => {
+    const { engine } = await setup()
+    const result = await run(engine, `throw new Error('e'.repeat(${MAX_PROGRESS_CHARS} * 10))`)
+    expect(result.stopReason).toBe('error')
+    expect(result.error!.length).toBe(MAX_PROGRESS_CHARS + 1)
+  })
+
   it('reports a script error as the run error', async () => {
     const { engine } = await setup()
     const result = await run(engine, `throw new Error('script broke')`)

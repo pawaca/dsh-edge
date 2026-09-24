@@ -647,8 +647,9 @@ class EdgeWorkflowRun implements WorkflowRun {
     }
   }
 
+  /** The error text becomes the tool result, which is persisted, so it is clipped like progress text. */
   private errorResult(error: string): WorkflowResult {
-    return { value: null, stopReason: 'error', error, agentsStarted: this.started }
+    return { value: null, stopReason: 'error', error: clipProgress(error), agentsStarted: this.started }
   }
 
   private settle(result: WorkflowResult): void {
