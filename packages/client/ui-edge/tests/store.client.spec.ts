@@ -38,6 +38,14 @@ describe('Edge settings controller', () => {
     })
   })
 
+  it('accepts a Container deployment health', async () => {
+    const health = { ...HEALTH, shell: 'linux-container' as const }
+    const fetch = vi.fn().mockResolvedValueOnce(response(health)).mockResolvedValueOnce(approvalResponse()).mockResolvedValueOnce(mcpResponse()).mockResolvedValueOnce(response({ version: '1.2.3' }))
+    const controller = new EdgeSettingsController({ fetch, copy: vi.fn(), navigate: vi.fn() })
+    await controller.load()
+    expect(controller.store.getSnapshot()).toMatchObject({ status: 'ready', health })
+  })
+
   it('signs out through the same-origin route', async () => {
     const navigate = vi.fn()
     const fetch = vi.fn(() => Promise.resolve(new Response(null, { status: 200 })))

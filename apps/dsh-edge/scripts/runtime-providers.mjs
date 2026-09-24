@@ -18,6 +18,12 @@ export const RUNTIME_PROVIDERS = Object.freeze({
     plan: 'paid',
     shell: 'just-bash-isolated',
   }),
+  container: Object.freeze({
+    id: 'container',
+    capabilities: Object.freeze(['bash']),
+    plan: 'paid',
+    shell: 'linux-container',
+  }),
 })
 
 const RUNTIME_MODE_DEFINITIONS = Object.freeze({

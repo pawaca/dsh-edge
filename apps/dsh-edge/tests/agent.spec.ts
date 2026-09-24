@@ -16,7 +16,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { describe, expect, it, vi } from 'vitest'
 import {
-  EDGE_SYSTEM_PROMPT,
+  edgeSystemPrompt,
   EdgeShellBindings,
   createEdgeBashTool,
   type EdgeShell,
@@ -64,7 +64,7 @@ async function harness(replies: readonly (readonly StreamChunk[])[], shell: Edge
   const ctx = new Context()
   await ctx.plugin(LlmRuntime)
   await ctx.plugin(SessionStore)
-  await ctx.plugin(SystemPrompt, { personaPrefix: EDGE_SYSTEM_PROMPT })
+  await ctx.plugin(SystemPrompt, { personaPrefix: edgeSystemPrompt('just-bash-direct') })
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(AgentRegistry)
@@ -131,12 +131,17 @@ describe('dsh-edge native agent runtime', () => {
   })
 
   it('advertises Edge runtime constraints and MCP naming convention', () => {
+    const EDGE_SYSTEM_PROMPT = edgeSystemPrompt('just-bash-isolated')
     expect(EDGE_SYSTEM_PROMPT).toContain('Cloudflare Worker')
     expect(EDGE_SYSTEM_PROMPT).toContain('just-bash')
     expect(EDGE_SYSTEM_PROMPT).toContain('mcp__<serverName>__<toolName>')
     expect(EDGE_SYSTEM_PROMPT).toContain('mcp_search')
     expect(EDGE_SYSTEM_PROMPT).toContain('subagent')
     expect(EDGE_SYSTEM_PROMPT).toContain('schedule')
+    const container = edgeSystemPrompt('linux-container')
+    expect(container).toContain('Linux container')
+    expect(container).not.toContain('native binaries and background processes are unavailable')
+    expect(container.endsWith(EDGE_SYSTEM_PROMPT.slice(EDGE_SYSTEM_PROMPT.indexOf('Each tool')))).toBe(true)
   })
 
   it('reuses the upstream DeepSeek catalog including the experimental vision model', async () => {
@@ -304,7 +309,7 @@ describe('dsh-edge subagent delegation', () => {
     const ctx = new Context()
     await ctx.plugin(LlmRuntime)
     await ctx.plugin(SessionStore)
-    await ctx.plugin(SystemPrompt, { personaPrefix: EDGE_SYSTEM_PROMPT })
+    await ctx.plugin(SystemPrompt, { personaPrefix: edgeSystemPrompt('just-bash-direct') })
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(AgentRegistry)
@@ -447,7 +452,7 @@ describe('dsh-edge background job registry', () => {
     const ctx = new Context()
     await ctx.plugin(LlmRuntime)
     await ctx.plugin(SessionStore)
-    await ctx.plugin(SystemPrompt, { personaPrefix: EDGE_SYSTEM_PROMPT })
+    await ctx.plugin(SystemPrompt, { personaPrefix: edgeSystemPrompt('just-bash-direct') })
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(AgentRegistry)

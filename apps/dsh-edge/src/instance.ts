@@ -9,6 +9,10 @@ import {
   withWorkspace,
   type DurableObjectStorageLike,
 } from '@cloudflare/computer'
+import {
+  CloudflareContainerBackend,
+  withWorkspaceContainer,
+} from '@cloudflare/computer/backends/container'
 import type { WorkerShellLoader } from '@cloudflare/computer/backends/worker-shell'
 import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
@@ -29,8 +33,13 @@ import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { normalizeSessionTitle } from '@deepseek-ai/dsh-session-title'
 import { DurableObject } from 'cloudflare:workers'
 import { OWNER_SESSION_EXPIRY_HEADER } from './auth.ts'
+import { ContainerActivity } from './container-activity.ts'
 import { resolveEdgeRuntimeBackends } from './runtime-backends.ts'
-import { DYNAMIC_WORKER_RUNTIME_PROVIDER } from './runtime-provider.ts'
+import {
+  CONTAINER_RUNTIME_MARKER,
+  DYNAMIC_WORKER_RUNTIME_PROVIDER,
+  resolveEdgeRuntimeShell,
+} from './runtime-provider.ts'
 import type { WorkflowLoader } from './edge-workflow-engine.ts'
 import {
   resolveEdgeModel,
@@ -72,9 +81,11 @@ import {
   executeWorkspaceCommand,
   requireCommand,
   requireWorkspacePath,
+  resolveEdgeCommandTimeoutPolicy,
   type EdgeCommandTimeoutPolicy,
   type EdgeWorkspace,
 } from './workspace.ts'
+import type { EdgeShellResult } from './agent.ts'
 import {
   MAX_MESSAGE_TEXT_BYTES,
   attachPublishedSession,
@@ -179,6 +190,7 @@ export interface EdgeEnv {
   DSH_EDGE_INSTANCE: DurableObjectNamespace<DshEdgeInstance>
   ASSETS: Fetcher
   LOADER?: WorkerShellLoader
+  DSH_EDGE_CONTAINER_RUNTIME?: string
   DSH_EDGE_ATTACHMENTS?: R2Bucket
   DSH_EDGE_ACCESS_KEY?: string
   DEEPSEEK_API_KEY?: string
@@ -192,16 +204,38 @@ export interface EdgeEnv {
   DSH_EDGE_MAX_COMMAND_TIMEOUT_MS?: string
 }
 
-class DshEdgeObjectBase extends DurableObject<EdgeEnv> {
+// Every build carries the Container mixin; it touches `ctx.container` only
+// when the container provider serves a layer.
+class DshEdgeObjectBase extends withWorkspaceContainer(class extends DurableObject<EdgeEnv> {}) {
+  // Backends bind when the Durable Object is constructed, before settings
+  // load, so this resolves each layer's default provider for the deployment.
+  protected readonly runtimeBackends = resolveEdgeRuntimeBackends({
+    env: this.env,
+    ctx: this.ctx,
+    container: () => this,
+  })
+
+  constructor(ctx: DurableObjectState, env: EdgeEnv) {
+    super(ctx, env)
+    if (env.DSH_EDGE_CONTAINER_RUNTIME === CONTAINER_RUNTIME_MARKER && ctx.container === undefined) {
+      throw new Error('dsh-edge: DSH_EDGE_CONTAINER_RUNTIME is set but this Durable Object has no Container.')
+    }
+  }
+
   workspaceOptions() {
-    // Backends bind when the Durable Object is constructed, before settings
-    // load, so this resolves each layer's default provider for the deployment.
     return {
       // Computer's preview storage facade and Workers' generated SQL generic
       // differ only in their type parameter; both expose the same runtime API.
       storage: this.ctx.storage as unknown as DurableObjectStorageLike,
-      backends: resolveEdgeRuntimeBackends({ env: this.env, ctx: this.ctx }),
+      backends: this.runtimeBackends,
     }
+  }
+
+  /** The Container backend when the container provider serves a layer. */
+  protected containerBackend(): CloudflareContainerBackend | undefined {
+    return this.runtimeBackends.find(
+      (backend): backend is CloudflareContainerBackend => backend instanceof CloudflareContainerBackend,
+    )
   }
 }
 
@@ -262,6 +296,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       ...DYNAMIC_WORKER_RUNTIME_PROVIDER.probe(this.env) === 'available'
         ? { workerLoader: this.env.LOADER as unknown as WorkflowLoader }
         : {},
+      shell: resolveEdgeRuntimeShell(this.env),
       withWorkspaceFiles: read => this.withWorkspaceFiles(read),
       onLateSessionEvent: (sessionId, event) => {
         this.publishSessionEvent(sessionId, event)
@@ -289,6 +324,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
   private readonly mainStreams = new Map<number, Set<{ publish(event: SessionEvent): void; resolve(): void; reject(error: unknown): void }>>()
   private readonly activeTurns = new Map<SessionId, ActiveTurn>()
   private residentWorkspace: EdgeWorkspace | undefined
+  private readonly containerActivity = new ContainerActivity()
   private readonly sessionListMetadata = new Map<SessionId, SessionListMetadata>()
   private readonly pendingProjections = new Map<SessionId, { key: string; value: unknown; seq: number }[]>()
   private readonly api = createEdgeApi({
@@ -347,6 +383,13 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
   override async fetch(request: Request): Promise<Response> {
     try {
       const url = new URL(request.url)
+      // computerd dials back through WorkspaceProxy with its per-object bearer
+      // secret; the backend verifies it before accepting the upgrade.
+      const container = this.containerBackend()
+      if (container !== undefined && url.pathname === '/api'
+        && request.headers.get('upgrade')?.toLowerCase() === 'websocket') {
+        return await container.handleFetch(request)
+      }
       if (url.pathname === '/api/ready' && request.method === 'GET') {
         try {
           await this.sessions.assertReady()
@@ -560,6 +603,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
   /** End hibernating downlinks when the owner session used to open them expires. */
   override async alarm(): Promise<void> {
     await this.driveMain(true)
+    await this.stopIdleContainer()
     await this.scheduleMainWake()
   }
 
@@ -570,7 +614,8 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       : undefined
     const schedule = nextSchedule(this.ctx.storage)
     const due = scheduleWakeTime(schedule?.due, this.mainDriving)
-    const times = [expiry, work, due].filter((time): time is number => time !== undefined)
+    const container = this.ctx.container?.running === true ? this.containerActivity.deadline() : undefined
+    const times = [expiry, work, due, container].filter((time): time is number => time !== undefined)
     const next = times.length === 0 ? undefined : Math.min(...times)
     if (next === undefined) await this.ctx.storage.deleteAlarm()
     else await this.ctx.storage.setAlarm(next)
@@ -881,6 +926,57 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     await entity.attachSession(session.id)
     const workspace = workspaceEntityToView(entity)
     this.broadcast('host', { type: 'host/workspace-changed', workspace })
+  }
+
+  /** Run one bounded workspace command for the entry Worker's HTTP exec route. */
+  async runWorkspaceCommand(command: string, cwd: string): Promise<EdgeShellResult> {
+    const timeoutPolicy = resolveEdgeCommandTimeoutPolicy(
+      this.env.DSH_EDGE_DEFAULT_COMMAND_TIMEOUT_MS,
+      this.env.DSH_EDGE_MAX_COMMAND_TIMEOUT_MS,
+    )
+    const workspace = await this.workspace()
+    return this.trackContainerActivity(() => executeWorkspaceCommand(
+      workspace,
+      requireCommand(command),
+      requireWorkspacePath(cwd),
+      timeoutPolicy,
+    ))
+  }
+
+  private async workspace(): Promise<EdgeWorkspace> {
+    if (this.residentWorkspace === undefined) {
+      this.residentWorkspace = await getWorkspace(this)
+      this.sessions.spillStore()?.bind(this.residentWorkspace.fs)
+    }
+    return this.residentWorkspace
+  }
+
+  /**
+   * Keep an attached container up while a command runs, then leave one alarm
+   * to stop it once idle. The alarm is only moved earlier, so a busy container
+   * costs one alarm write per sleep window rather than one per command.
+   */
+  private async trackContainerActivity<T>(run: () => Promise<T>): Promise<T> {
+    if (this.containerBackend() === undefined) return run()
+    const release = this.containerActivity.begin()
+    try {
+      return await run()
+    } finally {
+      release()
+      const deadline = this.containerActivity.deadline()
+      const scheduled = await this.ctx.storage.getAlarm()
+      if (scheduled === null || scheduled > deadline) await this.ctx.storage.setAlarm(deadline)
+    }
+  }
+
+  private async stopIdleContainer(): Promise<void> {
+    const container = this.ctx.container
+    if (container?.running !== true || !this.containerActivity.idle()) return
+    try {
+      await container.destroy()
+    } catch (error) {
+      console.error('dsh-edge idle container stop failed.', error)
+    }
   }
 
   /** Run one bounded Computer workspace operation outside an agent turn. */
@@ -1544,11 +1640,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     onAdmitted?: (admit: EdgeAgentPromptAdmitter) => void
     onClosing?: () => void
   }): Promise<void> {
-    if (this.residentWorkspace === undefined) {
-      this.residentWorkspace = await getWorkspace(this)
-      this.sessions.spillStore()?.bind(this.residentWorkspace.fs)
-    }
-    const workspace = this.residentWorkspace
+    const workspace = await this.workspace()
     const edgeFs = this.sessions.filesystem()
     const runTurn = async () => {
     await this.sessions.runAgentTurn({
@@ -1561,14 +1653,14 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         ? {}
         : { clientTimeZone: input.clientTimeZone },
       shell: {
-        exec: async (command, options) => executeWorkspaceCommand(
+        exec: async (command, options) => this.trackContainerActivity(() => executeWorkspaceCommand(
           workspace,
           requireCommand(command),
           requireWorkspacePath(options.cwd),
           input.commandTimeoutPolicy,
           options.timeoutMs,
           options.signal,
-        ),
+        )),
       },
       afterFollowup: () => {
         if (input.turn.cancelRequested) input.agent.cancel({ kind: 'user' })

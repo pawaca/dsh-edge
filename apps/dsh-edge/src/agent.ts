@@ -4,17 +4,29 @@ import type { SessionId } from '@deepseek-ai/dsh-session'
 import { defineTool, type ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { EDGE_SHELL_OUTPUT_LIMIT_BYTES } from './direct-shell-protocol.ts'
 import type { EdgeExecutionId } from './protocol.ts'
+import type { EdgeRuntimeProviderDescriptor } from './runtime-provider.ts'
 
-export const EDGE_SYSTEM_PROMPT = 'You are dsh-edge, a coding agent running in a Cloudflare Worker '
-  + 'with a persistent /workspace directory. '
-  + 'The shell is just-bash (not Linux) — native binaries and background processes are unavailable. '
-  + 'Each tool\'s detailed usage is in its own prompt section below.\n\n'
+const JUST_BASH_SHELL = 'The shell is just-bash (not Linux) — native binaries and background processes are unavailable. '
+const CONTAINER_SHELL = 'The shell is bash in a Linux container (Debian) with git, node, npm, python3, and ripgrep; '
+  + 'it has network access. The container starts on demand and sleeps when idle, so the first command '
+  + 'after a pause can take several seconds. Only /workspace persists across sleeps; each command runs '
+  + 'to completion, so do not rely on background processes. '
+
+const EDGE_SYSTEM_PROMPT_TOOLS = 'Each tool\'s detailed usage is in its own prompt section below.\n\n'
   + 'MCP tools: External tool servers may be connected via MCP. '
   + 'If tools are listed directly, call them by their full mcp__<serverName>__<toolName> name. '
   + 'If mcp_search and mcp_call are available, always discover tools with mcp_search first, then invoke with mcp_call using the exact toolName from search results.\n\n'
   + 'Background work: Use subagent to delegate independent tasks in parallel, '
   + 'and job tools to track their progress. '
   + 'Use schedule tools for durable reminders that survive session restarts.'
+
+/** The persona prefix for a deployment whose bash layer runs on `shell`. */
+export function edgeSystemPrompt(shell: EdgeRuntimeProviderDescriptor['shell']): string {
+  return 'You are dsh-edge, a coding agent running in a Cloudflare Worker '
+    + 'with a persistent /workspace directory. '
+    + (shell === 'linux-container' ? CONTAINER_SHELL : JUST_BASH_SHELL)
+    + EDGE_SYSTEM_PROMPT_TOOLS
+}
 
 /**
  * Deployment-owned guidance the upstream `dsh-plan-mode` plugin renders as the

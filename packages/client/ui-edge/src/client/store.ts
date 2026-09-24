@@ -21,7 +21,7 @@ export interface EdgeHealth {
   ok: true
   service: 'dsh-edge'
   storage: 'durable-object-sqlite-vfs'
-  shell: 'just-bash-direct' | 'just-bash-isolated'
+  shell: 'just-bash-direct' | 'just-bash-isolated' | 'linux-container'
   deploymentId: string
   version: string
   upstreamVersion: string
@@ -98,7 +98,8 @@ function isHealth(value: unknown): value is EdgeHealth {
   return health.ok === true
     && health.service === 'dsh-edge'
     && health.status === 'ready'
-    && (health.shell === 'just-bash-direct' || health.shell === 'just-bash-isolated')
+    && (health.shell === 'just-bash-direct' || health.shell === 'just-bash-isolated'
+      || health.shell === 'linux-container')
     && health.storage === 'durable-object-sqlite-vfs'
     && typeof health.deploymentId === 'string'
     && typeof health.version === 'string'

@@ -40,6 +40,7 @@ import { parseWranglerGzipBytes, requireGzipBudget } from '../scripts/bundle-siz
 import {
   renderPrebuiltModeWranglerConfig,
   renderSourceModeWranglerConfig,
+  workerArtifactPath,
 } from '../scripts/wrangler-config.mjs'
 
 const ACCOUNT = { id: 'account-1', name: 'Personal' }
@@ -264,6 +265,54 @@ describe('dsh-edge installer primitives', () => {
       configFile: '/private/wrangler.json',
       temporary: true,
     })).toThrow('only the Free direct runtime')
+  })
+
+  it('renders the Container environment on the isolated artifact with a resolved local image', () => {
+    const root = resolve('fixture', 'dsh-edge')
+    const source = `{
+      "main": "src/index.ts",
+      "assets": { "directory": "./dist" },
+      "env": {
+        "isolated": { "worker_loaders": [{ "binding": "LOADER" }] },
+        "container": {
+          "worker_loaders": [{ "binding": "LOADER" }],
+          "vars": { "DSH_EDGE_CONTAINER_RUNTIME": "enabled" },
+          "containers": [{ "class_name": "DshEdgeInstance", "image": "./container/Dockerfile" }],
+        },
+      },
+    }`
+    const container = parseJsonRecord(renderPrebuiltModeWranglerConfig('container', source, {
+      appDirectory: root,
+      r2BucketName: 'dsh-edge-attachments',
+      enableImages: true,
+    }))
+    expect(container).toMatchObject({
+      main: resolve(root, 'worker/isolated/index.js'),
+      no_bundle: true,
+      env: { container: {
+        vars: {
+          DSH_EDGE_CONTAINER_RUNTIME: 'enabled',
+          DSH_EDGE_ATTACHMENT_STORAGE: 'private-r2',
+        },
+        r2_buckets: [{ binding: 'DSH_EDGE_ATTACHMENTS', bucket_name: 'dsh-edge-attachments' }],
+        images: { binding: 'IMAGES' },
+        containers: [{ class_name: 'DshEdgeInstance', image: resolve(root, 'container/Dockerfile') }],
+      } },
+    })
+    expect(workerArtifactPath('container', { appDirectory: root }))
+      .toBe(resolve(root, 'worker/isolated/index.js'))
+
+    const registry = source.replace('./container/Dockerfile', 'docker.io/example/computer:1@sha256:abc')
+    const pinned = parseJsonRecord(renderPrebuiltModeWranglerConfig('container', registry, { appDirectory: root }))
+    expect(pinned).toMatchObject({ env: { container: {
+      containers: [{ image: 'docker.io/example/computer:1@sha256:abc' }],
+    } } })
+
+    expect(() => renderSourceModeWranglerConfig('container' as never, source, { appDirectory: root }))
+      .toThrow(/Unsupported runtime mode/u)
+    expect(() => renderPrebuiltModeWranglerConfig('container', source.replace(/"containers": \[.*\],/u, ''), {
+      appDirectory: root,
+    })).toThrow(/containers/u)
   })
 
   it('renders mode-specific Wrangler configs from one repository source', () => {

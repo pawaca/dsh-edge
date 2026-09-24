@@ -19,8 +19,10 @@ pnpm run check
 pnpm run build
 pnpm --filter dsh-edge dev
 pnpm --filter dsh-edge dev:isolated
+pnpm --filter dsh-edge dev:container   # needs a local Docker engine
 pnpm --filter dsh-edge run test:integration
 pnpm --filter dsh-edge run test:snapshot
+pnpm --filter dsh-edge run test:container   # needs a local Docker engine
 ```
 
 The root and standalone lockfiles serve different purposes. The root lock installs repository tests and tooling; the standalone lock is the release assembly and must build successfully before the root install in CI so parent dependencies cannot mask missing release inputs.
@@ -28,6 +30,7 @@ The root and standalone lockfiles serve different purposes. The root lock instal
 ## Runtime and release invariants
 
 - Keep every `@deepseek-ai/dsh-*` standalone dependency on one exact upstream version. Upgrade it only in an explicit upstream-baseline PR.
+- The Container image's computerd (`apps/dsh-edge/container/Dockerfile`) and the bundled `@cloudflare/computer` form one wire-protocol pair with no negotiation; upgrade them in the same PR.
 - Keep Direct and Dynamic Loader modes behaviorally aligned except for provider-gated runtime capabilities (the runtime providers in `apps/dsh-edge/src/runtime-provider.ts`, such as the command-execution backend) and each provider's Cloudflare plan requirement. A capability that only some providers offer must be absent, not broken, where its provider is unavailable.
 - Preserve Durable Object class names, bindings, session/event formats, workspace/VFS state, owner authentication, and public HTTP/WebSocket behavior.
 - Durable Object SQL queries on request-serving paths must not use correlated subqueries or per-row scans against unbounded tables. Pre-compute read-heavy aggregations in a materialized table maintained atomically at write time; never derive per-request summaries by scanning event or log history.

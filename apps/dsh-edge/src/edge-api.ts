@@ -59,7 +59,7 @@ import type { MessageId } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import { isUserInvocable } from '@deepseek-ai/dsh-skill'
-import { EDGE_SYSTEM_PROMPT } from './agent.ts'
+import { edgeSystemPrompt } from './agent.ts'
 import type { EdgeDeploymentProfile } from './deployment.ts'
 import { EDGE_DO_ATTACHMENT_MAX_STORED_BYTES } from './edge-attachment-store.ts'
 import type { EdgeApiSessionSummary, EdgeSessionStore } from './session-store.ts'
@@ -892,7 +892,7 @@ function edgeAgentPresetContent(
     '  loop: "@deepseek-ai/dsh-agent-loop"',
     '  registry: "@deepseek-ai/dsh-agent"',
     '  sessionStore: "@deepseek-ai/dsh-session"',
-    `  systemPrompt: ${yamlString(EDGE_SYSTEM_PROMPT)}`,
+    `  systemPrompt: ${yamlString(edgeSystemPrompt(deployment.shell))}`,
     'model:',
     `  provider: ${yamlString(EDGE_PROVIDER)}`,
     `  defaultId: ${yamlString(runtime.model)}`,

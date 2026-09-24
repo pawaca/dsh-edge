@@ -52,6 +52,7 @@
     "bundle:workers": "pnpm --dir standalone run build && pnpm --dir standalone run verify && node standalone/scripts/promote.mjs all",
     "dev": "pnpm run bundle:direct && node scripts/dev.mjs direct",
     "dev:isolated": "pnpm run bundle:isolated && node scripts/dev.mjs isolated",
+    "dev:container": "pnpm run bundle:isolated && node scripts/dev.mjs container",
     "dsh-edge": "node scripts/cli.mjs",
     "example:install": "node examples/install-keyless.mjs",
     "install:cloudflare": "pnpm run bundle:workers && node scripts/cli.mjs install",
@@ -61,6 +62,7 @@
     "web:build": "pnpm --dir standalone run build:web && node standalone/scripts/promote.mjs web",
     "test": "vitest run --root ../.. --project edge-runtime",
     "test:integration": "pnpm run bundle:workers && node tests/run-session-integration.mjs",
+    "test:container": "pnpm run bundle:isolated && node tests/container.integration.mjs",
     "test:snapshot": "vitest run --root ../.. --config apps/dsh-edge/vitest.snapshot.config.ts",
     "typecheck": "tsc --noEmit"
   },

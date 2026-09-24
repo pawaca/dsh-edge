@@ -25,6 +25,7 @@ const LOCAL_DEPLOYMENT_ID = 'local-development'
 export interface EdgeDeploymentConfigSource {
   CF_VERSION_METADATA?: { id: string }
   LOADER?: unknown
+  DSH_EDGE_CONTAINER_RUNTIME?: string
   DSH_EDGE_ATTACHMENTS?: unknown
   DEEPSEEK_API_KEY?: string
   DEEPSEEK_BASE_URL?: string

@@ -2,7 +2,7 @@ import { useEffect, type ReactNode } from 'react'
 import { Button, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import type { ApprovalMode, EdgeSettingsState } from './store.ts'
+import type { ApprovalMode, EdgeHealth, EdgeSettingsState } from './store.ts'
 import { DSH_EDGE_RELEASES_URL } from './store.ts'
 import css from './EdgeSettingsSection.module.css'
 
@@ -18,6 +18,12 @@ export type EdgeSettingsSectionProps =
   PropsRuntime<'settings.section'>
   & PropsLocale<'settings.edge'>
   & InjectFace<EdgeSettingsInjected>
+
+const RUNTIME_LABELS = {
+  'just-bash-direct': 'direct',
+  'just-bash-isolated': 'isolated',
+  'linux-container': 'container',
+} as const satisfies Record<EdgeHealth['shell'], string>
 
 function Row({ label, value }: { label: string; value: ReactNode }): ReactNode {
   return <div className={css.row}><dt>{label}</dt><dd>{value}</dd></div>
@@ -61,7 +67,7 @@ export function EdgeSettingsSection(props: EdgeSettingsSectionProps): ReactNode 
           <section className={css.card} aria-labelledby="edge-runtime-title">
             <h3 id="edge-runtime-title">{t('runtime')}</h3>
             <dl>
-              <Row label={t('runtime')} value={state.health.shell === 'just-bash-direct' ? t('direct') : t('isolated')} />
+              <Row label={t('runtime')} value={t(RUNTIME_LABELS[state.health.shell])} />
               <Row label={t('storage')} value={t('durableStorage')} />
               <Row label={t('deploymentId')} value={<code>{state.health.deploymentId}</code>} />
             </dl>
