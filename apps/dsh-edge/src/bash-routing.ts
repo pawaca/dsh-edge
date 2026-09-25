@@ -80,7 +80,29 @@ interface Token {
 export function commandWords(command: string, depth = 0): string[] | undefined {
   if (depth > MAX_DEPTH) return undefined
   const tokens = tokenize(command, depth)
-  return tokens === undefined ? undefined : wordsOf(tokens, depth)
+  if (tokens === undefined || tokens.some(touchesContainerFilesystem)) return undefined
+  return wordsOf(tokens, depth)
+}
+
+/**
+ * The light shell shares only /workspace with the container. A word naming a
+ * Linux root directory (as an argument, `--opt=/path`, or a redirection
+ * target) or a home path addresses the container's own filesystem, so the
+ * command needs the container. Regex-like words such as `/start/` in sed are
+ * not affected because only known root directories count.
+ */
+const LINUX_ROOTS = new Set(['bin', 'boot', 'dev', 'etc', 'home', 'lib', 'lib32', 'lib64', 'media', 'mnt',
+  'opt', 'proc', 'root', 'run', 'sbin', 'srv', 'sys', 'tmp', 'usr', 'var'])
+const SHARED_DEVICES = new Set(['/dev/null', '/dev/stdin', '/dev/stdout', '/dev/stderr', '/dev/zero'])
+
+function touchesContainerFilesystem(token: Token): boolean {
+  const word = token.word
+  if (word === undefined) return false
+  if (word.startsWith('~')) return true
+  return word.split(/[=:,]/u).some(part => {
+    const match = /^\/([A-Za-z0-9._-]+)/u.exec(part)
+    return match !== null && LINUX_ROOTS.has(match[1]!) && !SHARED_DEVICES.has(part)
+  })
 }
 
 /** Nesting limit for commands inside commands (wrappers, `bash -c`, substitutions). */
@@ -174,7 +196,7 @@ function startsProgramsItself(program: string, args: Token[]): boolean {
       return option('--pre')
     case 'tar':
       return option('--use-compress-program', '--to-command', '--checkpoint-action',
-        '--info-script', '--new-volume-script')
+        '--info-script', '--new-volume-script', '--rsh-command', '--rmt-command')
         // -I PROG / -F SCRIPT, separate or attached (`-Izstd`).
         || words.some(word => /^-(I|F)/u.test(word))
     case 'sort':
