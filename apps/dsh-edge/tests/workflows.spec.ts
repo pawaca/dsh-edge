@@ -112,6 +112,12 @@ describe('repository workflows', () => {
     // The installer renders the reference with the same function.
     expect(image).toContain('import { containerImageReference } from \'./apps/dsh-edge/scripts/wrangler-config-core.mjs\'')
     expect(image).toContain('if: steps.support.outputs.supported == \'true\' && steps.existing.outputs.exists == \'false\'')
+    // Only a definite 404 permits a push; other lookup failures fail the job.
+    expect(image).toContain('https://hub.docker.com/v2/repositories/$repository/tags/$tag')
+    expect(image).toMatch(/200\) echo "exists=true"/u)
+    expect(image).toMatch(/404\) echo "exists=false"/u)
+    expect(image).toContain('Could not determine whether $REFERENCE is already published.')
+    expect(image).not.toMatch(/imagetools inspect[^\n]*> \/dev\/null 2>&1; then/u)
     // Recovery of a release that predates the image skips every image step.
     expect(image).toContain('grep -q \'^export function containerImageReference\' apps/dsh-edge/scripts/wrangler-config-core.mjs')
     const gated = image.split('\n      - ').slice(1).filter(step => !step.startsWith('uses: actions/checkout')

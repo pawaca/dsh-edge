@@ -153,12 +153,24 @@ jobs:
         shell: bash
         env:
           REFERENCE: ${{ steps.reference.outputs.reference }}
+        # Only a definite 404 permits a push; any other lookup failure fails
+        # the job so a recovery can never replace the released image.
         run: |
-          if docker buildx imagetools inspect "$REFERENCE" > /dev/null 2>&1; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-          fi
+          repository="${REFERENCE#docker.io/}"
+          tag="${repository##*:}"
+          repository="${repository%:*}"
+          url="https://hub.docker.com/v2/repositories/$repository/tags/$tag"
+          for attempt in 1 2 3; do
+            status="$(curl -sS -o /dev/null -w '%{http_code}' "$url" || echo 000)"
+            case "$status" in
+              200) echo "exists=true" >> "$GITHUB_OUTPUT"; exit 0 ;;
+              404) echo "exists=false" >> "$GITHUB_OUTPUT"; exit 0 ;;
+            esac
+            echo "Image lookup for $REFERENCE returned HTTP $status (attempt $attempt)." >&2
+            sleep $((attempt * 5))
+          done
+          echo "Could not determine whether $REFERENCE is already published." >&2
+          exit 1
       # One linux/amd64 manifest without attestations: Cloudflare Containers
       # pull a plain image manifest.
       - name: Build and push the Container image
