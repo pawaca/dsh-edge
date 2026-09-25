@@ -254,8 +254,13 @@ function startsProgramsItself(program: string, args: Token[]): boolean {
     case 'tar':
       return option('--use-compress-program', '--to-command', '--checkpoint-action',
         '--info-script', '--new-volume-script', '--rsh-command', '--rmt-command')
-        // -I PROG / -F SCRIPT, separate or attached (`-Izstd`).
-        || words.some(word => /^-(I|F)/u.test(word))
+        // -I PROG / -F SCRIPT anywhere in a short-option cluster (`-Izstd`,
+        // `-cInode`) or in the traditional first word (`tar cIf node …`).
+        || words.some(word => /^-[A-Za-z]*[IF]/u.test(word))
+        || /^[A-Za-z]*[IF][A-Za-z]*$/u.test(words[0] ?? '')
+        // `host:archive` makes tar start rsh unless --force-local is given.
+        || (!option('--force-local')
+          && words.some(word => /^(-[A-Za-z]*f|--file=)?[^-/:=][^/:=]*:/u.test(word)))
     case 'sort':
       return option('--compress-program')
     case 'awk':
