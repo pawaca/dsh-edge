@@ -265,10 +265,27 @@ function startsProgramsItself(program: string, args: Token[]): boolean {
       // The `e` command and the `s///e` flag run programs.
       // An `e` command can follow any address form (line, `$`, /re/, \cREc,
       // ranges, `!`), so any standalone `e` counts; so does the `s///e` flag.
-      return words.some(word => /(^|[^A-Za-z_])e(\s|$|;|\})|s(.)(?:(?!\3).)*\3(?:(?!\3).)*\3[a-zA-Z0-9]*e/u.test(word))
+      if (words.some(word => !/^-[A-Za-z]+$/u.test(word) && /(^|[^A-Za-z_])e(\s|$|;|\})|s(.)(?:(?!\3).)*\3(?:(?!\3).)*\3[a-zA-Z0-9]*e/u.test(word))) return true
+      // GNU sed also accepts the command glued to `e` (`enode -v`); only the
+      // script words are checked so file names starting with `e` stay light.
+      return sedScripts(words).some(script => /(^|[;{}\n!0-9$])\s*e\S/u.test(script))
     default:
       return false
   }
+}
+
+/** The script words of a sed invocation: every -e/--expression value, else the first operand. */
+function sedScripts(words: string[]): string[] {
+  const scripts: string[] = []
+  let operand: string | undefined
+  for (let index = 0; index < words.length; index++) {
+    const word = words[index]!
+    if (word === '-e' || word === '--expression') scripts.push(words[++index] ?? '')
+    else if (word.startsWith('--expression=')) scripts.push(word.slice('--expression='.length))
+    else if (/^-[nrsuzE]*e./u.test(word)) scripts.push(word.slice(word.indexOf('e') + 1))
+    else if (!word.startsWith('-') && operand === undefined) operand = word
+  }
+  return scripts.length > 0 ? scripts : operand === undefined ? [] : [operand]
 }
 
 function argumentsOf(tokens: Token[], start: number): Token[] {
