@@ -59,7 +59,7 @@ export function routeBashCommand(command: string, options: {
 
 /** Whether every program a command would start is one the lightweight shell provides. */
 export function runsInLightShell(command: string, depth = 0): boolean {
-  if (depth > 4) return false
+  if (depth > MAX_DEPTH) return false
   const words = commandWords(command, depth)
   return words !== undefined && words.every(word => LIGHT_SHELL_COMMANDS.has(word))
 }
@@ -77,8 +77,22 @@ interface Token {
  * command contains something the tokenizer cannot see through.
  */
 export function commandWords(command: string, depth = 0): string[] | undefined {
+  if (depth > MAX_DEPTH) return undefined
   const tokens = tokenize(command, depth)
-  if (tokens === undefined) return undefined
+  return tokens === undefined ? undefined : wordsOf(tokens, depth)
+}
+
+/** Nesting limit for commands inside commands (wrappers, `bash -c`, substitutions). */
+const MAX_DEPTH = 4
+
+/**
+ * Walk tokens in command position. Every construct that runs another command
+ * (a wrapper's remaining arguments, each `find` action, a `bash -c` script,
+ * an `env -S` string) is walked again as a command of its own, so nesting
+ * of any shape is checked by this one loop.
+ */
+function wordsOf(tokens: Token[], depth: number): string[] | undefined {
+  if (depth > MAX_DEPTH) return undefined
   const words: string[] = []
   // `name() { body; }`: the body's commands are checked where they appear, so
   // a later call to `name` starts nothing new.
@@ -107,43 +121,43 @@ export function commandWords(command: string, depth = 0): string[] | undefined {
       continue
     }
     if (position === 'args') continue
-    if (token.dynamic === true) return undefined
-    if (/^[A-Za-z_][A-Za-z0-9_]*(\[[^\]]*\])?\+?=/u.test(word)) continue // assignment prefix
-    if (PREFIX_KEYWORDS.has(word)) continue
-    if (CLOSING_KEYWORDS.has(word)) continue
-    if (word === 'for') {
-      position = 'for'
-      continue
-    }
-    if (OPAQUE_WORDS.has(word)) return undefined
-    const rest = argumentsOf(tokens, index)
-    if (word === 'bash' || word === 'sh') {
-      const script = inlineScript(rest)
-      if (script === undefined || !runsInLightShell(script, depth + 1)) return undefined
-      words.push(...(commandWords(script, depth + 1) ?? []))
-      position = 'args'
-      continue
-    }
-    if (word === 'find') {
-      const executed = findExecCommand(rest)
-      if (executed === null) return undefined
-      if (executed !== undefined) words.push(executed)
-      words.push('find')
-      position = 'args'
-      continue
-    }
-    if (WRAPPERS.has(word)) {
-      const inner = wrappedCommand(word, rest)
-      if (inner === null) return undefined
-      words.push(word === 'xargs' && inner === undefined ? 'echo' : inner ?? word)
-      if (inner !== undefined) words.push(word)
-      position = 'args'
-      continue
-    }
-    words.push(word)
-    position = 'args'
+    const invoked = invokedWords(tokens, index, depth)
+    if (invoked === undefined) return undefined
+    words.push(...invoked.words)
+    if (invoked.next === 'for') position = 'for'
+    else if (invoked.next === 'args') position = 'args'
   }
   return words.filter(word => !functions.has(word))
+}
+
+/** The programs one command-position word starts, following what it runs. */
+function invokedWords(tokens: Token[], index: number, depth: number): {
+  words: string[]
+  next: 'command' | 'args' | 'for'
+} | undefined {
+  const token = tokens[index]!
+  const word = token.word!
+  if (token.dynamic === true) return undefined
+  if (/^[A-Za-z_][A-Za-z0-9_]*(\[[^\]]*\])?\+?=/u.test(word)) return { words: [], next: 'command' }
+  if (PREFIX_KEYWORDS.has(word) || CLOSING_KEYWORDS.has(word)) return { words: [], next: 'command' }
+  if (word === 'for') return { words: [], next: 'for' }
+  if (OPAQUE_WORDS.has(word)) return undefined
+  const rest = argumentsOf(tokens, index)
+  if (word === 'bash' || word === 'sh') {
+    const script = inlineScript(rest)
+    const inner = script === undefined ? undefined : commandWords(script, depth + 1)
+    // The inline script runs in the same shell; only its programs matter.
+    return inner === undefined ? undefined : { words: inner, next: 'args' }
+  }
+  if (word === 'find') {
+    const inner = findActionWords(rest, depth)
+    return inner === undefined ? undefined : { words: [word, ...inner], next: 'args' }
+  }
+  if (WRAPPERS.has(word)) {
+    const inner = wrappedWords(word, rest, depth)
+    return inner === undefined ? undefined : { words: [word, ...inner], next: 'args' }
+  }
+  return { words: [word], next: 'args' }
 }
 
 function argumentsOf(tokens: Token[], start: number): Token[] {
@@ -168,69 +182,52 @@ function inlineScript(args: Token[]): string | undefined {
   return script.word
 }
 
-/** The command `find -exec`/`-execdir`/`-ok` runs: undefined without one, null when opaque. */
-function findExecCommand(args: Token[]): string | undefined | null {
-  const exec = args.findIndex(arg => arg.word === '-exec' || arg.word === '-execdir'
-    || arg.word === '-ok' || arg.word === '-okdir')
-  if (exec === -1) return undefined
-  const target = args[exec + 1]
-  if (target === undefined || target.dynamic === true) return null
-  return target.word!
+const FIND_ACTIONS = new Set(['-exec', '-execdir', '-ok', '-okdir'])
+
+/** Every program `find` actions run; each action's command is walked in full. */
+function findActionWords(args: Token[], depth: number): string[] | undefined {
+  const words: string[] = []
+  for (let index = 0; index < args.length; index++) {
+    if (!FIND_ACTIONS.has(args[index]!.word ?? '')) continue
+    const end = args.findIndex((arg, at) => at > index && (arg.word === ';' || arg.word === '+'))
+    if (end === -1) return undefined
+    const inner = wordsOf(args.slice(index + 1, end), depth + 1)
+    if (inner === undefined || inner.length === 0) return undefined
+    words.push(...inner)
+    index = end
+  }
+  return words
+}
+
+const WRAPPER_VALUED_OPTIONS: Readonly<Record<string, ReadonlySet<string>>> = {
+  env: new Set(['-u', '-C', '--unset', '--chdir']),
+  timeout: new Set(['-s', '-k', '--signal', '--kill-after']),
+  nice: new Set(['-n', '--adjustment']),
+  xargs: new Set(['-a', '-d', '-E', '-e', '-I', '-i', '-L', '-l', '-n', '-P', '-s', '--arg-file',
+    '--delimiter', '--max-args', '--max-lines', '--max-procs', '--max-chars', '--replace']),
+  command: new Set(),
+  exec: new Set(['-a']),
+  time: new Set(['-f', '-o', '--format', '--output']),
+  nohup: new Set(),
 }
 
 /**
- * The first program an `env -S`/`--split-string` string starts, null when it
- * starts one the light shell lacks or cannot be read; undefined without -S.
+ * The programs a wrapper runs, walking its remaining arguments as a command
+ * (so wrappers nest). `xargs` with no command runs `echo`; `command -v` only
+ * looks a name up. Undefined when the wrapped command cannot be read.
  */
-function splitStringCommand(args: Token[]): string | null | undefined {
-  for (let index = 0; index < args.length; index++) {
-    const word = args[index]!.word
-    if (word === undefined) continue
-    let script: string | undefined
-    let dynamic = false
-    if (word === '-S' || word === '--split-string') {
-      script = args[index + 1]?.word
-      dynamic = args[index + 1]?.dynamic === true
-    } else if (word.startsWith('--split-string=')) {
-      script = word.slice('--split-string='.length)
-      dynamic = args[index]!.dynamic === true
-    } else if (/^-[^-]*S/u.test(word)) {
-      script = word.slice(word.indexOf('S') + 1) || args[index + 1]?.word
-      dynamic = args[index]!.dynamic === true || args[index + 1]?.dynamic === true
-    } else {
-      continue
-    }
-    if (script === undefined || dynamic || !runsInLightShell(script, 1)) return null
-    return commandWords(script, 1)?.[0] ?? null
-  }
-  return undefined
-}
-
-/** The program a wrapper runs: undefined when it runs none, null when opaque. */
-function wrappedCommand(wrapper: string, args: Token[]): string | undefined | null {
-  const optionsWithValue: Record<string, ReadonlySet<string>> = {
-    env: new Set(['-u', '-C', '--unset', '--chdir']),
-    timeout: new Set(['-s', '-k', '--signal', '--kill-after']),
-    nice: new Set(['-n', '--adjustment']),
-    xargs: new Set(['-a', '-d', '-E', '-e', '-I', '-i', '-L', '-l', '-n', '-P', '-s', '--arg-file',
-      '--delimiter', '--max-args', '--max-lines', '--max-procs', '--max-chars', '--replace']),
-    command: new Set(),
-    exec: new Set(['-a']),
-    time: new Set(['-f', '-o', '--format', '--output']),
-    nohup: new Set(),
-  }
-  const valued = optionsWithValue[wrapper] ?? new Set<string>()
-  // `env -S 'cmd args'` splits and runs the string: judge it as a command line.
+function wrappedWords(wrapper: string, args: Token[], depth: number): string[] | undefined {
+  if (wrapper === 'command' && args.some(arg => arg.word === '-v' || arg.word === '-V')) return []
   if (wrapper === 'env') {
-    const split = splitStringCommand(args)
-    if (split !== undefined) return split
+    const split = splitString(args)
+    if (split === null) return undefined
+    if (split !== undefined) return commandWords(split, depth + 1)
   }
+  const valued = WRAPPER_VALUED_OPTIONS[wrapper] ?? new Set<string>()
   let index = 0
-  // `command -v`/`-V` looks a name up instead of running it.
-  if (wrapper === 'command' && args.some(arg => arg.word === '-v' || arg.word === '-V')) return undefined
   while (index < args.length) {
     const arg = args[index]!
-    if (arg.dynamic === true) return null
+    if (arg.dynamic === true) return undefined
     const word = arg.word!
     if (word === '--') {
       index++
@@ -244,16 +241,36 @@ function wrappedCommand(wrapper: string, args: Token[]): string | undefined | nu
       index++
       continue
     }
-    if (wrapper === 'timeout') {
-      index++ // the duration
-      break
-    }
+    if (wrapper === 'timeout') index++ // the duration
     break
   }
-  const inner = args[index]
-  if (inner === undefined) return undefined
-  if (inner.dynamic === true) return null
-  return inner.word
+  const tail = args.slice(index)
+  if (tail.length === 0) return wrapper === 'xargs' ? ['echo'] : []
+  return wordsOf(tail, depth + 1)
+}
+
+/** The string `env -S`/`--split-string` runs; null when dynamic or missing, undefined without -S. */
+function splitString(args: Token[]): string | null | undefined {
+  for (let index = 0; index < args.length; index++) {
+    const word = args[index]!.word
+    if (word === undefined) continue
+    let script: Token | undefined
+    let inline: string | undefined
+    if (word === '-S' || word === '--split-string') {
+      script = args[index + 1]
+    } else if (word.startsWith('--split-string=')) {
+      inline = word.slice('--split-string='.length)
+    } else if (/^-[^-]*S/u.test(word)) {
+      inline = word.slice(word.indexOf('S') + 1)
+      if (inline === '') script = args[index + 1]
+    } else {
+      continue
+    }
+    if (inline !== undefined && inline !== '') return args[index]!.dynamic === true ? null : inline
+    if (script === undefined || script.dynamic === true) return null
+    return script.word!
+  }
+  return undefined
 }
 
 function isRedirection(op: string): boolean {
@@ -326,7 +343,9 @@ function tokenize(source: string, depth: number): Token[] | undefined {
     }
     if (char === '`') {
       const end = source.indexOf('`', index + 1)
-      if (end === -1 || !runsInLightShell(source.slice(index + 1, end), depth + 1)) return undefined
+      // Escaped backquotes nest substitutions; not modelled, so opaque.
+      if (end === -1 || source[end - 1] === '\\'
+        || !runsInLightShell(source.slice(index + 1, end), depth + 1)) return undefined
       dynamic = true
       inWord = true
       index = end + 1
@@ -517,13 +536,17 @@ function substitutionsAreLight(text: string, depth: number): boolean {
     if (text[index] === '$' && text[index + 1] === '(') {
       const end = closingParen(text, index + 2)
       if (end === undefined) return false
-      if (text[index + 2] !== '(' && !runsInLightShell(text.slice(index + 2, end), depth + 1)) return false
+      const light = text[index + 2] === '('
+        ? substitutionsAreLight(text.slice(index + 3, end), depth + 1)
+        : runsInLightShell(text.slice(index + 2, end), depth + 1)
+      if (!light) return false
       index = end + 1
       continue
     }
     if (text[index] === '`') {
       const end = text.indexOf('`', index + 1)
-      if (end === -1 || !runsInLightShell(text.slice(index + 1, end), depth + 1)) return false
+      if (end === -1 || text[end - 1] === '\\'
+        || !runsInLightShell(text.slice(index + 1, end), depth + 1)) return false
       index = end + 1
       continue
     }

@@ -106,6 +106,56 @@ describe('bash command routing', () => {
     expect(auto(command)).toBe(route)
   })
 
+  // Family invariant: a program the light shell lacks is never hidden by any
+  // construct that can run a command, alone or nested inside another one.
+  it('never routes a Linux-only program to the light shell, however it is wrapped or nested', () => {
+    const carriers: Array<[string, (inner: string) => string]> = [
+      ['env', c => `env ${c}`],
+      ['env assignment', c => `env A=1 ${c}`],
+      ['env -S', c => `env -S '${c}'`],
+      ['timeout', c => `timeout 5 ${c}`],
+      ['time', c => `time ${c}`],
+      ['nice', c => `nice -n 5 ${c}`],
+      ['nohup', c => `nohup ${c}`],
+      ['exec', c => `exec ${c}`],
+      ['xargs', c => `echo x | xargs ${c}`],
+      ['find -exec (second action)', c => `find . -exec ls {} + -exec ${c} {} +`],
+      ['bash -c', c => `bash -c '${c}'`],
+      ['command substitution', c => `echo $(${c})`],
+      ['backquotes', c => `echo \`${c}\``],
+      ['quoted substitution', c => `echo "x $(${c})"`],
+      ['process substitution in', c => `cat <(${c})`],
+      ['process substitution out', c => `tee >(${c}) < a.txt`],
+      ['arithmetic', c => `echo $(( $(${c}) + 1 ))`],
+      ['quoted arithmetic', c => `echo "$(( $(${c}) + 1 ))"`],
+      ['heredoc body', c => `cat <<EOF\n$(${c})\nEOF`],
+      ['here-string', c => `cat <<< "$(${c})"`],
+      ['parameter default', c => `echo "\${X:-$(${c})}"`],
+      ['array literal', c => `list=($(${c}))`],
+      ['if condition', c => `if ${c}; then ls; fi`],
+      ['for body', c => `for f in a; do ${c}; done`],
+      ['brace group', c => `{ ${c}; }`],
+      ['function body', c => `f(){ ${c}; }; f`],
+      ['pipeline', c => `ls | ${c}`],
+    ]
+    const heavy = 'node -v'
+    for (const [name, wrap] of carriers) {
+      expect(auto(wrap(heavy)), name).toBe('container')
+      for (const [inner, innerWrap] of carriers) {
+        // Unescaped backquotes cannot nest in bash (the inner pair closes the
+        // outer one), so that pair does not run the program; escaped nesting
+        // is covered below.
+        if (name === 'backquotes' && inner === 'backquotes') continue
+        expect(auto(wrap(innerWrap(heavy))), `${name} > ${inner}`).toBe('container')
+      }
+    }
+  })
+
+  it('treats escaped nested backquotes as opaque', () => {
+    expect(auto('echo `echo \\`node -v\\``')).toBe('container')
+    expect(auto('echo "`echo \\`ls\\``"')).toBe('container')
+  })
+
   it('honours the policy, the explicit request, and a missing container', () => {
     expect(routeBashCommand('npm test', { policy: 'auto', containerAvailable: false })).toBe('light')
     expect(routeBashCommand('npm test', { policy: 'light', containerAvailable: true })).toBe('light')
@@ -118,9 +168,9 @@ describe('bash command routing', () => {
   it('lists the programs a command starts, including wrapped ones', () => {
     expect(commandWords('cd app && npm install lodash | tee log; python3 -c "print(1)"'))
       .toEqual(['cd', 'npm', 'tee', 'python3'])
-    expect(commandWords('timeout -s KILL 5 npm test')).toEqual(['npm', 'timeout'])
-    expect(commandWords('env -u HOME A=1 node x.js')).toEqual(['node', 'env'])
-    expect(commandWords('ls | xargs -n 1 -I{} cp {} out/')).toEqual(['ls', 'cp', 'xargs'])
+    expect(commandWords('timeout -s KILL 5 npm test')).toEqual(['timeout', 'npm'])
+    expect(commandWords('env -u HOME A=1 node x.js')).toEqual(['env', 'node'])
+    expect(commandWords('ls | xargs -n 1 -I{} cp {} out/')).toEqual(['ls', 'xargs', 'cp'])
     expect(commandWords('ls > out.txt 2>&1 < in.txt')).toEqual(['ls'])
     expect(commandWords('eval ls')).toBeUndefined()
   })
