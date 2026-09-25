@@ -11,8 +11,8 @@ const CONTAINER_SHELL = 'Commands start in just-bash, a fast lightweight shell f
   + 'A command that needs git, node, npm, python3, other native programs, or the network runs automatically '
   + 'in a Linux container (Debian); set linux: true on the bash call to force it. The container starts on '
   + 'demand and sleeps when idle, so its first command after a pause can take several seconds. Both shells '
-  + 'share /workspace, the only place that persists; each command runs to completion, so do not rely on '
-  + 'background processes. '
+  + 'share /workspace, the only place that persists; any other path is the container\'s own, so set linux: true '
+  + 'to reach it. Each command runs to completion, so do not rely on background processes. '
 
 const EDGE_SYSTEM_PROMPT_TOOLS = 'Each tool\'s detailed usage is in its own prompt section below.\n\n'
   + 'MCP tools: External tool servers may be connected via MCP. '
