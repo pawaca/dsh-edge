@@ -10,13 +10,16 @@ const RESERVED_ALIASES = new Set([DIRECT_SHELL_CORE, ISOLATED_DIRECT_SHELL])
 const WORKER_ARTIFACTS = Object.freeze({
   direct: 'worker/direct/index.js',
   isolated: 'worker/isolated/index.js',
+  // The Container mode deploys the isolated Worker; only its environment differs.
+  container: 'worker/isolated/index.js',
 })
+const PREBUILT_MODES = new Set(Object.keys(WORKER_ARTIFACTS))
 const ATTACHMENT_BINDING = 'DSH_EDGE_ATTACHMENTS'
 const ATTACHMENT_STORAGE_BINDING = 'DSH_EDGE_ATTACHMENT_STORAGE'
 
 /** Render one mode-specific build configuration from an already parsed source object. */
 export function renderParsedSourceModeWranglerConfig(mode, parsed, options = {}) {
-  requireRuntimeMode(mode)
+  requireSourceMode(mode)
   requireSourceConfig(parsed)
   const root = options.appDirectory ?? appDirectory
   const aliases = options.aliases ?? {}
@@ -55,7 +58,7 @@ export function renderParsedSourceModeWranglerConfig(mode, parsed, options = {})
 
 /** Render an upload configuration from an already parsed source object. */
 export function renderParsedPrebuiltModeWranglerConfig(mode, parsed, options = {}) {
-  requireRuntimeMode(mode)
+  requirePrebuiltMode(mode)
   requireSourceConfig(parsed)
   const root = options.appDirectory ?? appDirectory
   const config = structuredClone(parsed)
@@ -68,19 +71,41 @@ export function renderParsedPrebuiltModeWranglerConfig(mode, parsed, options = {
   config.find_additional_modules = false
   applyAttachmentStorage(config, mode, options.r2BucketName)
   if (options.enableImages) {
-    const target = mode === 'direct' ? config : config.env?.isolated
+    const target = modeTarget(config, mode)
     if (isRecord(target)) target.images = { binding: 'IMAGES' }
   }
+  if (mode === 'container') resolveContainerImages(config, root)
   return `${JSON.stringify(config, undefined, 2)}\n`
+}
+
+// A local Dockerfile path resolves beside the source config so `wrangler dev`
+// can build it from a generated config elsewhere; registry references pass.
+function resolveContainerImages(config, root) {
+  const containers = config.env?.container?.containers
+  if (!Array.isArray(containers) || containers.length === 0) {
+    throw new Error('wrangler.jsonc must declare the container environment\'s containers.')
+  }
+  for (const container of containers) {
+    if (!isRecord(container) || typeof container.image !== 'string' || container.image === '') {
+      throw new Error('Each container must declare an image.')
+    }
+    if (container.image.startsWith('./') || container.image.startsWith('../')) {
+      container.image = resolve(root, container.image)
+    }
+  }
+}
+
+function modeTarget(config, mode) {
+  return mode === 'direct' ? config : config.env?.[mode]
 }
 
 function applyAttachmentStorage(config, mode, bucketName) {
   if (bucketName !== undefined && (typeof bucketName !== 'string' || bucketName.length === 0)) {
     throw new Error('R2 attachment bucket name must be a non-empty string.')
   }
-  const target = mode === 'direct' ? config : config.env?.isolated
+  const target = modeTarget(config, mode)
   if (!isRecord(target)) {
-    throw new Error('wrangler.jsonc must declare the isolated environment.')
+    throw new Error(`wrangler.jsonc must declare the ${mode} environment.`)
   }
   if (target.vars !== undefined && !isRecord(target.vars)) {
     throw new Error('wrangler.jsonc vars must be an object.')
@@ -100,7 +125,7 @@ function applyAttachmentStorage(config, mode, bucketName) {
 
 /** Return the released entrypoint for a runtime mode. */
 export function workerArtifactPath(mode, options = {}) {
-  requireRuntimeMode(mode)
+  requirePrebuiltMode(mode)
   return resolve(options.appDirectory ?? appDirectory, WORKER_ARTIFACTS[mode])
 }
 
@@ -124,8 +149,16 @@ function requireSourceConfig(parsed) {
   }
 }
 
-function requireRuntimeMode(mode) {
+/** Source builds produce the two Worker artifacts. */
+function requireSourceMode(mode) {
   if (mode !== 'direct' && mode !== 'isolated') {
+    throw new Error(`Unsupported runtime mode: ${String(mode)}`)
+  }
+}
+
+/** Prebuilt modes deploy one of those artifacts into a wrangler environment. */
+function requirePrebuiltMode(mode) {
+  if (!PREBUILT_MODES.has(mode)) {
     throw new Error(`Unsupported runtime mode: ${String(mode)}`)
   }
 }

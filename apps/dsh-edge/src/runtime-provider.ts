@@ -13,7 +13,7 @@ import Schema from '@deepseek-ai/schemastery'
 export type EdgeRuntimeCapability = 'bash' | 'coding' | 'subprocess'
 
 /** Stable identifier of one runtime provider. */
-export type EdgeRuntimeProviderId = 'direct' | 'dynamic-worker'
+export type EdgeRuntimeProviderId = 'direct' | 'dynamic-worker' | 'container'
 
 /** Whether a provider can serve this deployment. */
 export type EdgeRuntimeProviderStatus = 'available' | 'needs-binding'
@@ -21,7 +21,17 @@ export type EdgeRuntimeProviderStatus = 'available' | 'needs-binding'
 /** The deployment bindings a provider probe may inspect. */
 export interface EdgeRuntimeProbeSource {
   LOADER?: unknown
+  /**
+   * Declares that the owning Durable Object class has a Container attached.
+   * Containers attach to the class rather than to a binding, so the entry
+   * Worker cannot observe them; the Durable Object verifies this marker
+   * against `ctx.container` when it starts.
+   */
+  DSH_EDGE_CONTAINER_RUNTIME?: string
 }
+
+/** The `DSH_EDGE_CONTAINER_RUNTIME` value a Container deployment declares. */
+export const CONTAINER_RUNTIME_MARKER = 'enabled'
 
 /** Secret-free description of one runtime provider. */
 export interface EdgeRuntimeProviderDescriptor {
@@ -30,7 +40,7 @@ export interface EdgeRuntimeProviderDescriptor {
   /** The minimum Cloudflare Workers plan whose bindings the provider needs. */
   readonly plan: 'free' | 'paid'
   /** The public shell identity projected when this provider serves `bash`. */
-  readonly shell: 'just-bash-direct' | 'just-bash-isolated'
+  readonly shell: 'just-bash-direct' | 'just-bash-isolated' | 'linux-container'
   probe(source: EdgeRuntimeProbeSource): EdgeRuntimeProviderStatus
 }
 
@@ -57,8 +67,20 @@ export const DYNAMIC_WORKER_RUNTIME_PROVIDER = Object.freeze<EdgeRuntimeProvider
   probe: source => source.LOADER === undefined ? 'needs-binding' : 'available',
 })
 
+/** A Linux Container attached to the owning Durable Object, operated through computerd. */
+export const CONTAINER_RUNTIME_PROVIDER = Object.freeze<EdgeRuntimeProviderDescriptor>({
+  id: 'container',
+  capabilities: Object.freeze<EdgeRuntimeCapability[]>(['bash']),
+  plan: 'paid',
+  shell: 'linux-container',
+  probe: source => source.DSH_EDGE_CONTAINER_RUNTIME === CONTAINER_RUNTIME_MARKER
+    ? 'available'
+    : 'needs-binding',
+})
+
 /** Every known provider in default-preference order (first available wins). */
 export const EDGE_RUNTIME_PROVIDERS: readonly EdgeRuntimeProviderDescriptor[] = Object.freeze([
+  CONTAINER_RUNTIME_PROVIDER,
   DYNAMIC_WORKER_RUNTIME_PROVIDER,
   DIRECT_RUNTIME_PROVIDER,
 ])

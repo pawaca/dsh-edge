@@ -2,6 +2,10 @@ import { expect, it, vi } from 'vitest'
 vi.mock('cloudflare:workers', () => ({ DurableObject: class {} }))
 vi.mock('@cloudflare/computer', () => ({ withWorkspace: (base: unknown) => base }))
 vi.mock('@cloudflare/computer/backends/worker-shell', () => ({}))
+vi.mock('@cloudflare/computer/backends/container', () => ({
+  CloudflareContainerBackend: class {},
+  withWorkspaceContainer: (base: unknown) => base,
+}))
 vi.mock('../src/direct-shell.ts', () => ({}))
 vi.mock('../src/session-store.ts', () => ({}))
 import { DshEdgeInstance } from '../src/instance.ts'

@@ -23,7 +23,6 @@ import {
 import type { EdgeEnv } from './instance.ts'
 import { resolveEdgeDeploymentHealth } from './deployment.ts'
 import {
-  executeWorkspaceCommand,
   MAX_TEXT_FILE_BYTES,
   readBoundedWorkspaceFile,
   requireCommand,
@@ -142,11 +141,14 @@ export default {
         const body = await readJsonObject(request, MAX_WORKSPACE_EXEC_BODY_BYTES)
         const command = requireCommand(body.command)
         const cwd = requireWorkspacePath(body.cwd ?? '/workspace')
-        const timeoutPolicy = resolveEdgeCommandTimeoutPolicy(
+        // Validate the deployment policy here so a misconfiguration surfaces as
+        // this route's error; the Durable Object owns execution and activity.
+        resolveEdgeCommandTimeoutPolicy(
           env.DSH_EDGE_DEFAULT_COMMAND_TIMEOUT_MS,
           env.DSH_EDGE_MAX_COMMAND_TIMEOUT_MS,
         )
-        const result = await executeWorkspaceCommand(workspace, command, cwd, timeoutPolicy)
+        const result = await env.DSH_EDGE_INSTANCE.getByName(OWNER_INSTANCE)
+          .runWorkspaceCommand(command, cwd)
         return jsonResponse({
           executionId: result.executionId,
           status: result.status,

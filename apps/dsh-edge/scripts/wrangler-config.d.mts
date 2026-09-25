@@ -1,5 +1,8 @@
 import type { RuntimeMode } from './install.mjs'
 
+/** A deployable Worker environment: a runtime mode or the Container environment. */
+export type PrebuiltMode = RuntimeMode | 'container'
+
 export interface WranglerConfigOptions {
   aliases?: Record<string, string>
   appDirectory?: string
@@ -16,7 +19,7 @@ export function renderSourceModeWranglerConfig(
 ): string
 
 export function renderPrebuiltModeWranglerConfig(
-  mode: RuntimeMode,
+  mode: PrebuiltMode,
   source: string,
   options?: WranglerConfigOptions,
 ): string
@@ -28,12 +31,12 @@ export function writeSourceModeWranglerConfig(
 ): Promise<void>
 
 export function writePrebuiltModeWranglerConfig(
-  mode: RuntimeMode,
+  mode: PrebuiltMode,
   destination: string,
   options?: WranglerConfigOptions,
 ): Promise<void>
 
 export function workerArtifactPath(
-  mode: RuntimeMode,
+  mode: PrebuiltMode,
   options?: Pick<WranglerConfigOptions, 'appDirectory'>,
 ): string

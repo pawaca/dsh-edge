@@ -9,8 +9,8 @@ import { execa } from 'execa'
 import { writePrebuiltModeWranglerConfig } from './wrangler-config.mjs'
 
 const mode = process.argv[2]
-if (mode !== 'direct' && mode !== 'isolated') {
-  process.stderr.write('Usage: node scripts/dev.mjs <direct|isolated> [wrangler dev options]\n')
+if (mode !== 'direct' && mode !== 'isolated' && mode !== 'container') {
+  process.stderr.write('Usage: node scripts/dev.mjs <direct|isolated|container> [wrangler dev options]\n')
   process.exitCode = 2
 } else {
   const appDirectory = fileURLToPath(new URL('..', import.meta.url))
@@ -24,7 +24,7 @@ if (mode !== 'direct' && mode !== 'isolated') {
       require.resolve('wrangler'),
       'dev',
       '--config', configFile,
-      '--env', mode === 'direct' ? '' : 'isolated',
+      '--env', mode === 'direct' ? '' : mode,
       ...process.argv.slice(3),
     ], {
       cwd: appDirectory,

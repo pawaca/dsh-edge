@@ -1,12 +1,12 @@
 export type RuntimeMode = 'direct' | 'isolated'
-export type RuntimeProviderId = 'direct' | 'dynamic-worker'
+export type RuntimeProviderId = 'direct' | 'dynamic-worker' | 'container'
 export type RuntimeCapability = 'bash' | 'coding' | 'subprocess'
 
 export const RUNTIME_PROVIDERS: Readonly<Record<RuntimeProviderId, Readonly<{
   id: RuntimeProviderId
   capabilities: readonly RuntimeCapability[]
   plan: 'free' | 'paid'
-  shell: 'just-bash-direct' | 'just-bash-isolated'
+  shell: 'just-bash-direct' | 'just-bash-isolated' | 'linux-container'
 }>>>
 export const RUNTIME_MODES: Readonly<Record<RuntimeMode, Readonly<{
   environment: string

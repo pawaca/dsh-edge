@@ -86,9 +86,10 @@ import { EdgeFileReferenceService, type EdgeReferenceFiles } from './edge-file-r
 import { EdgeDirectoryPicker, type EdgeDirectoryFiles } from './edge-directory-picker.ts'
 import { EdgeLoader } from './edge-plugin-loader.ts'
 import * as EdgeSkillProvider from './edge-skill-provider.ts'
+import type { EdgeRuntimeProviderDescriptor } from './runtime-provider.ts'
 import {
   EDGE_PLAN_MODE_SECTION,
-  EDGE_SYSTEM_PROMPT,
+  edgeSystemPrompt,
   EdgeShellBindings,
   createEdgeBashTool,
   type EdgeShell,
@@ -140,6 +141,8 @@ interface EdgeSessionStoreConfig {
   streamIdleTimeoutMs?: string
   /** Worker Loader for workflow and code-run isolates; present only when the Dynamic Worker provider is available. */
   workerLoader?: WorkflowLoader
+  /** The public identity of the shell serving the bash layer. */
+  shell: EdgeRuntimeProviderDescriptor['shell']
   /** Run one bounded Computer workspace operation outside a turn (`@file` completion, directory browsing). */
   withWorkspaceFiles<T>(read: (files: EdgeWorkspaceFiles) => Promise<T>): Promise<T>
   onLateSessionEvent?: (sessionId: SessionId, event: SessionEvent) => void
@@ -369,7 +372,7 @@ export class EdgeSessionStore {
       provider: EDGE_PROVIDER,
       model: DEFAULT_EDGE_MODEL,
     })
-    await this.context.plugin(SystemPrompt, { personaPrefix: EDGE_SYSTEM_PROMPT })
+    await this.context.plugin(SystemPrompt, { personaPrefix: edgeSystemPrompt(config.shell) })
     await this.context.plugin(EdgeVfsSpillStore)
     await this.context.plugin(EdgeFileSystem)
     // With isolates available, `run_code` (PTC) joins the native tools; its
@@ -651,7 +654,7 @@ export class EdgeSessionStore {
       agent.ctx.effect(() => release, 'dsh-edge: subagent shell binding')
     })
     this.context.effect(
-      () => this.context.tools.register(createEdgeBashTool(this.shells)),
+      () => this.context.tools.register(createEdgeBashTool(this.shells, config.shell)),
       'dsh-edge: bash tool',
     )
     if (config.onLateSessionEvent !== undefined) {

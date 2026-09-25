@@ -59,6 +59,20 @@ describe('Edge settings section', () => {
     expect(load).toHaveBeenCalledOnce()
   })
 
+  it('names the Container runtime', () => {
+    render(<EdgeSettingsSection
+      {...runtime}
+      close={() => {}}
+      t={t}
+      useEdgeSettings={selector => selector({ ...READY, health: { ...READY.health!, shell: 'linux-container' } })}
+      load={vi.fn(() => Promise.resolve())}
+      copyUpgrade={vi.fn(() => Promise.resolve())}
+      signOut={vi.fn(() => Promise.resolve())}
+      setApprovalMode={vi.fn(() => Promise.resolve())}
+    />)
+    expect(screen.getByText('Container · Linux')).toBeTruthy()
+  })
+
   it('contains load failure behind a retry action', () => {
     const load = vi.fn(() => Promise.resolve())
     const signOut = vi.fn(() => Promise.resolve())

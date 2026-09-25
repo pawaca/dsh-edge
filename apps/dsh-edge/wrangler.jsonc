@@ -54,6 +54,35 @@
           "binding": "LOADER"
         }
       ]
+    },
+    "container": {
+      "version_metadata": { "binding": "CF_VERSION_METADATA" },
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "DSH_EDGE_INSTANCE",
+            "class_name": "DshEdgeInstance"
+          }
+        ]
+      },
+      "worker_loaders": [
+        {
+          "binding": "LOADER"
+        }
+      ],
+      "vars": {
+        "DSH_EDGE_CONTAINER_RUNTIME": "enabled"
+      },
+      "containers": [
+        {
+          "class_name": "DshEdgeInstance",
+          "image": "./container/Dockerfile",
+          "instance_type": "basic",
+          "max_instances": 1,
+          "rollout_active_grace_period": 0,
+          "rollout_step_percentage": [100]
+        }
+      ]
     }
   }
 }
