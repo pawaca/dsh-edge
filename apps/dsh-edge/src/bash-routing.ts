@@ -132,7 +132,9 @@ function touchesContainerFilesystem(token: Token): boolean {
   const word = token.word
   if (word === undefined) return false
   if (word.startsWith('~')) return true
-  return word.split(/[=:,]/u).some(part => {
+  // Split `--opt=/path`, `a:/path`, `a,/path`, and short options with an
+  // attached operand (`-C/etc`, `-o/tmp/out`) into their path parts.
+  return word.split(/[=:,]|^-[A-Za-z]+(?=[/.])/u).some(part => {
     if (SHARED_DEVICES.has(part)) return false
     const segments = normalizedSegments(part)
     if (segments === undefined) return false
