@@ -52,11 +52,23 @@ export function routeBashCommand(command: string, options: {
   policy: BashRoutingPolicy
   containerAvailable: boolean
   requestContainer?: boolean
+  /** The command's working directory, used to resolve relative `..` paths. */
+  cwd?: string
 }): BashRoute {
   if (!options.containerAvailable || options.policy === 'light') return 'light'
   if (options.policy === 'container' || options.requestContainer === true) return 'container'
-  return runsInLightShell(command) ? 'light' : 'container'
+  const previous = routingCwd
+  routingCwd = options.cwd ?? SHARED_ROOT
+  try {
+    return runsInLightShell(command) ? 'light' : 'container'
+  } finally {
+    routingCwd = previous
+  }
 }
+
+const SHARED_ROOT = '/workspace'
+/** The working directory of the command being routed (synchronous, single-threaded). */
+let routingCwd = SHARED_ROOT
 
 /** Whether every program a command would start is one the lightweight shell provides. */
 export function runsInLightShell(command: string, depth = 0): boolean {
@@ -91,6 +103,17 @@ export function commandWords(command: string, depth = 0): string[] | undefined {
  * command needs the container. Regex-like words such as `/start/` in sed are
  * not affected because only known root directories count.
  */
+function escapesSharedRoot(path: string): boolean {
+  const segments = path.split('/')
+  if (!segments.includes('..')) return false
+  const resolved = routingCwd.split('/').filter(Boolean)
+  for (const segment of segments) {
+    if (segment === '..') resolved.pop()
+    else if (segment !== '' && segment !== '.') resolved.push(segment)
+  }
+  return resolved[0] !== 'workspace'
+}
+
 const LINUX_ROOTS = new Set(['bin', 'boot', 'dev', 'etc', 'home', 'lib', 'lib32', 'lib64', 'media', 'mnt',
   'opt', 'proc', 'root', 'run', 'sbin', 'srv', 'sys', 'tmp', 'usr', 'var'])
 const SHARED_DEVICES = new Set(['/dev/null', '/dev/stdin', '/dev/stdout', '/dev/stderr', '/dev/zero'])
@@ -99,6 +122,8 @@ function touchesContainerFilesystem(token: Token): boolean {
   const word = token.word
   if (word === undefined) return false
   if (word.startsWith('~')) return true
+  // A relative path that climbs out of /workspace reaches the container's root.
+  if (word.split(/[=:,]/u).some(part => !part.startsWith('/') && escapesSharedRoot(part))) return true
   return word.split(/[=:,]/u).some(part => {
     const match = /^\/([A-Za-z0-9._-]+)/u.exec(part)
     return match !== null && LINUX_ROOTS.has(match[1]!) && !SHARED_DEVICES.has(part)

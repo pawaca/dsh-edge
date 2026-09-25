@@ -258,6 +258,18 @@ describe('bash command routing', () => {
     expect(auto('echo "`echo \\`ls\\``"')).toBe('container')
   })
 
+  it('routes relative paths that climb out of /workspace to the container', () => {
+    const at = (cwd: string, command: string) =>
+      routeBashCommand(command, { policy: 'auto', containerAvailable: true, cwd })
+    expect(at('/workspace', 'cat ../etc/os-release')).toBe('container')
+    expect(at('/workspace', 'cd ..; ls')).toBe('container')
+    expect(at('/workspace', 'ls ..')).toBe('container')
+    expect(at('/workspace/app', 'cat ../../etc/hosts')).toBe('container')
+    expect(at('/workspace/app/src', 'cat ../README.md')).toBe('light')
+    expect(at('/workspace/app', 'ls ../other && cd ..')).toBe('light')
+    expect(at('/workspace', 'cat ./a/../b.txt')).toBe('light')
+  })
+
   it('honours the policy, the explicit request, and a missing container', () => {
     expect(routeBashCommand('npm test', { policy: 'auto', containerAvailable: false })).toBe('light')
     expect(routeBashCommand('npm test', { policy: 'light', containerAvailable: true })).toBe('light')
