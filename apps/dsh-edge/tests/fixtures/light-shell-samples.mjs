@@ -31,7 +31,6 @@ export const LIGHT_SHELL_SAMPLES = Object.freeze({
   shift: 'set -- a b; shift',
   test: 'test -f a.txt',
   true: 'true',
-  type: 'type ls',
   unalias: 'alias ll=ls; unalias ll',
   unset: 'FOO=1; unset FOO',
   awk: "awk -F, '{ s += $2 } END { print s }' c.csv",

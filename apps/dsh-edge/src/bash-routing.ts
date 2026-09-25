@@ -19,13 +19,14 @@ export type BashRoute = 'light' | 'container'
  * just-bash commands (git without a client, jq/yq/sqlite3/xan/file/
  * html-to-markdown without their bundled chunks, curl without egress) are
  * absent on purpose, as are `split` and `which`, which fail in the Dynamic
- * Worker shell; the isolated integration suite runs every entry.
+ * Worker shell, and `type`, whose program lookups are only truthful in the
+ * container; the isolated integration suite runs every entry.
  */
 export const LIGHT_SHELL_COMMANDS: ReadonlySet<string> = new Set([
   // Shell builtins and keywords that do not run another program.
   ':', '[', '[[', 'alias', 'break', 'cd', 'continue', 'declare', 'echo', 'exit', 'export',
   'false', 'printf', 'pwd', 'read', 'readonly', 'set', 'shift', 'test',
-  'true', 'type', 'unalias', 'unset',
+  'true', 'unalias', 'unset',
   // just-bash commands.
   'awk', 'base64', 'basename', 'cat', 'chmod', 'clear', 'column', 'comm', 'cp', 'cut', 'date',
   'diff', 'dirname', 'du', 'egrep', 'expand', 'expr', 'fgrep', 'find', 'fold', 'grep', 'gunzip',
@@ -177,7 +178,9 @@ function startsProgramsItself(program: string, args: Token[]): boolean {
       return words.some(word => /\bsystem\s*\(|\|/u.test(word))
     case 'sed':
       // The `e` command and the `s///e` flag run programs.
-      return words.some(word => /(^|[;\n{}])\s*e(\s|$|;)|s(.)(?:(?!\3).)*\3(?:(?!\3).)*\3[a-zA-Z0-9]*e/u.test(word))
+      // An `e` command may follow an address: a line number, `$`, a /regex/,
+      // a range, or `!`.
+      return words.some(word => /(^|[;\n{}0-9$/!,])\s*e(\s|$|;)|s(.)(?:(?!\3).)*\3(?:(?!\3).)*\3[a-zA-Z0-9]*e/u.test(word))
     default:
       return false
   }
