@@ -173,8 +173,10 @@ function startsProgramsItself(program: string, args: Token[]): boolean {
     case 'rg':
       return option('--pre')
     case 'tar':
-      return option('-I', '--use-compress-program', '--to-command', '--checkpoint-action',
-        '--info-script', '--new-volume-script', '-F')
+      return option('--use-compress-program', '--to-command', '--checkpoint-action',
+        '--info-script', '--new-volume-script')
+        // -I PROG / -F SCRIPT, separate or attached (`-Izstd`).
+        || words.some(word => /^-(I|F)/u.test(word))
     case 'sort':
       return option('--compress-program')
     case 'awk':
@@ -394,6 +396,8 @@ function isRedirection(op: string): boolean {
 function tokenize(source: string, depth: number): Token[] | undefined {
   // `${x@P}` prompt-expands a value, running command substitutions inside it.
   if (/\$\{[^}]*@P\}/u.test(source)) return undefined
+  // BASH_ENV / ENV name a startup file a nested shell sources first.
+  if (/(^|[\s;&|(`])(export\s+)?(BASH_ENV|ENV)=/u.test(source)) return undefined
   const tokens: Token[] = []
   let word = ''
   let inWord = false
