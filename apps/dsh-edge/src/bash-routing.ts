@@ -264,19 +264,15 @@ function startsProgramsItself(program: string, args: Token[]): boolean {
     case 'rg':
       return option('--pre')
     case 'tar':
-      return option('--use-compress-program', '--to-command', '--checkpoint-action',
-        '--info-script', '--new-volume-script', '--rsh-command', '--rmt-command')
-        // -I PROG / -F SCRIPT anywhere in a short-option cluster (`-Izstd`,
-        // `-cInode`) or in the traditional first word (`tar cIf node …`).
-        || words.some(word => /^-[A-Za-z]*[IF]/u.test(word))
-        || /^[A-Za-z]*[IF][A-Za-z]*$/u.test(words[0] ?? '')
-        // In a Worker just-bash's tar handles only gzip; bzip2, xz, and zstd
-        // need native modules workerd cannot load. Suffixes cover
-        // auto-compress and extraction.
-        || option('--bzip2', '--xz', '--zstd', '--lzma', '--lzip', '--lzop')
-        || words.some(word => /^-[A-Za-z]*[jJ]/u.test(word)
-          || /\.(bz2|tbz2?|xz|txz|zst|tzst|lzma|lz|lzo)$/u.test(word))
-        || /^[A-Za-z]*[jJ][A-Za-z]*$/u.test(words[0] ?? '')
+      // In a Worker just-bash's tar handles only gzip; every other compressor
+      // needs a program or native module, and several options start programs.
+      // So only known-safe options stay light (an allowlist, not a denylist).
+      return words.some((word, index) => index === 0 && !word.startsWith('-')
+        ? !tarClusterIsSafe(word)
+        : word.startsWith('--') ? !TAR_SAFE_LONG.has(word.split('=')[0]!)
+          : word.startsWith('-') && !tarClusterIsSafe(word.slice(1)))
+        // Suffixes cover auto-compress and extraction.
+        || words.some(word => /\.(bz2|tbz2?|xz|txz|zst|tzst|lzma|lz|lzo|Z|taz|taZ)$/u.test(word))
         // `host:archive` makes tar start rsh unless --force-local is given.
         || (!option('--force-local')
           && words.some(word => /^(-[A-Za-z]*f|--file=)?[^-/:=][^/:=]*:/u.test(word)))
@@ -300,6 +296,28 @@ function startsProgramsItself(program: string, args: Token[]): boolean {
     default:
       return false
   }
+}
+
+/** Short tar options that neither compress with anything but gzip nor start a program. */
+const TAR_SAFE_SHORT = new Set('cxtruvzkmpPhOSoaUwWlA')
+/** Short tar options whose value follows (attached or as the next word). */
+const TAR_VALUED_SHORT = new Set('fCTXbHKNgLV')
+const TAR_SAFE_LONG = new Set(['--create', '--extract', '--get', '--list', '--append', '--update',
+  '--concatenate', '--catenate', '--verbose', '--gzip', '--gunzip', '--ungzip', '--file', '--directory',
+  '--to-stdout', '--exclude', '--exclude-from', '--files-from', '--strip-components', '--keep-old-files',
+  '--overwrite', '--touch', '--preserve-permissions', '--same-permissions', '--no-same-owner',
+  '--no-same-permissions', '--absolute-names', '--dereference', '--auto-compress', '--wildcards',
+  '--no-wildcards', '--no-recursion', '--recursion', '--transform', '--xform', '--owner', '--group', '--mode',
+  '--mtime', '--sort', '--numeric-owner', '--force-local', '--one-file-system', '--show-transformed-names',
+  '--totals', '--null', '--exclude-vcs', '--exclude-vcs-ignores', '--anchored', '--no-anchored'])
+
+/** Whether a short-option cluster (without its dash) uses only safe letters before any valued one. */
+function tarClusterIsSafe(cluster: string): boolean {
+  for (const letter of cluster) {
+    if (TAR_VALUED_SHORT.has(letter)) return true
+    if (!TAR_SAFE_SHORT.has(letter)) return false
+  }
+  return true
 }
 
 /** The script words of a sed invocation: every -e/--expression value, else the first operand. */
