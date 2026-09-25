@@ -268,6 +268,9 @@ describe('bash command routing', () => {
     expect(at('/workspace/app/src', 'cat ../README.md')).toBe('light')
     expect(at('/workspace/app', 'ls ../other && cd ..')).toBe('light')
     expect(at('/workspace', 'cat ./a/../b.txt')).toBe('light')
+    expect(at('/workspace', 'cat /workspace/../etc/os-release')).toBe('container')
+    expect(at('/workspace', 'ls /workspace/app/../..')).toBe('container')
+    expect(at('/workspace', 'cat /workspace/app/../README.md')).toBe('light')
   })
 
   it('honours the policy, the explicit request, and a missing container', () => {

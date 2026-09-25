@@ -106,7 +106,7 @@ export function commandWords(command: string, depth = 0): string[] | undefined {
 function escapesSharedRoot(path: string): boolean {
   const segments = path.split('/')
   if (!segments.includes('..')) return false
-  const resolved = routingCwd.split('/').filter(Boolean)
+  const resolved = path.startsWith('/') ? [] : routingCwd.split('/').filter(Boolean)
   for (const segment of segments) {
     if (segment === '..') resolved.pop()
     else if (segment !== '' && segment !== '.') resolved.push(segment)
@@ -122,8 +122,8 @@ function touchesContainerFilesystem(token: Token): boolean {
   const word = token.word
   if (word === undefined) return false
   if (word.startsWith('~')) return true
-  // A relative path that climbs out of /workspace reaches the container's root.
-  if (word.split(/[=:,]/u).some(part => !part.startsWith('/') && escapesSharedRoot(part))) return true
+  // A path that climbs out of /workspace with `..` reaches the container's root.
+  if (word.split(/[=:,]/u).some(part => escapesSharedRoot(part))) return true
   return word.split(/[=:,]/u).some(part => {
     const match = /^\/([A-Za-z0-9._-]+)/u.exec(part)
     return match !== null && LINUX_ROOTS.has(match[1]!) && !SHARED_DEVICES.has(part)
