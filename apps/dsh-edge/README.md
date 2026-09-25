@@ -241,7 +241,7 @@ This deliberately is not an account system or multi-tenant boundary.
 | --- | --- | --- | --- |
 | Direct (default top level) | Workers Free; no Loader binding | Hardened just-bash in the agent/VFS Durable Object, with explicit timeouts, bounded output/environment, and no network command | `just-bash-direct` |
 | `env.isolated` | Workers Paid with `LOADER` | Computer Worker Shell in a separate Dynamic Worker | `just-bash-isolated` |
-| `env.container` | Workers Paid with `LOADER` and a `basic` Container | bash in a Debian container through computerd; the isolated Worker artifact | `linux-container` |
+| `env.container` | Workers Paid with `LOADER` and a `basic` Container | The isolated Worker Shell for most commands; commands that need Linux are routed to a Debian container through computerd (see `src/bash-routing.ts`); the isolated Worker artifact | `linux-container` |
 
 Direct mode is lighter isolation than a separate Worker; do not expose the single-owner deployment to untrusted users. Workers Paid is a Workers subscription starting at $5 per month, not the Cloudflare Pro website plan. Worker names have independent Durable Object storage and secrets, so use different names when both modes should remain live.
 
@@ -277,8 +277,9 @@ If the installed version contains `-alpha` or `-rc`, promote it to the stable ch
 ### Accounts and attachment storage
 
 - The installer asks for the runtime before the account.
-- Recommended `Free — Direct Shell` works on Workers Free with a detected account, a new sign-in/registration, or a temporary account without login.
-- `Isolated — Dynamic Worker` requires Workers Paid and offers only a detected or newly authenticated account. Cloudflare authorizes the Loader upload; rejection becomes a choice between enabling Workers Paid and switching to Direct mode.
+- Recommended `Free` (the direct mode) works on Workers Free with a detected account, a new sign-in/registration, or a temporary account without login.
+- `Paid` (the isolated mode) requires Workers Paid and offers only a detected or newly authenticated account. Cloudflare authorizes the Loader upload; rejection becomes a choice between enabling Workers Paid and switching to Free.
+- `Paid + Linux container` (the container mode) adds the container to Paid. Commands start in the isolated shell; routing sends a command to the container only when a program it starts is outside the lightweight shell's verified set, the command cannot be parsed confidently, or the agent sets `linux: true`. At most two container commands run at once; others wait for a slot.
 - New permanent installs create or reuse a private `<worker-name>-attachments` R2 bucket and place only its binding in the generated private Wrangler config. Deployment failure never deletes the bucket.
 - R2 Standard has an included monthly free tier, but the account must enable its separate usage-based subscription. The installer checks R2 before collecting Worker secrets.
 - Cloudflare error `10042` offers account-specific activation, retry, and cancellation. Only an unmarked pre-attachment Worker may safely switch to DO storage; a new or R2-pinned deployment cannot switch and strand references.

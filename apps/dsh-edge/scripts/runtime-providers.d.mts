@@ -1,6 +1,6 @@
 export type RuntimeMode = 'direct' | 'isolated' | 'container'
 export type RuntimeProviderId = 'direct' | 'dynamic-worker' | 'container'
-export type RuntimeCapability = 'bash' | 'coding' | 'subprocess'
+export type RuntimeCapability = 'bash' | 'container' | 'coding' | 'subprocess'
 
 export const RUNTIME_PROVIDERS: Readonly<Record<RuntimeProviderId, Readonly<{
   id: RuntimeProviderId

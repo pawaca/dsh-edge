@@ -96,8 +96,10 @@ export function resolveEdgeRuntimeBackends(
   settings?: EdgeRuntimeSettings,
 ): WorkspaceRegisteredBackend[] {
   const selection = resolveEdgeRuntimeSelection(availableEdgeRuntimeProviders(host.env), settings)
+  // The lightweight bash provider registers first, so a command without an
+  // explicit backend runs there; the container is reached only by routing.
   const selected = new Set<EdgeRuntimeProviderId>()
-  for (const id of [selection.bash, selection.coding, selection.subprocess]) {
+  for (const id of [selection.bash, selection.container, selection.coding, selection.subprocess]) {
     if (id !== null) selected.add(id)
   }
   return [...selected].flatMap(id => PROVIDERS[id].backends(host))

@@ -138,6 +138,7 @@ export async function executeWorkspaceCommand(
   timeoutPolicy: EdgeCommandTimeoutPolicy,
   timeoutMs?: number,
   signal?: AbortSignal,
+  backend?: string,
 ): Promise<EdgeShellResult> {
   const effectiveTimeoutMs = timeoutMs ?? timeoutPolicy.defaultTimeoutMs
   if (!Number.isInteger(effectiveTimeoutMs)
@@ -155,6 +156,7 @@ export async function executeWorkspaceCommand(
   using execution = await workspace.runtime.exec(command, {
     cwd,
     timeoutMs: effectiveTimeoutMs,
+    ...backend === undefined ? {} : { backend },
   })
   let interruptionRequested = false
   const interrupt = (): Promise<void> => {

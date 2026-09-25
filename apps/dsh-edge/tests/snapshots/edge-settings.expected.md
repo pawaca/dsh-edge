@@ -43,7 +43,7 @@
   - region "Runtime":
     - heading "Runtime" [level=3]
     - term: Runtime
-    - definition: Free · Direct Shell
+    - definition: Free · in-process shell
     - term: Storage
     - definition: Durable Object SQLite VFS
     - term: Deployment ID

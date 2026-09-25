@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { LIGHT_SHELL_SAMPLES, LIGHT_SHELL_SETUP } from './fixtures/light-shell-samples.mjs'
 import { createHmac } from 'node:crypto'
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -274,6 +275,31 @@ try {
   assert.equal(movedEntries.response.status, 200)
   assert.equal(movedEntries.body.status, 'completed', movedEntries.body.stderr)
   assert.equal(movedEntries.body.stdout, 'fresh-shell-okmoved gone\n')
+  // Without a container every command runs in the lightweight shell and the
+  // result does not name a runtime.
+  assert.equal(movedEntries.body.runtime, undefined)
+
+  // Every command routing keeps in the lightweight shell must work in the
+  // Dynamic Worker shell a container deployment uses for it.
+  if (runtimeMode === 'isolated') {
+    const cwd = '/workspace/light-shell-samples'
+    const setup = await jsonRequest('/api/workspace/exec', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ command: LIGHT_SHELL_SETUP, cwd }),
+    })
+    assert.equal(setup.body.status, 'completed', setup.body.stderr)
+    const failures = []
+    for (const [name, command] of Object.entries(LIGHT_SHELL_SAMPLES)) {
+      const sample = await jsonRequest('/api/workspace/exec', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ command, cwd }),
+      })
+      if (sample.body.exitCode !== 0) failures.push(`${name}: ${command} -> ${sample.body.exitCode} ${sample.body.stderr}`)
+    }
+    assert.deepEqual(failures, [], 'light-shell commands failed in the Dynamic Worker shell')
+  }
 
   const disabledNetwork = await jsonRequest('/api/workspace/exec', {
     method: 'POST',

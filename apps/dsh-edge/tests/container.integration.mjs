@@ -65,14 +65,26 @@ try {
   const health = await json('/api/health')
   assert.equal(health.shell, 'linux-container')
 
-  const linux = await exec('uname -s && node -v && python3 --version && git --version')
-  assert.equal(linux.status, 'completed', linux.stderr)
-  assert.match(linux.stdout, /^Linux\nv22\./u)
+  // File and text work stays in the lightweight shell and never starts the container.
+  const light = await exec('mkdir -p notes && echo hi > notes/a.txt && ls notes')
+  assert.equal(light.stdout, 'a.txt\n')
+  assert.equal(light.runtime, 'light')
+  assert.equal(containersRunning(), 0, 'a light-shell command started the container')
 
-  const burst = await exec(`mkdir -p burst && for i in $(seq ${FILES}); do echo "file $i" > burst/f$i; done`)
+  // Commands that need Linux are routed to the container, and it sees the
+  // lightweight shell's writes.
+  const linux = await exec('uname -s && node -v && cat notes/a.txt')
+  assert.equal(linux.status, 'completed', linux.stderr)
+  assert.match(linux.stdout, /^Linux\nv22\.[^\n]*\nhi\n$/u)
+  assert.equal(linux.runtime, 'container')
+  assert.equal(typeof linux.queuedMs, 'number')
+
+  const burst = await exec(`mkdir -p burst && for i in $(seq ${FILES}); do echo "file $i" > burst/f$i; done`, true)
   assert.equal(burst.status, 'completed', burst.stderr)
+  assert.equal(burst.runtime, 'container')
   const read = await exec('cat burst/f7')
   assert.equal(read.stdout, 'file 7\n')
+  assert.equal(read.runtime, 'light')
   const file = await fetch(`http://${worker.address}:${worker.port}/api/workspace/file?path=/workspace/burst/f42`, {
     headers: { cookie },
   })
@@ -90,14 +102,19 @@ try {
   rmSync(scratch, { recursive: true, force: true })
 }
 
-async function exec(command) {
+async function exec(command, linux = false) {
   const response = await fetch(`http://${worker.address}:${worker.port}/api/workspace/exec`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', cookie },
-    body: JSON.stringify({ command }),
+    body: JSON.stringify({ command, ...linux ? { linux: true } : {} }),
   })
   assert.equal(response.status, 200, await response.clone().text())
   return response.json()
+}
+
+function containersRunning() {
+  const names = execFileSync('docker', ['ps', '--format', '{{.Image}}'], { encoding: 'utf8' })
+  return names.split('\n').filter(name => name.includes('dshedgeinstance')).length
 }
 
 async function json(path) {

@@ -20,7 +20,7 @@ export const RUNTIME_PROVIDERS = Object.freeze({
   }),
   container: Object.freeze({
     id: 'container',
-    capabilities: Object.freeze(['bash']),
+    capabilities: Object.freeze(['container']),
     plan: 'paid',
     shell: 'linux-container',
   }),
@@ -31,15 +31,15 @@ const RUNTIME_MODE_DEFINITIONS = Object.freeze({
     environment: '',
     artifact: 'direct',
     providers: ['direct'],
-    label: 'Free — Direct Shell',
-    hint: 'recommended; runs on Workers Free',
+    label: 'Free',
+    hint: 'recommended; runs on Workers Free with a lightweight shell',
   },
   isolated: {
     environment: 'isolated',
     artifact: 'isolated',
     providers: ['dynamic-worker'],
-    label: 'Isolated — Dynamic Worker',
-    hint: 'requires Workers Paid (starting at $5/month); adds workflow and run_code',
+    label: 'Paid',
+    hint: 'requires Workers Paid (starting at $5/month); isolated shell plus run_code and workflow',
   },
   // The Container mode deploys the isolated Worker; the first bash-capable
   // provider sets the shell identity, so the container comes first.
@@ -47,8 +47,8 @@ const RUNTIME_MODE_DEFINITIONS = Object.freeze({
     environment: 'container',
     artifact: 'isolated',
     providers: ['container', 'dynamic-worker'],
-    label: 'Container — Linux',
-    hint: 'requires Workers Paid; adds a real Linux shell (git, node, python), billed while it runs',
+    label: 'Paid + Linux container',
+    hint: 'Paid plus a Linux container for git, node, and python, used only when a command needs it; billed while it runs',
   },
 })
 
@@ -57,10 +57,13 @@ export const RUNTIME_MODES = Object.freeze(Object.fromEntries(
     const providers = definition.providers.map(id => RUNTIME_PROVIDERS[id])
     const bash = providers.find(provider => provider.capabilities.includes('bash'))
     if (bash === undefined) throw new Error(`Runtime mode ${mode} has no bash provider.`)
+    // A mode with a container reports the container identity; commands still
+    // start in its lightweight bash provider.
+    const identity = providers.find(provider => provider.capabilities.includes('container')) ?? bash
     return [mode, Object.freeze({
       environment: definition.environment,
       artifact: definition.artifact,
-      expectedShell: bash.shell,
+      expectedShell: identity.shell,
       label: definition.label,
       hint: definition.hint,
       paid: providers.some(provider => provider.plan === 'paid'),

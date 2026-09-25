@@ -35,9 +35,12 @@ import { DurableObject } from 'cloudflare:workers'
 import { OWNER_SESSION_EXPIRY_HEADER } from './auth.ts'
 import { ContainerActivity } from './container-activity.ts'
 import { resolveEdgeRuntimeBackends } from './runtime-backends.ts'
+import { routeBashCommand } from './bash-routing.ts'
 import {
   CONTAINER_RUNTIME_MARKER,
   DYNAMIC_WORKER_RUNTIME_PROVIDER,
+  availableEdgeRuntimeProviders,
+  resolveEdgeRuntimeSelection,
   resolveEdgeRuntimeShell,
 } from './runtime-provider.ts'
 import type { WorkflowLoader } from './edge-workflow-engine.ts'
@@ -209,6 +212,7 @@ export interface EdgeEnv {
 class DshEdgeObjectBase extends withWorkspaceContainer(class extends DurableObject<EdgeEnv> {}) {
   // Backends bind when the Durable Object is constructed, before settings
   // load, so this resolves each layer's default provider for the deployment.
+  protected readonly runtimeSelection = resolveEdgeRuntimeSelection(availableEdgeRuntimeProviders(this.env))
   protected readonly runtimeBackends = resolveEdgeRuntimeBackends({
     env: this.env,
     ctx: this.ctx,
@@ -929,18 +933,15 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
   }
 
   /** Run one bounded workspace command for the entry Worker's HTTP exec route. */
-  async runWorkspaceCommand(command: string, cwd: string): Promise<EdgeShellResult> {
+  async runWorkspaceCommand(command: string, cwd: string, requestContainer = false): Promise<EdgeShellResult> {
     const timeoutPolicy = resolveEdgeCommandTimeoutPolicy(
       this.env.DSH_EDGE_DEFAULT_COMMAND_TIMEOUT_MS,
       this.env.DSH_EDGE_MAX_COMMAND_TIMEOUT_MS,
     )
     const workspace = await this.workspace()
-    return this.trackContainerActivity(() => executeWorkspaceCommand(
-      workspace,
-      requireCommand(command),
-      requireWorkspacePath(cwd),
-      timeoutPolicy,
-    ))
+    return this.runShellCommand(workspace, requireCommand(command), requireWorkspacePath(cwd), timeoutPolicy, {
+      requestContainer,
+    })
   }
 
   private async workspace(): Promise<EdgeWorkspace> {
@@ -952,15 +953,38 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
   }
 
   /**
-   * Keep an attached container up while a command runs, then leave one alarm
-   * to stop it once idle. The alarm is only moved earlier, so a busy container
-   * costs one alarm write per sleep window rather than one per command.
+   * Run one validated command where it belongs. Without a container every
+   * command uses the lightweight shell. With one, routing sends only commands
+   * that need Linux to the container; those take a concurrency slot, keep the
+   * container up while they run, and leave one alarm to stop it once idle.
+   * The alarm is only moved earlier, so a busy container costs one alarm write
+   * per sleep window rather than one per command.
    */
-  private async trackContainerActivity<T>(run: () => Promise<T>): Promise<T> {
-    if (this.containerBackend() === undefined) return run()
-    const release = await this.containerActivity.admit()
+  private async runShellCommand(
+    workspace: EdgeWorkspace,
+    command: string,
+    cwd: string,
+    timeoutPolicy: EdgeCommandTimeoutPolicy,
+    options: { timeoutMs?: number; signal?: AbortSignal; requestContainer?: boolean },
+  ): Promise<EdgeShellResult> {
+    const container = this.containerBackend()
+    const route = routeBashCommand(command, {
+      policy: this.runtimeSelection.bashRouting,
+      containerAvailable: container !== undefined,
+      ...options.requestContainer === true ? { requestContainer: true } : {},
+    })
+    if (container === undefined || route === 'light') {
+      const result = await executeWorkspaceCommand(
+        workspace, command, cwd, timeoutPolicy, options.timeoutMs, options.signal,
+      )
+      return container === undefined ? result : { ...result, runtime: 'light' }
+    }
+    const { release, queuedMs } = await this.containerActivity.admit(options.signal)
     try {
-      return await run()
+      const result = await executeWorkspaceCommand(
+        workspace, command, cwd, timeoutPolicy, options.timeoutMs, options.signal, container.id,
+      )
+      return { ...result, runtime: 'container', queuedMs }
     } finally {
       release()
       const deadline = this.containerActivity.deadline()
@@ -1649,14 +1673,13 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         ? {}
         : { clientTimeZone: input.clientTimeZone },
       shell: {
-        exec: async (command, options) => this.trackContainerActivity(() => executeWorkspaceCommand(
+        exec: async (command, options) => this.runShellCommand(
           workspace,
           requireCommand(command),
           requireWorkspacePath(options.cwd),
           input.commandTimeoutPolicy,
-          options.timeoutMs,
-          options.signal,
-        )),
+          options,
+        ),
       },
       afterFollowup: () => {
         if (input.turn.cancelRequested) input.agent.cancel({ kind: 'user' })

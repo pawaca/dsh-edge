@@ -241,7 +241,7 @@ Cloudflare static assets -> upstream Web shell + client plugin graph
 | --- | --- | --- | --- |
 | Direct（默认顶层） | Workers Free；无 Loader binding | 在 agent/VFS Durable Object 中运行加固 just-bash，带明确 timeout、有界输出/环境，并禁止网络命令 | `just-bash-direct` |
 | `env.isolated` | Workers Paid 与 `LOADER` | 在独立 Dynamic Worker 中运行 Computer Worker Shell | `just-bash-isolated` |
-| `env.container` | Workers Paid、`LOADER` 与一个 `basic` Container | 通过 computerd 在 Debian 容器中运行 bash；使用 isolated Worker 产物 | `linux-container` |
+| `env.container` | Workers Paid、`LOADER` 与一个 `basic` Container | 多数命令在 isolated Worker Shell 中运行；需要 Linux 的命令经分流通过 computerd 进入 Debian 容器（见 `src/bash-routing.ts`）；使用 isolated Worker 产物 | `linux-container` |
 
 Direct 模式比独立 Worker 的隔离更轻；不要把 single-owner 部署暴露给不受信任的用户。Workers Paid 是每月 5 美元起的 Workers 订阅，并非 Cloudflare Pro 网站套餐。Worker 名称拥有独立的 Durable Object storage 与 secret；两种模式同时在线时请使用不同名称。
 
@@ -277,8 +277,9 @@ npx dsh-edge upgrade
 ### 账户与 attachment storage
 
 - 安装器会先询问 runtime，再询问账户。
-- 推荐的 `Free — Direct Shell` 可在 Workers Free 上运行，支持已检测账户、新登录/注册，以及无需登录的临时账户。
-- `Isolated — Dynamic Worker` 需要 Workers Paid，只提供已检测或新认证账户。Cloudflare 会对 Loader 上传进行授权；被拒绝后可选择启用 Workers Paid 或改用 Direct 模式。
+- 推荐的 `Free`（direct 模式）可在 Workers Free 上运行，支持已检测账户、新登录/注册，以及无需登录的临时账户。
+- `Paid`（isolated 模式）需要 Workers Paid，只提供已检测或新认证账户。Cloudflare 会对 Loader 上传进行授权；被拒绝后可选择启用 Workers Paid 或改用 Free。
+- `Paid + Linux container`（container 模式）在 Paid 基础上增加容器。命令先在隔离 shell 中执行；只有当命令启动的程序不在轻量 shell 已验证的清单内、命令无法被可靠解析，或 agent 设置了 `linux: true` 时，才分流到容器。容器内最多同时运行两条命令，其余排队等待。
 - 新的永久安装会创建或复用私有 `<worker-name>-attachments` R2 bucket，并只把 binding 写入生成的私有 Wrangler 配置。部署失败绝不删除 bucket。
 - R2 Standard 提供月度免费额度，但账户必须先启用其独立的按量 subscription。安装器会在收集 Worker secret 前检查 R2。
 - Cloudflare 错误 `10042` 会提供账户专属的启用、重试与取消选项。只有无 marker 的 pre-attachment Worker 可安全切换到 DO storage；新部署或已固定 R2 的部署不能切换并导致引用失联。

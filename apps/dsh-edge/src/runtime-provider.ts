@@ -9,8 +9,12 @@
 
 import Schema from '@deepseek-ai/schemastery'
 
-/** One independently selectable runtime layer. */
-export type EdgeRuntimeCapability = 'bash' | 'coding' | 'subprocess'
+/**
+ * One independently selectable runtime layer. `bash` is the lightweight shell
+ * every command starts in; `container` is the Linux shell that commands
+ * needing git, node, python, or the network are routed to.
+ */
+export type EdgeRuntimeCapability = 'bash' | 'container' | 'coding' | 'subprocess'
 
 /** Stable identifier of one runtime provider. */
 export type EdgeRuntimeProviderId = 'direct' | 'dynamic-worker' | 'container'
@@ -70,7 +74,7 @@ export const DYNAMIC_WORKER_RUNTIME_PROVIDER = Object.freeze<EdgeRuntimeProvider
 /** A Linux Container attached to the owning Durable Object, operated through computerd. */
 export const CONTAINER_RUNTIME_PROVIDER = Object.freeze<EdgeRuntimeProviderDescriptor>({
   id: 'container',
-  capabilities: Object.freeze<EdgeRuntimeCapability[]>(['bash']),
+  capabilities: Object.freeze<EdgeRuntimeCapability[]>(['container']),
   plan: 'paid',
   shell: 'linux-container',
   probe: source => source.DSH_EDGE_CONTAINER_RUNTIME === CONTAINER_RUNTIME_MARKER
@@ -85,17 +89,27 @@ export const EDGE_RUNTIME_PROVIDERS: readonly EdgeRuntimeProviderDescriptor[] = 
   DIRECT_RUNTIME_PROVIDER,
 ])
 
-/** Per-layer provider choice; `null` leaves the layer unloaded. `bash` is always loaded. */
+/** How a deployment with a container routes each bash command (see `bash-routing.ts`). */
+export type EdgeBashRoutingPolicy = 'auto' | 'light' | 'container'
+
+/**
+ * Per-layer provider choice; `null` leaves the layer unloaded. `bash` is always
+ * loaded; `container` defaults to on when the deployment has one.
+ */
 export interface EdgeRuntimeSelection {
   bash: EdgeRuntimeProviderId
+  container: EdgeRuntimeProviderId | null
+  bashRouting: EdgeBashRoutingPolicy
   coding: EdgeRuntimeProviderId | null
   subprocess: EdgeRuntimeProviderId | null
 }
 
+type EdgeRuntimeLayer = 'bash' | 'container' | 'coding' | 'subprocess'
+
 /** The persisted settings shape; a stored id may name a provider this build lacks. */
 export type EdgeRuntimeSettings = {
-  [Layer in keyof EdgeRuntimeSelection]?: EdgeRuntimeProviderId | null
-}
+  [Layer in EdgeRuntimeLayer]?: EdgeRuntimeProviderId | null
+} & { bashRouting?: EdgeBashRoutingPolicy }
 
 export const RUNTIME_SETTINGS_NAMESPACE = 'edge-runtime'
 
@@ -110,8 +124,9 @@ export function availableEdgeRuntimeProviders(
 /**
  * Resolve the effective provider per layer. A stored choice applies only when
  * that provider is available and serves the layer; otherwise `bash` falls back
- * to the first available bash provider and optional layers stay unloaded, so a
- * redeploy that removes a binding never strands a Durable Object.
+ * to the first available bash provider, `container` to the deployment's
+ * container, and other optional layers stay unloaded, so a redeploy that
+ * removes a binding never strands a Durable Object.
  */
 export function resolveEdgeRuntimeSelection(
   available: readonly EdgeRuntimeProviderDescriptor[],
@@ -119,25 +134,34 @@ export function resolveEdgeRuntimeSelection(
 ): EdgeRuntimeSelection {
   const serves = (layer: EdgeRuntimeCapability, id: EdgeRuntimeProviderId | null | undefined) =>
     available.find(provider => provider.id === id && provider.capabilities.includes(layer))
-  const bash = serves('bash', settings.bash)
-    ?? available.find(provider => provider.capabilities.includes('bash'))
+  const first = (layer: EdgeRuntimeCapability) =>
+    available.find(provider => provider.capabilities.includes(layer))
+  const bash = serves('bash', settings.bash) ?? first('bash')
   if (bash === undefined) {
     throw new Error('No available runtime provider serves the bash layer.')
   }
+  const container = settings.container === null
+    ? undefined
+    : serves('container', settings.container) ?? first('container')
   return {
     bash: bash.id,
+    container: container?.id ?? null,
+    bashRouting: settings.bashRouting ?? 'auto',
     coding: serves('coding', settings.coding)?.id ?? null,
     subprocess: serves('subprocess', settings.subprocess)?.id ?? null,
   }
 }
 
-/** Resolve the public shell identity for a deployment's default bash provider. */
+/**
+ * Resolve the public shell identity: `linux-container` when the deployment
+ * routes commands to a container, otherwise its lightweight shell.
+ */
 export function resolveEdgeRuntimeShell(
   source: EdgeRuntimeProbeSource,
 ): EdgeRuntimeProviderDescriptor['shell'] {
   const available = availableEdgeRuntimeProviders(source)
-  const { bash } = resolveEdgeRuntimeSelection(available)
-  return available.find(provider => provider.id === bash)!.shell
+  const { bash, container } = resolveEdgeRuntimeSelection(available)
+  return available.find(provider => provider.id === (container ?? bash))!.shell
 }
 
 /**
@@ -157,6 +181,8 @@ export function edgeRuntimeSettingsSchema(
   }
   return Schema.object({
     bash: layer('bash', false),
+    container: layer('container', true),
+    bashRouting: Schema.union([Schema.const('auto'), Schema.const('light'), Schema.const('container')]),
     coding: layer('coding', true),
     subprocess: layer('subprocess', true),
   }) as unknown as Schema<EdgeRuntimeSettings>
