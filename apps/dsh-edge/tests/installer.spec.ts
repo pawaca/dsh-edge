@@ -1332,6 +1332,44 @@ describe('dsh-edge guided installation', () => {
     }
   })
 
+  it('still prints the recovery details when Container cleanup is interrupted', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'dsh-edge-leave-container-abort-'))
+    const { ui, cleanupFailure, recovery } = createUi({ mode: 'direct' })
+    const controller = new AbortController()
+    const runWrangler = vi.fn(async (args: string[], options: RunOptions = {}): Promise<CommandResult> => {
+      if (args[0] === 'whoami') return commandResult(0, JSON.stringify({ loggedIn: true, accounts: [ACCOUNT] }))
+      if (args[0] === 'deployments' && args[1] === 'list') return commandResult(0, '[{"id":"deployment"}]')
+      if (args[0] === 'deployments' && args[1] === 'status') {
+        return commandResult(0, JSON.stringify({ versions: [{ version_id: 'version-1', percentage: 100 }] }))
+      }
+      if (args[0] === 'versions') {
+        return commandResult(0, JSON.stringify({ resources: { bindings: [
+          { name: 'DSH_EDGE_ATTACHMENT_STORAGE', type: 'plain_text', text: 'temporary-do' },
+          { name: 'DSH_EDGE_CONTAINER_RUNTIME', type: 'plain_text', text: 'enabled' },
+        ] } }))
+      }
+      if (args[0] === 'containers') {
+        controller.abort(new Error('owner interrupted'))
+        return { ...commandResult(null), interrupted: true }
+      }
+      await writeFile(options.environment?.WRANGLER_OUTPUT_FILE_PATH ?? '', JSON.stringify({
+        type: 'deploy', version: 1, targets: ['dsh-edge.owner.workers.dev'],
+      }))
+      return commandResult(0)
+    })
+    await expect(installEdge({
+      command: 'upgrade', ui, runWrangler, signal: controller.signal,
+      observeActivation: async () => ({ status: 'ready', attempts: 1, elapsedMs: 0 }),
+      createTemporaryDirectory: async () => directory,
+    })).rejects.toThrow()
+    expect(cleanupFailure).toHaveBeenCalledWith(expect.stringMatching(/interrupted.*dsh-edge-container/su))
+    expect(recovery).toHaveBeenCalledWith(expect.objectContaining({
+      ownerSecret: OWNER_SECRET,
+      publicUrl: 'https://dsh-edge.owner.workers.dev',
+      workerName: 'dsh-edge',
+    }))
+  })
+
   it('upgrades an unmarked Worker on Durable Object storage without requiring R2', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'dsh-edge-upgrade-do-choice-test-'))
     const { ui, selectInitialAttachmentStorage } = createUi({

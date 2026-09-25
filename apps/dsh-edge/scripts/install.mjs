@@ -430,8 +430,10 @@ export async function removeStaleContainerApplication({
       }), `Could not delete the ${name} Container application`)
     }
   } catch (error) {
-    signal?.throwIfAborted()
-    ui.cleanupFailure(`${describeError(error)} Remove it manually to stop Container billing: ${manual}.`)
+    // Best effort, including on interruption: the caller reports the deployed
+    // result, so this only leaves the manual step behind.
+    const reason = signal?.aborted ? 'Container cleanup was interrupted.' : describeError(error)
+    ui.cleanupFailure(`${reason} Remove it manually to stop Container billing: ${manual}.`)
   }
 }
 
@@ -879,6 +881,9 @@ export async function installEdge({
         throw error
       }
     }
+    // Record the deployed result before best-effort cleanup so an interruption
+    // there still prints the recovery details (including a new owner key).
+    completedResult = result
     // The previous Container version keeps serving during propagation and is
     // the rollback target until the replacement is verified, so its Container
     // application is removed only after activation reports ready.
@@ -898,7 +903,6 @@ export async function installEdge({
             staleContainerCleanupCommand(workerName)}.`)
       }
     }
-    completedResult = result
   } catch (error) {
     primaryError = signal?.aborted ? abortReason(signal, 'Installation interrupted.') : error
   }
