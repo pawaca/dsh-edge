@@ -55,6 +55,11 @@ export class ContainerActivity {
         signal?.addEventListener('abort', abort, { once: true })
       })
     }
+    // Cancelled between being woken and resuming: pass the free slot on.
+    if (signal?.aborted === true) {
+      this.waiters.shift()?.()
+      signal.throwIfAborted()
+    }
     return { release: this.begin(), queuedMs: this.now() - started }
   }
 

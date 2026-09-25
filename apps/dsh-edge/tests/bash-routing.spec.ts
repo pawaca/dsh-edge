@@ -25,6 +25,8 @@ describe('bash command routing', () => {
     ['ls | xargs rm', 'light'],
     ['find . -exec pip install {} \\;', 'container'],
     ['find . -name "*.log" -exec rm {} \\;', 'light'],
+    ['action=-exec; find . "$action" node {} \\;', 'container'],
+    ['find "$DIR" -name "$PATTERN" -type f', 'light'],
     // The light shell has no node, so the lookup is only truthful in the container.
     ['command -v node', 'container'],
     ['command -v ls', 'container'],
@@ -306,6 +308,10 @@ describe('bash command routing', () => {
     expect(at('/workspace', 'cd -P; pwd')).toBe('container')
     expect(at('/workspace', 'cd && ls')).toBe('container')
     expect(at('/workspace', 'cd -P src && ls')).toBe('light')
+    expect(at('/workspace', 'echo cd')).toBe('light')
+    expect(at('/workspace', "printf '%s\\n' pushd popd")).toBe('light')
+    expect(at('/workspace', 'ls && popd')).toBe('container')
+    expect(at('/workspace', 'if true; then cd; fi')).toBe('container')
     expect(at('/workspace', 'pushd src && ls && popd')).toBe('container')
     expect(at('/workspace', 'cd src && ls && cat a.txt')).toBe('light')
   })

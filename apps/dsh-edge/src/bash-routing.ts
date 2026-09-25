@@ -104,8 +104,10 @@ export function commandWords(command: string, depth = 0): string[] | undefined {
  * change combined with `..` traversal, is not modelled, so opaque.
  */
 function changesDirectoryOpaquely(tokens: Token[]): boolean {
+  // Only words in command position change directory (`echo cd` does not).
   const changes = tokens.flatMap((token, index) =>
-    token.word === 'cd' || token.word === 'pushd' || token.word === 'popd' ? [index] : [])
+    (token.word === 'cd' || token.word === 'pushd' || token.word === 'popd') && commandPosition(tokens, index)
+      ? [index] : [])
   if (changes.length === 0) return false
   const unknownTarget = changes.some(index => {
     // Skip options (`-P`, `-L`, `--`); a missing operand means $HOME for cd
@@ -118,6 +120,15 @@ function changesDirectoryOpaquely(tokens: Token[]): boolean {
   })
   const traversal = tokens.some(token => token.word?.split('/').includes('..') === true)
   return unknownTarget || traversal
+}
+
+const COMMAND_PREFIX_WORDS = new Set(['then', 'do', 'else', 'elif', '{', '!', 'time', 'builtin', 'command'])
+
+function commandPosition(tokens: Token[], index: number): boolean {
+  const previous = tokens[index - 1]
+  if (previous === undefined) return true
+  if (previous.op !== undefined) return !isRedirection(previous.op)
+  return COMMAND_PREFIX_WORDS.has(previous.word ?? '')
 }
 
 /**
@@ -340,12 +351,30 @@ function inlineScript(args: Token[]): string | undefined {
 }
 
 const FIND_ACTIONS = new Set(['-exec', '-execdir', '-ok', '-okdir'])
+/** Tests and options whose next argument is a value, which may safely be expanded. */
+const FIND_VALUED = new Set(['-name', '-iname', '-path', '-ipath', '-wholename', '-iwholename', '-regex',
+  '-iregex', '-lname', '-ilname', '-type', '-xtype', '-newer', '-anewer', '-cnewer', '-perm', '-user',
+  '-group', '-uid', '-gid', '-size', '-mtime', '-mmin', '-atime', '-amin', '-ctime', '-cmin', '-maxdepth',
+  '-mindepth', '-links', '-inum', '-samefile', '-used', '-printf', '-regextype'])
 
-/** Every program `find` actions run; each action's command is walked in full. */
+/**
+ * Every program `find` actions run; each action's command is walked in full.
+ * An expanded word in the expression could itself become an action, so it is
+ * opaque unless it is the first starting point or the value of a known test.
+ */
 function findActionWords(args: Token[], depth: number): string[] | undefined {
   const words: string[] = []
+  let expression = false
   for (let index = 0; index < args.length; index++) {
-    if (!FIND_ACTIONS.has(args[index]!.word ?? '')) continue
+    const arg = args[index]!
+    // Only the first argument may be an expanded starting point (`find "$dir" …`).
+    if (!expression && (index > 0 && arg.dynamic === true || /^[-(!]/u.test(arg.word ?? ''))) expression = true
+    if (FIND_VALUED.has(arg.word ?? '')) {
+      index++
+      continue
+    }
+    if (expression && arg.dynamic === true) return undefined
+    if (!FIND_ACTIONS.has(arg.word ?? '')) continue
     const end = args.findIndex((arg, at) => at > index && (arg.word === ';' || arg.word === '+'))
     if (end === -1) return undefined
     const inner = wordsOf(args.slice(index + 1, end), depth + 1)
