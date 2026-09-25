@@ -155,6 +155,8 @@ function invokedWords(tokens: Token[], index: number, depth: number): {
   return { words: [word], next: 'args' }
 }
 
+const SELF_EXECUTING_TOOLS = new Set(['rg', 'tar', 'sort', 'awk', 'sed'])
+
 /**
  * Light-shell tools that can start programs through their own options or
  * scripts. These forms are opaque. The list covers the common, cheaply
@@ -162,6 +164,9 @@ function invokedWords(tokens: Token[], index: number, depth: number): {
  * program, and the result tells the agent to retry with `linux: true`.
  */
 function startsProgramsItself(program: string, args: Token[]): boolean {
+  if (!SELF_EXECUTING_TOOLS.has(program)) return false
+  // An expanded argument could become any of the forms below.
+  if (args.some(arg => arg.dynamic === true)) return true
   const words = args.map(arg => arg.word ?? '')
   const option = (...names: string[]) => words.some(word =>
     names.some(name => word === name || word.startsWith(`${name}=`)))
