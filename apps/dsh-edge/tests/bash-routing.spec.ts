@@ -277,6 +277,8 @@ describe('bash command routing', () => {
     ["awk -F: '{ print $1 }' a.txt", 'light'],
     ['type ls', 'container'],
     ["sed 's/x/node -v/e' a.txt", 'container'],
+    ["printf 'x/y\\n' | sed -n 's/x\\/y/npm -v/ep'", 'container'],
+    ["sed 's/a\\/b/c\\/d/g' a.txt", 'light'],
     ["sed -n '1,5p' a.txt", 'light'],
     ["sed 's/foo/bar/g' a.txt", 'light'],
   ] as const)('treats tools that start programs themselves as opaque: %s', (command, route) => {
@@ -323,6 +325,8 @@ describe('bash command routing', () => {
     expect(at('/workspace', "printf '%s\\n' pushd popd")).toBe('light')
     expect(at('/workspace', 'ls && popd')).toBe('container')
     expect(at('/workspace', 'if true; then cd; fi')).toBe('container')
+    expect(at('/workspace', 'if cd; then pwd; fi')).toBe('container')
+    expect(at('/workspace', 'while cd; do break; done')).toBe('container')
     expect(at('/workspace', 'pushd src && ls && popd')).toBe('container')
     expect(at('/workspace', 'cd src && ls && cat a.txt')).toBe('light')
   })

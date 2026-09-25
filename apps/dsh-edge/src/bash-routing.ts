@@ -122,7 +122,8 @@ function changesDirectoryOpaquely(tokens: Token[]): boolean {
   return unknownTarget || traversal
 }
 
-const COMMAND_PREFIX_WORDS = new Set(['then', 'do', 'else', 'elif', '{', '!', 'time', 'builtin', 'command'])
+const COMMAND_PREFIX_WORDS = new Set(['if', 'while', 'until', 'then', 'do', 'else', 'elif', '{', '!', 'time',
+  'builtin', 'command'])
 
 function commandPosition(tokens: Token[], index: number): boolean {
   const previous = tokens[index - 1]
@@ -292,7 +293,7 @@ function startsProgramsItself(program: string, args: Token[]): boolean {
       // The `e` command and the `s///e` flag run programs.
       // An `e` command can follow any address form (line, `$`, /re/, \cREc,
       // ranges, `!`), so any standalone `e` counts; so does the `s///e` flag.
-      if (words.some(word => !/^-[A-Za-z]+$/u.test(word) && /(^|[^A-Za-z_])e(\s|$|;|\})|s(.)(?:(?!\3).)*\3(?:(?!\3).)*\3[a-zA-Z0-9]*e/u.test(word))) return true
+      if (words.some(word => !/^-[A-Za-z]+$/u.test(word) && /(^|[^A-Za-z_])e(\s|$|;|\})|s(.)(?:\\.|(?!\3).)*\3(?:\\.|(?!\3).)*\3[a-zA-Z0-9]*e/u.test(word))) return true
       // GNU sed also accepts the command glued to `e` (`enode -v`); only the
       // script words are checked so file names starting with `e` stay light.
       return sedScripts(words).some(script => /(^|[;{}\n!0-9$])\s*e\S/u.test(script))
