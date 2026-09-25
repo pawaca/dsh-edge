@@ -159,6 +159,7 @@ describe('installer runtime catalog', () => {
     expect(RUNTIME_MODES).toEqual({
       direct: {
         environment: '',
+        artifact: 'direct',
         expectedShell: 'just-bash-direct',
         label: 'Free — Direct Shell',
         hint: 'recommended; runs on Workers Free',
@@ -167,16 +168,26 @@ describe('installer runtime catalog', () => {
       },
       isolated: {
         environment: 'isolated',
+        artifact: 'isolated',
         expectedShell: 'just-bash-isolated',
         label: 'Isolated — Dynamic Worker',
         hint: 'requires Workers Paid (starting at $5/month); adds workflow and run_code',
         paid: true,
         providers: ['dynamic-worker'],
       },
+      container: {
+        environment: 'container',
+        artifact: 'isolated',
+        expectedShell: 'linux-container',
+        label: 'Container — Linux',
+        hint: 'requires Workers Paid; adds a real Linux shell (git, node, python), billed while it runs',
+        paid: true,
+        providers: ['container', 'dynamic-worker'],
+      },
     })
   })
 
-  it('keeps the installer runtime prompt unchanged', () => {
+  it('offers Container after the existing runtime choices', () => {
     expect(runtimeModeChoices()).toEqual([
       { value: 'direct', label: 'Free — Direct Shell', hint: 'recommended; runs on Workers Free' },
       {
@@ -184,9 +195,15 @@ describe('installer runtime catalog', () => {
         label: 'Isolated — Dynamic Worker',
         hint: 'requires Workers Paid (starting at $5/month); adds workflow and run_code',
       },
+      {
+        value: 'container',
+        label: 'Container — Linux',
+        hint: 'requires Workers Paid; adds a real Linux shell (git, node, python), billed while it runs',
+      },
     ])
     expect(isRuntimeMode('direct')).toBe(true)
-    expect(isRuntimeMode('container')).toBe(false)
+    expect(isRuntimeMode('container')).toBe(true)
+    expect(isRuntimeMode('sandbox')).toBe(false)
     expect(isRuntimeMode('toString')).toBe(false)
   })
 })

@@ -231,6 +231,10 @@ export function createInstallerUi(
         `Account: ${summary.accountLabel}`,
         `Worker: ${summary.workerName}`,
         `Cost: ${summary.paid ? 'Workers Paid is required' : 'Works on Workers Free'}`,
+        ...(summary.mode === 'container'
+          ? ['Container: usage is billed while it runs and it sleeps after 10 idle minutes.',
+              'The first command after installing or upgrading can take a few minutes while the image rolls out.']
+          : []),
         `Images: ${summary.attachmentStorage === 'temporary-do'
           ? 'stored in this instance (64 MiB limit)'
           : 'stored privately in Cloudflare R2'}`,

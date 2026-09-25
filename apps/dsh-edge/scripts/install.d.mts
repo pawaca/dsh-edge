@@ -118,7 +118,7 @@ export function wranglerDeployArgs(options: {
 export function parseDeploymentOutput(source: string): { publicUrl: string; versionId?: string }
 export function parseClaimUrl(source: string): string | undefined
 export function parseWorkerExistence(result: CommandResult): boolean
-export function detectExistingAttachmentStorage(options: {
+export interface ExistingDeploymentOptions {
   workerName: string
   mode: RuntimeMode
   runWrangler: (args: string[], options?: {
@@ -128,7 +128,8 @@ export function detectExistingAttachmentStorage(options: {
   environment?: NodeJS.ProcessEnv
   profile?: string
   signal?: AbortSignal
-}): Promise<AttachmentStorage | undefined>
+}
+export function detectExistingAttachmentStorage(options: ExistingDeploymentOptions): Promise<AttachmentStorage | undefined>
 export function truncateUtf8Tail(value: string, maxBytes: number): string
 export function createOutputForwarder(
   source: NodeJS.ReadableStream,
@@ -187,3 +188,12 @@ export function executeWrangler(args: string[], options?: {
   stderrDestination?: NodeJS.WritableStream
   stdoutDestination?: NodeJS.WritableStream
 }): Promise<CommandResult>
+
+export function removeStaleContainerApplication(options: Omit<ExistingDeploymentOptions, 'mode'> & {
+  ui: Pick<InstallerUi, 'step' | 'cleanupFailure'>
+}): Promise<void>
+
+export function inspectExistingDeployment(options: ExistingDeploymentOptions): Promise<{
+  attachmentStorage: AttachmentStorage | undefined
+  containerRuntime: boolean
+}>

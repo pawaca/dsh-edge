@@ -113,6 +113,30 @@ describe('public deployment activation', () => {
     expect(result).toMatchObject({ status: 'ready', attempts: 2 })
   })
 
+  it('expects the isolated artifact and the Linux shell for a Container deployment', async () => {
+    const health = {
+      ...READY_HEALTH,
+      shell: 'linux-container',
+      deploymentId: `dsh-edge@${edgePackage.version}/isolated`,
+    }
+    const responses = [
+      Response.json(health),
+      new Response(null, { status: 303, headers: { 'set-cookie': '__Host-dsh_edge_owner=v1.9999999999.signature; Secure; HttpOnly' } }),
+      Response.json({ ...health, runtime: true }),
+    ]
+    const fetchImpl = vi.fn(async () => responses.shift() ?? Promise.reject(new Error('Unexpected request.'))) as typeof fetch
+    await expect(observePublicActivation({
+      publicUrl: 'https://dsh-edge.owner.workers.dev/', mode: 'container', versionId: 'uploaded-version',
+      ownerSecret: 'activation-owner-access-key-32-bytes', fetchImpl, waitMs: 5_000,
+    })).resolves.toMatchObject({ status: 'ready' })
+    // An Isolated runtime answering for a Container deployment is not ready.
+    expect(isExpectedHealth({ ...health, shell: 'just-bash-isolated' }, {
+      workerVersionId: 'uploaded-version',
+      deploymentId: `dsh-edge@${edgePackage.version}/isolated`,
+      shell: 'linux-container',
+    })).toBe(false)
+  })
+
   it('does not report ready when the release responds but the runtime failed', async () => {
     const responses = [Response.json(READY_HEALTH),
       new Response(null, { status: 303, headers: { 'set-cookie': '__Host-dsh_edge_owner=v1.9999999999.signature; Secure' } }),

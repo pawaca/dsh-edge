@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { execa } from 'execa'
-import { writePrebuiltModeWranglerConfig } from './wrangler-config.mjs'
+import { containerApplicationName, writePrebuiltModeWranglerConfig } from './wrangler-config.mjs'
 import { isRuntimeMode, RUNTIME_MODES } from './runtime-providers.mjs'
 
 export { RUNTIME_MODES }
@@ -393,8 +393,64 @@ export function parseWorkerExistence(result) {
   throw new Error(commandFailure('Could not check whether the Worker already exists', result))
 }
 
+/**
+ * After a Worker leaves Container mode, delete the Container application its
+ * earlier deployment created. A deploy without a container block does not
+ * remove it, and nothing in the Worker can stop it any more. Its files live in
+ * the Durable Object, so deleting the application loses no workspace data.
+ * A failure is reported with the manual command rather than failing the upgrade.
+ */
+export async function removeStaleContainerApplication({
+  ui,
+  runWrangler,
+  environment,
+  profile,
+  workerName,
+  signal,
+}) {
+  const name = containerApplicationName(workerName)
+  const manual = staleContainerCleanupCommand(workerName)
+  try {
+    const listed = await runWrangler(['containers', 'list', '--json', ...profileArgs(profile)], {
+      environment,
+      signal,
+    })
+    requireSuccess(listed, 'Could not list Container applications')
+    const applications = JSON.parse(listed.stdout)
+    if (!Array.isArray(applications)) throw new Error('Wrangler returned an unexpected Container list.')
+    const stale = applications.filter(application => application?.name === name)
+    for (const application of stale) {
+      if (typeof application.id !== 'string' || !/^[0-9a-f-]{36}$/u.test(application.id)) {
+        throw new Error('Wrangler returned an invalid Container application id.')
+      }
+      ui.step(`Removing the ${name} Container application this Worker no longer uses…`)
+      requireSuccess(await runWrangler(['containers', 'delete', application.id, ...profileArgs(profile)], {
+        environment,
+        signal,
+      }), `Could not delete the ${name} Container application`)
+    }
+  } catch (error) {
+    // Best effort, including on interruption: the caller reports the deployed
+    // result, so this only leaves the manual step behind.
+    const reason = signal?.aborted ? 'Container cleanup was interrupted.' : describeError(error)
+    ui.cleanupFailure(`${reason} Remove it manually to stop Container billing: ${manual}.`)
+  }
+}
+
+function staleContainerCleanupCommand(workerName) {
+  return `npx wrangler containers list, then npx wrangler containers delete <id> for ${containerApplicationName(workerName)}`
+}
+
 /** Inspect active Worker versions so upgrades preserve the existing attachment backend. */
-export async function detectExistingAttachmentStorage({
+export async function detectExistingAttachmentStorage(options) {
+  return (await inspectExistingDeployment(options)).attachmentStorage
+}
+
+/**
+ * Inspect active Worker versions once for what an upgrade must preserve or
+ * clean up: the attachment backend, and whether any version ran a Container.
+ */
+export async function inspectExistingDeployment({
   workerName,
   mode,
   runWrangler,
@@ -414,17 +470,25 @@ export async function detectExistingAttachmentStorage({
   requireSuccess(status, 'Could not inspect the existing Worker deployment')
   const versionIds = deploymentVersionIds(status.stdout)
   const backends = new Set()
+  let containerRuntime = false
   for (const versionId of versionIds) {
     const version = await runWrangler([
       'versions', 'view', versionId, ...args,
     ], { environment, signal })
     requireSuccess(version, `Could not inspect existing Worker version ${versionId}`)
     backends.add(versionAttachmentStorage(version.stdout))
+    containerRuntime ||= versionContainerRuntime(version.stdout)
   }
   if (backends.size !== 1) {
     throw new Error('The active Worker versions use different attachment backends. Finish the existing rollout before upgrading.')
   }
-  return backends.values().next().value
+  return { attachmentStorage: backends.values().next().value, containerRuntime }
+}
+
+function versionContainerRuntime(source) {
+  const bindings = JSON.parse(source).resources.bindings
+  return bindings.some(binding => binding.name === 'DSH_EDGE_CONTAINER_RUNTIME'
+    && binding.type === 'plain_text' && binding.text === 'enabled')
 }
 
 function deploymentVersionIds(source) {
@@ -593,8 +657,8 @@ export async function installEdge({
     const commandEnvironment = temporary
       ? unauthenticatedEnvironment(environment)
       : accountEnvironment(profileEnvironment ?? environment, account.id)
-    const existingAttachmentStorage = updatingExisting
-      ? await detectExistingAttachmentStorage({
+    const existingDeployment = updatingExisting
+      ? await inspectExistingDeployment({
           workerName,
           mode,
           runWrangler,
@@ -603,6 +667,7 @@ export async function installEdge({
           signal,
         })
       : undefined
+    const existingAttachmentStorage = existingDeployment?.attachmentStorage
     let attachmentStorage = updatingExisting
       ? existingAttachmentStorage ?? await ui.selectInitialAttachmentStorage()
       : temporary ? 'temporary-do' : 'private-r2'
@@ -695,6 +760,7 @@ export async function installEdge({
     await writePrebuiltModeWranglerConfig(mode, configFile, {
       ...bucketName === undefined ? {} : { r2BucketName: bucketName },
       enableImages,
+      workerName,
     })
     await writeFile(secretsFile, JSON.stringify({
       ...deepSeekKey !== '' ? { DEEPSEEK_API_KEY: deepSeekKey } : {},
@@ -815,7 +881,28 @@ export async function installEdge({
         throw error
       }
     }
+    // Record the deployed result before best-effort cleanup so an interruption
+    // there still prints the recovery details (including a new owner key).
     completedResult = result
+    // The previous Container version keeps serving during propagation and is
+    // the rollback target until the replacement is verified, so its Container
+    // application is removed only after activation reports ready.
+    if (existingDeployment?.containerRuntime === true && mode !== 'container') {
+      if (result.activation?.status === 'ready') {
+        await removeStaleContainerApplication({
+          ui,
+          runWrangler,
+          environment: commandEnvironment,
+          profile,
+          workerName,
+          signal,
+        })
+      } else {
+        ui.cleanupFailure(`The ${containerApplicationName(workerName)} Container application was kept because `
+          + `the new version is not verified yet. Once it works, remove it to stop Container billing: ${
+            staleContainerCleanupCommand(workerName)}.`)
+      }
+    }
   } catch (error) {
     primaryError = signal?.aborted ? abortReason(signal, 'Installation interrupted.') : error
   }
@@ -1320,7 +1407,7 @@ function formatDeployFailure(mode, result) {
   }
   const failure = `${detail} Run the command again with --verbose to inspect Wrangler output.`
   if (RUNTIME_MODES[mode]?.paid !== true) return failure
-  return `${failure}\nThe isolated runtime requires the Workers Paid plan (starting at $5/month). `
+  return `${failure}\nThe ${RUNTIME_MODES[mode].label} runtime requires the Workers Paid plan (starting at $5/month). `
     + 'Enable Workers Paid for this account or install the Free direct runtime.'
 }
 

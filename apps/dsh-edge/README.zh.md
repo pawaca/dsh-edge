@@ -241,6 +241,7 @@ Cloudflare static assets -> upstream Web shell + client plugin graph
 | --- | --- | --- | --- |
 | Direct（默认顶层） | Workers Free；无 Loader binding | 在 agent/VFS Durable Object 中运行加固 just-bash，带明确 timeout、有界输出/环境，并禁止网络命令 | `just-bash-direct` |
 | `env.isolated` | Workers Paid 与 `LOADER` | 在独立 Dynamic Worker 中运行 Computer Worker Shell | `just-bash-isolated` |
+| `env.container` | Workers Paid、`LOADER` 与一个 `basic` Container | 通过 computerd 在 Debian 容器中运行 bash；使用 isolated Worker 产物 | `linux-container` |
 
 Direct 模式比独立 Worker 的隔离更轻；不要把 single-owner 部署暴露给不受信任的用户。Workers Paid 是每月 5 美元起的 Workers 订阅，并非 Cloudflare Pro 网站套餐。Worker 名称拥有独立的 Durable Object storage 与 secret；两种模式同时在线时请使用不同名称。
 
@@ -250,6 +251,7 @@ Direct 模式比独立 Worker 的隔离更轻；不要把 single-owner 部署暴
 - Direct 只替换 Computer 中不可达的 Dynamic Worker shell-core module；Workspace adapter 与 command export 仍使用上游实现。
 - Isolated 保留该 shell core，并把不可达的 Direct backend 替换成 fail-closed module。因此每个 artifact 只携带所选 command runtime。
 - 安装器生成私有 mode-specific config，指向所选 artifact，并通过 `no_bundle` 上传。用户机器不会重新构建 dsh-edge，也不会把 Harness package 解析进新 Worker。
+- Container 模式部署 isolated 产物，并使用 `docker.io/pawaca/dsh-edge-computer:<version>` 镜像。该镜像由发版流程从 `container/Dockerfile` 构建，每个版本在 npm 发布前推送一次。安装时不需要本地 Docker；`pnpm dev:container` 和 `pnpm test:container` 会在本地构建 Dockerfile，因此需要。
 - CI 从已安装 tarball 启动 Direct artifact，并拒绝 gzip 后超过 900 KiB 的产物，为 Cloudflare 匿名临时账户的 1 MiB 上限保留余量。
 
 ### 安装与升级

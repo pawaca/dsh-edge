@@ -38,7 +38,7 @@ The root and standalone lockfiles serve different purposes. The root lock instal
 - When registering a cordis sub-registry entry (e.g. `ctx.storage.backend.register(name, backend)`), call `ctx.provide(key, value)` if another plugin uses `ctx.inject([key])` to wait for it. Sub-registry `register()` methods only update internal Maps; they do not trigger cordis inject resolution. Use `ctx.effect()` to pair registration with `provide` and clean up on disposal.
 - Direct mode must stay below the repository gzip budget. Release tests must start the promoted prebuilt artifacts, not source entrypoints.
 - Every retained upstream patch needs a version-bound filename, a failing-without-the-patch check, a rationale, and a removal condition.
-- The npm package, tag, GitHub Release, deployment identity, and documentation must report the same dsh-edge version.
+- The npm package, tag, GitHub Release, Container image tag, deployment identity, and documentation must report the same dsh-edge version.
 - `apps/dsh-edge/package.json` is the only release-version source. Test assertions and snapshot expectations derive the version and npm dist-tag channel at runtime; a version bump requires no other file changes. Private workspace manifests omit `version` so they cannot imply a second product or upstream release identity.
 
 ## Durable Object database budgets
@@ -72,8 +72,8 @@ Every version published to npm must also have a matching GitHub Release and git 
 2. **Merge the release PR** to main (squash merge).
 3. **Pull main** and verify `apps/dsh-edge/package.json` version matches the intended release.
 4. **Create and push a git tag**: `git tag dsh-edge-v<version> && git push origin dsh-edge-v<version>`.
-5. The tag push triggers `release-edge.yml` which automatically builds, verifies, publishes to npm (trusted publishing), and creates the GitHub Release.
-6. **Verify**: `npm view dsh-edge@<version>` and `gh release view dsh-edge-v<version>` both resolve.
+5. The tag push triggers `release-edge.yml` which automatically builds, verifies, publishes to npm (trusted publishing), and creates the GitHub Release. Its `publish-image` job first pushes `docker.io/pawaca/dsh-edge-computer:<version>` (once; a rerun reuses the published image), and npm publication waits for it.
+6. **Verify**: `npm view dsh-edge@<version>`, `gh release view dsh-edge-v<version>`, and `docker buildx imagetools inspect docker.io/pawaca/dsh-edge-computer:<version>` all resolve.
 
 The workflow can also be triggered manually via `request-release.yml` (workflow_dispatch) or `repository_dispatch` as a fallback. Prerelease versions (containing `-`) are published to the `next` npm dist-tag and marked as GitHub prerelease.
 

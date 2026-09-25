@@ -9,7 +9,7 @@ export interface ActivationObservation {
 export interface ExpectedHealth {
   workerVersionId: string
   deploymentId: string
-  shell: 'just-bash-direct' | 'just-bash-isolated'
+  shell: 'just-bash-direct' | 'just-bash-isolated' | 'linux-container'
 }
 
 export const ACTIVATION_WAIT_MS: number

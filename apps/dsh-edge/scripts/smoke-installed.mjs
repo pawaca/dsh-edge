@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, rm, stat } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { unstable_dev } from 'wrangler'
 import edgePackage from '../package.json' with { type: 'json' }
 import {
+  containerImageReference,
   workerArtifactPath,
   writePrebuiltModeWranglerConfig,
 } from './wrangler-config.mjs'
@@ -56,6 +57,18 @@ try {
     worker = undefined
     process.stdout.write(`Installed ${mode} Worker artifact started successfully.\n`)
   }
+
+  // Container mode reuses the isolated artifact and must deploy the published
+  // image for this release: an installed package has no Dockerfile to build.
+  const containerConfigFile = join(directory, 'wrangler-container.json')
+  await writePrebuiltModeWranglerConfig('container', containerConfigFile)
+  const containerConfig = JSON.parse(await readFile(containerConfigFile, 'utf8'))
+  assert.equal(containerConfig.main, workerArtifactPath('isolated'))
+  assert.deepEqual(
+    containerConfig.env.container.containers.map(container => container.image),
+    [containerImageReference(edgePackage.version)],
+  )
+  process.stdout.write('Installed container configuration deploys the published image.\n')
 } finally {
   await worker?.stop()
   await rm(directory, { recursive: true, force: true })

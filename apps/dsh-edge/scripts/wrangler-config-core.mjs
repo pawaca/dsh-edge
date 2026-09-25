@@ -1,5 +1,6 @@
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import edgePackage from '../package.json' with { type: 'json' }
 
 const appDirectory = fileURLToPath(new URL('..', import.meta.url))
 const DIRECT_SHELL_CORE = '@cloudflare/computer/shell/core'
@@ -14,6 +15,8 @@ const WORKER_ARTIFACTS = Object.freeze({
   container: 'worker/isolated/index.js',
 })
 const PREBUILT_MODES = new Set(Object.keys(WORKER_ARTIFACTS))
+/** The public repository each release pushes its Container image to, tagged with the release version. */
+export const CONTAINER_IMAGE_REPOSITORY = 'docker.io/pawaca/dsh-edge-computer'
 const ATTACHMENT_BINDING = 'DSH_EDGE_ATTACHMENTS'
 const ATTACHMENT_STORAGE_BINDING = 'DSH_EDGE_ATTACHMENT_STORAGE'
 
@@ -67,6 +70,14 @@ export function renderParsedPrebuiltModeWranglerConfig(mode, parsed, options = {
   delete config.minify
   config.main = resolve(root, WORKER_ARTIFACTS[mode])
   config.assets.directory = resolve(root, parsed.assets.directory)
+  // Cloudflare names a Container application from the configuration, not from
+  // `wrangler deploy --name`, so each Worker renders its own name.
+  if (options.workerName !== undefined) {
+    if (typeof options.workerName !== 'string' || options.workerName === '') {
+      throw new Error('The Worker name must be a non-empty string.')
+    }
+    config.name = options.workerName
+  }
   config.no_bundle = true
   config.find_additional_modules = false
   applyAttachmentStorage(config, mode, options.r2BucketName)
@@ -74,23 +85,54 @@ export function renderParsedPrebuiltModeWranglerConfig(mode, parsed, options = {
     const target = modeTarget(config, mode)
     if (isRecord(target)) target.images = { binding: 'IMAGES' }
   }
-  if (mode === 'container') resolveContainerImages(config, root)
+  if (mode === 'container') resolveContainerImages(config, root, options)
   return `${JSON.stringify(config, undefined, 2)}\n`
 }
 
-// A local Dockerfile path resolves beside the source config so `wrangler dev`
-// can build it from a generated config elsewhere; registry references pass.
-function resolveContainerImages(config, root) {
+/** The Container application a Worker's Container mode deploys. */
+export function containerApplicationName(workerName) {
+  if (typeof workerName !== 'string' || workerName === '') {
+    throw new Error('A Worker name is required to name its Container application.')
+  }
+  return `${workerName}-container`
+}
+
+/** The published image reference for one release version. */
+export function containerImageReference(version = edgePackage.version) {
+  if (typeof version !== 'string' || !/^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/u.test(version)) {
+    throw new Error(`Invalid release version for the Container image: ${String(version)}`)
+  }
+  return `${CONTAINER_IMAGE_REPOSITORY}:${version}`
+}
+
+// An installed package deploys the published image for its own version and
+// never builds; only development (`localContainerImage`) builds the checked-in
+// Dockerfile, resolved beside the source config.
+function resolveContainerImages(config, root, options) {
   const containers = config.env?.container?.containers
   if (!Array.isArray(containers) || containers.length === 0) {
     throw new Error('wrangler.jsonc must declare the container environment\'s containers.')
   }
+  if (options.localContainerImage === true && options.containerImage !== undefined) {
+    throw new Error('Choose either a local Container image build or a registry image, not both.')
+  }
+  if (options.containerImage !== undefined
+    && (typeof options.containerImage !== 'string' || !/^[a-z0-9][a-z0-9.-]*(?::[0-9]+)?\/\S+$/u.test(options.containerImage))) {
+    throw new Error('A Container image override must be a registry reference.')
+  }
+  if (containers.length !== 1) throw new Error('The container environment must declare exactly one container.')
   for (const container of containers) {
     if (!isRecord(container) || typeof container.image !== 'string' || container.image === '') {
       throw new Error('Each container must declare an image.')
     }
-    if (container.image.startsWith('./') || container.image.startsWith('../')) {
+    container.name = containerApplicationName(config.name)
+    if (options.localContainerImage === true) {
+      if (!container.image.startsWith('./') && !container.image.startsWith('../')) {
+        throw new Error('A local Container image build needs a Dockerfile path in wrangler.jsonc.')
+      }
       container.image = resolve(root, container.image)
+    } else {
+      container.image = options.containerImage ?? containerImageReference(options.version)
     }
   }
 }
