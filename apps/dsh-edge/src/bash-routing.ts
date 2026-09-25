@@ -150,7 +150,9 @@ function touchesContainerFilesystem(token: Token): boolean {
   if (word.startsWith('~')) return true
   // Split `--opt=/path`, `a:/path`, `a,/path`, and short options with an
   // attached operand (`-C/etc`, `-o/tmp/out`) into their path parts.
-  return word.split(/[=:,]|^-[A-Za-z]+(?=[/.])/u).some(part => {
+  // Script words (`sed '1r /etc/x'`, awk `getline < "/etc/x"`) are split on
+  // whitespace, quotes, and shell punctuation so embedded paths count too.
+  return word.split(/[=:,\s"'`;<>()|&]|^-[A-Za-z]+(?=[/.])/u).some(part => {
     if (SHARED_DEVICES.has(part)) return false
     const segments = normalizedSegments(part)
     if (segments === undefined) return false
