@@ -18,8 +18,12 @@ version="$(node -p "require('./apps/dsh-edge/package.json').version")"
 
 - `apps/dsh-edge/package.json` has the intended version; `git tag -l "dsh-edge-v$version"` is empty.
 - `docs/releases/$version.md`, `docs/releases/$version.zh.md`, and `docs/releases/$version.i18n.yaml` exist on `main`, and `pnpm run doc-sync` passes.
-- The latest `main` Edge CI run is green, including `edge / container image`:
-  `gh run list --branch main --workflow "Edge CI" --limit 1`.
+- The Edge CI run for **this exact commit** succeeded, including `edge / container image`. Bind the check to `HEAD`; the newest run may belong to an older commit while this one is still queued:
+  ```bash
+  commit="$(git rev-parse HEAD)"
+  gh run list --workflow "Edge CI" --commit "$commit" --event push --json databaseId,status,conclusion,headSha
+  ```
+  Require one run with `headSha` equal to `$commit`, `status` `completed`, and `conclusion` `success`. If none exists yet, wait; never tag on an older green run.
 - The npm version is unpublished: `npm view "dsh-edge@$version" version` fails with E404.
 - The image tag is unpublished; exactly HTTP 404 is required, and anything else means stop and investigate:
   `curl -s -o /dev/null -w '%{http_code}\n' "https://hub.docker.com/v2/repositories/pawaca/dsh-edge-computer/tags/$version"`.
@@ -32,12 +36,14 @@ version="$(node -p "require('./apps/dsh-edge/package.json').version")"
 git tag "dsh-edge-v$version" && git push origin "dsh-edge-v$version"
 ```
 
-The tag push starts `release-edge.yml`: `verify-source` → `publish-image` → `publish` (npm, then GitHub Release). Watch it to completion:
+The tag push starts `release-edge.yml`: `verify-source` → `publish-image` → `publish` (npm, then GitHub Release). Find the run for this tag's commit, not the most recent run (another release may be newer, and a new run can take a few seconds to appear), then watch it to completion:
 
 ```bash
-gh run list --workflow "Release dsh-edge" --limit 1
-gh run watch <run-id> --exit-status
+gh run list --workflow "Release dsh-edge" --commit "$commit" --json databaseId,headSha,event,status
+gh run watch <databaseId> --exit-status
 ```
+
+A rerun dispatched through `request-release.yml` runs `release-edge.yml` on the default branch, so its `headSha` is the current `main` commit rather than the tag commit; identify it by `event` `repository_dispatch` and its start time.
 
 npm may take several minutes to show a new version after a successful publish; that is npm's asynchronous processing, not a failure.
 
