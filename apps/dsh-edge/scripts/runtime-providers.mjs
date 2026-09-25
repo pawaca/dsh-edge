@@ -29,15 +29,26 @@ export const RUNTIME_PROVIDERS = Object.freeze({
 const RUNTIME_MODE_DEFINITIONS = Object.freeze({
   direct: {
     environment: '',
+    artifact: 'direct',
     providers: ['direct'],
     label: 'Free — Direct Shell',
     hint: 'recommended; runs on Workers Free',
   },
   isolated: {
     environment: 'isolated',
+    artifact: 'isolated',
     providers: ['dynamic-worker'],
     label: 'Isolated — Dynamic Worker',
     hint: 'requires Workers Paid (starting at $5/month); adds workflow and run_code',
+  },
+  // The Container mode deploys the isolated Worker; the first bash-capable
+  // provider sets the shell identity, so the container comes first.
+  container: {
+    environment: 'container',
+    artifact: 'isolated',
+    providers: ['container', 'dynamic-worker'],
+    label: 'Container — Linux',
+    hint: 'requires Workers Paid; adds a real Linux shell (git, node, python), billed while it runs',
   },
 })
 
@@ -48,6 +59,7 @@ export const RUNTIME_MODES = Object.freeze(Object.fromEntries(
     if (bash === undefined) throw new Error(`Runtime mode ${mode} has no bash provider.`)
     return [mode, Object.freeze({
       environment: definition.environment,
+      artifact: definition.artifact,
       expectedShell: bash.shell,
       label: definition.label,
       hint: definition.hint,

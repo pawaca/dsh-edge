@@ -10,7 +10,19 @@ export interface WranglerConfigOptions {
   r2BucketName?: string
   enableImages?: boolean
   sourceConfigPath?: string
+  /** Container mode: build the checked-in Dockerfile instead of deploying the published image. */
+  localContainerImage?: boolean
+  /** Container mode: deploy this registry reference instead of the release image. */
+  containerImage?: string
+  /** Container mode: the release version whose published image to deploy. */
+  version?: string
+  /** The deployed Worker name; it also names the Worker's Container application. */
+  workerName?: string
 }
+
+export const CONTAINER_IMAGE_REPOSITORY: string
+export function containerImageReference(version?: string): string
+export function containerApplicationName(workerName: string): string
 
 export function renderSourceModeWranglerConfig(
   mode: RuntimeMode,

@@ -1,4 +1,4 @@
-export type RuntimeMode = 'direct' | 'isolated'
+export type RuntimeMode = 'direct' | 'isolated' | 'container'
 export type RuntimeProviderId = 'direct' | 'dynamic-worker' | 'container'
 export type RuntimeCapability = 'bash' | 'coding' | 'subprocess'
 
@@ -10,7 +10,9 @@ export const RUNTIME_PROVIDERS: Readonly<Record<RuntimeProviderId, Readonly<{
 }>>>
 export const RUNTIME_MODES: Readonly<Record<RuntimeMode, Readonly<{
   environment: string
-  expectedShell: 'just-bash-direct' | 'just-bash-isolated'
+  /** The released Worker artifact this mode deploys; it names the deployment id. */
+  artifact: 'direct' | 'isolated'
+  expectedShell: 'just-bash-direct' | 'just-bash-isolated' | 'linux-container'
   label: string
   hint: string
   paid: boolean

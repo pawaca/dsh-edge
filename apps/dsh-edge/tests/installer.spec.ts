@@ -17,6 +17,8 @@ import {
   createOutputForwarder,
   createTerminalSanitizer,
   detectExistingAttachmentStorage,
+  inspectExistingDeployment,
+  removeStaleContainerApplication,
   executeWrangler,
   ensureR2Bucket,
   generateOwnerSecret,
@@ -39,10 +41,14 @@ import {
 import { parseWranglerGzipBytes, requireGzipBudget } from '../scripts/bundle-size.mjs'
 import {
   renderPrebuiltModeWranglerConfig,
+  containerImageReference,
   renderSourceModeWranglerConfig,
   workerArtifactPath,
 } from '../scripts/wrangler-config.mjs'
 
+import edgePackage from '../package.json' with { type: 'json' }
+
+const EDGE_VERSION = edgePackage.version
 const ACCOUNT = { id: 'account-1', name: 'Personal' }
 const OWNER_SECRET = 'owner-access-key-with-at-least-32-bytes'
 
@@ -267,9 +273,10 @@ describe('dsh-edge installer primitives', () => {
     })).toThrow('only the Free direct runtime')
   })
 
-  it('renders the Container environment on the isolated artifact with a resolved local image', () => {
+  it('renders the Container environment on the isolated artifact with the published image', () => {
     const root = resolve('fixture', 'dsh-edge')
     const source = `{
+      "name": "dsh-edge",
       "main": "src/index.ts",
       "assets": { "directory": "./dist" },
       "env": {
@@ -286,6 +293,7 @@ describe('dsh-edge installer primitives', () => {
       r2BucketName: 'dsh-edge-attachments',
       enableImages: true,
     }))
+    // An installed package never builds: it deploys this release's public image.
     expect(container).toMatchObject({
       main: resolve(root, 'worker/isolated/index.js'),
       no_bundle: true,
@@ -296,18 +304,49 @@ describe('dsh-edge installer primitives', () => {
         },
         r2_buckets: [{ binding: 'DSH_EDGE_ATTACHMENTS', bucket_name: 'dsh-edge-attachments' }],
         images: { binding: 'IMAGES' },
-        containers: [{ class_name: 'DshEdgeInstance', image: resolve(root, 'container/Dockerfile') }],
+        containers: [{
+          class_name: 'DshEdgeInstance',
+          name: 'dsh-edge-container',
+          image: containerImageReference(),
+        }],
       } },
     })
+    // Cloudflare names the application from the config, so each Worker renders its own.
+    const named = parseJsonRecord(renderPrebuiltModeWranglerConfig('container', source, {
+      appDirectory: root, workerName: 'team-edge',
+    }))
+    expect(named).toMatchObject({
+      name: 'team-edge',
+      env: { container: { containers: [{ name: 'team-edge-container' }] } },
+    })
+    expect(containerImageReference()).toBe(`docker.io/pawaca/dsh-edge-computer:${EDGE_VERSION}`)
+    expect(containerImageReference('1.2.3-alpha.1')).toBe('docker.io/pawaca/dsh-edge-computer:1.2.3-alpha.1')
+    expect(() => containerImageReference('latest')).toThrow(/Invalid release version/u)
     expect(workerArtifactPath('container', { appDirectory: root }))
       .toBe(resolve(root, 'worker/isolated/index.js'))
 
-    const registry = source.replace('./container/Dockerfile', 'docker.io/example/computer:1@sha256:abc')
-    const pinned = parseJsonRecord(renderPrebuiltModeWranglerConfig('container', registry, { appDirectory: root }))
+    const local = parseJsonRecord(renderPrebuiltModeWranglerConfig('container', source, {
+      appDirectory: root,
+      localContainerImage: true,
+    }))
+    expect(local).toMatchObject({ env: { container: {
+      containers: [{ image: resolve(root, 'container/Dockerfile') }],
+    } } })
+
+    const pinned = parseJsonRecord(renderPrebuiltModeWranglerConfig('container', source, {
+      appDirectory: root,
+      containerImage: 'docker.io/example/computer:1@sha256:abc',
+    }))
     expect(pinned).toMatchObject({ env: { container: {
       containers: [{ image: 'docker.io/example/computer:1@sha256:abc' }],
     } } })
 
+    expect(() => renderPrebuiltModeWranglerConfig('container', source, {
+      appDirectory: root, containerImage: './elsewhere/Dockerfile',
+    })).toThrow(/registry reference/u)
+    expect(() => renderPrebuiltModeWranglerConfig('container', source, {
+      appDirectory: root, localContainerImage: true, containerImage: 'docker.io/example/computer:1',
+    })).toThrow(/not both/u)
     expect(() => renderSourceModeWranglerConfig('container' as never, source, { appDirectory: root }))
       .toThrow(/Unsupported runtime mode/u)
     expect(() => renderPrebuiltModeWranglerConfig('container', source.replace(/"containers": \[.*\],/u, ''), {
@@ -501,6 +540,59 @@ describe('dsh-edge installer primitives', () => {
     expect(parseWorkerExistence(commandResult(1, '', 'Worker missing [code: 10007]'))).toBe(false)
     expect(() => parseWorkerExistence(commandResult(1, '', 'network failed')))
       .toThrow('network failed')
+  })
+
+  it('reports whether an active Worker version ran the Container runtime', async () => {
+    const versions: Record<string, unknown[]> = {
+      'version-a': [{ name: 'DSH_EDGE_ATTACHMENT_STORAGE', type: 'plain_text', text: 'temporary-do' }],
+      'version-b': [
+        { name: 'DSH_EDGE_ATTACHMENT_STORAGE', type: 'plain_text', text: 'temporary-do' },
+        { name: 'DSH_EDGE_CONTAINER_RUNTIME', type: 'plain_text', text: 'enabled' },
+      ],
+    }
+    const runWrangler = vi.fn(async (args: string[]): Promise<CommandResult> => {
+      if (args[0] === 'deployments') {
+        return commandResult(0, JSON.stringify({ versions: Object.keys(versions).map(version_id => ({ version_id, percentage: 50 })) }))
+      }
+      return commandResult(0, JSON.stringify({ resources: { bindings: versions[args[2]!] } }))
+    })
+    await expect(inspectExistingDeployment({ workerName: 'dsh-edge', mode: 'direct', runWrangler }))
+      .resolves.toEqual({ attachmentStorage: 'temporary-do', containerRuntime: true })
+    delete versions['version-b']
+    await expect(inspectExistingDeployment({ workerName: 'dsh-edge', mode: 'direct', runWrangler }))
+      .resolves.toEqual({ attachmentStorage: 'temporary-do', containerRuntime: false })
+  })
+
+  it('deletes only the Container application named for this Worker', async () => {
+    const step = vi.fn()
+    const cleanupFailure = vi.fn()
+    const runWrangler = vi.fn(async (args: string[]): Promise<CommandResult> => {
+      if (args[1] === 'list') {
+        return commandResult(0, JSON.stringify([
+          { id: 'a03efd01-3c6e-4609-bb6c-e07fb44e207c', name: 'dsh-edge-container' },
+          { id: 'b03efd01-3c6e-4609-bb6c-e07fb44e207c', name: 'other-edge-container' },
+        ]))
+      }
+      return commandResult(0)
+    })
+    await removeStaleContainerApplication({
+      ui: { step, cleanupFailure }, runWrangler, environment: {}, workerName: 'dsh-edge', profile: 'owner',
+    })
+    expect(runWrangler.mock.calls.map(call => call[0])).toEqual([
+      ['containers', 'list', '--json', '--profile', 'owner'],
+      ['containers', 'delete', 'a03efd01-3c6e-4609-bb6c-e07fb44e207c', '--profile', 'owner'],
+    ])
+    expect(step).toHaveBeenCalledOnce()
+    expect(cleanupFailure).not.toHaveBeenCalled()
+  })
+
+  it('reports a failed Container cleanup with the manual command instead of failing the upgrade', async () => {
+    const cleanupFailure = vi.fn()
+    const runWrangler = vi.fn(async (): Promise<CommandResult> => commandResult(1, '', 'Unauthorized'))
+    await expect(removeStaleContainerApplication({
+      ui: { step: vi.fn(), cleanupFailure }, runWrangler, environment: {}, workerName: 'dsh-edge',
+    })).resolves.toBeUndefined()
+    expect(cleanupFailure).toHaveBeenCalledWith(expect.stringMatching(/Could not list Container applications.*dsh-edge-container/su))
   })
 
   it('detects one consistent attachment backend across active Worker versions', async () => {
@@ -1190,6 +1282,42 @@ describe('dsh-edge guided installation', () => {
       workerName: 'dsh-edge',
     })
     expect(success).toHaveBeenCalledOnce()
+  })
+
+  it('removes the Container application when a Container Worker upgrades to another runtime', async () => {
+    for (const previous of ['container', 'direct'] as const) {
+      const directory = await mkdtemp(join(tmpdir(), `dsh-edge-leave-container-${previous}-`))
+      const { ui, cleanupFailure } = createUi({ mode: 'direct' })
+      const bindings: unknown[] = [{ name: 'DSH_EDGE_ATTACHMENT_STORAGE', type: 'plain_text', text: 'temporary-do' }]
+      if (previous === 'container') {
+        bindings.push({ name: 'DSH_EDGE_CONTAINER_RUNTIME', type: 'plain_text', text: 'enabled' })
+      }
+      const runWrangler = vi.fn(async (args: string[], options: RunOptions = {}): Promise<CommandResult> => {
+        if (args[0] === 'whoami') return commandResult(0, JSON.stringify({ loggedIn: true, accounts: [ACCOUNT] }))
+        if (args[0] === 'deployments' && args[1] === 'list') return commandResult(0, '[{"id":"deployment"}]')
+        if (args[0] === 'deployments' && args[1] === 'status') {
+          return commandResult(0, JSON.stringify({ versions: [{ version_id: 'version-1', percentage: 100 }] }))
+        }
+        if (args[0] === 'versions') return commandResult(0, JSON.stringify({ resources: { bindings } }))
+        if (args[0] === 'containers' && args[1] === 'list') {
+          return commandResult(0, JSON.stringify([{ id: 'a03efd01-3c6e-4609-bb6c-e07fb44e207c', name: 'dsh-edge-container' }]))
+        }
+        if (args[0] === 'containers') return commandResult(0)
+        await writeFile(options.environment?.WRANGLER_OUTPUT_FILE_PATH ?? '', JSON.stringify({
+          type: 'deploy', version: 1, targets: ['dsh-edge.owner.workers.dev'],
+        }))
+        return commandResult(0)
+      })
+      await installEdge({ command: 'upgrade', ui, runWrangler, createTemporaryDirectory: async () => directory })
+      const containerCalls = runWrangler.mock.calls.map(call => call[0]).filter(args => args[0] === 'containers')
+      expect(containerCalls).toEqual(previous === 'container'
+        ? [
+            ['containers', 'list', '--json'],
+            ['containers', 'delete', 'a03efd01-3c6e-4609-bb6c-e07fb44e207c'],
+          ]
+        : [])
+      expect(cleanupFailure).not.toHaveBeenCalled()
+    }
   })
 
   it('upgrades an unmarked Worker on Durable Object storage without requiring R2', async () => {

@@ -2,6 +2,9 @@ import { readFile, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { parse, printParseErrorCode } from 'jsonc-parser'
 import {
+  CONTAINER_IMAGE_REPOSITORY,
+  containerApplicationName,
+  containerImageReference,
   renderParsedPrebuiltModeWranglerConfig,
   renderParsedSourceModeWranglerConfig,
   workerArtifactPath,
@@ -9,7 +12,7 @@ import {
 
 const sourceConfigPath = fileURLToPath(new URL('../wrangler.jsonc', import.meta.url))
 
-export { workerArtifactPath }
+export { CONTAINER_IMAGE_REPOSITORY, containerApplicationName, containerImageReference, workerArtifactPath }
 
 /** Render one mode-specific build configuration from the repository source. */
 export function renderSourceModeWranglerConfig(mode, source, options = {}) {

@@ -12,6 +12,7 @@ community project · install
 ◆  Choose a runtime
 │  ● Free — Direct Shell (recommended; runs on Workers Free)
 │  ○ Isolated — Dynamic Worker
+│  ○ Container — Linux
 │  ↑/↓ to navigate • Enter: confirm
 └
 ◇  Choose a runtime

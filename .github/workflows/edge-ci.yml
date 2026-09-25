@@ -117,17 +117,57 @@ jobs:
       - name: Verify Windows installer security and lifecycle
         run: pnpm exec vitest run --project edge-runtime apps/dsh-edge/tests/installer.spec.ts
 
+  container-image:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    name: edge / container image
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: docker/setup-buildx-action@v4
+
+      # Same platform and manifest shape as the release job; never pushed.
+      - name: Build the Container image
+        uses: docker/build-push-action@v7
+        with:
+          context: apps/dsh-edge/container
+          platforms: linux/amd64
+          provenance: false
+          sbom: false
+          load: true
+          tags: dsh-edge-computer:ci
+
+      - name: Check the Linux toolchain
+        run: docker run --rm --entrypoint sh dsh-edge-computer:ci -c 'node -v && python3 --version && git --version && rg --version'
+
+      # Without /dev/fuse computerd falls back to its userspace shim, which is
+      # enough to prove the daemon starts and serves its readiness route.
+      - name: Check that computerd serves health
+        run: |
+          docker run -d --name computerd -p 8080:8080 dsh-edge-computer:ci
+          for attempt in $(seq 1 30); do
+            if curl -fsS -o /dev/null -I http://127.0.0.1:8080/health; then exit 0; fi
+            sleep 1
+          done
+          docker logs computerd
+          exit 1
+
   verify:
     if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.draft == false) }}
-    needs: [linux, windows-installer]
+    needs: [linux, windows-installer, container-image]
     name: edge / verify
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
-      - name: Require Linux and Windows verification
+      - name: Require Linux, Windows, and Container image verification
         env:
           LINUX_RESULT: ${{ needs.linux.result }}
           WINDOWS_RESULT: ${{ needs.windows-installer.result }}
+          CONTAINER_RESULT: ${{ needs.container-image.result }}
         run: |
           test "$LINUX_RESULT" = success
           test "$WINDOWS_RESULT" = success
+          test "$CONTAINER_RESULT" = success

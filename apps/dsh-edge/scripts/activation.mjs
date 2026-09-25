@@ -33,7 +33,7 @@ export async function observePublicActivation({
   const healthUrl = publicHealthUrl(publicUrl)
   const expected = {
     workerVersionId: versionId,
-    deploymentId: `dsh-edge@${edgePackage.version}/${mode}`,
+    deploymentId: `dsh-edge@${edgePackage.version}/${RUNTIME_MODES[mode].artifact}`,
     shell: RUNTIME_MODES[mode].expectedShell,
   }
   const startedAt = now()

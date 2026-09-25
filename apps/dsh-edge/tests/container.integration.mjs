@@ -36,7 +36,7 @@ const persistTo = join(scratch, 'state')
 let worker
 let cookie
 try {
-  await writePrebuiltModeWranglerConfig('container', config)
+  await writePrebuiltModeWranglerConfig('container', config, { localContainerImage: true })
   worker = await unstable_dev(workerArtifactPath('container'), {
     config,
     env: 'container',

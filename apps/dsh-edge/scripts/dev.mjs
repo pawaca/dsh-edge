@@ -19,7 +19,7 @@ if (mode !== 'direct' && mode !== 'isolated' && mode !== 'container') {
   // secrets relative to the configuration file rather than the process cwd.
   const configFile = join(appDirectory, `.wrangler.dev.${randomUUID()}.json`)
   try {
-    await writePrebuiltModeWranglerConfig(mode, configFile)
+    await writePrebuiltModeWranglerConfig(mode, configFile, { localContainerImage: mode === 'container' })
     const result = await execa(process.execPath, [
       require.resolve('wrangler'),
       'dev',

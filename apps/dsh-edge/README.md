@@ -241,6 +241,7 @@ This deliberately is not an account system or multi-tenant boundary.
 | --- | --- | --- | --- |
 | Direct (default top level) | Workers Free; no Loader binding | Hardened just-bash in the agent/VFS Durable Object, with explicit timeouts, bounded output/environment, and no network command | `just-bash-direct` |
 | `env.isolated` | Workers Paid with `LOADER` | Computer Worker Shell in a separate Dynamic Worker | `just-bash-isolated` |
+| `env.container` | Workers Paid with `LOADER` and a `basic` Container | bash in a Debian container through computerd; the isolated Worker artifact | `linux-container` |
 
 Direct mode is lighter isolation than a separate Worker; do not expose the single-owner deployment to untrusted users. Workers Paid is a Workers subscription starting at $5 per month, not the Cloudflare Pro website plan. Worker names have independent Durable Object storage and secrets, so use different names when both modes should remain live.
 
@@ -250,6 +251,7 @@ Direct mode is lighter isolation than a separate Worker; do not expose the singl
 - Direct replaces only Computer's unreachable Dynamic Worker shell-core module; its Workspace adapter and command exports remain upstream.
 - Isolated preserves that shell core and replaces the unreachable Direct backend with a fail-closed module. Each artifact therefore carries only its selected command runtime.
 - The installer generates a private mode-specific config, points it at the selected artifact, and uploads with `no_bundle`. The user's machine does not rebuild dsh-edge or resolve Harness packages into a new Worker.
+- Container mode deploys the isolated artifact with `docker.io/pawaca/dsh-edge-computer:<version>`, which the release workflow builds from `container/Dockerfile` and pushes once per version before npm publication. Installing it needs no local Docker; `pnpm dev:container` and `pnpm test:container` build the Dockerfile locally and do.
 - CI starts the Direct artifact from an installed tarball and rejects gzip output above 900 KiB, preserving headroom below the 1 MiB anonymous temporary-account limit.
 
 ### Install and upgrade
