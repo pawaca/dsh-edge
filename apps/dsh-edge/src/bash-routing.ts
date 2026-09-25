@@ -269,6 +269,13 @@ function startsProgramsItself(program: string, args: Token[]): boolean {
         // `-cInode`) or in the traditional first word (`tar cIf node …`).
         || words.some(word => /^-[A-Za-z]*[IF]/u.test(word))
         || /^[A-Za-z]*[IF][A-Za-z]*$/u.test(words[0] ?? '')
+        // In a Worker just-bash's tar handles only gzip; bzip2, xz, and zstd
+        // need native modules workerd cannot load. Suffixes cover
+        // auto-compress and extraction.
+        || option('--bzip2', '--xz', '--zstd', '--lzma', '--lzip', '--lzop')
+        || words.some(word => /^-[A-Za-z]*[jJ]/u.test(word)
+          || /\.(bz2|tbz2?|xz|txz|zst|tzst|lzma|lz|lzo)$/u.test(word))
+        || /^[A-Za-z]*[jJ][A-Za-z]*$/u.test(words[0] ?? '')
         // `host:archive` makes tar start rsh unless --force-local is given.
         || (!option('--force-local')
           && words.some(word => /^(-[A-Za-z]*f|--file=)?[^-/:=][^/:=]*:/u.test(word)))
