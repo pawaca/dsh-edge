@@ -92,8 +92,28 @@ interface Token {
 export function commandWords(command: string, depth = 0): string[] | undefined {
   if (depth > MAX_DEPTH) return undefined
   const tokens = tokenize(command, depth)
-  if (tokens === undefined || tokens.some(touchesContainerFilesystem)) return undefined
+  if (tokens === undefined || tokens.some(touchesContainerFilesystem) || changesDirectoryOpaquely(tokens)) {
+    return undefined
+  }
   return wordsOf(tokens, depth)
+}
+
+/**
+ * Relative paths are resolved against the starting directory. A directory
+ * change to an unknown place (`cd "$d"`, `cd -`, `cd ~`), or any directory
+ * change combined with `..` traversal, is not modelled, so opaque.
+ */
+function changesDirectoryOpaquely(tokens: Token[]): boolean {
+  const changes = tokens.flatMap((token, index) =>
+    token.word === 'cd' || token.word === 'pushd' || token.word === 'popd' ? [index] : [])
+  if (changes.length === 0) return false
+  const unknownTarget = changes.some(index => {
+    const target = tokens[index + 1]
+    return tokens[index]!.word === 'popd' || target?.dynamic === true
+      || target?.word === '-' || target?.word?.startsWith('~') === true
+  })
+  const traversal = tokens.some(token => token.word?.split('/').includes('..') === true)
+  return unknownTarget || traversal
 }
 
 /**

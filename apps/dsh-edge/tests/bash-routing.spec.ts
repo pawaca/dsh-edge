@@ -266,11 +266,17 @@ describe('bash command routing', () => {
     expect(at('/workspace', 'ls ..')).toBe('container')
     expect(at('/workspace/app', 'cat ../../etc/hosts')).toBe('container')
     expect(at('/workspace/app/src', 'cat ../README.md')).toBe('light')
-    expect(at('/workspace/app', 'ls ../other && cd ..')).toBe('light')
+    // A directory change combined with `..` is not modelled.
+    expect(at('/workspace/app', 'ls ../other && cd ..')).toBe('container')
     expect(at('/workspace', 'cat ./a/../b.txt')).toBe('light')
     expect(at('/workspace', 'cat /workspace/../etc/os-release')).toBe('container')
     expect(at('/workspace', 'ls /workspace/app/../..')).toBe('container')
     expect(at('/workspace', 'cat /workspace/app/../README.md')).toBe('light')
+    expect(at('/workspace/app', 'cd ..; cat ../etc/os-release')).toBe('container')
+    expect(at('/workspace', 'cd "$DIR"; ls')).toBe('container')
+    expect(at('/workspace', 'cd -; ls')).toBe('container')
+    expect(at('/workspace', 'pushd src && ls && popd')).toBe('container')
+    expect(at('/workspace', 'cd src && ls && cat a.txt')).toBe('light')
   })
 
   it('honours the policy, the explicit request, and a missing container', () => {
