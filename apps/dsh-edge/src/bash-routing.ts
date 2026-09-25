@@ -119,7 +119,7 @@ function changesDirectoryOpaquely(tokens: Token[]): boolean {
 /**
  * The light shell shares only /workspace with the container. A word naming a
  * Linux root directory (as an argument, `--opt=/path`, or a redirection
- * target) or a home path addresses the container's own filesystem, so the
+ * target), the root `/` itself, or a home path addresses the container's own filesystem, so the
  * command needs the container. Regex-like words such as `/start/` in sed are
  * not affected because only known root directories count.
  */
@@ -139,6 +139,8 @@ function touchesContainerFilesystem(token: Token): boolean {
     // Climbing out of /workspace with `..`, or naming a Linux root directory
     // after normalization (`/./etc`, `//etc`, `/workspace/../etc`).
     if (part.split('/').includes('..') && segments[0] !== 'workspace') return true
+    // The filesystem root itself (`/`, `//`, `/.`) lists the container's root.
+    if (part.startsWith('/') && segments.length === 0) return true
     return part.startsWith('/') && segments[0] !== undefined && LINUX_ROOTS.has(segments[0])
   })
 }

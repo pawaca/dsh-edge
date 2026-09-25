@@ -38,7 +38,7 @@ export class ContainerActivity {
     while (this.stopping !== undefined || this.inFlight >= this.maxConcurrent) {
       signal?.throwIfAborted()
       if (this.stopping !== undefined) {
-        await this.stopping
+        await untilAborted(this.stopping, signal)
         continue
       }
       await new Promise<void>((resolve, reject) => {
@@ -104,4 +104,14 @@ export class ContainerActivity {
     return this.inFlight === 0
       && (this.lastActivity === undefined || this.now() >= this.lastActivity + this.sleepAfterMs)
   }
+}
+
+/** Wait for `promise`, rejecting early with the signal's reason when it aborts. */
+function untilAborted(promise: Promise<void>, signal: AbortSignal | undefined): Promise<void> {
+  if (signal === undefined) return promise
+  return new Promise<void>((resolve, reject) => {
+    const abort = () => reject(signal.reason)
+    signal.addEventListener('abort', abort, { once: true })
+    void promise.then(resolve, reject).finally(() => signal.removeEventListener('abort', abort))
+  })
 }

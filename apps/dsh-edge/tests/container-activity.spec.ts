@@ -119,4 +119,17 @@ describe('container idle tracking', () => {
     holder.release()
     await expect(waiting).resolves.toMatchObject({ queuedMs: 2_500 })
   })
+  it('abandons an admission waiting on an idle stop when its command is cancelled', async () => {
+    const activity = new ContainerActivity(0, () => 0)
+    let finishStop!: () => void
+    const stop = activity.stopIfIdle(() => new Promise<void>(resolve => { finishStop = resolve }))
+    const controller = new AbortController()
+    const cancelled = activity.admit(controller.signal)
+    await Promise.resolve()
+    controller.abort(new Error('cancelled'))
+    await expect(cancelled).rejects.toThrow('cancelled')
+    finishStop()
+    await expect(stop).resolves.toBe('stopped')
+    await expect(activity.admit()).resolves.toMatchObject({ queuedMs: 0 })
+  })
 })
