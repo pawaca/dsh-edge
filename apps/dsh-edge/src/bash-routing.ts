@@ -335,7 +335,29 @@ function wrappedWords(wrapper: string, args: Token[], depth: number): string[] |
   }
   const tail = args.slice(index)
   if (tail.length === 0) return wrapper === 'xargs' ? ['echo'] : []
-  return wordsOf(tail, depth + 1)
+  return wordsOf(wrapper === 'xargs' ? withStdinArguments(args.slice(0, index), tail) : tail, depth + 1)
+}
+
+/**
+ * xargs puts stdin items into its command: in place of the replacement
+ * string (`-I R`, `-i`, `--replace`) or after the initial arguments. Those
+ * positions are dynamic, so a self-executing tool there is opaque.
+ */
+function withStdinArguments(options: Token[], tail: Token[]): Token[] {
+  const words = options.map(option => option.word ?? '')
+  const replace = new Set<string>()
+  words.forEach((word, index) => {
+    if (word === '-I' && words[index + 1] !== undefined) replace.add(words[index + 1]!)
+    else if (word.startsWith('-I') && word.length > 2) replace.add(word.slice(2))
+    else if (word === '-i' || word === '--replace') replace.add('{}')
+    else if (word.startsWith('-i') && word.length > 2) replace.add(word.slice(2))
+    else if (word.startsWith('--replace=')) replace.add(word.slice('--replace='.length))
+  })
+  const marked = tail.map((token, index) => index > 0 && token.word !== undefined
+    && [...replace].some(value => value !== '' && token.word!.includes(value))
+    ? { ...token, dynamic: true }
+    : token)
+  return [...marked, { word: '', dynamic: true }]
 }
 
 /** The string `env -S`/`--split-string` runs; null when dynamic or missing, undefined without -S. */
