@@ -111,7 +111,14 @@ describe('repository workflows', () => {
     expect(image).toContain('Confirm release tag is unchanged')
     // The installer renders the reference with the same function.
     expect(image).toContain('import { containerImageReference } from \'./apps/dsh-edge/scripts/wrangler-config-core.mjs\'')
-    expect(image).toContain('if: steps.existing.outputs.exists == \'false\'')
+    expect(image).toContain('if: steps.support.outputs.supported == \'true\' && steps.existing.outputs.exists == \'false\'')
+    // Recovery of a release that predates the image skips every image step.
+    expect(image).toContain('grep -q \'^export function containerImageReference\' apps/dsh-edge/scripts/wrangler-config-core.mjs')
+    const gated = image.split('\n      - ').slice(1).filter(step => !step.startsWith('uses: actions/checkout')
+      && !step.startsWith('name: Confirm release tag is unchanged')
+      && !step.startsWith('name: Detect Container image support'))
+    expect(gated.length).toBeGreaterThan(0)
+    for (const step of gated) expect(step).toMatch(/if: steps\.support\.outputs\.supported == 'true'/u)
     expect(image).toContain('platforms: linux/amd64')
     expect(image).toContain('provenance: false')
     expect(image).toContain('sbom: false')

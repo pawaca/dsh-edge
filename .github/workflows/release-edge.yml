@@ -112,25 +112,43 @@ jobs:
             echo "Release tag moved from $RELEASE_COMMIT to $actual" >&2
             exit 1
           fi
+      # Recovering an already-published release that predates the Container
+      # image must not require files that release never had.
+      - name: Detect Container image support in this release
+        id: support
+        shell: bash
+        run: |
+          if [[ -f apps/dsh-edge/container/Dockerfile ]] \
+            && grep -q '^export function containerImageReference' apps/dsh-edge/scripts/wrangler-config-core.mjs; then
+            echo "supported=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "supported=false" >> "$GITHUB_OUTPUT"
+            echo "This release predates the Container image; nothing to publish."
+          fi
       - uses: actions/setup-node@v7
+        if: steps.support.outputs.supported == 'true'
         with:
           node-version: ${{ env.NODE_VERSION }}
       # The installer renders the same reference from the same function, so
       # the published tag and the deployed image cannot drift apart.
       - name: Resolve the release image reference
+        if: steps.support.outputs.supported == 'true'
         id: reference
         shell: bash
         run: |
           reference="$(node --input-type=module -e "import { containerImageReference } from './apps/dsh-edge/scripts/wrangler-config-core.mjs'; process.stdout.write(containerImageReference())")"
           echo "reference=$reference" >> "$GITHUB_OUTPUT"
       - uses: docker/setup-buildx-action@v4
+        if: steps.support.outputs.supported == 'true'
       - uses: docker/login-action@v4
+        if: steps.support.outputs.supported == 'true'
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       # A release tag is pushed once. A recovery rerun reuses the published
       # image instead of rebuilding a different one under the same tag.
       - name: Check for an already published image
+        if: steps.support.outputs.supported == 'true'
         id: existing
         shell: bash
         env:
@@ -144,7 +162,7 @@ jobs:
       # One linux/amd64 manifest without attestations: Cloudflare Containers
       # pull a plain image manifest.
       - name: Build and push the Container image
-        if: steps.existing.outputs.exists == 'false'
+        if: steps.support.outputs.supported == 'true' && steps.existing.outputs.exists == 'false'
         uses: docker/build-push-action@v7
         with:
           context: apps/dsh-edge/container
@@ -154,6 +172,7 @@ jobs:
           push: true
           tags: ${{ steps.reference.outputs.reference }}
       - name: Verify the published image
+        if: steps.support.outputs.supported == 'true'
         id: published
         shell: bash
         env:
