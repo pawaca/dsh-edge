@@ -66,16 +66,26 @@ Review rounds are convergence checkpoints, not a fixed retry budget. On repeated
 
 ## Release procedure
 
-Every version published to npm must also have a matching GitHub Release and git tag. Skipping any step breaks the invariant on line 36.
+Every version published to npm must also have a matching GitHub Release and git tag. Skipping any step breaks the same-version invariant in "Runtime and release invariants".
 
 1. **Write bilingual release notes**: create `docs/releases/<version>.md`, `docs/releases/<version>.zh.md`, and their `.i18n.yaml` pairing record, then run `pnpm run doc-pairs -- --write`.
 2. **Merge the release PR** to main (squash merge).
 3. **Pull main** and verify `apps/dsh-edge/package.json` version matches the intended release.
 4. **Create and push a git tag**: `git tag dsh-edge-v<version> && git push origin dsh-edge-v<version>`.
 5. The tag push triggers `release-edge.yml` which automatically builds, verifies, publishes to npm (trusted publishing), and creates the GitHub Release. Its `publish-image` job first pushes `docker.io/pawaca/dsh-edge-computer:<version>` (once; a rerun reuses the published image), and npm publication waits for it.
-6. **Verify**: `npm view dsh-edge@<version>`, `gh release view dsh-edge-v<version>`, and `docker buildx imagetools inspect docker.io/pawaca/dsh-edge-computer:<version>` all resolve.
+6. **Verify**: `npm view dsh-edge@<version>`, `gh release view dsh-edge-v<version>`, and `https://hub.docker.com/v2/repositories/pawaca/dsh-edge-computer/tags/<version>` all resolve; record the image digest.
 
 The workflow can also be triggered manually via `request-release.yml` (workflow_dispatch) or `repository_dispatch` as a fallback. Prerelease versions (containing `-`) are published to the `next` npm dist-tag and marked as GitHub prerelease.
+
+Use `.agents/skills/dsh-release/SKILL.md` to run a release: it holds the preflight checks, the failure-handling table, and the verification commands.
+
+### Container image
+
+- Every release publishes `docker.io/pawaca/dsh-edge-computer:<version>` from `apps/dsh-edge/container/Dockerfile`; no separate image release step exists. The `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` repository secrets must be valid. An expired token fails `publish-image` at login, before anything is published; replace the secret and rerun the same tag through `request-release.yml`.
+- An image tag is pushed once. `publish-image` pushes only after Docker Hub answers 404 for the tag, reuses an existing tag on rerun, and fails on any other lookup result. Never overwrite, delete, or hand-push a release tag; fix a bad image by releasing a new version.
+- The Dockerfile pins its computerd and Debian bases by digest, so base images never change silently. Refresh them in a reviewed PR; `edge / container image` must pass, and `pnpm --filter dsh-edge run test:container` must pass locally with a Docker engine.
+- A computerd upgrade changes the Dockerfile base, both `@cloudflare/computer` pins (app and standalone), the lockfiles, and the third-party notices in one PR (see the wire-protocol invariant above).
+- If `publish` fails after `publish-image` succeeded, npm is not published and the image tag is orphaned but harmless (no package references it). Release the fix as a new version.
 
 Stage, commit, push, PR creation, review replies, thread resolution, releases, tags, npm publication, and Cloudflare deployment require the corresponding user authorization.
 
