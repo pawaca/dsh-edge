@@ -642,6 +642,8 @@ function tokenize(source: string, depth: number): Token[] | undefined {
   }
   flush()
   if (pendingHeredocs.length > 0) return undefined
+  // The same check after quote removal: `env 'BASH_ENV=x'`, `export \ENV=x`.
+  if (tokens.some(token => token.word !== undefined && /^(BASH_ENV|ENV)\+?=/u.test(token.word))) return undefined
   return tokens
 }
 
