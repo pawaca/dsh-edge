@@ -123,16 +123,6 @@ function changesDirectoryOpaquely(tokens: Token[]): boolean {
  * command needs the container. Regex-like words such as `/start/` in sed are
  * not affected because only known root directories count.
  */
-function escapesSharedRoot(path: string): boolean {
-  const segments = path.split('/')
-  if (!segments.includes('..')) return false
-  const resolved = path.startsWith('/') ? [] : routingCwd.split('/').filter(Boolean)
-  for (const segment of segments) {
-    if (segment === '..') resolved.pop()
-    else if (segment !== '' && segment !== '.') resolved.push(segment)
-  }
-  return resolved[0] !== 'workspace'
-}
 
 const LINUX_ROOTS = new Set(['bin', 'boot', 'dev', 'etc', 'home', 'lib', 'lib32', 'lib64', 'media', 'mnt',
   'opt', 'proc', 'root', 'run', 'sbin', 'srv', 'sys', 'tmp', 'usr', 'var'])
@@ -142,12 +132,26 @@ function touchesContainerFilesystem(token: Token): boolean {
   const word = token.word
   if (word === undefined) return false
   if (word.startsWith('~')) return true
-  // A path that climbs out of /workspace with `..` reaches the container's root.
-  if (word.split(/[=:,]/u).some(part => escapesSharedRoot(part))) return true
   return word.split(/[=:,]/u).some(part => {
-    const match = /^\/([A-Za-z0-9._-]+)/u.exec(part)
-    return match !== null && LINUX_ROOTS.has(match[1]!) && !SHARED_DEVICES.has(part)
+    if (SHARED_DEVICES.has(part)) return false
+    const segments = normalizedSegments(part)
+    if (segments === undefined) return false
+    // Climbing out of /workspace with `..`, or naming a Linux root directory
+    // after normalization (`/./etc`, `//etc`, `/workspace/../etc`).
+    if (part.split('/').includes('..') && segments[0] !== 'workspace') return true
+    return part.startsWith('/') && segments[0] !== undefined && LINUX_ROOTS.has(segments[0])
   })
+}
+
+/** The segments of a path after resolving `.`, `..`, and repeated slashes, or undefined for a non-path. */
+function normalizedSegments(path: string): string[] | undefined {
+  if (!path.startsWith('/') && !path.split('/').includes('..')) return undefined
+  const resolved = path.startsWith('/') ? [] : routingCwd.split('/').filter(Boolean)
+  for (const segment of path.split('/')) {
+    if (segment === '..') resolved.pop()
+    else if (segment !== '' && segment !== '.') resolved.push(segment)
+  }
+  return resolved
 }
 
 /** Nesting limit for commands inside commands (wrappers, `bash -c`, substitutions). */
