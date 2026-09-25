@@ -186,9 +186,9 @@ function startsProgramsItself(program: string, args: Token[]): boolean {
       // A script read from a file cannot be inspected.
       if (option('-f', '--file') || words.some(word => /^-[^-]*f/u.test(word))) return true
       // The `e` command and the `s///e` flag run programs.
-      // An `e` command may follow an address: a line number, `$`, a /regex/,
-      // a range, or `!`.
-      return words.some(word => /(^|[;\n{}0-9$/!,])\s*e(\s|$|;)|s(.)(?:(?!\3).)*\3(?:(?!\3).)*\3[a-zA-Z0-9]*e/u.test(word))
+      // An `e` command can follow any address form (line, `$`, /re/, \cREc,
+      // ranges, `!`), so any standalone `e` counts; so does the `s///e` flag.
+      return words.some(word => /(^|[^A-Za-z_])e(\s|$|;|\})|s(.)(?:(?!\3).)*\3(?:(?!\3).)*\3[a-zA-Z0-9]*e/u.test(word))
     default:
       return false
   }
@@ -306,11 +306,9 @@ function optionSpan(wrapper: string, word: string): 1 | 2 | undefined {
  */
 function wrappedWords(wrapper: string, args: Token[], depth: number): string[] | undefined {
   if (wrapper === 'command' && args.some(arg => arg.word === '-v' || arg.word === '-V')) return []
-  if (wrapper === 'env') {
-    const split = splitString(args)
-    if (split === null) return undefined
-    if (split !== undefined) return commandWords(split, depth + 1)
-  }
+  // `env -S` splits a string into the command and then appends the
+  // remaining arguments; not modelled, so opaque.
+  if (wrapper === 'env' && splitString(args) !== undefined) return undefined
   let index = 0
   while (index < args.length) {
     const arg = args[index]!
