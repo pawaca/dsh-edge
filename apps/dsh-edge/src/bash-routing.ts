@@ -234,16 +234,50 @@ function findActionWords(args: Token[], depth: number): string[] | undefined {
   return words
 }
 
-const WRAPPER_VALUED_OPTIONS: Readonly<Record<string, ReadonlySet<string>>> = {
-  env: new Set(['-u', '-C', '--unset', '--chdir']),
-  timeout: new Set(['-s', '-k', '--signal', '--kill-after']),
-  nice: new Set(['-n', '--adjustment']),
-  xargs: new Set(['-a', '-d', '-E', '-e', '-I', '-i', '-L', '-l', '-n', '-P', '-s', '--arg-file',
-    '--delimiter', '--max-args', '--max-lines', '--max-procs', '--max-chars', '--replace']),
-  command: new Set(),
-  exec: new Set(['-a']),
-  time: new Set(['-f', '-o', '--format', '--output']),
-  nohup: new Set(),
+/**
+ * Each wrapper's known options: `flags` take no value, `valued` take the next
+ * argument (short ones may also attach it, like `-n1`). An option outside
+ * both sets might consume the next argument, so it makes the command opaque.
+ */
+const WRAPPER_OPTIONS: Readonly<Record<string, { flags: ReadonlySet<string>; valued: ReadonlySet<string> }>> = {
+  env: {
+    flags: new Set(['-i', '--ignore-environment', '-0', '--null', '-v', '--debug']),
+    valued: new Set(['-u', '--unset', '-C', '--chdir']),
+  },
+  timeout: {
+    flags: new Set(['--preserve-status', '--foreground', '-v', '--verbose']),
+    valued: new Set(['-s', '--signal', '-k', '--kill-after']),
+  },
+  nice: { flags: new Set(), valued: new Set(['-n', '--adjustment']) },
+  xargs: {
+    flags: new Set(['-0', '--null', '-r', '--no-run-if-empty', '-t', '--verbose', '-p', '--interactive',
+      '-x', '--exit', '-o', '--open-tty']),
+    valued: new Set(['-a', '--arg-file', '-d', '--delimiter', '-E', '-I', '-L', '--max-lines', '-n',
+      '--max-args', '-P', '--max-procs', '-s', '--max-chars', '--process-slot-var']),
+  },
+  command: { flags: new Set(['-p']), valued: new Set() },
+  exec: { flags: new Set(['-c', '-l']), valued: new Set(['-a']) },
+  time: {
+    flags: new Set(['-p', '--portability', '-v', '--verbose', '-q', '--quiet', '-a', '--append']),
+    valued: new Set(['-f', '--format', '-o', '--output']),
+  },
+  nohup: { flags: new Set(), valued: new Set() },
+}
+
+/** How many arguments one wrapper option spans: 1 or 2, or undefined when unknown. */
+function optionSpan(wrapper: string, word: string): 1 | 2 | undefined {
+  const known = WRAPPER_OPTIONS[wrapper]
+  if (known === undefined) return undefined
+  if (word.startsWith('--') && word.includes('=')) {
+    const name = word.slice(0, word.indexOf('='))
+    return known.valued.has(name) || known.flags.has(name) ? 1 : undefined
+  }
+  if (known.flags.has(word)) return 1
+  if (known.valued.has(word)) return 2
+  // An attached short value (`-n1`, `-I{}`) or `nice -5`.
+  if (!word.startsWith('--') && known.valued.has(word.slice(0, 2))) return 1
+  if (wrapper === 'nice' && /^-[0-9]+$/u.test(word)) return 1
+  return undefined
 }
 
 /**
@@ -258,7 +292,6 @@ function wrappedWords(wrapper: string, args: Token[], depth: number): string[] |
     if (split === null) return undefined
     if (split !== undefined) return commandWords(split, depth + 1)
   }
-  const valued = WRAPPER_VALUED_OPTIONS[wrapper] ?? new Set<string>()
   let index = 0
   while (index < args.length) {
     const arg = args[index]!
@@ -269,7 +302,9 @@ function wrappedWords(wrapper: string, args: Token[], depth: number): string[] |
       break
     }
     if (word.startsWith('-') && word !== '-') {
-      index += valued.has(word) ? 2 : 1
+      const span = optionSpan(wrapper, word)
+      if (span === undefined) return undefined
+      index += span
       continue
     }
     if (wrapper === 'env' && /^[A-Za-z_][A-Za-z0-9_]*=/u.test(word)) {
@@ -355,7 +390,8 @@ function tokenize(source: string, depth: number): Token[] | undefined {
       if (end === undefined) return undefined
       const inner = source.slice(index + 1, end)
       if (!substitutionsAreLight(inner, depth)) return undefined
-      if (/\$[A-Za-z_{0-9@*#?$!-]/u.test(inner.replace(/\$\(/gu, ''))) dynamic = true
+      // Any expansion, including a checked substitution, makes the value unknown.
+      if (/\$[A-Za-z_{0-9@*#?$!([-]|`/u.test(inner)) dynamic = true
       word += inner
       inWord = true
       index = end + 1
