@@ -1,0 +1,4 @@
+interface:
+  display_name: "DSH Release"
+  short_description: "Publish a dsh-edge release with preflight and verification"
+  default_prompt: "Use $dsh-release to publish the dsh-edge version on main."
