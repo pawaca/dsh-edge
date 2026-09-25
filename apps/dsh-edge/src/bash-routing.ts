@@ -100,7 +100,7 @@ export function commandWords(command: string, depth = 0): string[] | undefined {
 
 /**
  * Relative paths are resolved against the starting directory. A directory
- * change to an unknown place (`cd "$d"`, `cd -`, `cd ~`), or any directory
+ * change to an unknown place (`cd "$d"`, `cd -`, `cd ~`, a bare `cd`), or any directory
  * change combined with `..` traversal, is not modelled, so opaque.
  */
 function changesDirectoryOpaquely(tokens: Token[]): boolean {
@@ -108,9 +108,13 @@ function changesDirectoryOpaquely(tokens: Token[]): boolean {
     token.word === 'cd' || token.word === 'pushd' || token.word === 'popd' ? [index] : [])
   if (changes.length === 0) return false
   const unknownTarget = changes.some(index => {
-    const target = tokens[index + 1]
-    return tokens[index]!.word === 'popd' || target?.dynamic === true
-      || target?.word === '-' || target?.word?.startsWith('~') === true
+    // Skip options (`-P`, `-L`, `--`); a missing operand means $HOME for cd
+    // and a stack swap for pushd, both outside the modelled directory.
+    let next = index + 1
+    while (/^-[A-Za-z@]*$|^--$/u.test(tokens[next]?.word ?? '') && tokens[next]!.word !== '-') next++
+    const target = tokens[next]
+    return tokens[index]!.word === 'popd' || target?.word === undefined || target.dynamic === true
+      || target.word === '-' || target.word.startsWith('~')
   })
   const traversal = tokens.some(token => token.word?.split('/').includes('..') === true)
   return unknownTarget || traversal
