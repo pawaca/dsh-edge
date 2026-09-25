@@ -99,4 +99,6 @@ export const LIGHT_SHELL_SAMPLES = Object.freeze({
   time: 'time true',
   timeout: 'timeout 5 true',
   xargs: 'echo a.txt | xargs cat',
+  bash: "bash -c 'echo ok | wc -l'",
+  sh: "sh -c 'cat a.txt'",
 })

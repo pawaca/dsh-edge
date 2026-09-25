@@ -34,8 +34,8 @@ export const LIGHT_SHELL_COMMANDS: ReadonlySet<string> = new Set([
   'nl', 'od', 'paste', 'printenv', 'readlink', 'rev', 'rg', 'rm', 'rmdir', 'sed', 'seq',
   'sha1sum', 'sha256sum', 'sleep', 'sort', 'stat', 'strings', 'tac', 'tail', 'tar',
   'tee', 'touch', 'tr', 'tree', 'uniq', 'unexpand', 'wc', 'whoami', 'zcat',
-  // just-bash wrappers; the program they run is checked separately.
-  'env', 'time', 'timeout', 'xargs',
+  // just-bash wrappers and nested shells; what they run is checked separately.
+  'bash', 'env', 'sh', 'time', 'timeout', 'xargs',
 ])
 
 /** Wrappers whose real command follows their options. */
@@ -140,8 +140,7 @@ function invokedWords(tokens: Token[], index: number, depth: number): {
   if (word === 'bash' || word === 'sh') {
     const script = inlineScript(rest)
     const inner = script === undefined ? undefined : commandWords(script, depth + 1)
-    // The inline script runs in the same shell; only its programs matter.
-    return inner === undefined ? undefined : { words: inner, next: 'args' }
+    return inner === undefined ? undefined : { words: [word, ...inner], next: 'args' }
   }
   if (word === 'find') {
     const inner = findActionWords(rest, depth)
@@ -373,6 +372,8 @@ function isRedirection(op: string): boolean {
  * and backquoted substitutions so the programs they start are checked too.
  */
 function tokenize(source: string, depth: number): Token[] | undefined {
+  // `${x@P}` prompt-expands a value, running command substitutions inside it.
+  if (/\$\{[^}]*@P\}/u.test(source)) return undefined
   const tokens: Token[] = []
   let word = ''
   let inWord = false
@@ -392,6 +393,8 @@ function tokenize(source: string, depth: number): Token[] | undefined {
         index += 2
         continue
       }
+      // An escaped substitution is code kept for later evaluation.
+      if (source[index + 1] === '`' || (source[index + 1] === '$' && source[index + 2] === '(')) return undefined
       word += source[index + 1] ?? ''
       inWord = true
       index += 2
@@ -400,6 +403,9 @@ function tokenize(source: string, depth: number): Token[] | undefined {
     if (char === "'") {
       const end = source.indexOf("'", index + 1)
       if (end === -1) return undefined
+      // A quoted substitution is code kept for later evaluation (prompt
+      // expansion, arithmetic, a nested shell); not modelled, so opaque.
+      if (/\$\(|`/u.test(source.slice(index + 1, end))) return undefined
       word += source.slice(index + 1, end)
       inWord = true
       index = end + 1
