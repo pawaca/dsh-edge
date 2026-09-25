@@ -178,10 +178,38 @@ function findExecCommand(args: Token[]): string | undefined | null {
   return target.word!
 }
 
+/**
+ * The first program an `env -S`/`--split-string` string starts, null when it
+ * starts one the light shell lacks or cannot be read; undefined without -S.
+ */
+function splitStringCommand(args: Token[]): string | null | undefined {
+  for (let index = 0; index < args.length; index++) {
+    const word = args[index]!.word
+    if (word === undefined) continue
+    let script: string | undefined
+    let dynamic = false
+    if (word === '-S' || word === '--split-string') {
+      script = args[index + 1]?.word
+      dynamic = args[index + 1]?.dynamic === true
+    } else if (word.startsWith('--split-string=')) {
+      script = word.slice('--split-string='.length)
+      dynamic = args[index]!.dynamic === true
+    } else if (/^-[^-]*S/u.test(word)) {
+      script = word.slice(word.indexOf('S') + 1) || args[index + 1]?.word
+      dynamic = args[index]!.dynamic === true || args[index + 1]?.dynamic === true
+    } else {
+      continue
+    }
+    if (script === undefined || dynamic || !runsInLightShell(script, 1)) return null
+    return commandWords(script, 1)?.[0] ?? null
+  }
+  return undefined
+}
+
 /** The program a wrapper runs: undefined when it runs none, null when opaque. */
 function wrappedCommand(wrapper: string, args: Token[]): string | undefined | null {
   const optionsWithValue: Record<string, ReadonlySet<string>> = {
-    env: new Set(['-u', '-C', '-S', '--unset', '--chdir']),
+    env: new Set(['-u', '-C', '--unset', '--chdir']),
     timeout: new Set(['-s', '-k', '--signal', '--kill-after']),
     nice: new Set(['-n', '--adjustment']),
     xargs: new Set(['-a', '-d', '-E', '-e', '-I', '-i', '-L', '-l', '-n', '-P', '-s', '--arg-file',
@@ -192,6 +220,11 @@ function wrappedCommand(wrapper: string, args: Token[]): string | undefined | nu
     nohup: new Set(),
   }
   const valued = optionsWithValue[wrapper] ?? new Set<string>()
+  // `env -S 'cmd args'` splits and runs the string: judge it as a command line.
+  if (wrapper === 'env') {
+    const split = splitStringCommand(args)
+    if (split !== undefined) return split
+  }
   let index = 0
   // `command -v`/`-V` looks a name up instead of running it.
   if (wrapper === 'command' && args.some(arg => arg.word === '-v' || arg.word === '-V')) return undefined
@@ -280,7 +313,8 @@ function tokenize(source: string, depth: number): Token[] | undefined {
       const end = closingParen(source, index + 2)
       if (end === undefined) return undefined
       if (source[index + 2] === '(') {
-        // Arithmetic expansion runs no program.
+        // Arithmetic runs no program itself, but substitutions inside it do.
+        if (!substitutionsAreLight(source.slice(index + 3, end), depth)) return undefined
         word += '0'
       } else if (!runsInLightShell(source.slice(index + 2, end), depth + 1)) {
         return undefined
@@ -326,6 +360,15 @@ function tokenize(source: string, depth: number): Token[] | undefined {
     if (char === ' ' || char === '\t') {
       flush()
       index++
+      continue
+    }
+    if ((char === '<' || char === '>') && source[index + 1] === '(') {
+      // Process substitution `<(…)`/`>(…)` starts the commands inside it.
+      const end = closingParen(source, index + 2)
+      if (end === undefined || !runsInLightShell(source.slice(index + 2, end), depth + 1)) return undefined
+      dynamic = true
+      inWord = true
+      index = end + 1
       continue
     }
     if (char === '(' && inWord && word.endsWith('=')) {

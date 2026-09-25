@@ -82,6 +82,30 @@ describe('bash command routing', () => {
     expect(auto('case $x in a) ls;; esac')).toBe('container')
   })
 
+  // Every construct that can start a program is either checked recursively or
+  // treated as opaque; none may hide a program from the classifier.
+  it.each([
+    ['cat <(node -v)', 'container'],
+    ['diff <(ls a) <(ls b)', 'light'],
+    ['tee >(gzip > out.gz) < a.txt', 'light'],
+    ['tee >(python3 -c "import sys") < a.txt', 'container'],
+    ['echo $(( $(node -p 1) + 1 ))', 'container'],
+    ['echo $(( `git rev-list --count HEAD` * 2 ))', 'container'],
+    ['echo $(( 1 + $(wc -l < a.txt) ))', 'light'],
+    ['(( $(node -p 1) > 0 )) && echo yes', 'container'],
+    ['echo $[ $(node -p 1) + 1 ]', 'container'],
+    ["env -S 'node -v'", 'container'],
+    ["env --split-string='python3 x.py'", 'container'],
+    ["env -S 'ls -la'", 'light'],
+    ['env -S "$CMD"', 'container'],
+    ['echo "${NAME:-$(git config user.name)}"', 'container'],
+    ['cat <<< "$(node -v)"', 'container'],
+    ['cat <<< "$(date)"', 'light'],
+    ["$'no\x64e' -v", 'container'],
+  ] as const)('checks programs hidden in %s', (command, route) => {
+    expect(auto(command)).toBe(route)
+  })
+
   it('honours the policy, the explicit request, and a missing container', () => {
     expect(routeBashCommand('npm test', { policy: 'auto', containerAvailable: false })).toBe('light')
     expect(routeBashCommand('npm test', { policy: 'light', containerAvailable: true })).toBe('light')
