@@ -174,9 +174,13 @@ function startsProgramsItself(program: string, args: Token[]): boolean {
     case 'sort':
       return option('--compress-program')
     case 'awk':
-      // system(), `cmd | getline`, and `print | "cmd"` run programs.
-      return words.some(word => /\bsystem\s*\(|\|/u.test(word))
+      // A program read from a file cannot be inspected; system(),
+      // `cmd | getline`, and `print | "cmd"` run programs.
+      return option('-f', '--file') || words.some(word => /^-[^-]*f/u.test(word))
+        || words.some(word => /\bsystem\s*\(|\|/u.test(word))
     case 'sed':
+      // A script read from a file cannot be inspected.
+      if (option('-f', '--file') || words.some(word => /^-[^-]*f/u.test(word))) return true
       // The `e` command and the `s///e` flag run programs.
       // An `e` command may follow an address: a line number, `$`, a /regex/,
       // a range, or `!`.
