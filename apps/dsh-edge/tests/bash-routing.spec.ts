@@ -244,6 +244,9 @@ describe('bash command routing', () => {
     ['tar cJf out.tar.xz src', 'container'],
     ['tar -cjf out.tar.bz2 src', 'container'],
     ['tar -cZf out.tar.Z src', 'container'],
+    ['tar cfI out.tar node a', 'container'],
+    ['tar cfj out.tar.bz2 a', 'container'],
+    ['tar cf out.tar a', 'light'],
     ['tar --compress -cf out.tar src', 'container'],
     ['tar -acf out.tar.Z src', 'container'],
     ['tar --exclude=node_modules --strip-components=1 -xzf in.tgz', 'light'],
@@ -317,6 +320,11 @@ describe('bash command routing', () => {
     expect(at('/workspace', 'env -C/etc pwd')).toBe('container')
     expect(at('/workspace', "printf 'x\\n' | sed -n '1r /etc/os-release'")).toBe('container')
     expect(at('/workspace', "sed 'w /tmp/copy' a.txt")).toBe('container')
+    expect(at('/workspace', "printf 'x\\n' | sed -n '1r/etc/os-release'")).toBe('container')
+    expect(at('/workspace', "sed 's/a/b/w/tmp/out' a.txt")).toBe('container')
+    expect(at('/workspace', "cat $'/etc/os-release'")).toBe('container')
+    expect(at('/workspace', 'cat $"/etc/os-release"')).toBe('container')
+    expect(at('/workspace', "printf $'a\\tb\\n'")).toBe('light')
     expect(at('/workspace', `awk 'BEGIN { while ((getline l < "/etc/passwd") > 0) print l }'`)).toBe('container')
     expect(at('/workspace', "sed -n '/start/,/end/p' a.txt")).toBe('light')
     expect(at('/workspace', 'sort -o/tmp/out a.txt')).toBe('container')

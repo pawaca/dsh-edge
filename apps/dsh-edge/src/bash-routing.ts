@@ -270,7 +270,7 @@ function startsProgramsItself(program: string, args: Token[]): boolean {
       // needs a program or native module, and several options start programs.
       // So only known-safe options stay light (an allowlist, not a denylist).
       return words.some((word, index) => index === 0 && !word.startsWith('-')
-        ? !tarClusterIsSafe(word)
+        ? !tarClusterIsSafe(word, true)
         : word.startsWith('--') ? !TAR_SAFE_LONG.has(word.split('=')[0]!)
           : word.startsWith('-') && !tarClusterIsSafe(word.slice(1)))
         // Suffixes cover auto-compress and extraction.
@@ -292,6 +292,12 @@ function startsProgramsItself(program: string, args: Token[]): boolean {
       // An `e` command can follow any address form (line, `$`, /re/, \cREc,
       // ranges, `!`), so any standalone `e` counts; so does the `s///e` flag.
       if (words.some(word => !/^-[A-Za-z]+$/u.test(word) && /(^|[^A-Za-z_])e(\s|$|;|\})|s(.)(?:\\.|(?!\3).)*\3(?:\\.|(?!\3).)*\3[a-zA-Z0-9]*e/u.test(word))) return true
+      // File commands (`r`, `R`, `w`, `W`, and the s///w flag) may glue
+      // their path to the letter (`1r/etc/hostname`).
+      const linuxRoot = [...LINUX_ROOTS].join('|')
+      if (sedScripts(words).some(script => new RegExp(`[rRwW]\\s*/(${linuxRoot})(/|$|\\s)`, 'u').test(script))) {
+        return true
+      }
       // GNU sed also accepts the command glued to `e` (`enode -v`); only the
       // script words are checked so file names starting with `e` stay light.
       return sedScripts(words).some(script => /(^|[;{}\n!0-9$])\s*e\S/u.test(script))
@@ -313,10 +319,17 @@ const TAR_SAFE_LONG = new Set(['--create', '--extract', '--get', '--list', '--ap
   '--mtime', '--sort', '--numeric-owner', '--force-local', '--one-file-system', '--show-transformed-names',
   '--totals', '--null', '--exclude-vcs', '--exclude-vcs-ignores', '--anchored', '--no-anchored'])
 
-/** Whether a short-option cluster (without its dash) uses only safe letters before any valued one. */
-function tarClusterIsSafe(cluster: string): boolean {
+/**
+ * Whether a short-option cluster (without its dash) uses only safe letters
+ * before any valued one. In the traditional first word (`tar cfI …`) every
+ * letter is an option and values come from later words, so all are checked.
+ */
+function tarClusterIsSafe(cluster: string, traditional = false): boolean {
   for (const letter of cluster) {
-    if (TAR_VALUED_SHORT.has(letter)) return true
+    if (TAR_VALUED_SHORT.has(letter)) {
+      if (traditional) continue
+      return true
+    }
     if (!TAR_SAFE_SHORT.has(letter)) return false
   }
   return true
@@ -630,6 +643,23 @@ function tokenize(source: string, depth: number): Token[] | undefined {
       dynamic = true
       inWord = true
       index = end + 1
+      continue
+    }
+    // ANSI-C `$'…'` is literal unless it uses escapes (`\x2f`), which bash
+    // decodes; locale `$"…"` is an ordinary double-quoted string here.
+    if (char === '$' && source[index + 1] === "'") {
+      let end = index + 2
+      while (end < source.length && source[end] !== "'") end += source[end] === '\\' ? 2 : 1
+      if (end >= source.length) return undefined
+      const body = source.slice(index + 2, end)
+      if (body.includes('\\')) dynamic = true
+      word += body
+      inWord = true
+      index = end + 1
+      continue
+    }
+    if (char === '$' && source[index + 1] === '"') {
+      index++
       continue
     }
     if (char === '$') {
