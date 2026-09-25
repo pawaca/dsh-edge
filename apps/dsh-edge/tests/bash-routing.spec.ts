@@ -195,6 +195,13 @@ describe('bash command routing', () => {
     ['timeout -k 2 5 ls', 'light'],
     // nice is not a light-shell command itself.
     ['nice -5 ls', 'container'],
+    ["bash script.sh -c 'ls'", 'container'],
+    ["sh ./run.sh -c 'ls'", 'container'],
+    ["bash -o pipefail -c 'ls'", 'container'],
+    ["bash --rcfile x -c 'ls'", 'container'],
+    ["bash -ec 'ls | wc -l'", 'light'],
+    ["bash --norc -xc 'ls'", 'light'],
+    ["sh -c 'cat a.txt'", 'light'],
     ['awk -f rules.awk data.txt', 'container'],
     ['awk --file=rules.awk data.txt', 'container'],
     ['awk -F, -f rules.awk data.txt', 'container'],

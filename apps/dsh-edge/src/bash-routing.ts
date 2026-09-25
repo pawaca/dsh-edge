@@ -209,12 +209,32 @@ function argumentsOf(tokens: Token[], start: number): Token[] {
   return rest
 }
 
-/** `bash -c '…'` with a literal script; undefined for anything else (a script file, stdin, dynamic). */
+/**
+ * `bash -c '…'` with a literal script; undefined for anything else. Options
+ * are read only before the first operand (a script file, whose contents are
+ * unknown), and only known ones count: an unknown option or `-o`/`-O` value
+ * makes the command opaque.
+ */
 function inlineScript(args: Token[]): string | undefined {
-  const flag = args.findIndex(arg => arg.word !== undefined && /^-[a-z]*c[a-z]*$/u.test(arg.word))
-  const script = flag === -1 ? undefined : args[flag + 1]
-  if (script === undefined || script.dynamic === true) return undefined
-  return script.word
+  const longFlags = new Set(['--norc', '--noprofile', '--posix', '--login', '--noediting', '--restricted'])
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index]!
+    if (arg.dynamic === true) return undefined
+    const word = arg.word!
+    if (word.startsWith('--')) {
+      if (!longFlags.has(word)) return undefined
+      continue
+    }
+    if (!word.startsWith('-') || word === '-') return undefined // a script operand or stdin
+    const letters = word.slice(1)
+    if (!/^[abefhkmnprtuvxBCEHPTil]*c?[abefhkmnprtuvxBCEHPTil]*$/u.test(letters)) return undefined
+    if (letters.includes('c')) {
+      const script = args[index + 1]
+      if (script === undefined || script.dynamic === true) return undefined
+      return script.word
+    }
+  }
+  return undefined
 }
 
 const FIND_ACTIONS = new Set(['-exec', '-execdir', '-ok', '-okdir'])
