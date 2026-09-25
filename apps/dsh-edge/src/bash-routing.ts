@@ -24,7 +24,7 @@ export type BashRoute = 'light' | 'container'
 export const LIGHT_SHELL_COMMANDS: ReadonlySet<string> = new Set([
   // Shell builtins and keywords that do not run another program.
   ':', '[', '[[', 'alias', 'break', 'cd', 'continue', 'declare', 'echo', 'exit', 'export',
-  'false', 'local', 'printf', 'pwd', 'read', 'readonly', 'return', 'set', 'shift', 'test',
+  'false', 'printf', 'pwd', 'read', 'readonly', 'set', 'shift', 'test',
   'true', 'type', 'unalias', 'unset',
   // just-bash commands.
   'awk', 'base64', 'basename', 'cat', 'chmod', 'clear', 'column', 'comm', 'cp', 'cut', 'date',
@@ -94,20 +94,13 @@ const MAX_DEPTH = 4
 function wordsOf(tokens: Token[], depth: number): string[] | undefined {
   if (depth > MAX_DEPTH) return undefined
   const words: string[] = []
-  // `name() { body; }`: the body's commands are checked where they appear, so
-  // a later call to `name` starts nothing new.
-  const functions = new Set<string>()
   let position: 'command' | 'args' | 'for' = 'command'
   for (let index = 0; index < tokens.length; index++) {
     const token = tokens[index]!
     if (token.op !== undefined) {
-      if (token.op === '()') {
-        const name = words.pop()
-        if (name === undefined) return undefined
-        functions.add(name)
-        position = 'command'
-        continue
-      }
+      // A function definition can shadow any program depending on execution
+      // order; not modelled, so opaque.
+      if (token.op === '()') return undefined
       if (isRedirection(token.op)) {
         index++ // the redirection target is not a command
         continue
@@ -127,7 +120,7 @@ function wordsOf(tokens: Token[], depth: number): string[] | undefined {
     if (invoked.next === 'for') position = 'for'
     else if (invoked.next === 'args') position = 'args'
   }
-  return words.filter(word => !functions.has(word))
+  return words
 }
 
 /** The programs one command-position word starts, following what it runs. */
@@ -157,7 +150,37 @@ function invokedWords(tokens: Token[], index: number, depth: number): {
     const inner = wrappedWords(word, rest, depth)
     return inner === undefined ? undefined : { words: [word, ...inner], next: 'args' }
   }
+  if (startsProgramsItself(word, rest)) return undefined
   return { words: [word], next: 'args' }
+}
+
+/**
+ * Light-shell tools that can start programs through their own options or
+ * scripts. These forms are opaque. The list covers the common, cheaply
+ * detectable ones; anything it misses fails in the light shell with a missing
+ * program, and the result tells the agent to retry with `linux: true`.
+ */
+function startsProgramsItself(program: string, args: Token[]): boolean {
+  const words = args.map(arg => arg.word ?? '')
+  const option = (...names: string[]) => words.some(word =>
+    names.some(name => word === name || word.startsWith(`${name}=`)))
+  switch (program) {
+    case 'rg':
+      return option('--pre')
+    case 'tar':
+      return option('-I', '--use-compress-program', '--to-command', '--checkpoint-action',
+        '--info-script', '--new-volume-script', '-F')
+    case 'sort':
+      return option('--compress-program')
+    case 'awk':
+      // system(), `cmd | getline`, and `print | "cmd"` run programs.
+      return words.some(word => /\bsystem\s*\(|\|/u.test(word))
+    case 'sed':
+      // The `e` command and the `s///e` flag run programs.
+      return words.some(word => /(^|[;\n{}])\s*e(\s|$|;)|s(.)(?:(?!\3).)*\3(?:(?!\3).)*\3[a-zA-Z0-9]*e/u.test(word))
+    default:
+      return false
+  }
 }
 
 function argumentsOf(tokens: Token[], start: number): Token[] {

@@ -151,6 +151,31 @@ describe('bash command routing', () => {
     }
   })
 
+  it('treats function definitions as opaque, since they can shadow programs out of order', () => {
+    expect(auto('node -v; node(){ :; }')).toBe('container')
+    expect(auto('false && node(){ :; }; node -v')).toBe('container')
+    expect(auto('f(){ ls; }; f')).toBe('container')
+  })
+
+  it.each([
+    ["rg --pre 'node -v' needle file", 'container'],
+    ['rg --pre=./decode.sh needle', 'container'],
+    ['rg -n needle src', 'light'],
+    ['tar -I zstd -cf out.tar.zst src', 'container'],
+    ["tar --to-command='node x.js' -xf a.tar", 'container'],
+    ['tar -tf a.tar', 'light'],
+    ['sort --compress-program=gzip big.txt', 'container'],
+    ["awk 'BEGIN { system(\"node -v\") }'", 'container'],
+    ["awk '{ print | \"sort\" }' a.txt", 'container'],
+    ["awk -F, '{ s += $2 } END { print s }' c.csv", 'light'],
+    ["sed 'e node -v' a.txt", 'container'],
+    ["sed 's/x/node -v/e' a.txt", 'container'],
+    ["sed -n '1,5p' a.txt", 'light'],
+    ["sed 's/foo/bar/g' a.txt", 'light'],
+  ] as const)('treats tools that start programs themselves as opaque: %s', (command, route) => {
+    expect(auto(command)).toBe(route)
+  })
+
   it('treats escaped nested backquotes as opaque', () => {
     expect(auto('echo `echo \\`node -v\\``')).toBe('container')
     expect(auto('echo "`echo \\`ls\\``"')).toBe('container')

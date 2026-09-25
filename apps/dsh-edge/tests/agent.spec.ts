@@ -148,6 +148,18 @@ describe('dsh-edge native agent runtime', () => {
     const properties = (tool: ReturnType<typeof createEdgeBashTool>) =>
       Object.keys((tool.parameters as { properties?: Record<string, unknown> }).properties ?? {})
     expect(properties(routed)).toContain('linux')
+    const render = (result: Record<string, unknown>) => {
+      const blocks = (routed.output as { render: (args: unknown, result: unknown) => Array<{ text: string }> })
+        .render({}, { executionId: 'e', status: 'failed', timedOut: false, stdout: '', stderr: '',
+          outputTruncated: false, ...result })
+      return blocks.map(block => block.text).join('')
+    }
+    expect(render({ exitCode: 127, stderr: 'bash: node: command not found\n', runtime: 'light' }))
+      .toContain('rerun with linux: true')
+    expect(render({ exitCode: 1, runtime: 'light' })).not.toContain('linux: true')
+    expect(render({ exitCode: 127, runtime: 'container' })).not.toContain('rerun with linux')
+    expect(render({ exitCode: 0, status: 'completed', stdout: 'ok', runtime: 'container', queuedMs: 3_000 }))
+      .toContain('[ran in the Linux container after waiting 3s for a free slot]')
     expect(properties(createEdgeBashTool(shells, 'just-bash-isolated'))).not.toContain('linux')
     const container = edgeSystemPrompt('linux-container')
     expect(container).toContain('Commands start in just-bash')

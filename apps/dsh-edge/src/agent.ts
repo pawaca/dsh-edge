@@ -178,6 +178,10 @@ function formatExecution(result: Omit<EdgeShellResult, 'executionId'>): string {
   const queued = result.queuedMs !== undefined && result.queuedMs >= 1_000
     ? ` after waiting ${Math.round(result.queuedMs / 1_000)}s for a free slot`
     : ''
-  const where = result.runtime === 'container' ? `\n[ran in the Linux container${queued}]` : ''
+  const where = result.runtime === 'container'
+    ? `\n[ran in the Linux container${queued}]`
+    : result.runtime === 'light' && result.exitCode === 127
+      ? '\n[a program is not available in the lightweight shell; rerun with linux: true to use the Linux container]'
+      : ''
   return output + truncated + timedOut + suffix + where || '(no output)'
 }
