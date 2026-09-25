@@ -526,8 +526,10 @@ function isRedirection(op: string): boolean {
 function tokenize(source: string, depth: number): Token[] | undefined {
   // `${x@P}` prompt-expands a value, running command substitutions inside it.
   if (/\$\{[^}]*@P\}/u.test(source)) return undefined
-  // BASH_ENV / ENV name a startup file a nested shell sources first.
-  if (/(^|[\s;&|(`])(export\s+)?(BASH_ENV|ENV)=/u.test(source)) return undefined
+  // BASH_ENV / ENV name a startup file a nested shell sources first;
+  // TAR_OPTIONS and RIPGREP_CONFIG_PATH can inject program-running options
+  // (`--use-compress-program`, `--pre`) into allowlisted tools.
+  if (/(^|[\s;&|(`])(export\s+)?(BASH_ENV|ENV|TAR_OPTIONS|RIPGREP_CONFIG_PATH)=/u.test(source)) return undefined
   const tokens: Token[] = []
   let word = ''
   let inWord = false
@@ -681,7 +683,8 @@ function tokenize(source: string, depth: number): Token[] | undefined {
   flush()
   if (pendingHeredocs.length > 0) return undefined
   // The same check after quote removal: `env 'BASH_ENV=x'`, `export \ENV=x`.
-  if (tokens.some(token => token.word !== undefined && /^(BASH_ENV|ENV)\+?=/u.test(token.word))) return undefined
+  if (tokens.some(token => token.word !== undefined
+    && /^(BASH_ENV|ENV|TAR_OPTIONS|RIPGREP_CONFIG_PATH)\+?=/u.test(token.word))) return undefined
   return tokens
 }
 
