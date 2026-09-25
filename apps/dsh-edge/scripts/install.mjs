@@ -409,7 +409,7 @@ export async function removeStaleContainerApplication({
   signal,
 }) {
   const name = containerApplicationName(workerName)
-  const manual = `npx wrangler containers list, then npx wrangler containers delete <id> for ${name}`
+  const manual = staleContainerCleanupCommand(workerName)
   try {
     const listed = await runWrangler(['containers', 'list', '--json', ...profileArgs(profile)], {
       environment,
@@ -433,6 +433,10 @@ export async function removeStaleContainerApplication({
     signal?.throwIfAborted()
     ui.cleanupFailure(`${describeError(error)} Remove it manually to stop Container billing: ${manual}.`)
   }
+}
+
+function staleContainerCleanupCommand(workerName) {
+  return `npx wrangler containers list, then npx wrangler containers delete <id> for ${containerApplicationName(workerName)}`
 }
 
 /** Inspect active Worker versions so upgrades preserve the existing attachment backend. */
@@ -847,16 +851,6 @@ export async function installEdge({
       })
       throw error
     }
-    if (existingDeployment?.containerRuntime === true && mode !== 'container') {
-      await removeStaleContainerApplication({
-        ui,
-        runWrangler,
-        environment: commandEnvironment,
-        profile,
-        workerName,
-        signal,
-      })
-    }
     let result = {
       ...deployment,
       account,
@@ -883,6 +877,25 @@ export async function installEdge({
         ui.activationFinish?.()
         ui.recovery(result)
         throw error
+      }
+    }
+    // The previous Container version keeps serving during propagation and is
+    // the rollback target until the replacement is verified, so its Container
+    // application is removed only after activation reports ready.
+    if (existingDeployment?.containerRuntime === true && mode !== 'container') {
+      if (result.activation?.status === 'ready') {
+        await removeStaleContainerApplication({
+          ui,
+          runWrangler,
+          environment: commandEnvironment,
+          profile,
+          workerName,
+          signal,
+        })
+      } else {
+        ui.cleanupFailure(`The ${containerApplicationName(workerName)} Container application was kept because `
+          + `the new version is not verified yet. Once it works, remove it to stop Container billing: ${
+            staleContainerCleanupCommand(workerName)}.`)
       }
     }
     completedResult = result

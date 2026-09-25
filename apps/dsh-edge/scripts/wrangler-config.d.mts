@@ -2,6 +2,8 @@ import type { RuntimeMode } from './install.mjs'
 
 /** A deployable Worker environment: a runtime mode or the Container environment. */
 export type PrebuiltMode = RuntimeMode | 'container'
+/** A mode with its own source build; Container reuses the isolated artifact. */
+export type SourceMode = 'direct' | 'isolated'
 
 export interface WranglerConfigOptions {
   aliases?: Record<string, string>
@@ -25,7 +27,7 @@ export function containerImageReference(version?: string): string
 export function containerApplicationName(workerName: string): string
 
 export function renderSourceModeWranglerConfig(
-  mode: RuntimeMode,
+  mode: SourceMode,
   source: string,
   options?: WranglerConfigOptions,
 ): string
@@ -37,7 +39,7 @@ export function renderPrebuiltModeWranglerConfig(
 ): string
 
 export function writeSourceModeWranglerConfig(
-  mode: RuntimeMode,
+  mode: SourceMode,
   destination: string,
   options?: WranglerConfigOptions,
 ): Promise<void>

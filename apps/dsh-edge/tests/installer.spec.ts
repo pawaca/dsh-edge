@@ -1284,9 +1284,13 @@ describe('dsh-edge guided installation', () => {
     expect(success).toHaveBeenCalledOnce()
   })
 
-  it('removes the Container application when a Container Worker upgrades to another runtime', async () => {
-    for (const previous of ['container', 'direct'] as const) {
-      const directory = await mkdtemp(join(tmpdir(), `dsh-edge-leave-container-${previous}-`))
+  it('removes the Container application only after a Container Worker upgrades and activates', async () => {
+    for (const [previous, activation] of [
+      ['container', 'ready'],
+      ['container', 'pending'],
+      ['direct', 'ready'],
+    ] as const) {
+      const directory = await mkdtemp(join(tmpdir(), `dsh-edge-leave-container-${previous}-${activation}-`))
       const { ui, cleanupFailure } = createUi({ mode: 'direct' })
       const bindings: unknown[] = [{ name: 'DSH_EDGE_ATTACHMENT_STORAGE', type: 'plain_text', text: 'temporary-do' }]
       if (previous === 'container') {
@@ -1308,15 +1312,23 @@ describe('dsh-edge guided installation', () => {
         }))
         return commandResult(0)
       })
-      await installEdge({ command: 'upgrade', ui, runWrangler, createTemporaryDirectory: async () => directory })
+      const observeActivation = vi.fn(async () => ({ status: activation, attempts: 1, elapsedMs: 0 }))
+      await installEdge({
+        command: 'upgrade', ui, runWrangler, observeActivation, createTemporaryDirectory: async () => directory,
+      })
       const containerCalls = runWrangler.mock.calls.map(call => call[0]).filter(args => args[0] === 'containers')
-      expect(containerCalls).toEqual(previous === 'container'
+      expect(containerCalls).toEqual(previous === 'container' && activation === 'ready'
         ? [
             ['containers', 'list', '--json'],
             ['containers', 'delete', 'a03efd01-3c6e-4609-bb6c-e07fb44e207c'],
           ]
         : [])
-      expect(cleanupFailure).not.toHaveBeenCalled()
+      if (previous === 'container' && activation === 'pending') {
+        // The unverified replacement may still roll back to the Container version.
+        expect(cleanupFailure).toHaveBeenCalledWith(expect.stringMatching(/was kept.*dsh-edge-container/su))
+      } else {
+        expect(cleanupFailure).not.toHaveBeenCalled()
+      }
     }
   })
 
