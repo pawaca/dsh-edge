@@ -26,6 +26,12 @@ const MAX_ROWS_PER_FILE = 10
 try {
   execFileSync('docker', ['info'], { stdio: 'ignore' })
 } catch {
+  // CI sets DSH_EDGE_REQUIRE_DOCKER so a missing engine fails rather than
+  // reporting a pass that ran nothing; local runs without Docker still skip.
+  if (process.env.DSH_EDGE_REQUIRE_DOCKER === '1') {
+    process.stderr.write('Container integration requires Docker, but no Docker engine is reachable.\n')
+    process.exit(1)
+  }
   process.stdout.write('Skipping container integration: no Docker engine is reachable.\n')
   process.exit(0)
 }

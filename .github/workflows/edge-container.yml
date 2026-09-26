@@ -1,0 +1,52 @@
+name: Edge Container
+
+# The Container integration builds the Linux image and runs real commands in
+# it, which takes minutes, so it runs daily and on demand instead of gating
+# pull requests. A scheduled failure notifies whoever last changed the schedule.
+on:
+  schedule:
+    - cron: '0 18 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: edge-container-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '24'
+  DSH_TELEMETRY_DISABLED: '1'
+
+jobs:
+  container:
+    name: edge / container integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/setup@v2
+        with:
+          install: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install pinned standalone assembly dependencies
+        run: pnpm --dir apps/dsh-edge/standalone install --frozen-lockfile
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Fails instead of skipping when Docker is unreachable, so a broken
+      # runner cannot report a pass that tested nothing.
+      - name: Run the Container integration
+        run: pnpm --filter dsh-edge run test:container
+        env:
+          DSH_EDGE_REQUIRE_DOCKER: '1'
