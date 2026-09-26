@@ -300,7 +300,9 @@ function startsProgramsItself(program: string, args: Token[]): boolean {
     case 'awk':
       // A program read from a file cannot be inspected; system(),
       // `cmd | getline`, and `print | "cmd"` run programs.
-      return option('-f', '--file') || words.some(word => /^-[^-]*f/u.test(word))
+      // Only `-F` and `-v` (and `--`/`-`) stay light: any other option, such as
+      // `-f` or mawk's `-W exec`, may read the program from a file.
+      return words.some(word => word.startsWith('-') && !/^-(?:F|v)|^--?$/u.test(word))
         || words.some(word => /\bsystem\s*\(|\|/u.test(word))
     case 'sed':
       // A script read from a file cannot be inspected.
