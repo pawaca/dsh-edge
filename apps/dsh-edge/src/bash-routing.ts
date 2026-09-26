@@ -294,8 +294,10 @@ function startsProgramsItself(program: string, args: Token[]): boolean {
       if (words.some(word => !/^-[A-Za-z]+$/u.test(word) && /(^|[^A-Za-z_])e(\s|$|;|\})|s(.)(?:\\.|(?!\3).)*\3(?:\\.|(?!\3).)*\3[a-zA-Z0-9]*e/u.test(word))) return true
       // File commands (`r`, `R`, `w`, `W`, and the s///w flag) may glue
       // their path to the letter (`1r/etc/hostname`).
-      const linuxRoot = [...LINUX_ROOTS].join('|')
-      if (sedScripts(words).some(script => new RegExp(`[rRwW]\\s*/(${linuxRoot})(/|$|\\s)`, 'u').test(script))) {
+      // A missing `r` file reads as empty with exit 0, so the light shell would
+      // fail silently; every such path goes through the shared normalizer.
+      if (sedScripts(words).some(script => [...script.matchAll(/[rRwW]\s*(\/[^\s;}]*)/gu)]
+        .some(match => touchesContainerFilesystem({ word: match[1]! })))) {
         return true
       }
       // GNU sed also accepts the command glued to `e` (`enode -v`); only the
