@@ -1006,6 +1006,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     options: { timeoutMs?: number; signal?: AbortSignal },
   ): Promise<{ result: EdgeShellResult; unchanged: boolean; elapsedMs: number }> {
     const started = Date.now()
+    options.signal?.throwIfAborted()
     // Computer's mkdir advances the revision even for an existing directory,
     // so create cwd before reading it and skip the command's own mkdir.
     await workspace.fs.mkdir(cwd, { recursive: true })

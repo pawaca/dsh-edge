@@ -122,15 +122,24 @@ function changesDirectoryOpaquely(tokens: Token[]): boolean {
   return unknownTarget || traversal
 }
 
+/** Whether the option word at `index` belongs to a preceding `time` or `command`. */
+function optionsOf(tokens: Token[], index: number): boolean {
+  let at = index
+  while (at >= 0 && tokens[at]!.word?.startsWith('-') === true) at--
+  return tokens[at]?.word === 'time' || tokens[at]?.word === 'command'
+}
+
 const COMMAND_PREFIX_WORDS = new Set(['if', 'while', 'until', 'then', 'do', 'else', 'elif', '{', '!', 'time',
   'builtin', 'command'])
 
 function commandPosition(tokens: Token[], index: number): boolean {
-  // Assignment and redirection prefixes (`A=1 cd`, `2>/dev/null cd`) precede the command word.
+  // Assignment and redirection prefixes (`A=1 cd`, `2>/dev/null cd`) precede
+  // the command word, and so do the options of `time -p` / `command -p`.
   let at = index - 1
   while (at >= 0) {
     const word = tokens[at]!.word
     if (word !== undefined && /^[A-Za-z_][A-Za-z0-9_]*(\[[^\]]*\])?\+?=/u.test(word)) at--
+    else if (word?.startsWith('-') === true && optionsOf(tokens, at)) at--
     else if (word !== undefined && tokens[at - 1]?.op !== undefined && isRedirection(tokens[at - 1]!.op!)) at -= 2
     else break
   }
