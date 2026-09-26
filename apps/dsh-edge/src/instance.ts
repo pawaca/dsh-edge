@@ -72,6 +72,7 @@ import {
   type EdgeMuxBaseline,
 } from './session-store.ts'
 import {
+  EdgeExecutionId,
   EdgeTurnId,
   type CancelEdgeTurnResponse,
   type EdgeSession,
@@ -1027,10 +1028,33 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     options: { timeoutMs?: number; signal?: AbortSignal },
     backend: string,
   ): Promise<EdgeShellResult> {
-    const { release, queuedMs } = await this.containerActivity.admit(options.signal)
+    // Waiting for a slot spends the command's timeout; the command then gets
+    // only what remains, and a wait that uses it all ends as a timeout.
+    const budgetMs = options.timeoutMs ?? timeoutPolicy.defaultTimeoutMs
+    const expiry = AbortSignal.timeout(budgetMs)
+    let admission: Awaited<ReturnType<ContainerActivity['admit']>>
+    try {
+      admission = await this.containerActivity.admit(
+        options.signal === undefined ? expiry : AbortSignal.any([options.signal, expiry]),
+      )
+    } catch (error) {
+      if (options.signal?.aborted === true || !expiry.aborted) throw error
+      return {
+        executionId: EdgeExecutionId(crypto.randomUUID()),
+        status: 'failed',
+        timedOut: true,
+        exitCode: 124,
+        stdout: '',
+        stderr: 'timed out waiting for a free Linux container slot\n',
+        outputTruncated: false,
+        runtime: 'container',
+        queuedMs: budgetMs,
+      }
+    }
+    const { release, queuedMs } = admission
     try {
       const result = await executeWorkspaceCommand(
-        workspace, command, cwd, timeoutPolicy, options.timeoutMs, options.signal, backend,
+        workspace, command, cwd, timeoutPolicy, Math.max(1, budgetMs - queuedMs), options.signal, backend,
       )
       return { ...result, runtime: 'container', queuedMs }
     } finally {

@@ -296,7 +296,7 @@ function startsProgramsItself(program: string, args: Token[]): boolean {
       // their path to the letter (`1r/etc/hostname`).
       // A missing `r` file reads as empty with exit 0, so the light shell would
       // fail silently; every such path goes through the shared normalizer.
-      if (sedScripts(words).some(script => [...script.matchAll(/[rRwW]\s*(\/[^\s;}]*)/gu)]
+      if (sedScripts(words).some(script => [...script.matchAll(/[rRwW]\s*([^\s;}]+)/gu)]
         .some(match => touchesContainerFilesystem({ word: match[1]! })))) {
         return true
       }
