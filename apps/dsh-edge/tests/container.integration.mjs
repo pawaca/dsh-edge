@@ -98,6 +98,11 @@ try {
   const probe = await exec('d=etc; test -f /"$d"/os-release && echo linux || echo missing')
   assert.equal(probe.stdout, 'linux\n')
   assert.equal(probe.retriedFromLight, true)
+  // A link into the container's filesystem crosses too; creating it wrote a
+  // file, so the command is reported rather than rerun.
+  const linked = await exec('d=etc; ln -s /"$d"/os-release os; test -f os && echo linux || echo missing')
+  assert.equal(linked.runtime, 'light')
+  assert.equal(linked.lightShellMiss, true)
 
   // Every command routing keeps light must stay light: no rerun, no miss.
   // A false boundary crossing (say, a new PATH probe) would fail here.

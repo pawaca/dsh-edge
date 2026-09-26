@@ -18,6 +18,7 @@ describe('workspace boundary', () => {
     ['readFile', '/.rgignore'],
     ['readFile', '/.ignore'],
     ['readFile', '/dev/null'],
+    ['readFile', '/dev/zero'],
     ['stat', '/workspace'],
     ['readdir', '/workspace/src'],
     ['writeFile', '/workspace/./a/../b.txt'],
@@ -77,8 +78,17 @@ describe('workspace boundary', () => {
     // Omitted options stay omitted so upstream defaults apply.
     expect(calls).toEqual([['readFile', '/workspace/a.txt', 'utf8'], ['stat', '/workspace/a.txt'], ['readdir', '/workspace']])
     expect(recorder.crossedSince(mark)).toBe(false)
+    await stub.fs.symlink('../b.txt', '/workspace/dir/link')
+    await stub.fs.symlink('/workspace/a.txt', '/workspace/link')
+    expect(recorder.crossedSince(mark)).toBe(false)
     await stub.fs.rename('/workspace/a.txt', '/tmp/a.txt')
     expect(recorder.crossedSince(mark)).toBe(true)
+    const linked = recorder.mark()
+    await stub.fs.symlink('/etc/os-release', '/workspace/os')
+    expect(recorder.crossedSince(linked)).toBe(true)
+    const relative = recorder.mark()
+    await stub.fs.symlink('../../etc/passwd', '/workspace/dir/p')
+    expect(recorder.crossedSince(relative)).toBe(true)
     expect(stub.runtime).toBe(runtime)
     expect(stub.git).toBe('git')
     expect(stub.artifacts).toBe('artifacts')

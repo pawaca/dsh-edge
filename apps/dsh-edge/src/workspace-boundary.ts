@@ -19,8 +19,8 @@ const PATH_DIRECTORIES = new Set(['/usr/bin', '/bin'])
 const ROOT_IGNORE_FILES = new Set(['/.gitignore', '/.ignore', '/.rgignore'])
 /** Metadata lookups a PATH search uses (`sort > out` resolves with `statOrNull`). */
 const LOOKUP_OPS = new Set(['exists', 'stat', 'statOrNull', 'lstat', 'lstatOrNull'])
-/** Devices the lightweight shell provides itself. */
-const SHARED_DEVICES = new Set(['/dev/null', '/dev/stdin', '/dev/stdout', '/dev/stderr'])
+/** Devices both shells provide; kept in step with the router's list. */
+const SHARED_DEVICES = new Set(['/dev/null', '/dev/stdin', '/dev/stdout', '/dev/stderr', '/dev/zero'])
 
 /**
  * Counts accesses outside /workspace that a light command would not make on
@@ -104,7 +104,13 @@ class RecordingFilesystemStub extends RpcTarget {
     return this.call('rename', [from, to], from)
   }
   chmod(path: string, mode: unknown) { return this.call('chmod', [path, mode], path) }
-  symlink(target: string, path: string) { return this.call('symlink', [target, path], path) }
+  symlink(target: string, path: string) {
+    // A link into the container's filesystem (`ln -s /etc/x link`) crosses
+    // even though later reads only name the link; relative targets resolve
+    // against the link's directory.
+    this.recorder.record('symlink', target.startsWith('/') ? target : `${path.slice(0, path.lastIndexOf('/'))}/${target}`)
+    return this.call('symlink', [target, path], path)
+  }
 
   private call(op: string, args: unknown[], path: string): unknown {
     this.recorder.record(op, path)
