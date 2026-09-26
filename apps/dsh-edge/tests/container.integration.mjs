@@ -16,6 +16,7 @@ import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { unstable_dev } from 'wrangler'
 import { workerArtifactPath, writePrebuiltModeWranglerConfig } from '../scripts/wrangler-config.mjs'
+import { LIGHT_SHELL_SAMPLES, LIGHT_SHELL_SETUP } from './fixtures/light-shell-samples.mjs'
 
 const ACCESS_KEY = 'container-integration-owner-key-32b'
 const FILES = 100
@@ -92,6 +93,25 @@ try {
   assert.equal(wrote.retriedFromLight, undefined)
   assert.equal((await exec('cat wrote.txt')).stdout, 'x\n')
 
+  // A silent reach for a container-only path (no error, just "missing") is
+  // caught at the filesystem boundary and rerun in the container too.
+  const probe = await exec('d=etc; test -f /"$d"/os-release && echo linux || echo missing')
+  assert.equal(probe.stdout, 'linux\n')
+  assert.equal(probe.retriedFromLight, true)
+
+  // Every command routing keeps light must stay light: no rerun, no miss.
+  // A false boundary crossing (say, a new PATH probe) would fail here.
+  const samplesCwd = '/workspace/light-shell-samples'
+  assert.equal((await exec(LIGHT_SHELL_SETUP, false, samplesCwd)).status, 'completed')
+  const rerouted = []
+  for (const [name, command] of Object.entries(LIGHT_SHELL_SAMPLES)) {
+    const sample = await exec(command, false, samplesCwd)
+    if (sample.runtime !== 'light' || sample.retriedFromLight || sample.lightShellMiss) {
+      rerouted.push(`${name}: runtime=${sample.runtime} retried=${sample.retriedFromLight} miss=${sample.lightShellMiss}`)
+    }
+  }
+  assert.deepEqual(rerouted, [], 'light-shell samples left the light shell')
+
   const burst = await exec(`mkdir -p burst && for i in $(seq ${FILES}); do echo "file $i" > burst/f$i; done`, true)
   assert.equal(burst.status, 'completed', burst.stderr)
   assert.equal(burst.runtime, 'container')
@@ -115,11 +135,11 @@ try {
   rmSync(scratch, { recursive: true, force: true })
 }
 
-async function exec(command, linux = false) {
+async function exec(command, linux = false, cwd = undefined) {
   const response = await fetch(`http://${worker.address}:${worker.port}/api/workspace/exec`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', cookie },
-    body: JSON.stringify({ command, ...linux ? { linux: true } : {} }),
+    body: JSON.stringify({ command, ...linux ? { linux: true } : {}, ...cwd === undefined ? {} : { cwd } }),
   })
   assert.equal(response.status, 200, await response.clone().text())
   return response.json()
