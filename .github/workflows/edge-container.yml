@@ -41,12 +41,21 @@ jobs:
       - name: Install pinned standalone assembly dependencies
         run: pnpm --dir apps/dsh-edge/standalone install --frozen-lockfile
 
+      # Build before the repository install, as in edge-ci, so a parent
+      # dependency cannot mask a package missing from the standalone lock.
+      - name: Build the pinned standalone release artifacts
+        run: pnpm --dir apps/dsh-edge/standalone run build
+
+      - name: Promote standalone artifacts to release paths
+        run: node apps/dsh-edge/standalone/scripts/promote.mjs all
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # Fails instead of skipping when Docker is unreachable, so a broken
-      # runner cannot report a pass that tested nothing.
+      # Runs against the promoted artifact (not test:container, which would
+      # rebuild after the root install). Fails instead of skipping when Docker
+      # is unreachable, so a broken runner cannot report a pass that tested nothing.
       - name: Run the Container integration
-        run: pnpm --filter dsh-edge run test:container
+        run: node apps/dsh-edge/tests/container.integration.mjs
         env:
           DSH_EDGE_REQUIRE_DOCKER: '1'

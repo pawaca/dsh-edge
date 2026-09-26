@@ -25,7 +25,7 @@ pnpm --filter dsh-edge run test:snapshot
 pnpm --filter dsh-edge run test:container   # needs a local Docker engine
 ```
 
-`edge-container.yml` runs `test:container` daily and on demand (not on pull requests, so it never gates merging). A red daily run means a Container regression reached `main`; fix it before the next release.
+`edge-container.yml` runs the Container integration against the promoted standalone artifact daily and on demand (not on pull requests, so it never gates merging). A red daily run means a Container regression reached `main`; fix it before the next release.
 
 The root and standalone lockfiles serve different purposes. The root lock installs repository tests and tooling; the standalone lock is the release assembly and must build successfully before the root install in CI so parent dependencies cannot mask missing release inputs.
 

@@ -146,11 +146,15 @@ describe('repository workflows', () => {
     expect(source).toMatch(/schedule:\n\s+- cron: '0 18 \* \* \*'/u)
     expect(source).toContain('workflow_dispatch:')
     expect(source).not.toContain('pull_request')
-    expect(source).toContain('pnpm --filter dsh-edge run test:container')
+    // It tests the promoted artifact built before the repository install,
+    // so a parent dependency cannot mask a missing standalone input.
+    expect(source).toContain('node apps/dsh-edge/tests/container.integration.mjs')
+    expect(source).not.toContain('test:container')
+    expect(source.indexOf('pnpm --dir apps/dsh-edge/standalone run build'))
+      .toBeLessThan(source.indexOf('pnpm install --frozen-lockfile'))
+    expect(source.indexOf('promote.mjs all')).toBeLessThan(source.indexOf('pnpm install --frozen-lockfile'))
     // A runner without Docker must fail, never skip into a green run.
     expect(source).toContain("DSH_EDGE_REQUIRE_DOCKER: '1'")
-    expect(source.indexOf('pnpm --dir apps/dsh-edge/standalone install --frozen-lockfile'))
-      .toBeLessThan(source.indexOf('pnpm install --frozen-lockfile'))
     expect(source).not.toContain('secrets.')
     expect(workflow('edge-ci.yml')).not.toContain('test:container')
   })
