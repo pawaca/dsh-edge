@@ -52,7 +52,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # Runs against the promoted artifact (not test:container, which would
+      # Runs against the promoted artifact (the package script would
       # rebuild after the root install). Fails instead of skipping when Docker
       # is unreachable, so a broken runner cannot report a pass that tested nothing.
       - name: Run the Container integration
