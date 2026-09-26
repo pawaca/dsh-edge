@@ -131,6 +131,20 @@ export function requireCommand(value: unknown): string {
 }
 
 /** Execute one bounded just-bash command and normalize its result. */
+/** The command's timeout, validated against the deployment policy before anything runs. */
+export function resolveCommandTimeoutMs(timeoutPolicy: EdgeCommandTimeoutPolicy, timeoutMs?: number): number {
+  const effectiveTimeoutMs = timeoutMs ?? timeoutPolicy.defaultTimeoutMs
+  if (!Number.isInteger(effectiveTimeoutMs)
+    || effectiveTimeoutMs <= 0
+    || effectiveTimeoutMs > timeoutPolicy.maxTimeoutMs) {
+    throw new EdgeWorkspaceRequestError(
+      400,
+      `timeoutMs must be a positive integer no greater than ${timeoutPolicy.maxTimeoutMs}.`,
+    )
+  }
+  return effectiveTimeoutMs
+}
+
 export async function executeWorkspaceCommand(
   workspace: EdgeWorkspace,
   command: string,
@@ -142,15 +156,7 @@ export async function executeWorkspaceCommand(
   /** Skip creating cwd when the caller already did (Computer's mkdir always writes). */
   cwdReady = false,
 ): Promise<EdgeShellResult> {
-  const effectiveTimeoutMs = timeoutMs ?? timeoutPolicy.defaultTimeoutMs
-  if (!Number.isInteger(effectiveTimeoutMs)
-    || effectiveTimeoutMs <= 0
-    || effectiveTimeoutMs > timeoutPolicy.maxTimeoutMs) {
-    throw new EdgeWorkspaceRequestError(
-      400,
-      `timeoutMs must be a positive integer no greater than ${timeoutPolicy.maxTimeoutMs}.`,
-    )
-  }
+  const effectiveTimeoutMs = resolveCommandTimeoutMs(timeoutPolicy, timeoutMs)
   signal?.throwIfAborted()
   if (!cwdReady) await workspace.fs.mkdir(cwd, { recursive: true })
   signal?.throwIfAborted()

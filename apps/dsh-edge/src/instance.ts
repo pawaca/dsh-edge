@@ -86,6 +86,7 @@ import {
   executeWorkspaceCommand,
   requireCommand,
   requireWorkspacePath,
+  resolveCommandTimeoutMs,
   resolveEdgeCommandTimeoutPolicy,
   type EdgeCommandTimeoutPolicy,
   type EdgeWorkspace,
@@ -988,7 +989,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       // A routing miss: rerun in the container when the light attempt changed
       // nothing, otherwise report it so the agent decides whether to retry.
       // The rerun shares the command's deadline instead of starting a new one.
-      const remainingMs = (options.timeoutMs ?? timeoutPolicy.defaultTimeoutMs) - light.elapsedMs
+      const remainingMs = resolveCommandTimeoutMs(timeoutPolicy, options.timeoutMs) - light.elapsedMs
       if (!light.unchanged || remainingMs <= 0) return { ...light.result, runtime: 'light', lightShellMiss: true }
       const rerun = await this.runContainerCommand(workspace, command, cwd, timeoutPolicy,
         { ...options, timeoutMs: remainingMs }, container.id)
@@ -1006,6 +1007,8 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     options: { timeoutMs?: number; signal?: AbortSignal },
   ): Promise<{ result: EdgeShellResult; unchanged: boolean; elapsedMs: number }> {
     const started = Date.now()
+    // Reject invalid input and cancellation before cwd is created.
+    resolveCommandTimeoutMs(timeoutPolicy, options.timeoutMs)
     options.signal?.throwIfAborted()
     // Computer's mkdir advances the revision even for an existing directory,
     // so create cwd before reading it and skip the command's own mkdir.
@@ -1031,7 +1034,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
   ): Promise<EdgeShellResult> {
     // Waiting for a slot spends the command's timeout; the command then gets
     // only what remains, and a wait that uses it all ends as a timeout.
-    const budgetMs = options.timeoutMs ?? timeoutPolicy.defaultTimeoutMs
+    const budgetMs = resolveCommandTimeoutMs(timeoutPolicy, options.timeoutMs)
     const expiry = AbortSignal.timeout(budgetMs)
     let admission: Awaited<ReturnType<ContainerActivity['admit']>>
     try {

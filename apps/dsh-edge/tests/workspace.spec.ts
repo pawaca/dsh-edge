@@ -7,6 +7,7 @@ import {
   executeWorkspaceCommand,
   MAX_TEXT_FILE_BYTES,
   readBoundedWorkspaceFile,
+  resolveCommandTimeoutMs,
   resolveEdgeCommandTimeoutPolicy,
   type EdgeWorkspace,
 } from '../src/workspace.ts'
@@ -53,6 +54,15 @@ describe('dsh-edge workspace command execution', () => {
     expect(() => resolveEdgeCommandTimeoutPolicy('0', '120000')).toThrow(/positive integer/)
     expect(() => resolveEdgeCommandTimeoutPolicy('120001', '120000')).toThrow(/no greater/)
     expect(() => resolveEdgeCommandTimeoutPolicy('120000', '2147483648')).toThrow(/2147483647/)
+  })
+
+  it('validates a command timeout on its own, before anything touches the workspace', () => {
+    const policy = { defaultTimeoutMs: 120_000, maxTimeoutMs: 240_000 }
+    expect(resolveCommandTimeoutMs(policy)).toBe(120_000)
+    expect(resolveCommandTimeoutMs(policy, 5_000)).toBe(5_000)
+    for (const invalid of [0, -1, 1.5, 240_001]) {
+      expect(() => resolveCommandTimeoutMs(policy, invalid)).toThrow(/positive integer no greater than 240000/)
+    }
   })
 
   it('treats a conventional signal exit code as failed without an adapter interrupt', async () => {
