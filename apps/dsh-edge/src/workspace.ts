@@ -139,6 +139,8 @@ export async function executeWorkspaceCommand(
   timeoutMs?: number,
   signal?: AbortSignal,
   backend?: string,
+  /** Skip creating cwd when the caller already did (Computer's mkdir always writes). */
+  cwdReady = false,
 ): Promise<EdgeShellResult> {
   const effectiveTimeoutMs = timeoutMs ?? timeoutPolicy.defaultTimeoutMs
   if (!Number.isInteger(effectiveTimeoutMs)
@@ -150,7 +152,7 @@ export async function executeWorkspaceCommand(
     )
   }
   signal?.throwIfAborted()
-  await workspace.fs.mkdir(cwd, { recursive: true })
+  if (!cwdReady) await workspace.fs.mkdir(cwd, { recursive: true })
   signal?.throwIfAborted()
   const deadline = commandDeadline(effectiveTimeoutMs)
   using execution = await workspace.runtime.exec(command, {

@@ -52,6 +52,10 @@ export interface EdgeShellResult {
   runtime?: 'light' | 'container'
   /** Time spent waiting for a container slot before the command started. */
   queuedMs?: number
+  /** The lightweight shell could not run it and changed nothing, so it reran in the container. */
+  retriedFromLight?: boolean
+  /** The lightweight shell could not run it but changed the workspace, so it was not rerun. */
+  lightShellMiss?: boolean
 }
 
 export interface EdgeShell {
@@ -150,6 +154,8 @@ export function createEdgeBashTool(
           outputTruncated: { type: 'boolean', required: true },
           runtime: { type: 'string', enum: ['light', 'container'] },
           queuedMs: { type: 'number' },
+          retriedFromLight: { type: 'boolean' },
+          lightShellMiss: { type: 'boolean' },
         },
       },
       render: (_args, result) => [{ type: 'text', text: formatExecution(result) }],
@@ -179,9 +185,12 @@ function formatExecution(result: Omit<EdgeShellResult, 'executionId'>): string {
     ? ` after waiting ${Math.round(result.queuedMs / 1_000)}s for a free slot`
     : ''
   const where = result.runtime === 'container'
-    ? `\n[ran in the Linux container${queued}]`
-    : result.runtime === 'light' && result.exitCode === 127
-      ? '\n[a program is not available in the lightweight shell; rerun with linux: true to use the Linux container]'
+    ? result.retriedFromLight === true
+      ? `\n[the lightweight shell could not run this, so it reran in the Linux container${queued}]`
+      : `\n[ran in the Linux container${queued}]`
+    : result.lightShellMiss === true
+      ? '\n[the lightweight shell could not run part of this after it had changed files; '
+        + 'check the workspace, then rerun with linux: true to use the Linux container]'
       : ''
   return output + truncated + timedOut + suffix + where || '(no output)'
 }

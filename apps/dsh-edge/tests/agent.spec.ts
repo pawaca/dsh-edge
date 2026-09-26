@@ -154,9 +154,12 @@ describe('dsh-edge native agent runtime', () => {
           outputTruncated: false, ...result })
       return blocks.map(block => block.text).join('')
     }
-    expect(render({ exitCode: 127, stderr: 'bash: node: command not found\n', runtime: 'light' }))
+    expect(render({ exitCode: 127, stderr: 'bash: node: command not found\n', runtime: 'light', lightShellMiss: true }))
       .toContain('rerun with linux: true')
+    expect(render({ exitCode: 127, runtime: 'light' })).not.toContain('linux: true')
     expect(render({ exitCode: 1, runtime: 'light' })).not.toContain('linux: true')
+    expect(render({ exitCode: 0, status: 'completed', stdout: 'v22\n', runtime: 'container', retriedFromLight: true }))
+      .toContain('[the lightweight shell could not run this, so it reran in the Linux container]')
     expect(render({ exitCode: 127, runtime: 'container' })).not.toContain('rerun with linux')
     expect(render({ exitCode: 0, status: 'completed', stdout: 'ok', runtime: 'container', queuedMs: 3_000 }))
       .toContain('[ran in the Linux container after waiting 3s for a free slot]')

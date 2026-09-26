@@ -36,6 +36,7 @@ import { OWNER_SESSION_EXPIRY_HEADER } from './auth.ts'
 import { ContainerActivity } from './container-activity.ts'
 import { resolveEdgeRuntimeBackends } from './runtime-backends.ts'
 import { routeBashCommand } from './bash-routing.ts'
+import { leftWorkspaceUnchanged, lightShellCouldNotRun, workspaceRevision } from './light-shell-fallback.ts'
 import {
   CONTAINER_RUNTIME_MARKER,
   DYNAMIC_WORKER_RUNTIME_PROVIDER,
@@ -974,16 +975,54 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       cwd,
       ...options.requestContainer === true ? { requestContainer: true } : {},
     })
-    if (container === undefined || route === 'light') {
-      const result = await executeWorkspaceCommand(
-        workspace, command, cwd, timeoutPolicy, options.timeoutMs, options.signal,
-      )
-      return container === undefined ? result : { ...result, runtime: 'light' }
+    if (container === undefined) {
+      return executeWorkspaceCommand(workspace, command, cwd, timeoutPolicy, options.timeoutMs, options.signal)
     }
+    if (route === 'light') {
+      const light = await this.runLightCommand(workspace, command, cwd, timeoutPolicy, options)
+      if (this.runtimeSelection.bashRouting !== 'auto' || !lightShellCouldNotRun(light.result, cwd)
+        || options.signal?.aborted === true) {
+        return { ...light.result, runtime: 'light' }
+      }
+      // A routing miss: rerun in the container when the light attempt changed
+      // nothing, otherwise report it so the agent decides whether to retry.
+      if (!light.unchanged) return { ...light.result, runtime: 'light', lightShellMiss: true }
+      const rerun = await this.runContainerCommand(workspace, command, cwd, timeoutPolicy, options, container.id)
+      return { ...rerun, retriedFromLight: true }
+    }
+    return this.runContainerCommand(workspace, command, cwd, timeoutPolicy, options, container.id)
+  }
+
+  /** Run in the lightweight shell, reporting whether the workspace stayed unchanged. */
+  private async runLightCommand(
+    workspace: EdgeWorkspace,
+    command: string,
+    cwd: string,
+    timeoutPolicy: EdgeCommandTimeoutPolicy,
+    options: { timeoutMs?: number; signal?: AbortSignal },
+  ): Promise<{ result: EdgeShellResult; unchanged: boolean }> {
+    // Computer's mkdir advances the revision even for an existing directory,
+    // so create cwd before reading it and skip the command's own mkdir.
+    await workspace.fs.mkdir(cwd, { recursive: true })
+    const before = workspaceRevision(this.ctx.storage.sql)
+    const result = await executeWorkspaceCommand(
+      workspace, command, cwd, timeoutPolicy, options.timeoutMs, options.signal, undefined, true,
+    )
+    return { result, unchanged: leftWorkspaceUnchanged(before, workspaceRevision(this.ctx.storage.sql)) }
+  }
+
+  private async runContainerCommand(
+    workspace: EdgeWorkspace,
+    command: string,
+    cwd: string,
+    timeoutPolicy: EdgeCommandTimeoutPolicy,
+    options: { timeoutMs?: number; signal?: AbortSignal },
+    backend: string,
+  ): Promise<EdgeShellResult> {
     const { release, queuedMs } = await this.containerActivity.admit(options.signal)
     try {
       const result = await executeWorkspaceCommand(
-        workspace, command, cwd, timeoutPolicy, options.timeoutMs, options.signal, container.id,
+        workspace, command, cwd, timeoutPolicy, options.timeoutMs, options.signal, backend,
       )
       return { ...result, runtime: 'container', queuedMs }
     } finally {

@@ -79,6 +79,19 @@ try {
   assert.equal(linux.runtime, 'container')
   assert.equal(typeof linux.queuedMs, 'number')
 
+  // A routing miss that changed nothing reruns in the container transparently;
+  // one that already wrote files is reported instead of rerun.
+  const rerun = await exec('d=etc; cat /"$d"/hostname')
+  assert.equal(rerun.status, 'completed', rerun.stderr)
+  assert.equal(rerun.runtime, 'container')
+  assert.equal(rerun.retriedFromLight, true)
+  assert.notEqual(rerun.stdout, '')
+  const wrote = await exec('d=etc; echo x > wrote.txt; cat /"$d"/hostname')
+  assert.equal(wrote.runtime, 'light')
+  assert.equal(wrote.lightShellMiss, true)
+  assert.equal(wrote.retriedFromLight, undefined)
+  assert.equal((await exec('cat wrote.txt')).stdout, 'x\n')
+
   const burst = await exec(`mkdir -p burst && for i in $(seq ${FILES}); do echo "file $i" > burst/f$i; done`, true)
   assert.equal(burst.status, 'completed', burst.stderr)
   assert.equal(burst.runtime, 'container')

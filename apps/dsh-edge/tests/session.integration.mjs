@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
+import { LIGHT_SHELL_MISSES, LIGHT_SHELL_MISS_SETUP } from './fixtures/light-shell-misses.mjs'
 import { LIGHT_SHELL_SAMPLES, LIGHT_SHELL_SETUP } from './fixtures/light-shell-samples.mjs'
+import { lightShellCouldNotRun } from '../src/light-shell-fallback.ts'
 import { createHmac } from 'node:crypto'
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -299,6 +301,31 @@ try {
       if (sample.body.exitCode !== 0) failures.push(`${name}: ${command} -> ${sample.body.exitCode} ${sample.body.stderr}`)
     }
     assert.deepEqual(failures, [], 'light-shell commands failed in the Dynamic Worker shell')
+  }
+
+  // A container deployment reruns these in the container; each diagnostic the
+  // classifier relies on must still come from the Worker shells.
+  {
+    const cwd = '/workspace/light-shell-misses'
+    const setup = await jsonRequest('/api/workspace/exec', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ command: LIGHT_SHELL_MISS_SETUP, cwd }),
+    })
+    assert.equal(setup.body.status, 'completed', setup.body.stderr)
+    const unrecognized = []
+    for (const { name, command, modes } of LIGHT_SHELL_MISSES) {
+      if (modes !== undefined && !modes.includes(runtimeMode)) continue
+      const miss = await jsonRequest('/api/workspace/exec', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ command, cwd }),
+      })
+      if (!lightShellCouldNotRun(miss.body, cwd)) {
+        unrecognized.push(`${name}: ${command} -> ${miss.body.exitCode} ${miss.body.stderr}`)
+      }
+    }
+    assert.deepEqual(unrecognized, [], 'light-shell misses the classifier no longer recognizes')
   }
 
   const disabledNetwork = await jsonRequest('/api/workspace/exec', {

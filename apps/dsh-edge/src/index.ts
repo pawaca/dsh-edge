@@ -162,6 +162,8 @@ export default {
           outputTruncated: result.outputTruncated,
           ...result.runtime === undefined ? {} : { runtime: result.runtime },
           ...result.queuedMs === undefined ? {} : { queuedMs: result.queuedMs },
+          ...result.retriedFromLight === true ? { retriedFromLight: true } : {},
+          ...result.lightShellMiss === true ? { lightShellMiss: true } : {},
         } satisfies EdgeShellResult)
       }
 
