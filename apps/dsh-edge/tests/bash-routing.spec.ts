@@ -261,6 +261,8 @@ describe('bash command routing', () => {
     ['echo MY_ENV=1', 'light'],
     ["TAR_OPTIONS='--use-compress-program=node' tar -cf out.tar a.txt", 'container'],
     ['export RIPGREP_CONFIG_PATH=rg.conf; rg x', 'container'],
+    ['TAPE=host:archive tar -c a', 'container'],
+    ["env 'TAPE=host:archive' tar -c a", 'container'],
     ["env 'TAR_OPTIONS=-Inode' tar -cf out.tar a.txt", 'container'],
     ["ENV=rc sh -c 'ls'", 'container'],
     ['cat /etc/os-release', 'container'],
