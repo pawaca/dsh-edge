@@ -126,7 +126,15 @@ const COMMAND_PREFIX_WORDS = new Set(['if', 'while', 'until', 'then', 'do', 'els
   'builtin', 'command'])
 
 function commandPosition(tokens: Token[], index: number): boolean {
-  const previous = tokens[index - 1]
+  // Assignment and redirection prefixes (`A=1 cd`, `2>/dev/null cd`) precede the command word.
+  let at = index - 1
+  while (at >= 0) {
+    const word = tokens[at]!.word
+    if (word !== undefined && /^[A-Za-z_][A-Za-z0-9_]*(\[[^\]]*\])?\+?=/u.test(word)) at--
+    else if (word !== undefined && tokens[at - 1]?.op !== undefined && isRedirection(tokens[at - 1]!.op!)) at -= 2
+    else break
+  }
+  const previous = tokens[at]
   if (previous === undefined) return true
   if (previous.op !== undefined) return !isRedirection(previous.op)
   return COMMAND_PREFIX_WORDS.has(previous.word ?? '')
