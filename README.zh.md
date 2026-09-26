@@ -39,7 +39,7 @@ npx dsh-edge install
 | **立即试用** | 不要求已有 Cloudflare 登录；需要在 60 分钟内认领才能长期保留 | 以最低门槛体验完整产品 |
 | **长期使用** | 已有或新建的 Cloudflare 账户，并启用 R2 | 长期运行的个人部署 |
 
-默认的 **Free — Direct Shell** runtime 可在 Cloudflare Workers Free 上运行。可选的 **Isolated — Dynamic Worker** 会在独立 Worker 中执行命令，需要 Workers Paid。两种模式使用相同的产品 UI、对话、工作区、图片和工具，例外是两个依赖 Dynamic Worker 运行时、仅 Isolated 模式提供的工具：`workflow`（多 agent 编排）和 `run_code`（编写调用其他工具的 TypeScript 程序）。Direct Shell 是沙箱化 shell runtime，不是 Linux 容器。可选的 **Container — Linux** 同样需要 Workers Paid，在 Isolated 的全部工具之外提供真实的 Linux shell（git、node、npm、python3）：Debian 容器按需启动，闲置 10 分钟后休眠，运行期间由 Cloudflare 按用量计费。
+三档任选其一。**Free** 在 Cloudflare Workers Free 上运行，命令在实例内置的轻量 shell（just-bash，一个处理文件和文本的沙箱 shell，不是 Linux）里执行。**Paid**（Workers Paid，$5/月起）把这个 shell 放进隔离的 Worker 运行，并增加两个工具：`workflow`（多 agent 编排）和 `run_code`（编写调用其他工具的 TypeScript 程序）。**Paid + Linux container** 再加一个真实的 Debian 容器，带 git、node、npm、python3：每条命令仍先在轻量 shell 里执行，只有需要 Linux 的命令（或 agent 标注了 `linux: true` 的命令）才进容器；容器按需启动，闲置 10 分钟后休眠，运行期间由 Cloudflare 按用量计费。三档共用相同的界面、对话、工作区、图片和子 agent。
 
 ## 升级
 

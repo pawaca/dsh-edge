@@ -59,30 +59,40 @@ describe('Edge runtime providers', () => {
     expect(resolveEdgeRuntimeShell(CONTAINER)).toBe('linux-container')
   })
 
-  it('prefers the container for bash and still lets bash select the Dynamic Worker', () => {
+  it('keeps bash in the lightweight shell and loads the container beside it with automatic routing', () => {
     const available = availableEdgeRuntimeProviders(CONTAINER)
-    expect(resolveEdgeRuntimeSelection(available))
-      .toEqual({ bash: 'container', coding: null, subprocess: null })
-    expect(resolveEdgeRuntimeSelection(available, { bash: 'dynamic-worker' }).bash)
-      .toBe('dynamic-worker')
+    expect(resolveEdgeRuntimeSelection(available)).toEqual({
+      bash: 'dynamic-worker',
+      container: 'container',
+      bashRouting: 'auto',
+      coding: null,
+      subprocess: null,
+    })
+    expect(resolveEdgeRuntimeSelection(available, { container: null, bashRouting: 'light' }))
+      .toMatchObject({ container: null, bashRouting: 'light' })
   })
 
-  it('defaults bash to the preferred available provider and leaves optional layers unloaded', () => {
-    expect(resolveEdgeRuntimeSelection(EDGE_RUNTIME_PROVIDERS)).toEqual({
-      bash: 'container',
+  it('defaults bash to the preferred lightweight provider and leaves optional layers unloaded', () => {
+    expect(resolveEdgeRuntimeSelection(EDGE_RUNTIME_PROVIDERS)).toMatchObject({
+      bash: 'dynamic-worker',
+      container: 'container',
       coding: null,
       subprocess: null,
     })
     expect(resolveEdgeRuntimeSelection(EDGE_RUNTIME_PROVIDERS, { bash: 'direct' }).bash)
       .toBe('direct')
+    // The container never serves as the lightweight bash provider.
+    expect(resolveEdgeRuntimeSelection(EDGE_RUNTIME_PROVIDERS, { bash: 'container' }).bash)
+      .toBe('dynamic-worker')
   })
 
   it('falls back when a stored choice names a provider this deployment lacks', () => {
     const available = availableEdgeRuntimeProviders({})
     expect(resolveEdgeRuntimeSelection(available, {
       bash: 'dynamic-worker',
+      container: 'container',
       coding: 'dynamic-worker',
-    })).toEqual({ bash: 'direct', coding: null, subprocess: null })
+    })).toEqual({ bash: 'direct', container: null, bashRouting: 'auto', coding: null, subprocess: null })
   })
 
   it('refuses a deployment with no bash provider', () => {
@@ -96,8 +106,12 @@ describe('Edge runtime providers', () => {
       bash: 'dynamic-worker',
       coding: null,
     })
-    expect(schema({ bash: 'container' })).toEqual({ bash: 'container' })
+    expect(schema({ container: 'container', bashRouting: 'light' }))
+      .toEqual({ container: 'container', bashRouting: 'light' })
+    expect(schema({ container: null })).toEqual({ container: null })
+    expect(() => schema({ bash: 'container' })).toThrow(/bash/u)
     expect(() => schema({ bash: 'sandbox' } as never)).toThrow(/bash/u)
+    expect(() => schema({ bashRouting: 'sometimes' } as never)).toThrow(/bashRouting/u)
     expect(() => schema({ coding: 'container' })).toThrow(/coding/u)
     expect(() => schema({ coding: 'direct' })).toThrow(/coding/u)
   })
@@ -117,18 +131,18 @@ describe('Edge runtime providers', () => {
     })
   })
 
-  it('registers the container backend first so default execs reach it', () => {
+  it('registers the lightweight shell first and the container second', () => {
     const host = { getWorkspaceContainer: () => { throw new Error('unused') } }
     const container = () => host
-    const backends = resolveEdgeRuntimeBackends({ env: CONTAINER as never, ctx, container }, {
-      bash: 'container',
-      coding: 'dynamic-worker',
-    })
-    // Workspace execs without a backend id use the first registered backend.
-    expect(backends).toHaveLength(2)
-    expect(backends[0]).toBeInstanceOf(CloudflareContainerBackend)
-    expect(backends[1]).toBeInstanceOf(WorkerShellBackend)
-    expect((backends[0] as unknown as { options: unknown }).options).toEqual({
+    const backends = resolveEdgeRuntimeBackends({ env: CONTAINER as never, ctx, container })
+    // Workspace execs without a backend id use the first registered backend,
+    // so only routing reaches the container.
+    expect(backends.map(backend => (backend as { id: string }).id)).toEqual(['worker-shell', 'container-shell'])
+    expect(backends[0]).toBeInstanceOf(WorkerShellBackend)
+    expect(backends[1]).toBeInstanceOf(CloudflareContainerBackend)
+    expect(resolveEdgeRuntimeBackends({ env: CONTAINER as never, ctx, container }, { container: null }))
+      .toHaveLength(1)
+    expect((backends[1] as unknown as { options: unknown }).options).toEqual({
       container,
       workspace: { binding: 'DSH_EDGE_INSTANCE', id: 'workspace-id' },
       egress: { mode: 'direct' },
@@ -161,8 +175,8 @@ describe('installer runtime catalog', () => {
         environment: '',
         artifact: 'direct',
         expectedShell: 'just-bash-direct',
-        label: 'Free — Direct Shell',
-        hint: 'recommended; runs on Workers Free',
+        label: 'Free',
+        hint: 'recommended; runs on Workers Free with a lightweight shell',
         paid: false,
         providers: ['direct'],
       },
@@ -170,8 +184,8 @@ describe('installer runtime catalog', () => {
         environment: 'isolated',
         artifact: 'isolated',
         expectedShell: 'just-bash-isolated',
-        label: 'Isolated — Dynamic Worker',
-        hint: 'requires Workers Paid (starting at $5/month); adds workflow and run_code',
+        label: 'Paid',
+        hint: 'requires Workers Paid (starting at $5/month); isolated shell plus run_code and workflow',
         paid: true,
         providers: ['dynamic-worker'],
       },
@@ -179,26 +193,26 @@ describe('installer runtime catalog', () => {
         environment: 'container',
         artifact: 'isolated',
         expectedShell: 'linux-container',
-        label: 'Container — Linux',
-        hint: 'requires Workers Paid; adds a real Linux shell (git, node, python), billed while it runs',
+        label: 'Paid + Linux container',
+        hint: 'Paid plus a Linux container for git, node, and python, used only when a command needs it; billed while it runs',
         paid: true,
         providers: ['container', 'dynamic-worker'],
       },
     })
   })
 
-  it('offers Container after the existing runtime choices', () => {
+  it('offers three tiers: Free, Paid, and Paid with a Linux container', () => {
     expect(runtimeModeChoices()).toEqual([
-      { value: 'direct', label: 'Free — Direct Shell', hint: 'recommended; runs on Workers Free' },
+      { value: 'direct', label: 'Free', hint: 'recommended; runs on Workers Free with a lightweight shell' },
       {
         value: 'isolated',
-        label: 'Isolated — Dynamic Worker',
-        hint: 'requires Workers Paid (starting at $5/month); adds workflow and run_code',
+        label: 'Paid',
+        hint: 'requires Workers Paid (starting at $5/month); isolated shell plus run_code and workflow',
       },
       {
         value: 'container',
-        label: 'Container — Linux',
-        hint: 'requires Workers Paid; adds a real Linux shell (git, node, python), billed while it runs',
+        label: 'Paid + Linux container',
+        hint: 'Paid plus a Linux container for git, node, and python, used only when a command needs it; billed while it runs',
       },
     ])
     expect(isRuntimeMode('direct')).toBe(true)

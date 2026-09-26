@@ -147,8 +147,11 @@ export default {
           env.DSH_EDGE_DEFAULT_COMMAND_TIMEOUT_MS,
           env.DSH_EDGE_MAX_COMMAND_TIMEOUT_MS,
         )
+        if (body.linux !== undefined && typeof body.linux !== 'boolean') {
+          throw new EdgeHttpError(400, 'linux must be a boolean.')
+        }
         const result = await env.DSH_EDGE_INSTANCE.getByName(OWNER_INSTANCE)
-          .runWorkspaceCommand(command, cwd)
+          .runWorkspaceCommand(command, cwd, body.linux === true)
         return jsonResponse({
           executionId: result.executionId,
           status: result.status,
@@ -157,6 +160,10 @@ export default {
           stdout: result.stdout,
           stderr: result.stderr,
           outputTruncated: result.outputTruncated,
+          ...result.runtime === undefined ? {} : { runtime: result.runtime },
+          ...result.queuedMs === undefined ? {} : { queuedMs: result.queuedMs },
+          ...result.retriedFromLight === true ? { retriedFromLight: true } : {},
+          ...result.lightShellMiss === true ? { lightShellMiss: true } : {},
         } satisfies EdgeShellResult)
       }
 

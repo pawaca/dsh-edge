@@ -50,7 +50,7 @@ describe('Edge settings section', () => {
       signOut={signOut}
       setApprovalMode={vi.fn(() => Promise.resolve())}
     />)
-    expect(screen.getByText('Isolated · Dynamic Worker')).toBeTruthy()
+    expect(screen.getByText('Paid · isolated Worker shell')).toBeTruthy()
     expect(screen.getByText('deploy-123')).toBeTruthy()
     expect(screen.getByText('Could not check npm')).toBeTruthy()
     expect(container.querySelector('[data-state="done"]')).toBeNull()
@@ -70,7 +70,7 @@ describe('Edge settings section', () => {
       signOut={vi.fn(() => Promise.resolve())}
       setApprovalMode={vi.fn(() => Promise.resolve())}
     />)
-    expect(screen.getByText('Container · Linux')).toBeTruthy()
+    expect(screen.getByText('Paid · isolated Worker shell + Linux container')).toBeTruthy()
   })
 
   it('contains load failure behind a retry action', () => {

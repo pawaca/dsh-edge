@@ -10,13 +10,13 @@ dsh-edge {{version}} · Harness 0.1.5-rc.2
 community project · install
 │
 ◆  Choose a runtime
-│  ● Free — Direct Shell (recommended; runs on Workers Free)
-│  ○ Isolated — Dynamic Worker
-│  ○ Container — Linux
+│  ● Free (recommended; runs on Workers Free with a lightweight shell)
+│  ○ Paid
+│  ○ Paid + Linux container
 │  ↑/↓ to navigate • Enter: confirm
 └
 ◇  Choose a runtime
-│  Free — Direct Shell
+│  Free
 │
 ◇  Checking Cloudflare accounts…
 │
@@ -36,7 +36,7 @@ community project · install
 │
 ◇  Installation summary ───────────────────────────╮
 │                                                  │
-│  Runtime: Free — Direct Shell                    │
+│  Runtime: Free                                   │
 │  Account: Temporary account                      │
 │  Worker: dsh-edge                                │
 │  Cost: Works on Workers Free                     │

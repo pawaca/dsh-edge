@@ -35,9 +35,13 @@ import { DurableObject } from 'cloudflare:workers'
 import { OWNER_SESSION_EXPIRY_HEADER } from './auth.ts'
 import { ContainerActivity } from './container-activity.ts'
 import { resolveEdgeRuntimeBackends } from './runtime-backends.ts'
+import { routeBashCommand } from './bash-routing.ts'
+import { leftWorkspaceUnchanged, lightShellCouldNotRun, workspaceRevision } from './light-shell-fallback.ts'
 import {
   CONTAINER_RUNTIME_MARKER,
   DYNAMIC_WORKER_RUNTIME_PROVIDER,
+  availableEdgeRuntimeProviders,
+  resolveEdgeRuntimeSelection,
   resolveEdgeRuntimeShell,
 } from './runtime-provider.ts'
 import type { WorkflowLoader } from './edge-workflow-engine.ts'
@@ -68,6 +72,7 @@ import {
   type EdgeMuxBaseline,
 } from './session-store.ts'
 import {
+  EdgeExecutionId,
   EdgeTurnId,
   type CancelEdgeTurnResponse,
   type EdgeSession,
@@ -81,6 +86,7 @@ import {
   executeWorkspaceCommand,
   requireCommand,
   requireWorkspacePath,
+  resolveCommandTimeoutMs,
   resolveEdgeCommandTimeoutPolicy,
   type EdgeCommandTimeoutPolicy,
   type EdgeWorkspace,
@@ -209,6 +215,7 @@ export interface EdgeEnv {
 class DshEdgeObjectBase extends withWorkspaceContainer(class extends DurableObject<EdgeEnv> {}) {
   // Backends bind when the Durable Object is constructed, before settings
   // load, so this resolves each layer's default provider for the deployment.
+  protected readonly runtimeSelection = resolveEdgeRuntimeSelection(availableEdgeRuntimeProviders(this.env))
   protected readonly runtimeBackends = resolveEdgeRuntimeBackends({
     env: this.env,
     ctx: this.ctx,
@@ -929,18 +936,15 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
   }
 
   /** Run one bounded workspace command for the entry Worker's HTTP exec route. */
-  async runWorkspaceCommand(command: string, cwd: string): Promise<EdgeShellResult> {
+  async runWorkspaceCommand(command: string, cwd: string, requestContainer = false): Promise<EdgeShellResult> {
     const timeoutPolicy = resolveEdgeCommandTimeoutPolicy(
       this.env.DSH_EDGE_DEFAULT_COMMAND_TIMEOUT_MS,
       this.env.DSH_EDGE_MAX_COMMAND_TIMEOUT_MS,
     )
     const workspace = await this.workspace()
-    return this.trackContainerActivity(() => executeWorkspaceCommand(
-      workspace,
-      requireCommand(command),
-      requireWorkspacePath(cwd),
-      timeoutPolicy,
-    ))
+    return this.runShellCommand(workspace, requireCommand(command), requireWorkspacePath(cwd), timeoutPolicy, {
+      requestContainer,
+    })
   }
 
   private async workspace(): Promise<EdgeWorkspace> {
@@ -952,15 +956,111 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
   }
 
   /**
-   * Keep an attached container up while a command runs, then leave one alarm
-   * to stop it once idle. The alarm is only moved earlier, so a busy container
-   * costs one alarm write per sleep window rather than one per command.
+   * Run one validated command where it belongs. Without a container every
+   * command uses the lightweight shell. With one, routing sends only commands
+   * that need Linux to the container; those take a concurrency slot, keep the
+   * container up while they run, and leave one alarm to stop it once idle.
+   * The alarm is only moved earlier, so a busy container costs one alarm write
+   * per sleep window rather than one per command.
    */
-  private async trackContainerActivity<T>(run: () => Promise<T>): Promise<T> {
-    if (this.containerBackend() === undefined) return run()
-    const release = await this.containerActivity.admit()
+  private async runShellCommand(
+    workspace: EdgeWorkspace,
+    command: string,
+    cwd: string,
+    timeoutPolicy: EdgeCommandTimeoutPolicy,
+    options: { timeoutMs?: number; signal?: AbortSignal; requestContainer?: boolean },
+  ): Promise<EdgeShellResult> {
+    const container = this.containerBackend()
+    const route = routeBashCommand(command, {
+      policy: this.runtimeSelection.bashRouting,
+      containerAvailable: container !== undefined,
+      cwd,
+      ...options.requestContainer === true ? { requestContainer: true } : {},
+    })
+    if (container === undefined) {
+      return executeWorkspaceCommand(workspace, command, cwd, timeoutPolicy, options.timeoutMs, options.signal)
+    }
+    if (route === 'light') {
+      const light = await this.runLightCommand(workspace, command, cwd, timeoutPolicy, options)
+      if (this.runtimeSelection.bashRouting !== 'auto' || !lightShellCouldNotRun(light.result, cwd)
+        || options.signal?.aborted === true) {
+        return { ...light.result, runtime: 'light' }
+      }
+      // A routing miss: rerun in the container when the light attempt changed
+      // nothing, otherwise report it so the agent decides whether to retry.
+      // The rerun shares the command's deadline instead of starting a new one.
+      const remainingMs = resolveCommandTimeoutMs(timeoutPolicy, options.timeoutMs) - light.elapsedMs
+      if (!light.unchanged || remainingMs <= 0) return { ...light.result, runtime: 'light', lightShellMiss: true }
+      const rerun = await this.runContainerCommand(workspace, command, cwd, timeoutPolicy,
+        { ...options, timeoutMs: remainingMs }, container.id)
+      return { ...rerun, retriedFromLight: true }
+    }
+    return this.runContainerCommand(workspace, command, cwd, timeoutPolicy, options, container.id)
+  }
+
+  /** Run in the lightweight shell, reporting whether the workspace stayed unchanged. */
+  private async runLightCommand(
+    workspace: EdgeWorkspace,
+    command: string,
+    cwd: string,
+    timeoutPolicy: EdgeCommandTimeoutPolicy,
+    options: { timeoutMs?: number; signal?: AbortSignal },
+  ): Promise<{ result: EdgeShellResult; unchanged: boolean; elapsedMs: number }> {
+    const started = Date.now()
+    // Reject invalid input and cancellation before cwd is created.
+    resolveCommandTimeoutMs(timeoutPolicy, options.timeoutMs)
+    options.signal?.throwIfAborted()
+    // Computer's mkdir advances the revision even for an existing directory,
+    // so create cwd before reading it and skip the command's own mkdir.
+    await workspace.fs.mkdir(cwd, { recursive: true })
+    const before = workspaceRevision(this.ctx.storage.sql)
+    const result = await executeWorkspaceCommand(
+      workspace, command, cwd, timeoutPolicy, options.timeoutMs, options.signal, undefined, true,
+    )
+    return {
+      result,
+      unchanged: leftWorkspaceUnchanged(before, workspaceRevision(this.ctx.storage.sql)),
+      elapsedMs: Date.now() - started,
+    }
+  }
+
+  private async runContainerCommand(
+    workspace: EdgeWorkspace,
+    command: string,
+    cwd: string,
+    timeoutPolicy: EdgeCommandTimeoutPolicy,
+    options: { timeoutMs?: number; signal?: AbortSignal },
+    backend: string,
+  ): Promise<EdgeShellResult> {
+    // Waiting for a slot spends the command's timeout; the command then gets
+    // only what remains, and a wait that uses it all ends as a timeout.
+    const budgetMs = resolveCommandTimeoutMs(timeoutPolicy, options.timeoutMs)
+    const expiry = AbortSignal.timeout(budgetMs)
+    let admission: Awaited<ReturnType<ContainerActivity['admit']>>
     try {
-      return await run()
+      admission = await this.containerActivity.admit(
+        options.signal === undefined ? expiry : AbortSignal.any([options.signal, expiry]),
+      )
+    } catch (error) {
+      if (options.signal?.aborted === true || !expiry.aborted) throw error
+      return {
+        executionId: EdgeExecutionId(crypto.randomUUID()),
+        status: 'failed',
+        timedOut: true,
+        exitCode: 124,
+        stdout: '',
+        stderr: 'timed out waiting for a free Linux container slot\n',
+        outputTruncated: false,
+        runtime: 'container',
+        queuedMs: budgetMs,
+      }
+    }
+    const { release, queuedMs } = admission
+    try {
+      const result = await executeWorkspaceCommand(
+        workspace, command, cwd, timeoutPolicy, Math.max(1, budgetMs - queuedMs), options.signal, backend,
+      )
+      return { ...result, runtime: 'container', queuedMs }
     } finally {
       release()
       const deadline = this.containerActivity.deadline()
@@ -1649,14 +1749,13 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         ? {}
         : { clientTimeZone: input.clientTimeZone },
       shell: {
-        exec: async (command, options) => this.trackContainerActivity(() => executeWorkspaceCommand(
+        exec: async (command, options) => this.runShellCommand(
           workspace,
           requireCommand(command),
           requireWorkspacePath(options.cwd),
           input.commandTimeoutPolicy,
-          options.timeoutMs,
-          options.signal,
-        )),
+          options,
+        ),
       },
       afterFollowup: () => {
         if (input.turn.cancelRequested) input.agent.cancel({ kind: 'user' })

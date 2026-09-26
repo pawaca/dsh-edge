@@ -7,10 +7,12 @@ import type { EdgeExecutionId } from './protocol.ts'
 import type { EdgeRuntimeProviderDescriptor } from './runtime-provider.ts'
 
 const JUST_BASH_SHELL = 'The shell is just-bash (not Linux) — native binaries and background processes are unavailable. '
-const CONTAINER_SHELL = 'The shell is bash in a Linux container (Debian) with git, node, npm, python3, and ripgrep; '
-  + 'it has network access. The container starts on demand and sleeps when idle, so the first command '
-  + 'after a pause can take several seconds. Only /workspace persists across sleeps; each command runs '
-  + 'to completion, so do not rely on background processes. '
+const CONTAINER_SHELL = 'Commands start in just-bash, a fast lightweight shell for file and text work. '
+  + 'A command that needs git, node, npm, python3, other native programs, or the network runs automatically '
+  + 'in a Linux container (Debian); set linux: true on the bash call to force it. The container starts on '
+  + 'demand and sleeps when idle, so its first command after a pause can take several seconds. Both shells '
+  + 'share /workspace, the only place that persists; any other path is the container\'s own, so set linux: true '
+  + 'to reach it. Each command runs to completion, so do not rely on background processes. '
 
 const EDGE_SYSTEM_PROMPT_TOOLS = 'Each tool\'s detailed usage is in its own prompt section below.\n\n'
   + 'MCP tools: External tool servers may be connected via MCP. '
@@ -46,6 +48,14 @@ export interface EdgeShellResult {
   stdout: string
   stderr: string
   outputTruncated: boolean
+  /** Where a container deployment ran the command; absent without a container. */
+  runtime?: 'light' | 'container'
+  /** Time spent waiting for a container slot before the command started. */
+  queuedMs?: number
+  /** The lightweight shell could not run it and changed nothing, so it reran in the container. */
+  retriedFromLight?: boolean
+  /** The lightweight shell could not run it but changed the workspace, so it was not rerun. */
+  lightShellMiss?: boolean
 }
 
 export interface EdgeShell {
@@ -53,6 +63,8 @@ export interface EdgeShell {
     cwd: string
     timeoutMs?: number
     signal?: AbortSignal
+    /** Run in the Linux container regardless of routing (container deployments only). */
+    requestContainer?: boolean
   }): Promise<EdgeShellResult>
 }
 
@@ -91,7 +103,9 @@ export function createEdgeBashTool(
   return defineTool({
     name: 'bash',
     description: (shell === 'linux-container'
-      ? 'Execute a bash command in the Linux container, where /workspace is persistent.'
+      ? 'Execute a bash command against the persistent /workspace. It runs in the lightweight just-bash '
+        + 'shell unless it needs git, node, npm, python3, other native programs, or the network, in which '
+        + 'case it runs in the Linux container; set linux to true to force the container.'
       : 'Execute a just-bash command against the persistent /workspace virtual filesystem.')
       + ' Each call starts in the session working directory unless workdir is supplied.',
     parameters: {
@@ -113,6 +127,14 @@ export function createEdgeBashTool(
         type: 'number',
         description: 'Optional execution timeout in milliseconds.',
       },
+      ...shell === 'linux-container'
+        ? {
+            linux: {
+              type: 'boolean' as const,
+              description: 'Run in the Linux container even if the command looks like light shell work.',
+            },
+          }
+        : {},
     },
     output: {
       schema: {
@@ -130,6 +152,10 @@ export function createEdgeBashTool(
           stdout: { type: 'string', required: true },
           stderr: { type: 'string', required: true },
           outputTruncated: { type: 'boolean', required: true },
+          runtime: { type: 'string', enum: ['light', 'container'] },
+          queuedMs: { type: 'number' },
+          retriedFromLight: { type: 'boolean' },
+          lightShellMiss: { type: 'boolean' },
         },
       },
       render: (_args, result) => [{ type: 'text', text: formatExecution(result) }],
@@ -141,6 +167,7 @@ export function createEdgeBashTool(
       return shell.exec(args.command, {
         cwd: args.workdir ?? cwd,
         ...args.timeoutMs === undefined ? {} : { timeoutMs: args.timeoutMs },
+        ...(args as { linux?: boolean }).linux === true ? { requestContainer: true } : {},
         signal: exec.signal,
       })
     },
@@ -154,5 +181,16 @@ function formatExecution(result: Omit<EdgeShellResult, 'executionId'>): string {
     : ''
   const timedOut = result.timedOut ? '\n[command timed out]' : ''
   const suffix = result.exitCode === 0 ? '' : `\n[exit code: ${result.exitCode}]`
-  return output + truncated + timedOut + suffix || '(no output)'
+  const queued = result.queuedMs !== undefined && result.queuedMs >= 1_000
+    ? ` after waiting ${Math.round(result.queuedMs / 1_000)}s for a free slot`
+    : ''
+  const where = result.runtime === 'container'
+    ? result.retriedFromLight === true
+      ? `\n[the lightweight shell could not run this, so it reran in the Linux container${queued}]`
+      : `\n[ran in the Linux container${queued}]`
+    : result.lightShellMiss === true
+      ? '\n[the lightweight shell could not run part of this after it had changed files; '
+        + 'check the workspace, then rerun with linux: true to use the Linux container]'
+      : ''
+  return output + truncated + timedOut + suffix + where || '(no output)'
 }
