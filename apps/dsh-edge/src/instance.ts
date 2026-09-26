@@ -986,8 +986,11 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       }
       // A routing miss: rerun in the container when the light attempt changed
       // nothing, otherwise report it so the agent decides whether to retry.
-      if (!light.unchanged) return { ...light.result, runtime: 'light', lightShellMiss: true }
-      const rerun = await this.runContainerCommand(workspace, command, cwd, timeoutPolicy, options, container.id)
+      // The rerun shares the command's deadline instead of starting a new one.
+      const remainingMs = (options.timeoutMs ?? timeoutPolicy.defaultTimeoutMs) - light.elapsedMs
+      if (!light.unchanged || remainingMs <= 0) return { ...light.result, runtime: 'light', lightShellMiss: true }
+      const rerun = await this.runContainerCommand(workspace, command, cwd, timeoutPolicy,
+        { ...options, timeoutMs: remainingMs }, container.id)
       return { ...rerun, retriedFromLight: true }
     }
     return this.runContainerCommand(workspace, command, cwd, timeoutPolicy, options, container.id)
@@ -1000,7 +1003,8 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     cwd: string,
     timeoutPolicy: EdgeCommandTimeoutPolicy,
     options: { timeoutMs?: number; signal?: AbortSignal },
-  ): Promise<{ result: EdgeShellResult; unchanged: boolean }> {
+  ): Promise<{ result: EdgeShellResult; unchanged: boolean; elapsedMs: number }> {
+    const started = Date.now()
     // Computer's mkdir advances the revision even for an existing directory,
     // so create cwd before reading it and skip the command's own mkdir.
     await workspace.fs.mkdir(cwd, { recursive: true })
@@ -1008,7 +1012,11 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     const result = await executeWorkspaceCommand(
       workspace, command, cwd, timeoutPolicy, options.timeoutMs, options.signal, undefined, true,
     )
-    return { result, unchanged: leftWorkspaceUnchanged(before, workspaceRevision(this.ctx.storage.sql)) }
+    return {
+      result,
+      unchanged: leftWorkspaceUnchanged(before, workspaceRevision(this.ctx.storage.sql)),
+      elapsedMs: Date.now() - started,
+    }
   }
 
   private async runContainerCommand(

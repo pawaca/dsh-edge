@@ -3,8 +3,8 @@
  *
  * Static routing predicts which commands need Linux; this module checks what
  * actually happened. just-bash and Cloudflare Computer fail loudly when a
- * command needs something the Worker lacks: exit 127 for a missing program,
- * fixed diagnostics for sandboxed features and missing native codecs, and a
+ * command needs something the Worker lacks: `command not found` for a missing
+ * program, fixed diagnostics for sandboxed features and missing native codecs, and a
  * missing-path error for anything outside /workspace (the light shell's
  * filesystem contains nothing else). A command that failed this way and wrote
  * nothing can be rerun in the container transparently, so a routing miss
@@ -20,6 +20,8 @@ const SHARED_ROOT = '/workspace'
 
 /** Diagnostics for features the Worker shell lacks, independent of exit code. */
 const CAPABILITY_DIAGNOSTICS: readonly RegExp[] = [
+  // A missing program; an explicit `exit 127` alone does not count.
+  /^[\w.[-]+: [^\n]+: command not found$/mu,
   // Programs just-bash cannot provide in a Worker (`python3`, `tar` in-process).
   /command not available in browser environments/u,
   // sed `e`, awk `system()`.
@@ -46,7 +48,6 @@ const MISSING_PATH = /(?:^|\s)([^\s:'"]+): No such file or directory|parent dire
  */
 export function lightShellCouldNotRun(result: EdgeShellResult, cwd: string): boolean {
   if (result.status === 'cancelled' || result.timedOut) return false
-  if (result.exitCode === 127) return true
   if (CAPABILITY_DIAGNOSTICS.some(pattern => pattern.test(result.stderr))) return true
   for (const match of result.stderr.matchAll(MISSING_PATH)) {
     const path = match[1] ?? match[2]

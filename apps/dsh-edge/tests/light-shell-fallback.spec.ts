@@ -59,9 +59,13 @@ describe('light shell miss detection', () => {
   it('leaves ordinary failures, cancellations, and timeouts in the light shell', () => {
     expect(lightShellCouldNotRun(result({ stderr: 'grep: pattern not found\n' }), '/workspace')).toBe(false)
     expect(lightShellCouldNotRun(result({ exitCode: 2, stderr: 'diff: files differ\n' }), '/workspace')).toBe(false)
-    expect(lightShellCouldNotRun(result({ status: 'cancelled', exitCode: 127 }), '/workspace')).toBe(false)
-    expect(lightShellCouldNotRun(result({ timedOut: true, exitCode: 127 }), '/workspace')).toBe(false)
+    const missing = 'bash: node: command not found\n'
+    expect(lightShellCouldNotRun(result({ status: 'cancelled', exitCode: 127, stderr: missing }), '/workspace')).toBe(false)
+    expect(lightShellCouldNotRun(result({ timedOut: true, exitCode: 127, stderr: missing }), '/workspace')).toBe(false)
     expect(lightShellCouldNotRun(result({ status: 'completed', exitCode: 0 }), '/workspace')).toBe(false)
+    // An explicit `exit 127` ran as requested.
+    expect(lightShellCouldNotRun(result({ exitCode: 127 }), '/workspace')).toBe(false)
+    expect(lightShellCouldNotRun(result({ exitCode: 127, stdout: 'x: command not found\n' }), '/workspace')).toBe(false)
   })
 
   it('treats the workspace as unchanged only when the revision did not move', () => {
