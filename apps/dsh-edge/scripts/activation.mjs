@@ -8,7 +8,11 @@ export const ACTIVATION_RETRY_MS = 1_500
 
 const MAX_HEALTH_BYTES = 64 * 1024
 
-/** Verify the exact uploaded release and its authenticated runtime before reporting ready. */
+/**
+ * Verify the exact uploaded release and its authenticated runtime before
+ * reporting ready. Without an owner key (an in-place update keeps the existing
+ * one) only the public release can be verified, which is reported as live.
+ */
 export async function observePublicActivation({
   publicUrl,
   mode,
@@ -63,6 +67,7 @@ export async function observePublicActivation({
       if (response.ok) {
         const health = await readBoundedJson(response, MAX_HEALTH_BYTES)
         if (isExpectedHealth(health, expected)) {
+          if (ownerSecret === undefined) return activationResult('live', attempts, startedAt, now())
           if (typeof ownerSecret !== 'string' || Buffer.byteLength(ownerSecret, 'utf8') < 32 || Buffer.byteLength(ownerSecret, 'utf8') > 512) {
             throw new RuntimeActivationError('Runtime verification requires the owner access key.')
           }

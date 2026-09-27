@@ -26,20 +26,26 @@ export const RUNTIME_PROVIDERS = Object.freeze({
   }),
 })
 
+// Modes are listed in capability order: each one can do everything the modes
+// before it can, so the installer presents them as cumulative choices.
 const RUNTIME_MODE_DEFINITIONS = Object.freeze({
   direct: {
     environment: '',
     artifact: 'direct',
     providers: ['direct'],
-    label: 'Free',
-    hint: 'recommended; runs on Workers Free with a lightweight shell',
+    label: 'Research and write',
+    hint: 'search the web, read pages, draft docs, connect your tools (MCP) · Free',
+    capability: 'research and write',
+    cost: 'free on Workers Free',
   },
   isolated: {
     environment: 'isolated',
     artifact: 'isolated',
     providers: ['dynamic-worker'],
-    label: 'Paid',
-    hint: 'requires Workers Paid (starting at $5/month); isolated shell plus run_code and workflow',
+    label: '+ Analyze data and split big jobs',
+    hint: 'runs scripts on your data; hands parts of a big task to parallel agents · Workers Paid ($5/mo)',
+    capability: 'analyze data and split big jobs',
+    cost: 'requires Workers Paid on this account (from $5/month)',
   },
   // The Container mode deploys the isolated Worker; the first bash-capable
   // provider sets the shell identity, so the container comes first.
@@ -47,10 +53,13 @@ const RUNTIME_MODE_DEFINITIONS = Object.freeze({
     environment: 'container',
     artifact: 'isolated',
     providers: ['container', 'dynamic-worker'],
-    label: 'Paid + Linux container',
-    hint: 'Paid plus a Linux container for git, node, and python, used only when a command needs it; billed while it runs',
+    label: '+ Work on code projects',
+    hint: 'clone repos, install packages, run tests (git, npm, python) · Workers Paid + container time',
+    capability: 'work on code projects',
+    cost: 'requires Workers Paid on this account (from $5/month), plus container time while it runs',
   },
 })
+const MODE_ORDER = Object.freeze(Object.keys(RUNTIME_MODE_DEFINITIONS))
 
 export const RUNTIME_MODES = Object.freeze(Object.fromEntries(
   Object.entries(RUNTIME_MODE_DEFINITIONS).map(([mode, definition]) => {
@@ -66,19 +75,34 @@ export const RUNTIME_MODES = Object.freeze(Object.fromEntries(
       expectedShell: identity.shell,
       label: definition.label,
       hint: definition.hint,
+      capability: definition.capability,
+      cost: definition.cost,
       paid: providers.some(provider => provider.plan === 'paid'),
       providers: Object.freeze([...definition.providers]),
     })]
   }),
 ))
 
-/** The installer's runtime choices, Free modes first. */
+/** The installer's capability choices, in cumulative order. */
 export function runtimeModeChoices() {
-  return Object.entries(RUNTIME_MODES).map(([value, mode]) => ({
+  return MODE_ORDER.map(value => ({
     value,
-    label: mode.label,
-    hint: mode.hint,
+    label: RUNTIME_MODES[value].label,
+    hint: RUNTIME_MODES[value].hint,
   }))
+}
+
+/** Everything an instance in `mode` can do, including what the modes before it do. */
+export function modeCapabilities(mode) {
+  if (!isRuntimeMode(mode)) throw new Error(`Unsupported runtime mode: ${String(mode)}`)
+  return MODE_ORDER.slice(0, MODE_ORDER.indexOf(mode) + 1)
+    .map(value => RUNTIME_MODES[value].capability)
+}
+
+/** What moving an instance from `from` to `to` takes away. */
+export function lostCapabilities(from, to) {
+  const kept = new Set(modeCapabilities(to))
+  return modeCapabilities(from).filter(capability => !kept.has(capability))
 }
 
 /** Whether `mode` names a deployable runtime mode. */

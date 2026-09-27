@@ -9,19 +9,10 @@ DeepSeek Harness on Cloudflare
 dsh-edge {{version}} · Harness 0.1.5-rc.2
 community project · install
 │
-◆  Choose a runtime
-│  ● Free (recommended; runs on Workers Free with a lightweight shell)
-│  ○ Paid
-│  ○ Paid + Linux container
-│  ↑/↓ to navigate • Enter: confirm
-└
-◇  Choose a runtime
-│  Free
-│
 ◇  Checking Cloudflare accounts…
 │
 ◆  Choose a Cloudflare account
-│  ● Temporary account — no Cloudflare login (available for 60 minutes; claim it to keep the instance)
+│  ● Temporary account — no Cloudflare login (free capabilities; claim within 60 minutes to keep it)
 │  ○ Sign in or create a Cloudflare account
 │  ↑/↓ to navigate • Enter: confirm
 └
@@ -34,56 +25,27 @@ community project · install
 ◇  Worker name
 │  dsh-edge
 │
-◇  Installation summary ───────────────────────────╮
-│                                                  │
-│  Runtime: Free                                   │
-│  Account: Temporary account                      │
-│  Worker: dsh-edge                                │
-│  Cost: Works on Workers Free                     │
-│  Images: stored in this instance (64 MiB limit)  │
-│                                                  │
-├──────────────────────────────────────────────────╯
+◇  Install dsh-edge ───────────────────────────────────────────────────────────────────────╮
+│                                                                                          │
+│  Can:       research and write                                                           │
+│  Cost:      free on Workers Free                                                         │
+│  Account:   Temporary account                                                            │
+│  Worker:    dsh-edge                                                                     │
+│  Images:    stored in this instance (64 MiB limit)                                       │
+│  Owner key: generated and shown when installation finishes                               │
+│  DeepSeek:  add your API key later in Settings → Models                                  │
+│                                                                                          │
+│  The temporary account lasts 60 minutes unless you claim it.                             │
+│  Installing accepts the Cloudflare Terms of Service (https://www.cloudflare.com/terms/)  │
+│  and Privacy Policy (https://www.cloudflare.com/privacypolicy/).                         │
+│                                                                                          │
+├──────────────────────────────────────────────────────────────────────────────────────────╯
 │
-◆  Install this instance?
+◆  Accept the terms and install?
 │  ● Yes / ○ No
 └
-◇  Install this instance?
+◇  Accept the terms and install?
 │  Yes
-│
-◇  Temporary account terms ──────────────────────────────────────────────╮
-│                                                                        │
-│  Cloudflare Terms of Service: https://www.cloudflare.com/terms/        │
-│  Cloudflare Privacy Policy: https://www.cloudflare.com/privacypolicy/  │
-│                                                                        │
-├────────────────────────────────────────────────────────────────────────╯
-│
-◆  Accept these terms and create a temporary Cloudflare account?
-│  ○ Yes / ● No
-└
-◇  Accept these terms and create a temporary Cloudflare account?
-│  Yes
-│
-◆  Set the owner access key
-│  ● Generate a secure key (recommended)
-│  ○ Enter my own key
-│  ↑/↓ to navigate • Enter: confirm
-└
-◇  Set the owner access key
-│  Generate a secure key
-│
-◆  Configure provider key
-│  ● Enter now
-│  ○ Configure later in Settings → Models
-│  ↑/↓ to navigate • Enter: confirm
-└
-◇  Configure provider key
-│  Enter now
-│
-◆  DeepSeek API key
-│  _
-└
-◇  DeepSeek API key
-│  ••••••••••••••••••
 │
 ◇  Cloudflare accepted the Worker upload. [0s]
 │
@@ -101,14 +63,22 @@ community project · install
 │  1. Claim this temporary account within 60 minutes to keep the Worker and its data.  │
 │  2. Open the URL above.                                                              │
 │  3. Enter the owner access key when prompted.                                        │
-│  4. Save the owner access key for future upgrades.                                   │
+│  4. Add your DeepSeek API key in Settings → Models.                                  │
+│  5. Save the owner access key; you need it to sign in.                               │
 │                                                                                      │
 ├──────────────────────────────────────────────────────────────────────────────────────╯
+│
+◆  Open dsh-edge in your browser?
+│  ● Yes / ○ No
+└
+◇  Open dsh-edge in your browser?
+│  Yes
 │
 └  Your dsh-edge is ready.
 BOUNDARY EVENTS
 {"kind":"wrangler","command":"whoami","hasHome":true,"hasPath":true,"leakedKeys":[]}
-{"kind":"wrangler","command":"deploy","args":["--env","","--name","dsh-edge","--config","{{private-config-file}}","--secrets-file","{{private-secrets-file}}","--temporary"],"hasOutputCapture":true,"leakedKeys":[],"secretNames":["DEEPSEEK_API_KEY","DSH_EDGE_ACCESS_KEY"]}
+{"kind":"wrangler","command":"deploy","args":["--env","","--name","dsh-edge","--config","{{private-config-file}}","--secrets-file","{{private-secrets-file}}","--temporary"],"hasOutputCapture":true,"leakedKeys":[],"secretNames":["DSH_EDGE_ACCESS_KEY"]}
 {"kind":"activation","url":"https://dsh-edge.preview.workers.dev/api/health","redirect":"manual","leakedHeaders":[]}
 {"kind":"activation","url":"https://dsh-edge.preview.workers.dev/api/auth/login","redirect":"manual","leakedHeaders":[]}
 {"kind":"activation","url":"https://dsh-edge.preview.workers.dev/api/ready","redirect":"manual","leakedHeaders":[]}
+{"kind":"browser","url":"https://dsh-edge.preview.workers.dev"}

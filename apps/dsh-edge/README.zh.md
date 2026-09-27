@@ -26,7 +26,7 @@
 - 构建期 assembler 从上游配置推导 Web roster，注入标准 `window.__DSH_BOOT__` graph，并输出 Cloudflare 静态资源。
 - Durable Object 通过标准 HTTP carrier 实现受支持的上游 `ApiProxy` 方法，并以支持休眠的 WebSocket 提供两条 downlink。
 - Image composer、gallery、lightbox、attachment wire contract 与 DeepSeek serializer 全部原样复用。
-- Storage seam 为新的永久部署选择私有 R2，为临时部署选择有界 Durable Object storage，并让 0.3 之前的 Worker 在首次升级时由 owner 做一次选择。
+- Storage seam 把新部署的图片存入有界 Durable Object storage，已固定使用私有 R2 的部署则继续使用 R2。
 - 缺少对应 host domain 的客户端插件会被排除，而不会 fork UI 代码。Session log export 与可选的本地 host 插件目前仍不可用。
 - Settings → Plugins 通过上游 `dsh-host-plugin-inventory` Remote 列出当前运行的 composition。Workers 上没有 cordis Loader，因此 Edge 自有的 `EdgeLoader` 用实时的 host 插件 registry 和经过评审的 Web boot graph 来回答它注入的 `loader`。
 - 一个小型 Edge 登录外壳在不修改上游 UI 和协议的前提下保护它们。
@@ -153,7 +153,7 @@ curl -b /tmp/dsh-edge-cookie -N -X POST -H 'content-type: application/json' \
 | 对话文件链接 | `session/openWorkspacePath` 经 `dsh-native-command` 把点击的路径交给宿主桌面打开器；`session/canOpenWorkspacePath` 决定是否展示该入口 | 在上游 `SessionControllerInternals` seam 适配，加 Web 端下载回退 | 用 Edge internals 组合 `SessionController`，让原生探测返回 false、打开尝试以可读原因失败而不是 `child_process` 错误。V3 Web 客户端在右侧栏预览文件链接。Edge 将上游 `workspaceFiles` 控制器接入请求作用域内的 VFS 读取，支持有界文本/字节分页和元数据订阅。旧版 `ctx.remote.session.openWorkspacePath` 回退以及经 owner 鉴权的 `GET /api/workspace/file` 下载仍然可用。 |
 | Existing Web UI | 运行时加载的 shell 和 `dsh.client` 插件 graph | 复用并采用通用 composition fallback | 把上游 shell 和受支持的上游客户端包组装成 Worker 静态资源；共享的 slot occupancy 规则会隐藏缺少 provider 的 action。Cloudflare 直接提供普通资源，`/`、`/login` 与 `/api/*` 则进入 Worker 执行 owner access control。组装后的 asset policy 会阻止所有直接或 SPA-fallback shell alias 被嵌入 frame。 |
 | Other tools | Web Search、filesystem editor tools、MCP、skills、workflows、jobs 和 subagents | Search、文件、goal、skill 和 MCP 工具已移植；workflow 与 run_code 已在 isolated 构建中移植 | 复用上游 DeepSeek Web Search 及其 30 秒 tool-call timeout。上游 `workflow` 工具仅由 Dynamic Worker 运行时提供（isolated、Paid 计划构建）；Direct 构建不注册该工具。由于 workerd 禁止在进程内使用 `eval`/`new Function`/`node:vm`，每次运行都会把脚本加载到独立的 Dynamic Worker 中执行，该 Worker 无出站网络，并受 30 秒 Worker Loader `cpuMs` 上限约束（由 Cloudflare 运行时强制执行，本地开发环境不执行）；`agent()`、`phase()`、`log()` 经 RPC 桥回到 Durable Object，由其执行各项上限：同时最多运行 4 个子 agent（低于 Workers 六连接上限），单次运行最多启动 100 个子 agent，以限制子会话的行写入。上游 `run_code` 工具（`dsh-tools` PTC 模式，以 `both` 与原生工具并存）由同一运行时提供：每个程序先用 sucrase 去除类型，再在独立 Dynamic Worker 中运行，受 30 秒 `cpuMs` 上限约束且无出站网络；其中的 `tools.*` 调用经 RPC 桥回到 Durable Object，由其限制为每次运行最多 200 次（每次都是一次写入 session 事件的嵌套工具派发）、参数最多 256 KiB、单次结果最多 2 MiB，嵌套调用仍走审批。文件工具（read/write/edit/read_image）通过 `EdgeFileSystem` 适配 Computer VFS。Goal 工具（`ToolGoal`）作为上游 cordis 插件直接与 `GoalService` 组合。Skill 工具通过 `SkillRegistry` + `EdgeSkillProvider`（DO KV 存储）；owner CRUD 接口 `GET/PUT/DELETE /api/skills`。MCP client（`dsh-mcp-client`）已安装；仅支持 Streamable HTTP transport（Workers 上不可用 stdio）。在 Settings → DSH Edge → MCP Servers 中配置服务器；工具名格式为 `mcp__<serverName>__<tool>`。逐个针对 Worker-compatible capabilities 增加其余工具，不宣称不可用的 host 行为。 |
-| Attachments | 本地 attachment storage、上游 image reference、composer、gallery、lightbox 与 provider conversion | 在原生 storage seam 上适配 | 原样复用上游 `AttachmentStore`、admission、协议、授权、UI 与 DeepSeek conversion。PNG/JPEG 不可变字节按 SHA-256 identity 存入新永久部署的私有 R2，或存入临时部署以及升级旧版 Worker 时由 owner 选择的 64 MiB、按 512 KiB 分块的 DO backend；session event 只保留上游 ref。每个 owner instance 首次选择的 backend 会被固定，认领或升级不会让既有引用失联。 |
+| Attachments | 本地 attachment storage、上游 image reference、composer、gallery、lightbox 与 provider conversion | 在原生 storage seam 上适配 | 原样复用上游 `AttachmentStore`、admission、协议、授权、UI 与 DeepSeek conversion。PNG/JPEG 不可变字节按 SHA-256 identity 存入新部署与 pre-attachment 部署使用的 64 MiB、按 512 KiB 分块的 DO backend，或存入已固定使用私有 R2 的部署的 R2；session event 只保留上游 ref。每个 owner instance 首次选择的 backend 会被固定，认领或升级不会让既有引用失联。 |
 | Goal tracking | `GoalService` 提供 create/edit/pause/resume/complete/clear mutation 与 GoalBar UI | 复用 | 作为 cordis 插件安装上游 `GoalService` 和 `ToolGoal`（直接组合）。浏览器 GoalBar mutation 通过 `TypertGatewayService` 路由到 `/api/goals/<method>`。`SessionProjectionCache` 在 DO 重启后持久化 goal 状态。 |
 | Context compaction | Token 计量、自动压缩和 session 标题生成 | 复用 | 直接安装上游 cordis 插件。上下文压缩、token 计量、工具结果修剪和自动 session 标题生成原样运行。 |
 | Session projection | 向已连接客户端实时推送派生状态 | 复用并添加 Edge bridge | 上游 `onChanged` 回调向已连接 WebSocket 客户端推送 title、model 和 goal projection frame。`SessionProjectionCache` 在 DO KV 中缓存 projection，用于冷 session 恢复。 |
@@ -264,9 +264,7 @@ npx dsh-edge install
 
 该命令通过 npm `latest` 渠道解析。只有在存在更新的预发布版且你想主动试用时，才使用 `npx dsh-edge@next install`。
 
-选择相同 runtime 并输入现有 Worker 名称即可升级。部署会保留 Durable Object 数据；由于 Cloudflare secret 只能写入而不能读取，升级会再次要求 owner access key。DeepSeek API key 提示为可选——直接按 Enter 跳过，稍后通过 Settings → Models 配置：
-
-稳定部署运行：
+每个 prompt 都直接按 Enter，就能装好一个可用实例并在浏览器中打开。用相同 Worker 名称再次运行同一条命令，会原地更新该实例。`upgrade` 行为相同，只是名称尚不存在时会拒绝：
 
 ```sh
 npx dsh-edge upgrade
@@ -274,29 +272,35 @@ npx dsh-edge upgrade
 
 如果当前安装版本包含 `-alpha` 或 `-rc`，请执行一次 `npx dsh-edge@latest upgrade` 切换到稳定渠道。Edge 设置页会根据已安装版本推导命令；如果不明确使用这条 `@latest` 命令，现有预发布部署会继续跟随 `next`。
 
-### 账户与 attachment storage
+### 安装器会问什么
 
-- 安装器会先询问 runtime，再询问账户。
-- 推荐的 `Free`（direct 模式）可在 Workers Free 上运行，支持已检测账户、新登录/注册，以及无需登录的临时账户。
-- `Paid`（isolated 模式）需要 Workers Paid，只提供已检测或新认证账户。Cloudflare 会对 Loader 上传进行授权；被拒绝后可选择启用 Workers Paid 或改用 Free。
-- `Paid + Linux container`（container 模式）在 Paid 基础上增加容器。命令先在隔离 shell 中执行；只有当命令启动的程序不在轻量 shell 已验证的清单内、命令无法被可靠解析，或 agent 设置了 `linux: true` 时，才分流到容器。容器内最多同时运行两条命令，其余排队等待。
-- 新的永久安装会创建或复用私有 `<worker-name>-attachments` R2 bucket，并只把 binding 写入生成的私有 Wrangler 配置。部署失败绝不删除 bucket。
-- R2 Standard 提供月度免费额度，但账户必须先启用其独立的按量 subscription。安装器会在收集 Worker secret 前检查 R2。
-- Cloudflare 错误 `10042` 会提供账户专属的启用、重试与取消选项。只有无 marker 的 pre-attachment Worker 可安全切换到 DO storage；新部署或已固定 R2 的部署不能切换并导致引用失联。
-- 临时账户使用相同图片 UI 和 64 MiB DO backend。认领会保留 backend 与历史；自动迁移到 R2 尚未实现。
-- 每个新部署都会记录 attachment-storage marker。升级时会检查每个 active version，并保留 marker 或 binding 指定的 backend。
-- 图片功能之前的 Worker 没有 marker、binding 或图片引用，因此首次升级到 0.3 时会在 64 MiB DO storage 与私有 R2 之间选择一次，随后固定。Active rollout 混用 backend 时会拒绝猜测。
+安装器按以下顺序提问：账户、Worker 名称、要改什么。所有问题都在唯一一次确认之前问完；确认之后只剩部署和交接。
+
+- **账户。** 已登录的 Cloudflare 账户排在最前，按 Enter 即得到永久实例。未登录时临时账户排在最前：无需登录，只运行免费能力，必须在 60 分钟内认领。也可以登录或注册账户。
+- **Worker 名称。** 安装器检查该名称在账户中是否已存在。只用 `--name` 就能选中 Worker，与部署它时的能力无关。
+- **已存在的名称就是更新。** 安装器从 Worker 的 binding 读出它当前能做什么，提供 **Update it**（默认）、**Update and change what it can do**、**Use another name** 和 **Cancel**。选 "Update it" 即是确认：以相同能力部署新版本，并保留对话、文件、owner access key 与 DeepSeek key。安装器不会替你改名，也不会再次询问 secret。
+- **新名称会询问 agent 要做什么。** 选项逐级包含，价格放在第二位：
+  - `Research and write`（direct 模式，默认）：联网搜索、读网页、写文档，并通过 MCP 连接你的工具。可在 Workers Free 上运行。
+  - `+ Analyze data and split big jobs`（isolated 模式）：增加 `run_code`，用脚本处理你的数据；增加 `workflow`，把任务交给并行子 agent。需要 Workers Paid（每月 5 美元起）。
+  - `+ Work on code projects`（container 模式）：增加用于 git、npm、python 的 Linux 容器。命令先在隔离 shell 中执行；只有当命令启动的程序不在轻量 shell 已验证的清单内、命令无法被可靠解析，或 agent 设置了 `linux: true` 时，才分流到容器。容器内最多同时运行两条命令。需要 Workers Paid，外加容器运行时长。
+- **调整能力。** 能力列表会标出当前选择。选择更少的能力时会二次确认，列出将被移除的内容，默认 No。离开 container 模式后，安装器会保留该 Worker 的 Container application 作为回退目标，并打印删除它的命令；登录确认新版本正常后运行该命令，即可停止 Container 计费。
+- **唯一一次确认。** 摘要列出实例能做什么、费用、账户、Worker、图片存储以及下面的默认值。使用临时账户时，确认即同时接受 Cloudflare 服务条款与隐私政策。
+
+### 默认值
+
+- **图片** 存入实例的 Durable Object（64 MiB），因此新安装无需配置 R2。每个部署都会记录 attachment-storage marker，更新时保留 marker 或 binding 指定的 backend。已使用私有 R2 的 Worker 会继续使用 R2；如果 R2 不再启用（Cloudflare 错误 `10042`），安装器提供账户专属的启用链接、重试或取消，绝不切换到会让图片引用失联的 backend。图片功能之前的 Worker 没有可失联的引用，会改用 Durable Object 默认值。Active rollout 混用 backend 时会拒绝猜测。
+- **Owner access key** 在新实例上自动生成，并在安装完成时显示。如需自定义，请在安装器环境中设置 `DSH_EDGE_ACCESS_KEY`（32–512 个 UTF-8 字节）；它不会进入 shell 历史或进程列表。更新会保留现有 key。
+- **DeepSeek API key** 在安装完成后于 Settings → Models 中添加。安装器不会询问它。
+- **图片优化**（Cloudflare Images binding）对你自己的账户开启，对临时账户关闭。
 
 ### Credential 交接与激活
 
-- 后续 prompt 会选择 Worker 名称、生成或接收 owner access key、通过隐藏输入收集 DeepSeek key，并显示最终费用摘要。临时安装还要求明确接受 Cloudflare 条款与隐私政策。
-- 现有 Worker 绝不会在未经确认时被覆盖。
-- 两项 credential 通过权限模式为 `0600` 的临时 secret 文件传递。Wrangler 只收到 allowlist 内的 runtime 环境与当前选中的 Cloudflare authentication；其他 ambient secret 与 Node 注入选项不会进入子进程。
-- 命令后会删除 secret 文件。部署 URL 来自 Wrangler 的结构化输出。添加 `--verbose` 可查看完整部署诊断。
-- 上传后，安装器会在不携带 credential、不跟随重定向的前提下，最多观察公开 `/api/health` 45 秒。只有精确 package 版本与所选 runtime 会产生 ready 卡片；propagation、challenge、占位页、传输错误与旧 release response 均保持 pending。
+- 新实例的 owner key 通过权限模式为 `0600` 的临时 secret 文件传递，命令结束后删除该文件。更新不传 secret 文件，Cloudflare 会保留 Worker 现有的 secret。Wrangler 只收到 allowlist 内的 runtime 环境与当前选中的 Cloudflare authentication；其他 ambient secret 与 Node 注入选项不会进入子进程。
+- 部署 URL 来自 Wrangler 的结构化输出。添加 `--verbose` 可查看完整部署诊断。
+- 上传后，安装器会在不携带 credential、不跟随重定向的前提下，最多观察公开 `/api/health` 45 秒。只有精确 package 版本与能力才算数；propagation、challenge、占位页、传输错误与旧 release response 均保持 pending。随后新实例会用新 key 登录并检查 `/api/ready`。更新不知道被保留的 key，因此会把已验证的版本报告为 live，并请你登录确认。
 - 观察到期仍以成功退出，并请 owner 稍后刷新。该观察不调用 DeepSeek，也不触碰 Durable Object 状态。
-- 最终卡片输出 URL、已生效 owner key 与下一步。临时账户还会收到必须在 60 分钟内认领的 bearer claim URL。
-- 上传被拒绝时会明确报告未安装。Wrangler 如果已创建临时账户，仍显示其 claim URL，但不把未使用的 owner key 显示为 active。
+- 最终卡片输出 URL、新的 owner key（更新后显示 "unchanged"）与下一步，然后询问是否在浏览器中打开该 URL（默认 Yes，仅限交互式终端）。临时账户还会收到必须在 60 分钟内认领的 bearer claim URL。
+- 上传被拒绝时会明确报告未安装。Wrangler 如果已创建临时账户，仍显示其 claim URL，但不把未使用的 owner key 显示为 active。付费能力被 Cloudflare 拒绝时，会建议启用 Workers Paid 或改选 `Research and write`。
 - 上传成功但交接失败时，恢复卡片会在命令按失败退出前输出已生效 owner key 与所有已知 URL。
 - 安装直接通过 Wrangler 上传；不会创建或绑定 GitHub 仓库、Cloudflare Builds 项目或源码构建流水线。
 

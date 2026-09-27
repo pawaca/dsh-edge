@@ -15,8 +15,13 @@ export const RUNTIME_MODES: Readonly<Record<RuntimeMode, Readonly<{
   expectedShell: 'just-bash-direct' | 'just-bash-isolated' | 'linux-container'
   label: string
   hint: string
+  /** A lowercase phrase for what this mode adds, used in summaries. */
+  capability: string
+  cost: string
   paid: boolean
   providers: readonly RuntimeProviderId[]
 }>>>
 export function runtimeModeChoices(): Array<{ value: RuntimeMode; label: string; hint: string }>
+export function modeCapabilities(mode: RuntimeMode): string[]
+export function lostCapabilities(from: RuntimeMode, to: RuntimeMode): string[]
 export function isRuntimeMode(mode: unknown): mode is RuntimeMode
