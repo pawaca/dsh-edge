@@ -140,12 +140,14 @@ jobs:
           load: true
           tags: dsh-edge-computer:ci
 
+      # `command -v` fails for a missing tool; a version pipeline through
+      # `head` would not.
       - name: Check the Linux toolchain
         run: >-
           docker run --rm --entrypoint sh dsh-edge-computer:ci -c
-          'node -v && python3 --version && git --version && rg --version
-          && bzip2 --help 2>&1 | head -1 && xz --version && zstd --version
-          && unzip -v | head -1 && zip -v | head -1 && jq --version && make --version | head -1'
+          'for tool in node python3 git rg bzip2 xz zstd unzip zip jq make; do
+          command -v "$tool" >/dev/null || { echo "missing: $tool"; exit 1; }; done
+          && node -v && python3 --version && git --version && jq --version'
 
       # Without /dev/fuse computerd falls back to its userspace shim, which is
       # enough to prove the daemon starts and serves its readiness route.
