@@ -40,15 +40,21 @@
     - button "Upgrade command copied"
     - link "Release notes":
       - /url: https://github.com/pawaca/dsh-edge/releases
-  - region "Runtime":
-    - heading "Runtime" [level=3]
-    - term: Runtime
-    - definition: Free · in-process shell
+  - region "What this instance can do":
+    - heading "What this instance can do" [level=3]
+    - term: Can
+    - definition:
+      - list:
+        - listitem: Research and write
+    - term: Cost
+    - definition: Free (Workers Free)
     - term: Storage
     - definition: Durable Object SQLite VFS
     - term: Deployment ID
     - definition:
       - code: dsh-edge@{{version}}/direct
+    - paragraph: To add or remove capabilities, run this command in a terminal and choose “Update and change what it can do”. Conversations and files are kept.
+    - code: npx dsh-edge@{{channel}} upgrade
   - region "Tool permissions":
     - heading "Tool permissions" [level=3]
     - term: Web fetch tools

@@ -2,8 +2,16 @@ import { useEffect, type ReactNode } from 'react'
 import { Button, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import type { ApprovalMode, EdgeHealth, EdgeSettingsState } from './store.ts'
-import { DSH_EDGE_RELEASES_URL } from './store.ts'
+import type {
+  ApprovalMode,
+  BashRouting,
+  ContainerSleepMinutes,
+  EdgeHealth,
+  EdgeRuntimeState,
+  EdgeSettingsState,
+} from './store.ts'
+import { DSH_EDGE_RELEASES_URL, upgradeCommand } from './store.ts'
+import type { EdgeSettingsKey } from './locales.ts'
 import css from './EdgeSettingsSection.module.css'
 
 export interface EdgeSettingsInjected {
@@ -12,6 +20,9 @@ export interface EdgeSettingsInjected {
   copyUpgrade(): Promise<void>
   signOut(): Promise<void>
   setApprovalMode(mode: ApprovalMode): Promise<void>
+  refreshRuntime(): Promise<void>
+  setRuntimeSettings(patch: Partial<EdgeRuntimeState['settings']>): Promise<void>
+  stopContainer(): Promise<void>
 }
 
 export type EdgeSettingsSectionProps =
@@ -19,14 +30,101 @@ export type EdgeSettingsSectionProps =
   & PropsLocale<'settings.edge'>
   & InjectFace<EdgeSettingsInjected>
 
-const RUNTIME_LABELS = {
-  'just-bash-direct': 'direct',
-  'just-bash-isolated': 'isolated',
-  'linux-container': 'container',
-} as const satisfies Record<EdgeHealth['shell'], string>
+/** Each deployment's capabilities, cumulative from the free tier up, and its cost. */
+const CAPABILITIES = {
+  'just-bash-direct': { can: ['capResearch'], cost: 'costFree' },
+  'just-bash-isolated': { can: ['capResearch', 'capAnalyze'], cost: 'costPaid' },
+  'linux-container': { can: ['capResearch', 'capAnalyze', 'capCode'], cost: 'costContainer' },
+} as const satisfies Record<EdgeHealth['shell'], { can: readonly EdgeSettingsKey[]; cost: EdgeSettingsKey }>
+
+const ROUTING_HELP = {
+  auto: 'routingAutoHelp',
+  light: 'routingLightHelp',
+  container: 'routingContainerHelp',
+} as const satisfies Record<BashRouting, EdgeSettingsKey>
+
+const RUNTIME_ERRORS = {
+  load: 'runtimeLoadFailed',
+  save: 'runtimeSaveFailed',
+  busy: 'containerBusy',
+  stop: 'containerStopFailed',
+} as const satisfies Record<NonNullable<EdgeSettingsState['runtimeError']>, EdgeSettingsKey>
 
 function Row({ label, value }: { label: string; value: ReactNode }): ReactNode {
   return <div className={css.row}><dt>{label}</dt><dd>{value}</dd></div>
+}
+
+function ContainerCard(props: EdgeSettingsSectionProps & { state: EdgeSettingsState }): ReactNode {
+  const { state, refreshRuntime, setRuntimeSettings, stopContainer, t } = props
+  const { runtime } = state
+  const container = runtime?.container ?? null
+  const busy = state.runtimeSaving || state.containerStopping
+  return (
+    <section className={css.card} aria-labelledby="edge-container-title">
+      <h3 id="edge-container-title">{t('linuxContainer')}</h3>
+      {runtime === undefined ? null : (
+        <dl>
+          {container === null ? null : (
+            <>
+              <Row label={t('containerStatus')} value={
+                <span className={css.status}>
+                  <StateDot state={container.running ? 'done' : 'idle'} />
+                  {container.running ? t('containerRunning') : t('containerSleeping')}
+                </span>
+              } />
+              <Row label={t('containerCommands')} value={`${String(container.runningCommands)} / ${String(container.maxConcurrentCommands)}`} />
+            </>
+          )}
+          <Row label={t('bashRouting')} value={
+            <>
+              <select
+                className={css.select}
+                value={runtime.settings.bashRouting}
+                disabled={busy}
+                aria-label={t('bashRouting')}
+                onChange={e => { void setRuntimeSettings({ bashRouting: e.target.value as BashRouting }) }}
+              >
+                <option value="auto">{t('routingAuto')}</option>
+                <option value="light">{t('routingLight')}</option>
+                <option value="container">{t('routingContainer')}</option>
+              </select>
+              <p className={css.notice}>{t(ROUTING_HELP[runtime.settings.bashRouting])}</p>
+            </>
+          } />
+          <Row label={t('containerSleep')} value={
+            <>
+              <select
+                className={css.select}
+                value={runtime.settings.containerSleepMinutes}
+                disabled={busy}
+                aria-label={t('containerSleep')}
+                onChange={e => { void setRuntimeSettings({ containerSleepMinutes: Number(e.target.value) as ContainerSleepMinutes }) }}
+              >
+                <option value={5}>{t('sleep5')}</option>
+                <option value={10}>{t('sleep10')}</option>
+                <option value={30}>{t('sleep30')}</option>
+              </select>
+              <p className={css.notice}>{t('containerSleepHelp')}</p>
+            </>
+          } />
+        </dl>
+      )}
+      {state.runtimeSaved ? <p className={css.status}>{t('runtimeSaved')}</p> : null}
+      {state.runtimeError === undefined ? null : <p className={css.error} role="alert">{t(RUNTIME_ERRORS[state.runtimeError])}</p>}
+      <div className={css.actions}>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={busy || container?.running !== true || container.runningCommands > 0}
+          onClick={() => { void stopContainer() }}
+        >
+          {state.containerStopping ? t('sleepingNow') : t('sleepNow')}
+        </Button>
+        <Button variant="outline" size="sm" disabled={busy} onClick={() => { void refreshRuntime() }}>{t('containerRefresh')}</Button>
+      </div>
+      <p className={css.notice}>{t('sleepNowHelp')}</p>
+    </section>
+  )
 }
 
 export function EdgeSettingsSection(props: EdgeSettingsSectionProps): ReactNode {
@@ -64,14 +162,22 @@ export function EdgeSettingsSection(props: EdgeSettingsSectionProps): ReactNode 
             </div>
             {state.copyError === undefined ? null : <p className={css.error} role="alert">{t('copyFailed')}</p>}
           </section>
-          <section className={css.card} aria-labelledby="edge-runtime-title">
-            <h3 id="edge-runtime-title">{t('runtime')}</h3>
+          <section className={css.card} aria-labelledby="edge-capabilities-title">
+            <h3 id="edge-capabilities-title">{t('capabilities')}</h3>
             <dl>
-              <Row label={t('runtime')} value={t(RUNTIME_LABELS[state.health.shell])} />
+              <Row label={t('capabilityList')} value={
+                <ul className={css.capabilities}>
+                  {CAPABILITIES[state.health.shell].can.map(key => <li key={key}>{t(key)}</li>)}
+                </ul>
+              } />
+              <Row label={t('cost')} value={t(CAPABILITIES[state.health.shell].cost)} />
               <Row label={t('storage')} value={t('durableStorage')} />
               <Row label={t('deploymentId')} value={<code>{state.health.deploymentId}</code>} />
             </dl>
+            <p>{t('changeCapabilities')}</p>
+            <code>{upgradeCommand(state.health.version)}</code>
           </section>
+          {state.health.shell === 'linux-container' ? <ContainerCard {...props} state={state} /> : null}
         </>
       )
   return (
