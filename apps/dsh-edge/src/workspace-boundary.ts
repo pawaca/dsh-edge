@@ -83,6 +83,14 @@ function normalizedSegments(path: string): string[] {
   return segments
 }
 
+/** Whether a readdir result is the light filesystem's root: one `workspace` entry. */
+function listsLightRoot(entries: unknown): boolean {
+  if (!Array.isArray(entries) || entries.length !== 1) return false
+  const entry = entries[0] as unknown
+  const name = typeof entry === 'string' ? entry : (entry as { name?: unknown } | null)?.name
+  return name === 'workspace'
+}
+
 function rawSegments(path: string): string[] {
   return path.split('/').filter(segment => segment !== '')
 }
@@ -147,6 +155,12 @@ class RecordingFilesystemStub extends RpcTarget {
       throw error
     }
     if ((result === false || result === null) && await this.escapesThroughLinks(path, followLast)) {
+      this.recorder.recordCrossing()
+    }
+    // Outside /workspace only `/` exists in the light filesystem, so a link
+    // to it (`root -> /`) dereferences successfully; listing it shows the
+    // light root (just `workspace`) instead of the container's.
+    if (op === 'readdir' && listsLightRoot(result) && normalizedSegments(path).length > 0) {
       this.recorder.recordCrossing()
     }
     return result

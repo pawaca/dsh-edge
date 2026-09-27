@@ -122,6 +122,11 @@ try {
   const chained = await exec('test -f alias/os-release && echo linux || echo missing')
   assert.equal(chained.stdout, 'linux\n')
   assert.equal(chained.retriedFromLight, true)
+  // A link to `/` dereferences in the light shell too, onto its own root.
+  await exec('ln -sfn / root', true)
+  const rooted = await exec('ls root')
+  assert.equal(rooted.retriedFromLight, true, JSON.stringify(rooted))
+  assert.match(rooted.stdout, /\betc\b/u)
 
   // Every command routing keeps light must stay light: no rerun, no miss.
   // A false boundary crossing (say, a new PATH probe) would fail here.
