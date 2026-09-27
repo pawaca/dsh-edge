@@ -1,16 +1,13 @@
 /**
  * Edge runtime provider catalog: which execution runtimes a deployment offers,
- * which capability layers each one serves, and how a per-layer selection
- * resolves against the providers a deployment's bindings actually make
- * available. Pure data and resolution only; backend construction lives in
+ * which capability layers each one serves, and which provider serves each
+ * layer given the bindings a deployment actually has. Pure data and resolution only; backend construction lives in
  * `runtime-backends.ts` so the entry Worker can project runtime facts without
  * importing shell implementations.
  */
 
-import Schema from '@deepseek-ai/schemastery'
-
 /**
- * One independently selectable runtime layer. `bash` is the lightweight shell
+ * One runtime capability layer. `bash` is the lightweight shell
  * every command starts in; `container` is the Linux shell that commands
  * needing git, node, python, or the network are routed to.
  */
@@ -89,29 +86,15 @@ export const EDGE_RUNTIME_PROVIDERS: readonly EdgeRuntimeProviderDescriptor[] = 
   DIRECT_RUNTIME_PROVIDER,
 ])
 
-/** How a deployment with a container routes each bash command (see `bash-routing.ts`). */
-export type EdgeBashRoutingPolicy = 'auto' | 'light' | 'container'
-
 /**
- * Per-layer provider choice; `null` leaves the layer unloaded. `bash` is always
- * loaded; `container` defaults to on when the deployment has one.
+ * The providers serving each layer, derived from the deployment's bindings
+ * alone: `bash` is the lightweight shell every command starts in, and
+ * `container` is loaded beside it whenever the deployment has one.
  */
 export interface EdgeRuntimeSelection {
   bash: EdgeRuntimeProviderId
   container: EdgeRuntimeProviderId | null
-  bashRouting: EdgeBashRoutingPolicy
-  coding: EdgeRuntimeProviderId | null
-  subprocess: EdgeRuntimeProviderId | null
 }
-
-type EdgeRuntimeLayer = 'bash' | 'container' | 'coding' | 'subprocess'
-
-/** The persisted settings shape; a stored id may name a provider this build lacks. */
-export type EdgeRuntimeSettings = {
-  [Layer in EdgeRuntimeLayer]?: EdgeRuntimeProviderId | null
-} & { bashRouting?: EdgeBashRoutingPolicy }
-
-export const RUNTIME_SETTINGS_NAMESPACE = 'edge-runtime'
 
 /** List the providers this deployment's bindings make available, in preference order. */
 export function availableEdgeRuntimeProviders(
@@ -121,35 +104,17 @@ export function availableEdgeRuntimeProviders(
   return providers.filter(provider => provider.probe(source) === 'available')
 }
 
-/**
- * Resolve the effective provider per layer. A stored choice applies only when
- * that provider is available and serves the layer; otherwise `bash` falls back
- * to the first available bash provider, `container` to the deployment's
- * container, and other optional layers stay unloaded, so a redeploy that
- * removes a binding never strands a Durable Object.
- */
+/** Resolve the first available provider for each layer. */
 export function resolveEdgeRuntimeSelection(
   available: readonly EdgeRuntimeProviderDescriptor[],
-  settings: EdgeRuntimeSettings = {},
 ): EdgeRuntimeSelection {
-  const serves = (layer: EdgeRuntimeCapability, id: EdgeRuntimeProviderId | null | undefined) =>
-    available.find(provider => provider.id === id && provider.capabilities.includes(layer))
   const first = (layer: EdgeRuntimeCapability) =>
     available.find(provider => provider.capabilities.includes(layer))
-  const bash = serves('bash', settings.bash) ?? first('bash')
+  const bash = first('bash')
   if (bash === undefined) {
     throw new Error('No available runtime provider serves the bash layer.')
   }
-  const container = settings.container === null
-    ? undefined
-    : serves('container', settings.container) ?? first('container')
-  return {
-    bash: bash.id,
-    container: container?.id ?? null,
-    bashRouting: settings.bashRouting ?? 'auto',
-    coding: serves('coding', settings.coding)?.id ?? null,
-    subprocess: serves('subprocess', settings.subprocess)?.id ?? null,
-  }
+  return { bash: bash.id, container: first('container')?.id ?? null }
 }
 
 /**
@@ -162,28 +127,4 @@ export function resolveEdgeRuntimeShell(
   const available = availableEdgeRuntimeProviders(source)
   const { bash, container } = resolveEdgeRuntimeSelection(available)
   return available.find(provider => provider.id === (container ?? bash))!.shell
-}
-
-/**
- * Settings schema for the `edge-runtime` namespace. Each layer accepts any
- * known provider that serves it (or `null` for optional layers) so a value
- * written under a different build still parses at startup; availability is
- * applied later by {@link resolveEdgeRuntimeSelection}.
- */
-export function edgeRuntimeSettingsSchema(
-  providers: readonly EdgeRuntimeProviderDescriptor[] = EDGE_RUNTIME_PROVIDERS,
-): Schema<EdgeRuntimeSettings> {
-  const layer = (capability: EdgeRuntimeCapability, optional: boolean) => {
-    const ids = providers
-      .filter(provider => provider.capabilities.includes(capability))
-      .map(provider => Schema.const(provider.id))
-    return Schema.union(optional ? [...ids, Schema.const(null)] : ids)
-  }
-  return Schema.object({
-    bash: layer('bash', false),
-    container: layer('container', true),
-    bashRouting: Schema.union([Schema.const('auto'), Schema.const('light'), Schema.const('container')]),
-    coding: layer('coding', true),
-    subprocess: layer('subprocess', true),
-  }) as unknown as Schema<EdgeRuntimeSettings>
 }

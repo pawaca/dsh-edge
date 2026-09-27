@@ -6,7 +6,6 @@ import { resolveEdgeRuntimeBackends } from '../src/runtime-backends.ts'
 import {
   EDGE_RUNTIME_PROVIDERS,
   availableEdgeRuntimeProviders,
-  edgeRuntimeSettingsSchema,
   resolveEdgeRuntimeSelection,
   resolveEdgeRuntimeShell,
 } from '../src/runtime-provider.ts'
@@ -59,61 +58,17 @@ describe('Edge runtime providers', () => {
     expect(resolveEdgeRuntimeShell(CONTAINER)).toBe('linux-container')
   })
 
-  it('keeps bash in the lightweight shell and loads the container beside it with automatic routing', () => {
-    const available = availableEdgeRuntimeProviders(CONTAINER)
-    expect(resolveEdgeRuntimeSelection(available)).toEqual({
-      bash: 'dynamic-worker',
-      container: 'container',
-      bashRouting: 'auto',
-      coding: null,
-      subprocess: null,
-    })
-    expect(resolveEdgeRuntimeSelection(available, { container: null, bashRouting: 'light' }))
-      .toMatchObject({ container: null, bashRouting: 'light' })
-  })
-
-  it('defaults bash to the preferred lightweight provider and leaves optional layers unloaded', () => {
-    expect(resolveEdgeRuntimeSelection(EDGE_RUNTIME_PROVIDERS)).toMatchObject({
-      bash: 'dynamic-worker',
-      container: 'container',
-      coding: null,
-      subprocess: null,
-    })
-    expect(resolveEdgeRuntimeSelection(EDGE_RUNTIME_PROVIDERS, { bash: 'direct' }).bash)
-      .toBe('direct')
-    // The container never serves as the lightweight bash provider.
-    expect(resolveEdgeRuntimeSelection(EDGE_RUNTIME_PROVIDERS, { bash: 'container' }).bash)
-      .toBe('dynamic-worker')
-  })
-
-  it('falls back when a stored choice names a provider this deployment lacks', () => {
-    const available = availableEdgeRuntimeProviders({})
-    expect(resolveEdgeRuntimeSelection(available, {
-      bash: 'dynamic-worker',
-      container: 'container',
-      coding: 'dynamic-worker',
-    })).toEqual({ bash: 'direct', container: null, bashRouting: 'auto', coding: null, subprocess: null })
+  it('keeps bash in the lightweight shell and loads the container beside it', () => {
+    expect(resolveEdgeRuntimeSelection(availableEdgeRuntimeProviders(CONTAINER)))
+      .toEqual({ bash: 'dynamic-worker', container: 'container' })
+    expect(resolveEdgeRuntimeSelection(availableEdgeRuntimeProviders({ LOADER })))
+      .toEqual({ bash: 'dynamic-worker', container: null })
+    expect(resolveEdgeRuntimeSelection(availableEdgeRuntimeProviders({})))
+      .toEqual({ bash: 'direct', container: null })
   })
 
   it('refuses a deployment with no bash provider', () => {
     expect(() => resolveEdgeRuntimeSelection([])).toThrow(/bash layer/u)
-  })
-
-  it('parses an empty or cross-build section but rejects unknown providers', () => {
-    const schema = edgeRuntimeSettingsSchema()
-    expect(schema({})).toEqual({})
-    expect(schema({ bash: 'dynamic-worker', coding: null })).toEqual({
-      bash: 'dynamic-worker',
-      coding: null,
-    })
-    expect(schema({ container: 'container', bashRouting: 'light' }))
-      .toEqual({ container: 'container', bashRouting: 'light' })
-    expect(schema({ container: null })).toEqual({ container: null })
-    expect(() => schema({ bash: 'container' })).toThrow(/bash/u)
-    expect(() => schema({ bash: 'sandbox' } as never)).toThrow(/bash/u)
-    expect(() => schema({ bashRouting: 'sometimes' } as never)).toThrow(/bashRouting/u)
-    expect(() => schema({ coding: 'container' })).toThrow(/coding/u)
-    expect(() => schema({ coding: 'direct' })).toThrow(/coding/u)
   })
 
   it('registers one backend from the selected bash provider', () => {
@@ -140,8 +95,6 @@ describe('Edge runtime providers', () => {
     expect(backends.map(backend => (backend as { id: string }).id)).toEqual(['worker-shell', 'container-shell'])
     expect(backends[0]).toBeInstanceOf(WorkerShellBackend)
     expect(backends[1]).toBeInstanceOf(CloudflareContainerBackend)
-    expect(resolveEdgeRuntimeBackends({ env: CONTAINER as never, ctx, container }, { container: null }))
-      .toHaveLength(1)
     expect((backends[1] as unknown as { options: unknown }).options).toEqual({
       container,
       workspace: { binding: 'DSH_EDGE_INSTANCE', id: 'workspace-id' },

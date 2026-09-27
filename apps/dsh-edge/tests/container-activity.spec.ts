@@ -1,10 +1,16 @@
 import { describe, expect, it, vi } from 'vitest'
 import { ContainerActivity } from '../src/container-activity.ts'
 
-function tracker(sleepAfterMs = 1_000) {
+function tracker(initialSleepAfterMs = 1_000) {
   let now = 10_000
-  const activity = new ContainerActivity(sleepAfterMs, () => now)
-  return { activity, advance: (ms: number) => { now += ms }, now: () => now }
+  let sleepAfterMs = initialSleepAfterMs
+  const activity = new ContainerActivity(() => sleepAfterMs, () => now)
+  return {
+    activity,
+    advance: (ms: number) => { now += ms },
+    now: () => now,
+    setSleepAfter: (ms: number) => { sleepAfterMs = ms },
+  }
 }
 
 describe('container idle tracking', () => {
@@ -89,7 +95,7 @@ describe('container idle tracking', () => {
   })
 
   it('runs at most the concurrency limit of commands and hands slots over in order', async () => {
-    const activity = new ContainerActivity(1_000, () => 0, 2)
+    const activity = new ContainerActivity(() => 1_000, () => 0, 2)
     const first = await activity.admit()
     const second = await activity.admit()
     let thirdAdmitted = false
@@ -108,7 +114,7 @@ describe('container idle tracking', () => {
 
   it('reports the wait and abandons a queued admission when its command is cancelled', async () => {
     let now = 0
-    const activity = new ContainerActivity(1_000, () => now, 1)
+    const activity = new ContainerActivity(() => 1_000, () => now, 1)
     const holder = await activity.admit()
     const controller = new AbortController()
     const cancelled = activity.admit(controller.signal)
@@ -120,7 +126,7 @@ describe('container idle tracking', () => {
     await expect(waiting).resolves.toMatchObject({ queuedMs: 2_500 })
   })
   it('abandons an admission waiting on an idle stop when its command is cancelled', async () => {
-    const activity = new ContainerActivity(0, () => 0)
+    const activity = new ContainerActivity(() => 0, () => 0)
     let finishStop!: () => void
     const stop = activity.stopIfIdle(() => new Promise<void>(resolve => { finishStop = resolve }))
     const controller = new AbortController()
@@ -133,7 +139,7 @@ describe('container idle tracking', () => {
     await expect(activity.admit()).resolves.toMatchObject({ queuedMs: 0 })
   })
   it('passes a woken slot on when its command was cancelled before resuming', async () => {
-    const activity = new ContainerActivity(1_000, () => 0, 1)
+    const activity = new ContainerActivity(() => 1_000, () => 0, 1)
     const holder = await activity.admit()
     const controller = new AbortController()
     const cancelled = activity.admit(controller.signal)
@@ -143,5 +149,29 @@ describe('container idle tracking', () => {
     controller.abort(new Error('cancelled'))
     await expect(cancelled).rejects.toThrow('cancelled')
     await expect(waiting).resolves.toMatchObject({ queuedMs: 0 })
+  })
+
+  it('applies a changed sleep window to the next check', () => {
+    const { activity, advance, now, setSleepAfter } = tracker(10_000)
+    activity.begin()()
+    advance(5_000)
+    expect(activity.idle()).toBe(false)
+    setSleepAfter(5_000)
+    expect(activity.idle()).toBe(true)
+    setSleepAfter(30_000)
+    expect(activity.deadline()).toBe(now() - 5_000 + 30_000)
+  })
+
+  it('stops now without waiting out the window, but never under a running command', async () => {
+    const { activity } = tracker(60_000)
+    const release = activity.begin()
+    const destroy = vi.fn(async () => {})
+    await expect(activity.stopNow(destroy)).resolves.toBe('busy')
+    expect(activity.snapshot()).toMatchObject({ runningCommands: 1 })
+    release()
+    expect(activity.idle()).toBe(false)
+    await expect(activity.stopNow(destroy)).resolves.toBe('stopped')
+    expect(destroy).toHaveBeenCalledTimes(1)
+    expect(activity.snapshot()).toMatchObject({ runningCommands: 0 })
   })
 })
