@@ -127,6 +127,11 @@ try {
   const rooted = await exec('ls root')
   assert.equal(rooted.retriedFromLight, true, JSON.stringify(rooted))
   assert.match(rooted.stdout, /\betc\b/u)
+  // Writes through the root link land beside /workspace in the light shell.
+  const wroteRoot = await exec('echo x > root/edge-newfile')
+  assert.equal(wroteRoot.lightShellMiss, true, JSON.stringify(wroteRoot))
+  const movedRoot = await exec('echo y > local.txt && mv local.txt root/edge-moved')
+  assert.equal(movedRoot.lightShellMiss, true, JSON.stringify(movedRoot))
   // A directory that merely holds a `workspace` child stays light.
   const plain = await exec('mkdir -p foo/workspace && ls foo')
   assert.equal(plain.runtime, 'light', JSON.stringify(plain))

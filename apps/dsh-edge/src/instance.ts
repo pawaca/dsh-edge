@@ -36,7 +36,7 @@ import { OWNER_SESSION_EXPIRY_HEADER } from './auth.ts'
 import { ContainerActivity } from './container-activity.ts'
 import { resolveEdgeRuntimeBackends } from './runtime-backends.ts'
 import { LIGHT_SHELL_COMMANDS, routeBashCommand } from './bash-routing.ts'
-import { RecordingWorkspaceStub, WorkspaceBoundaryRecorder } from './workspace-boundary.ts'
+import { RecordingWorkspaceStub, WorkspaceBoundaryRecorder, lightRootListing } from './workspace-boundary.ts'
 import {
   LightShellTurns,
   leftWorkspaceUnchanged,
@@ -1075,14 +1075,19 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     // so create cwd before reading it and skip the command's own mkdir.
     await workspace.fs.mkdir(cwd, { recursive: true })
     const before = workspaceRevision(this.ctx.storage.sql)
+    // Read outside the boundary window, so the snapshot itself never counts.
+    const rootBefore = await lightRootListing(workspace.fs)
     const boundaryMark = this.boundary.mark()
     const result = await executeWorkspaceCommand(
       workspace, command, cwd, timeoutPolicy, options.timeoutMs, options.signal, undefined, true,
     )
+    const crossed = this.boundary.crossedSince(boundaryMark)
     return {
       result,
       unchanged: leftWorkspaceUnchanged(before, workspaceRevision(this.ctx.storage.sql)),
-      crossedBoundary: this.boundary.crossedSince(boundaryMark),
+      // Anything a command created next to /workspace (through `root -> /`,
+      // say) exists only in the light shell, however it got there.
+      crossedBoundary: crossed || rootBefore !== await lightRootListing(workspace.fs),
     }
   }
 

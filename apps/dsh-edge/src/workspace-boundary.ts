@@ -100,6 +100,22 @@ function isMissing(error: unknown): boolean {
   return e?.code === 'ENOENT' || (typeof e?.message === 'string' && /ENOENT|no such/iu.test(e.message))
 }
 
+/**
+ * The light filesystem's root listing (normally just `workspace`). A command
+ * that changes it wrote outside /workspace through some path the boundary
+ * could not see, such as a link to `/`.
+ */
+export async function lightRootListing(fs: { readdir(path: string): Promise<unknown> }): Promise<string> {
+  try {
+    const entries = await fs.readdir('/')
+    if (!Array.isArray(entries)) return ''
+    return entries.map(entry => typeof entry === 'string' ? entry : String((entry as { name?: unknown }).name))
+      .sort().join('\0')
+  } catch {
+    return ''
+  }
+}
+
 type Filesystem = Record<string, (...args: unknown[]) => unknown> & { [Symbol.dispose]?: () => void }
 
 /** The workspace stub's filesystem with every path argument recorded first. */

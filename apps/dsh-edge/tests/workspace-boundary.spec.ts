@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('cloudflare:workers', () => ({ RpcTarget: class {} }))
 
-const { RecordingWorkspaceStub, WorkspaceBoundaryRecorder, crossesBoundary } = await import('../src/workspace-boundary.ts')
+const { RecordingWorkspaceStub, WorkspaceBoundaryRecorder, crossesBoundary, lightRootListing } = await import('../src/workspace-boundary.ts')
 
 const LIGHT = new Set(['cat', 'echo', 'ls', 'rg', 'sed', 'awk', 'test'])
 
@@ -215,5 +215,12 @@ describe('workspace boundary', () => {
     expect(await crosses(() => stub.fs.rm('/workspace/self/a.ts'))).toBe(false)
     expect(await crosses(() => stub.fs.writeFile('/workspace/ext/new', 'x'))).toBe(true)
     expect(await crosses(() => stub.fs.writeFile('/workspace/self/new', 'x'))).toBe(false)
+  })
+
+  it('lists the light root so a write beside /workspace shows up however it happened', async () => {
+    const root = (names: string[]) => ({ readdir: () => Promise.resolve(names.map(name => ({ name }))) })
+    expect(await lightRootListing(root(['workspace']))).toBe(await lightRootListing(root(['workspace'])))
+    expect(await lightRootListing(root(['workspace', 'newfile']))).not.toBe(await lightRootListing(root(['workspace'])))
+    expect(await lightRootListing({ readdir: () => Promise.reject(new Error('gone')) })).toBe('')
   })
 })
