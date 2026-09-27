@@ -97,6 +97,13 @@ try {
   assert.equal(linked.lightShellMiss, true)
 
 
+  // jq and the compressors are container-only programs: routed there, and
+  // present in the image.
+  const tools = await exec(`echo '{"v":1}' | jq .v && echo x | xz | xz -d && echo x | bzip2 | bzip2 -d && echo x | zstd | zstd -d`)
+  assert.equal(tools.status, 'completed', tools.stderr)
+  assert.equal(tools.stdout, '1\nx\nx\nx\n')
+  assert.equal(tools.runtime, 'container')
+
   const burst = await exec(`mkdir -p burst && for i in $(seq ${FILES}); do echo "file $i" > burst/f$i; done`, true)
   assert.equal(burst.status, 'completed', burst.stderr)
   assert.equal(burst.runtime, 'container')

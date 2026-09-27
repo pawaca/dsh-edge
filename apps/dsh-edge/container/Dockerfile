@@ -13,6 +13,7 @@ FROM debian:stable-slim@sha256:5bc3287b25407c965a30f38e32603dc253a3869e1b12a21ac
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       fuse3 libfuse2t64 ca-certificates curl gnupg git python3 ripgrep \
+      bzip2 xz-utils zstd unzip zip jq make \
  && mkdir -p /etc/apt/keyrings \
  && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
       | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
