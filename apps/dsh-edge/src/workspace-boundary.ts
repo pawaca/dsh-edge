@@ -83,10 +83,6 @@ function normalizedSegments(path: string): string[] {
   return segments
 }
 
-function rawSegments(path: string): string[] {
-  return path.split('/').filter(segment => segment !== '')
-}
-
 function isMissing(error: unknown): boolean {
   const e = error as { code?: unknown; message?: unknown } | null
   return e?.code === 'ENOENT' || (typeof e?.message === 'string' && /ENOENT|no such/iu.test(e.message))
@@ -159,22 +155,14 @@ class RecordingFilesystemStub extends RpcTarget {
    * the same way in both shells).
    */
   private async escapesThroughLinks(path: string, followLast: boolean): Promise<boolean> {
+    let pending = normalizedSegments(path)
     // Paths outside /workspace were already classified by `record` (PATH
     // lookups there miss on every command and must stay benign).
-    if (normalizedSegments(path)[0] !== 'workspace') return false
-    // Components stay raw so `..` applies after a link expands, as in the
-    // kernel: `link/../passwd` with `link -> /etc/ssl` is `/etc/passwd`.
-    let pending = rawSegments(path)
+    if (pending[0] !== 'workspace') return false
     let resolved: string[] = []
     for (let links = 0; pending.length > 0;) {
       const [segment, ...rest] = pending
       pending = rest
-      if (segment === '.') continue
-      if (segment === '..') {
-        resolved.pop()
-        if (resolved.length > 0 && resolved[0] !== 'workspace') return true
-        continue
-      }
       const candidate = [...resolved, segment!]
       if (candidate[0] !== 'workspace') return true
       if (pending.length === 0 && !followLast) return false
@@ -186,11 +174,11 @@ class RecordingFilesystemStub extends RpcTarget {
         continue
       }
       if (typeof target !== 'string' || ++links > 40) return false
-      // Continue from the root or the link's directory with the rest of the path.
-      if (target.startsWith('/')) resolved = []
-      pending = [...rawSegments(target), ...pending]
+      // Continue from the link's directory (or the root) with the rest of the path.
+      pending = [...normalizedSegments(target.startsWith('/') ? target : `/${[...resolved, target].join('/')}`), ...pending]
+      resolved = []
     }
-    return resolved.length > 0 && resolved[0] !== 'workspace'
+    return false
   }
 
   private call(op: string, args: unknown[], path: string): unknown {
