@@ -122,16 +122,14 @@ class RecordingFilesystemStub extends RpcTarget {
   }
   ls(prefix: string) { return this.call('ls', [prefix], prefix) }
   grep(pattern: unknown, path: string, options?: unknown) { return this.call('grep', [pattern, path, options], path) }
-  writeFile(path: string, content: unknown, options?: unknown) {
-    return this.mutate('writeFile', [path, content, options], path)
-  }
-  mkdir(path: string, options?: unknown) { return this.mutate('mkdir', [path, options], path) }
-  rm(path: string, options?: unknown) { return this.mutate('rm', [path, options], path, true) }
+  writeFile(path: string, content: unknown, options?: unknown) { return this.call('writeFile', [path, content, options], path) }
+  mkdir(path: string, options?: unknown) { return this.call('mkdir', [path, options], path) }
+  rm(path: string, options?: unknown) { return this.call('rm', [path, options], path) }
   rename(from: string, to: string) {
     this.recorder.record('rename', to)
-    return this.mutate('rename', [from, to], from)
+    return this.call('rename', [from, to], from)
   }
-  chmod(path: string, mode: unknown) { return this.mutate('chmod', [path, mode], path) }
+  chmod(path: string, mode: unknown) { return this.call('chmod', [path, mode], path) }
   symlink(target: string, path: string) {
     // A link into the container's filesystem (`ln -s /etc/x link`) crosses
     // even though later reads only name the link; relative targets resolve
@@ -161,31 +159,10 @@ class RecordingFilesystemStub extends RpcTarget {
     }
     // Outside /workspace only `/` exists in the light filesystem, so a link
     // to it (`root -> /`) dereferences successfully; listing it shows the
-    // light root (just `workspace`) instead of the container's. A listing of
-    // that shape counts only once resolution confirms the path left.
-    if (op === 'readdir' && listsLightRoot(result) && normalizedSegments(path).length > 0
-      && await this.escapesThroughLinks(path, true)) {
+    // light root (just `workspace`) instead of the container's.
+    if (op === 'readdir' && listsLightRoot(result) && normalizedSegments(path).length > 0) {
       this.recorder.recordCrossing()
     }
-    return result
-  }
-
-  /**
-   * A mutation through a link into the container's filesystem either fails
-   * (its parent is missing in the light shell) or, for `rm -f`, succeeds
-   * without touching anything. Failures resolve the path's links; `rm`
-   * always does, since `-f` hides the miss. The final link is not followed:
-   * removing or renaming a link acts on the link itself.
-   */
-  private async mutate(op: string, args: unknown[], path: string, always = false): Promise<unknown> {
-    let result: unknown
-    try {
-      result = await this.call(op, args, path)
-    } catch (error) {
-      if (await this.escapesThroughLinks(path, false)) this.recorder.recordCrossing()
-      throw error
-    }
-    if (always && await this.escapesThroughLinks(path, false)) this.recorder.recordCrossing()
     return result
   }
 
@@ -209,8 +186,7 @@ class RecordingFilesystemStub extends RpcTarget {
       if (segment === '.') continue
       if (segment === '..') {
         resolved.pop()
-        // Climbing to or past the root leaves /workspace too.
-        if (resolved[0] !== 'workspace') return true
+        if (resolved.length > 0 && resolved[0] !== 'workspace') return true
         continue
       }
       const candidate = [...resolved, segment!]
@@ -228,7 +204,7 @@ class RecordingFilesystemStub extends RpcTarget {
       if (target.startsWith('/')) resolved = []
       pending = [...rawSegments(target), ...pending]
     }
-    return resolved[0] !== 'workspace'
+    return resolved.length > 0 && resolved[0] !== 'workspace'
   }
 
   private call(op: string, args: unknown[], path: string): unknown {

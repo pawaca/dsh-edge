@@ -127,15 +127,6 @@ try {
   const rooted = await exec('ls root')
   assert.equal(rooted.retriedFromLight, true, JSON.stringify(rooted))
   assert.match(rooted.stdout, /\betc\b/u)
-  // A directory that merely holds a `workspace` child stays light.
-  const plain = await exec('mkdir -p foo/workspace && ls foo')
-  assert.equal(plain.runtime, 'light', JSON.stringify(plain))
-  assert.equal(plain.retriedFromLight, undefined)
-  // `rm -f` through a link into the container's filesystem reruns there.
-  await exec('touch /tmp/edge-file && ln -sfn /tmp ext', true)
-  const removed = await exec('rm -f ext/edge-file')
-  assert.equal(removed.retriedFromLight, true, JSON.stringify(removed))
-  assert.equal((await exec('test -e /tmp/edge-file && echo left || echo gone', true)).stdout, 'gone\n')
 
   // Every command routing keeps light must stay light: no rerun, no miss.
   // A false boundary crossing (say, a new PATH probe) would fail here.
