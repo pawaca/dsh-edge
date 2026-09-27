@@ -86,7 +86,7 @@ The first `fixed` disposition in a family requires no special justification — 
 - After a checkpoint, continue autonomously when the remaining work is in scope and a bounded invariant-preserving repair covers a whole family. Redirect, rebut, simplify, or roll back an approach instead of accumulating local patches.
 - Stop and request user direction when a repair would expand the product, security, data, or public-API contract; materially enlarge or redirect the PR; repeat after a general family repair without a safer replacement; primarily repair problems created by the previous approach; or fail to reduce open problems across two consecutive checkpoints.
 
-Checkpoints diagnose and redirect the loop; no fixed round count alone requires human approval. Human input is reserved for unresolved scope or contract choices and genuine non-convergence.
+Checkpoints diagnose and redirect the loop; apart from a family's third occurrence, no fixed round count alone requires human approval. Human input is reserved for unresolved scope or contract choices, a family's third occurrence, and genuine non-convergence.
 
 ## Record handled state
 

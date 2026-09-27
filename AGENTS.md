@@ -62,7 +62,7 @@ The root and standalone lockfiles serve different purposes. The root lock instal
 
 ## Review and publication
 
-Use `.agents/skills/dsh-pre-push-checks/SKILL.md` before a push and `.agents/skills/codex-review-loop/SKILL.md` after opening or updating a PR. Review findings are technical claims: fix valid in-scope problems, rebut stale or incorrect claims with evidence, and ask the user only when a choice changes product, security, durable data, or public API behavior.
+Use `.agents/skills/dsh-pre-push-checks/SKILL.md` before a push and `.agents/skills/codex-review-loop/SKILL.md` after opening or updating a PR. Review findings are technical claims: fix valid in-scope problems, rebut stale or incorrect claims with evidence, and ask the user only when a choice changes product, security, durable data, or public API behavior, or when a problem family recurs a third time.
 
 Review rounds are convergence checkpoints, not a fixed retry budget. On repeated problem families, audit all affected callers and replace local patches with one invariant-preserving repair. Stop only for genuine scope decisions or non-convergence. Never merge automatically.
 
