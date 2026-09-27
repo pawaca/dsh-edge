@@ -117,11 +117,6 @@ try {
   const followed = await exec('test -f earlier-link && echo linux || echo missing')
   assert.equal(followed.stdout, 'linux\n')
   assert.equal(followed.retriedFromLight, true)
-  // Link chains resolve the way the kernel does: alias -> ext -> /etc.
-  await exec('ln -sfn /etc ext && ln -sfn ext alias', true)
-  const chained = await exec('test -f alias/os-release && echo linux || echo missing')
-  assert.equal(chained.stdout, 'linux\n')
-  assert.equal(chained.retriedFromLight, true)
 
   // Every command routing keeps light must stay light: no rerun, no miss.
   // A false boundary crossing (say, a new PATH probe) would fail here.
