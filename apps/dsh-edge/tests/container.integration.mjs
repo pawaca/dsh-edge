@@ -143,11 +143,15 @@ try {
     }
     const routed = await exec(command, false, auto)
     const forced = await exec(command, true, linux)
-    const same = routed.stdout === forced.stdout && routed.exitCode === forced.exitCode
+    // Each run has its own directory; compare everything else, stderr included.
+    const normalize = text => text.replaceAll(auto, '<dir>').replaceAll(linux, '<dir>')
+      .replaceAll(`${index}-auto`, '<dir>').replaceAll(`${index}-linux`, '<dir>')
+    const same = routed.exitCode === forced.exitCode && normalize(routed.stdout) === normalize(forced.stdout)
+      && normalize(routed.stderr) === normalize(forced.stderr)
     if (!same && routed.lightShellMiss !== true) {
       differing.push(`${command}\n  auto:  ${routed.runtime}${routed.retriedFromLight ? ' (rerun)' : ''} `
         + `exit=${routed.exitCode} ${JSON.stringify(routed.stdout.slice(0, 80))} ${JSON.stringify(routed.stderr.slice(0, 120))}`
-        + `\n  linux: exit=${forced.exitCode} ${JSON.stringify(forced.stdout.slice(0, 80))}`)
+        + `\n  linux: exit=${forced.exitCode} ${JSON.stringify(forced.stdout.slice(0, 80))} ${JSON.stringify(forced.stderr.slice(0, 120))}`)
     }
   }
   assert.deepEqual(differing, [], 'automatic routing differs from a forced Linux run')
