@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest'
-vi.mock('cloudflare:workers', () => ({ DurableObject: class {} }))
+vi.mock('cloudflare:workers', () => ({ DurableObject: class {}, RpcTarget: class {} }))
 vi.mock('@cloudflare/computer', () => ({ withWorkspace: (base: unknown) => base }))
 vi.mock('@cloudflare/computer/backends/worker-shell', () => ({}))
 vi.mock('@cloudflare/computer/backends/container', () => ({

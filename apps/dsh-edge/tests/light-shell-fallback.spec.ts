@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { EdgeShellResult } from '../src/agent.ts'
-import { leftWorkspaceUnchanged, lightShellCouldNotRun } from '../src/light-shell-fallback.ts'
+import { LightShellTurns, leftWorkspaceUnchanged, lightShellCouldNotRun } from '../src/light-shell-fallback.ts'
 
 function result(overrides: Partial<EdgeShellResult>): EdgeShellResult {
   return {
@@ -37,11 +37,15 @@ describe('light shell miss detection', () => {
     ['a missing Worker module', { stderr: 'curl: No such module "chunk-BO4NKWMI.js".\n' }],
     ['an unsupported option', { stderr: "env: invalid option -- 'S'\n" }],
     ['an unrecognized long option', { stderr: "sort: unrecognized option '--compress-program=gzip'\n" }],
+    ['an unsupported sed address', { stderr: 'sed: invalid command: \\\n' }],
+    ['an unsupported awk construct', { stderr: 'awk: Unexpected token: PIPE at line 1:9\n' }],
+    ['unsupported regex lookaround', {
+      stderr: 'grep: Lookahead (?=, ?!) and lookbehind (?<=, ?<!) assertions are not supported in this environment\n',
+    }],
+    ['a regex the light engine rejects', { exitCode: 2, stderr: 'grep: invalid regular expression: a(?=b)\n' }],
+    ['a find action without a runner', { stderr: 'find: -exec not supported in this context\n' }],
     ['a Linux path', { stderr: 'cat: /etc/os-release: No such file or directory\n' }],
     ['a home path', { stderr: 'cat: //.bashrc: No such file or directory\n' }],
-    ['a Linux path in a pipeline that exits 0', {
-      status: 'completed' as const, exitCode: 0, stdout: '0\n', stderr: 'head: /dev/urandom: No such file or directory\n',
-    }],
     ['a write outside the workspace', { stderr: 'parent directory missing: /tmp/probe: /tmp/probe\n' }],
   ])('recognizes %s', (_name, overrides) => {
     expect(lightShellCouldNotRun(result(overrides), '/workspace')).toBe(true)
@@ -63,6 +67,16 @@ describe('light shell miss detection', () => {
     expect(lightShellCouldNotRun(result({ status: 'cancelled', exitCode: 127, stderr: missing }), '/workspace')).toBe(false)
     expect(lightShellCouldNotRun(result({ timedOut: true, exitCode: 127, stderr: missing }), '/workspace')).toBe(false)
     expect(lightShellCouldNotRun(result({ status: 'completed', exitCode: 0 }), '/workspace')).toBe(false)
+    // Text a successful command printed itself never changes its result.
+    expect(lightShellCouldNotRun(result({ status: 'completed', exitCode: 0, stderr: 'not supported\n' }), '/workspace'))
+      .toBe(false)
+    // A tool's diagnostic counts even when a pipeline around it succeeds.
+    expect(lightShellCouldNotRun(result({ status: 'completed', exitCode: 0,
+      stderr: 'grep: invalid regular expression: a(?=b)\n' }), '/workspace')).toBe(true)
+    expect(lightShellCouldNotRun(result({ exitCode: 1, stderr: 'this feature is not supported\n' }), '/workspace')).toBe(false)
+    // A pipeline that exits 0 is left to the boundary recorder.
+    expect(lightShellCouldNotRun(result({ status: 'completed', exitCode: 0,
+      stderr: 'head: /dev/urandom: No such file or directory\n' }), '/workspace')).toBe(false)
     // An explicit `exit 127` ran as requested.
     expect(lightShellCouldNotRun(result({ exitCode: 127 }), '/workspace')).toBe(false)
     expect(lightShellCouldNotRun(result({ exitCode: 127, stdout: 'x: command not found\n' }), '/workspace')).toBe(false)
@@ -73,5 +87,26 @@ describe('light shell miss detection', () => {
     expect(leftWorkspaceUnchanged(7, 8)).toBe(false)
     expect(leftWorkspaceUnchanged(undefined, undefined)).toBe(false)
     expect(leftWorkspaceUnchanged(7, undefined)).toBe(false)
+  })
+
+  it('runs light commands one at a time, and a cancelled wait never lets the next one jump ahead', async () => {
+    const turns = new LightShellTurns()
+    const never = new AbortController().signal
+    const order: string[] = []
+    const first = await turns.acquire(never)
+    const cancelled = new AbortController()
+    const second = turns.acquire(cancelled.signal)
+    const third = turns.acquire(never).then(release => { order.push('third'); return release })
+    cancelled.abort(new Error('cancelled'))
+    await expect(second).rejects.toThrow('cancelled')
+    await Promise.resolve()
+    // The first command still holds its turn, so the third keeps waiting.
+    expect(order).toEqual([])
+    order.push('first done')
+    first()
+    const release = await third
+    expect(order).toEqual(['first done', 'third'])
+    release()
+    await expect(turns.acquire(AbortSignal.abort(new Error('gone')))).rejects.toThrow('gone')
   })
 })
