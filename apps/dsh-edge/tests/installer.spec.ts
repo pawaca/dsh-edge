@@ -1354,23 +1354,37 @@ describe('dsh-edge guided installation', () => {
     expect(result).toMatchObject({ mode: 'isolated', updated: true })
   })
 
-  it('keeps the Container application for rollback and prints how to remove it', async () => {
+  it('keeps the Container application for rollback and prints a runnable removal command', async () => {
     const storage = { name: 'DSH_EDGE_ATTACHMENT_STORAGE', type: 'plain_text', text: 'temporary-do' }
     const loader = { name: 'LOADER', type: 'worker_loader' }
     const container = { name: 'DSH_EDGE_CONTAINER_RUNTIME', type: 'plain_text', text: 'enabled' }
-    for (const previous of ['container', 'isolated'] as const) {
+    const id = 'a03efd01-3c6e-4609-bb6c-e07fb44e207c'
+    for (const [previous, listing] of [
+      ['container', commandResult(0, JSON.stringify([{ id, name: 'dsh-edge-container' }, { id: 'b03efd01-3c6e-4609-bb6c-e07fb44e207c', name: 'other-container' }]))],
+      ['container', commandResult(1, '', 'Unauthorized')],
+      ['isolated', undefined],
+    ] as const) {
       const directory = await mkdtemp(join(tmpdir(), `dsh-edge-leave-container-${previous}-`))
       const { ui, cleanupFailure } = createUi({ existingActions: ['change'], capabilities: ['direct'] })
-      const runWrangler = existingWorkerWrangler(previous === 'container' ? [storage, loader, container] : [storage, loader])
+      const runWrangler = existingWorkerWrangler(
+        previous === 'container' ? [storage, loader, container] : [storage, loader],
+        undefined,
+        args => args[0] === 'containers' ? listing : undefined,
+      )
       await installEdge({
         command: 'upgrade', ui, runWrangler, createTemporaryDirectory: async () => directory,
         observeActivation: async () => ({ status: 'live', attempts: 1, elapsedMs: 0 }),
       })
-      expect(runWrangler.mock.calls.some(([args]) => args[0] === 'containers')).toBe(false)
-      if (previous === 'container') {
-        expect(cleanupFailure).toHaveBeenCalledWith(expect.stringMatching(/kept for rollback.*dsh-edge-container/su))
-      } else {
+      // Only a read-only listing: the application is never deleted automatically.
+      const containerCalls = runWrangler.mock.calls.map(call => call[0]).filter(args => args[0] === 'containers')
+      if (previous === 'isolated') {
+        expect(containerCalls).toEqual([])
         expect(cleanupFailure).not.toHaveBeenCalled()
+      } else {
+        expect(containerCalls).toEqual([['containers', 'list', '--json']])
+        expect(cleanupFailure).toHaveBeenCalledWith(expect.stringMatching(listing.status === 0
+          ? new RegExp(`kept for rollback.*: npx wrangler containers delete ${id}$`, 'su')
+          : /kept for rollback.*containers list, then npx wrangler containers delete <id> for dsh-edge-container$/su))
       }
     }
   })

@@ -20,7 +20,7 @@
 npx dsh-edge install
 ```
 
-每个 prompt 都直接按 Enter，就能部署 Worker 并在浏览器中打开，之后在 Settings → Models 中添加 DeepSeek API key。你可以在没有现成 Cloudflare 登录的情况下先试用，也可以永久安装到自己的 Cloudflare 账户；不需要 checkout 源码。
+每个 prompt 都直接按 Enter，就能部署 Worker 并在浏览器中打开，之后在网页提示时填写 DeepSeek API key（也可以稍后在 Settings → Models 中添加）。你可以在没有现成 Cloudflare 登录的情况下先试用，也可以永久安装到自己的 Cloudflare 账户；不需要 checkout 源码。
 
 [![安装 dsh-edge、解锁部署、选择 Vision Exp 并识别图片](docs/assets/dsh-edge-demo.gif)](docs/assets/dsh-edge-demo.mp4)
 
@@ -43,7 +43,7 @@ npx dsh-edge install
 
 - **Research and write**（Workers Free）：联网搜索、读网页、写文档，并通过 MCP 连接你的工具。命令在实例内置的轻量 shell（just-bash，一个处理文件和文本的沙箱 shell，不是 Linux）里执行。
 - **+ Analyze data and split big jobs**（Workers Paid，$5/月起）：把这个 shell 放进隔离的 Worker 运行，并增加 `run_code`（编写调用其他工具的 TypeScript 程序）和 `workflow`（并行子 agent）。
-- **+ Work on code projects**（Workers Paid，外加容器运行时长）：再加一个真实的 Debian 容器，带 git、node、npm、python3。每条命令仍先在轻量 shell 里执行，只有需要 Linux 的命令（或 agent 标注了 `linux: true` 的命令）才进容器；容器按需启动，闲置 10 分钟后休眠，运行期间由 Cloudflare 按用量计费。
+- **+ Work on code projects**（Workers Paid，外加容器运行时长）：再加一个真实的 Debian 容器，带 git、node、npm、python3。每条命令仍先在轻量 shell 里执行，只有需要 Linux 的命令（或 agent 标注了 `linux: true` 的命令）才进容器；容器按需启动，默认闲置 10 分钟后休眠（可在设置中调整），运行期间由 Cloudflare 按用量计费。
 
 所有选项共用相同的界面、对话、工作区、图片和子 agent。
 

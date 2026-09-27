@@ -229,7 +229,7 @@ describe('dsh-edge CLI', () => {
       attachmentStorage: 'temporary-do',
     })
     expect(note).toHaveBeenLastCalledWith(expect.stringMatching(/^Cost: +free on Workers Free$/mu), 'Install dsh-edge')
-    expect(note.mock.lastCall?.[0]).toMatch(/^DeepSeek: +add your API key later in Settings → Models$/mu)
+    expect(note.mock.lastCall?.[0]).toMatch(/^DeepSeek: +add your API key when the web app asks, or later in Settings → Models$/mu)
     expect(note.mock.lastCall?.[0]).toContain('https://www.cloudflare.com/terms/')
     expect(confirm).toHaveBeenLastCalledWith(expect.objectContaining({
       message: 'Accept the terms and install?',
@@ -721,7 +721,7 @@ describe('dsh-edge CLI', () => {
     ), 'Worker uploaded — readiness unverified')
     expect(note).toHaveBeenCalledWith(expect.stringContaining(
       '1. Open the URL above.\n2. Enter the owner access key when prompted.\n'
-      + '3. Add your DeepSeek API key in Settings → Models.\n'
+      + '3. Add your DeepSeek API key when the web app asks (or later in Settings → Models).\n'
       + '4. Save the owner access key; you need it to sign in.',
     ), 'Worker uploaded — readiness unverified')
     expect(outro).toHaveBeenCalledWith(

@@ -391,8 +391,26 @@ export function parseWorkerExistence(result) {
   throw new Error(commandFailure('Could not check whether the Worker already exists', result))
 }
 
-function staleContainerCleanupCommand(workerName) {
-  return `npx wrangler containers list, then npx wrangler containers delete <id> for ${containerApplicationName(workerName)}`
+/**
+ * The command that removes a Worker's Container application after it leaves
+ * Container mode. Listing is read-only; when it fails or finds nothing, the
+ * owner is told how to find the id instead.
+ */
+async function staleContainerCleanupCommand({ runWrangler, environment, profile, workerName, signal }) {
+  const name = containerApplicationName(workerName)
+  const manual = `npx wrangler containers list, then npx wrangler containers delete <id> for ${name}`
+  try {
+    const listed = await runWrangler(['containers', 'list', '--json', ...profileArgs(profile)], { environment, signal })
+    if (listed.status !== 0) return manual
+    const applications = JSON.parse(listed.stdout)
+    const ids = Array.isArray(applications)
+      ? applications.filter(application => application?.name === name).map(application => application.id)
+      : []
+    if (ids.length === 0 || ids.some(id => typeof id !== 'string' || !/^[0-9a-f-]{36}$/u.test(id))) return manual
+    return ids.map(id => ['npx wrangler containers delete', id, ...profileArgs(profile)].join(' ')).join(' && ')
+  } catch {
+    return manual
+  }
 }
 
 /**
@@ -787,9 +805,11 @@ export async function installEdge({
     // read back) cannot verify the replacement's runtime. The owner removes it
     // after signing in; its files live in the Durable Object, not the container.
     if (existing?.mode === 'container' && mode !== 'container') {
+      const command = await staleContainerCleanupCommand({
+        runWrangler, environment: commandEnvironment, profile, workerName, signal,
+      })
       ui.cleanupFailure(`The ${containerApplicationName(workerName)} Container application was kept for rollback. `
-        + `Once you have signed in and the new version works, remove it to stop Container billing: ${
-          staleContainerCleanupCommand(workerName)}.`)
+        + `Once you have signed in and the new version works, remove it to stop Container billing: ${command}`)
     }
   } catch (error) {
     primaryError = signal?.aborted ? abortReason(signal, 'Installation interrupted.') : error
