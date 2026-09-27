@@ -212,11 +212,11 @@ export function createInstallerUi(
             ? [['Kept', KEPT_ON_UPDATE]]
             : [
                 ['Owner key', 'generated and shown when installation finishes'],
-                ['DeepSeek', 'add your API key later in Settings → Models'],
+                ['DeepSeek', 'add your API key when the web app asks, or later in Settings → Models'],
               ]),
         ]),
         ...(summary.mode === 'container'
-          ? ['', 'The container sleeps after 10 idle minutes.', CONTAINER_ROLLOUT_NOTE]
+          ? ['', 'The container sleeps after 10 idle minutes by default; change it in Settings → DSH Edge.', CONTAINER_ROLLOUT_NOTE]
           : []),
         ...(summary.temporary
           ? [
@@ -298,7 +298,7 @@ export function createInstallerUi(
         newKey
           ? 'Enter the owner access key when prompted.'
           : 'Sign in with your existing owner access key.',
-        ...(result.updated ? [] : ['Add your DeepSeek API key in Settings → Models.']),
+        ...(result.updated ? [] : ['Add your DeepSeek API key when the web app asks (or later in Settings → Models).']),
         ...(newKey ? ['Save the owner access key; you need it to sign in.'] : []),
       ]
       note([

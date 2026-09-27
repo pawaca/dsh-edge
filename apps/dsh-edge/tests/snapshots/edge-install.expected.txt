@@ -33,7 +33,7 @@ community project · install
 │  Worker:    dsh-edge                                                                     │
 │  Images:    stored in this instance (64 MiB limit)                                       │
 │  Owner key: generated and shown when installation finishes                               │
-│  DeepSeek:  add your API key later in Settings → Models                                  │
+│  DeepSeek:  add your API key when the web app asks, or later in Settings → Models        │
 │                                                                                          │
 │  The temporary account lasts 60 minutes unless you claim it.                             │
 │  Installing accepts the Cloudflare Terms of Service (https://www.cloudflare.com/terms/)  │
@@ -51,22 +51,22 @@ community project · install
 │
 ◇  Chat and workspace services are ready. [0s]
 │
-◇  dsh-edge is ready ──────────────────────────────────────────────────────────────────╮
-│                                                                                      │
-│  Status: Ready                                                                       │
-│                                                                                      │
-│  URL: https://dsh-edge.preview.workers.dev                                           │
-│  Owner access key: {{generated-access-key}}                       │
-│  Claim URL: https://dash.cloudflare.com/claim-preview?token={{claim-token}}          │
-│                                                                                      │
-│  Next steps:                                                                         │
-│  1. Claim this temporary account within 60 minutes to keep the Worker and its data.  │
-│  2. Open the URL above.                                                              │
-│  3. Enter the owner access key when prompted.                                        │
-│  4. Add your DeepSeek API key in Settings → Models.                                  │
-│  5. Save the owner access key; you need it to sign in.                               │
-│                                                                                      │
-├──────────────────────────────────────────────────────────────────────────────────────╯
+◇  dsh-edge is ready ───────────────────────────────────────────────────────────────────╮
+│                                                                                       │
+│  Status: Ready                                                                        │
+│                                                                                       │
+│  URL: https://dsh-edge.preview.workers.dev                                            │
+│  Owner access key: {{generated-access-key}}                        │
+│  Claim URL: https://dash.cloudflare.com/claim-preview?token={{claim-token}}           │
+│                                                                                       │
+│  Next steps:                                                                          │
+│  1. Claim this temporary account within 60 minutes to keep the Worker and its data.   │
+│  2. Open the URL above.                                                               │
+│  3. Enter the owner access key when prompted.                                         │
+│  4. Add your DeepSeek API key when the web app asks (or later in Settings → Models).  │
+│  5. Save the owner access key; you need it to sign in.                                │
+│                                                                                       │
+├───────────────────────────────────────────────────────────────────────────────────────╯
 │
 ◆  Open dsh-edge in your browser?
 │  ● Yes / ○ No
