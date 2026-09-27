@@ -152,6 +152,8 @@ interface EdgeSessionStoreConfig {
   withWorkspaceFiles<T>(read: (files: EdgeWorkspaceFiles) => Promise<T>): Promise<T>
   onLateSessionEvent?: (sessionId: SessionId, event: SessionEvent) => void
   onProjectionChanged?: (sessionId: SessionId, key: string, value: unknown, seq: number) => void
+  /** Called after every committed runtime-settings change, whichever API wrote it. */
+  onRuntimeSettingsChanged?: () => void | Promise<void>
 }
 
 interface TurnDeliveryItem {
@@ -572,6 +574,7 @@ export class EdgeSessionStore {
       resolveMcpPolicy: name => this.mcpToolManager!.resolveToolPolicy(name),
     })
     this.runtimeScope = installEdgeRuntimeSettings(this.context)
+    if (config.onRuntimeSettingsChanged !== undefined) this.runtimeScope.watch(config.onRuntimeSettingsChanged)
     await this.mcpToolManager.ready
     const mcpSummary = await this.mcpToolManager.getServerSummary()
     if (mcpSummary !== undefined) {

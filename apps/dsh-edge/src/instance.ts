@@ -327,6 +327,8 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       onLateSessionEvent: (sessionId, event) => {
         this.publishSessionEvent(sessionId, event)
       },
+      // A shorter sleep window moves the idle stop earlier.
+      onRuntimeSettingsChanged: () => this.scheduleMainWake(),
       onProjectionChanged: (sessionId, key, value, seq) => {
         // sessionListMetadata uses a dedicated push with its own fold logic in publishSessionEvent
         if (key === 'sessionListMetadata') return
@@ -480,8 +482,6 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
           const patch = parseRuntimeSettingsPatch(body)
           if (typeof patch === 'string') return jsonResponse({ error: patch }, 400)
           await this.sessions.updateRuntimeSettings(patch)
-          // A shorter sleep window moves the idle stop earlier.
-          await this.scheduleMainWake()
           return jsonResponse(this.runtimeState())
         }
       }
@@ -490,9 +490,10 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         if (this.containerBackend() === undefined || container === undefined) {
           return jsonResponse({ error: 'this deployment has no Linux container' }, 404)
         }
-        const outcome = container.running
-          ? await this.containerActivity.stopNow(() => container.destroy())
-          : 'stopped'
+        // A command holding a slot keeps even a starting or crashed container.
+        const outcome = await this.containerActivity.stopNow(
+          async () => { if (container.running) await container.destroy() },
+        )
         return jsonResponse({ outcome, ...this.runtimeState() }, outcome === 'failed' ? 502 : 200)
       }
       if (url.pathname === '/api/mcp-servers') {
