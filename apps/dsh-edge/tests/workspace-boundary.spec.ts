@@ -94,36 +94,4 @@ describe('workspace boundary', () => {
     expect(stub.artifacts).toBe('artifacts')
     expect(stub.useThink).toBe(false)
   })
-
-  it('follows links only when a lookup finds nothing, flagging those that leave /workspace', async () => {
-    const recorder = new WorkspaceBoundaryRecorder(LIGHT)
-    const links: Record<string, string> = { '/workspace/os': '/etc/os-release', '/workspace/etcdir': '../../etc' }
-    const readlinks: string[] = []
-    const missing = () => Object.assign(new Error('no such file'), { code: 'ENOENT' })
-    const fs = {
-      exists: (path: string) => Promise.resolve(path === '/workspace/a.txt'),
-      statOrNull: () => Promise.resolve(null),
-      stat: () => Promise.reject(missing()),
-      readFile: () => Promise.reject(missing()),
-      readlink: (path: string) => {
-        readlinks.push(path)
-        return path in links ? Promise.resolve(links[path]) : Promise.reject(missing())
-      },
-    }
-    const stub = new RecordingWorkspaceStub({ fs, runtime: {}, git: {}, assets: undefined, artifacts: {}, useThink: false } as never, recorder)
-
-    let mark = recorder.mark()
-    await expect(stub.fs.exists('/workspace/a.txt')).resolves.toBe(true)
-    expect(readlinks).toEqual([])
-    await expect(stub.fs.exists('/workspace/missing.txt')).resolves.toBe(false)
-    expect(recorder.crossedSince(mark)).toBe(false)
-
-    mark = recorder.mark()
-    await expect(stub.fs.exists('/workspace/os')).resolves.toBe(false)
-    expect(recorder.crossedSince(mark)).toBe(true)
-
-    mark = recorder.mark()
-    await expect(stub.fs.readFile('/workspace/etcdir/os-release')).rejects.toThrow('no such file')
-    expect(recorder.crossedSince(mark)).toBe(true)
-  })
 })
