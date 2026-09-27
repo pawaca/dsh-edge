@@ -37,6 +37,15 @@ const CAPABILITY_DIAGNOSTICS: readonly RegExp[] = [
   /No such module "/u,
   // A GNU option just-bash does not implement (`env -S`, `tar -I`, `sort --compress-program`).
   /^[\w.[-]+: (?:invalid|unrecognized) option\b/mu,
+  // Syntax just-bash's own parsers lack: sed addresses such as `\%re%`, awk
+  // output pipes (GNU awk words its errors differently), regex lookaround,
+  // PCRE2, and anything the tools report as not supported or implemented.
+  /^sed: .*(?:invalid|unknown) command\b/mu,
+  /^awk: .*Unexpected token\b/mu,
+  /\bnot (?:yet )?(?:supported|implemented)\b/u,
+  // A regex just-bash's engine rejects (`grep -P 'a(?=b)'`); a genuinely
+  // invalid pattern fails the same way in the container, costing one rerun.
+  /\binvalid regular expression\b/iu,
 ]
 
 /** Paths a command reported missing (`cat: /etc/x: No such file or directory`). */

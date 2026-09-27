@@ -1004,7 +1004,6 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     const route = routeBashCommand(command, {
       policy: this.runtimeSelection.bashRouting,
       containerAvailable: container !== undefined,
-      cwd,
       ...options.requestContainer === true ? { requestContainer: true } : {},
     })
     if (container === undefined) {

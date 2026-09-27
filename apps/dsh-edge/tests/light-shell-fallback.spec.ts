@@ -37,6 +37,13 @@ describe('light shell miss detection', () => {
     ['a missing Worker module', { stderr: 'curl: No such module "chunk-BO4NKWMI.js".\n' }],
     ['an unsupported option', { stderr: "env: invalid option -- 'S'\n" }],
     ['an unrecognized long option', { stderr: "sort: unrecognized option '--compress-program=gzip'\n" }],
+    ['an unsupported sed address', { stderr: 'sed: invalid command: \\\n' }],
+    ['an unsupported awk construct', { stderr: 'awk: Unexpected token: PIPE at line 1:9\n' }],
+    ['unsupported regex lookaround', {
+      stderr: 'grep: Lookahead (?=, ?!) and lookbehind (?<=, ?<!) assertions are not supported in this environment\n',
+    }],
+    ['a regex the light engine rejects', { exitCode: 2, stderr: 'grep: invalid regular expression: a(?=b)\n' }],
+    ['a find action without a runner', { stderr: 'find: -exec not supported in this context\n' }],
     ['a Linux path', { stderr: 'cat: /etc/os-release: No such file or directory\n' }],
     ['a home path', { stderr: 'cat: //.bashrc: No such file or directory\n' }],
     ['a Linux path in a pipeline that exits 0', {
