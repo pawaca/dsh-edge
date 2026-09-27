@@ -173,8 +173,14 @@ describe('workspace boundary', () => {
       '/workspace/root': [{ name: 'workspace', isDirectory: true }],
       '/workspace/proj': [{ name: 'workspace', isDirectory: true }, { name: 'src', isDirectory: true }],
       '/workspace/src': [{ name: 'a.ts', isFile: true }],
+      // An ordinary directory that happens to hold only `workspace`.
+      '/workspace/foo': [{ name: 'workspace', isDirectory: true }],
     }
-    const fs = { readdir: (path: string) => Promise.resolve(listings[path]) }
+    const links: Record<string, string> = { '/workspace/root': '/' }
+    const fs = {
+      readdir: (path: string) => Promise.resolve(listings[path]),
+      readlink: (path: string) => path in links ? Promise.resolve(links[path]) : Promise.reject(new Error('not a link')),
+    }
     const stub = new RecordingWorkspaceStub({ fs, runtime: {}, git: {}, assets: undefined, artifacts: {}, useThink: false } as never, recorder)
     const crosses = async (path: string) => {
       const mark = recorder.mark()
@@ -184,5 +190,30 @@ describe('workspace boundary', () => {
     expect(await crosses('/workspace/root')).toBe(true)
     expect(await crosses('/workspace/proj')).toBe(false)
     expect(await crosses('/workspace/src')).toBe(false)
+    expect(await crosses('/workspace/foo')).toBe(false)
+  })
+
+  it('resolves links for mutations: always for rm, and on failure for the rest', async () => {
+    const recorder = new WorkspaceBoundaryRecorder(LIGHT)
+    const links: Record<string, string> = { '/workspace/ext': '/tmp', '/workspace/self': 'src' }
+    const missing = () => Object.assign(new Error('parent directory missing'), { code: 'ENOENT' })
+    const fs = {
+      rm: () => Promise.resolve(undefined),
+      writeFile: (path: string) => path.startsWith('/workspace/ext/') ? Promise.reject(missing()) : Promise.resolve(undefined),
+      readlink: (path: string) => path in links ? Promise.resolve(links[path]) : Promise.reject(missing()),
+    }
+    const stub = new RecordingWorkspaceStub({ fs, runtime: {}, git: {}, assets: undefined, artifacts: {}, useThink: false } as never, recorder)
+    const crosses = async (run: () => Promise<unknown>) => {
+      const mark = recorder.mark()
+      await run().catch(() => undefined)
+      return recorder.crossedSince(mark)
+    }
+    // `rm -f ext/file` succeeds silently in the light shell.
+    expect(await crosses(() => stub.fs.rm('/workspace/ext/edge-file', { force: true }))).toBe(true)
+    // Removing the link itself acts on the link, which is inside.
+    expect(await crosses(() => stub.fs.rm('/workspace/ext'))).toBe(false)
+    expect(await crosses(() => stub.fs.rm('/workspace/self/a.ts'))).toBe(false)
+    expect(await crosses(() => stub.fs.writeFile('/workspace/ext/new', 'x'))).toBe(true)
+    expect(await crosses(() => stub.fs.writeFile('/workspace/self/new', 'x'))).toBe(false)
   })
 })
