@@ -1010,6 +1010,13 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     if (container === undefined) {
       return executeWorkspaceCommand(workspace, command, cwd, timeoutPolicy, options.timeoutMs, options.signal)
     }
+    if (route === 'light' && this.runtimeSelection.bashRouting !== 'auto') {
+      // A forced light policy never reruns, so it needs no miss signals and no turns.
+      const result = await executeWorkspaceCommand(
+        workspace, command, cwd, timeoutPolicy, options.timeoutMs, options.signal,
+      )
+      return { ...result, runtime: 'light' }
+    }
     if (route === 'light') {
       // One light command at a time, so the workspace-wide miss signals below
       // belong to this command; waiting spends its timeout.
@@ -1036,7 +1043,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       // A miss is a loud failure the Worker shell reports, or a silent reach
       // for a path only the container has (`test -f /etc/x`, sed `r`).
       const missed = lightShellCouldNotRun(light.result, cwd) || (light.crossedBoundary && settled)
-      if (this.runtimeSelection.bashRouting !== 'auto' || !missed || options.signal?.aborted === true) {
+      if (!missed || options.signal?.aborted === true) {
         return { ...light.result, runtime: 'light' }
       }
       // A routing miss: rerun in the container when the light attempt changed
