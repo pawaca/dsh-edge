@@ -98,6 +98,14 @@ try {
   const probe = await exec('d=etc; test -f /"$d"/os-release && echo linux || echo missing')
   assert.equal(probe.stdout, 'linux\n')
   assert.equal(probe.retriedFromLight, true)
+  // Concurrently, a silent probe must still rerun while another light command
+  // writes the workspace: light commands take turns, so each owns its signals.
+  const [raced] = await Promise.all([
+    exec('d=etc; test -f /"$d"/os-release && echo linux || echo missing'),
+    exec('sleep 1; echo x > raced.txt'),
+  ])
+  assert.equal(raced.stdout, 'linux\n')
+  assert.equal(raced.retriedFromLight, true)
   // A link into the container's filesystem crosses too; creating it wrote a
   // file, so the command is reported rather than rerun.
   const linked = await exec('d=etc; ln -s /"$d"/os-release os; test -f os && echo linux || echo missing')

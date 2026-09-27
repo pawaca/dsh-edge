@@ -37,7 +37,12 @@ import { ContainerActivity } from './container-activity.ts'
 import { resolveEdgeRuntimeBackends } from './runtime-backends.ts'
 import { LIGHT_SHELL_COMMANDS, routeBashCommand } from './bash-routing.ts'
 import { RecordingWorkspaceStub, WorkspaceBoundaryRecorder } from './workspace-boundary.ts'
-import { leftWorkspaceUnchanged, lightShellCouldNotRun, workspaceRevision } from './light-shell-fallback.ts'
+import {
+  LightShellTurns,
+  leftWorkspaceUnchanged,
+  lightShellCouldNotRun,
+  workspaceRevision,
+} from './light-shell-fallback.ts'
 import {
   CONTAINER_RUNTIME_MARKER,
   DYNAMIC_WORKER_RUNTIME_PROVIDER,
@@ -268,6 +273,20 @@ interface ActiveTurn {
   resolveReleaseComplete: () => void
 }
 
+/** The result of a command whose whole timeout went to waiting for its turn. */
+function waitTimedOut(runtime: 'light' | 'container', message: string): EdgeShellResult {
+  return {
+    executionId: EdgeExecutionId(crypto.randomUUID()),
+    status: 'failed',
+    timedOut: true,
+    exitCode: 124,
+    stdout: '',
+    stderr: `${message}\n`,
+    outputTruncated: false,
+    runtime,
+  }
+}
+
 /** One isolated persistent workspace with its conversations and active agent turn. */
 export class DshEdgeInstance extends DshEdgeWorkspace {
   private readonly attachmentStorage = resolveEdgeAttachmentStorage(
@@ -336,7 +355,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
   private residentWorkspace: EdgeWorkspace | undefined
   private readonly containerActivity = new ContainerActivity()
   private readonly boundary = new WorkspaceBoundaryRecorder(LIGHT_SHELL_COMMANDS)
-  private readonly lightRuns = new Set<{ concurrent: boolean }>()
+  private readonly lightTurns = new LightShellTurns()
 
   /** The workspace stub every shell reaches, with outside-/workspace accesses recorded. */
   override async __getWorkspaceStub(): ReturnType<DshEdgeWorkspaceStubSource['__getWorkspaceStub']> {
@@ -992,26 +1011,41 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       return executeWorkspaceCommand(workspace, command, cwd, timeoutPolicy, options.timeoutMs, options.signal)
     }
     if (route === 'light') {
-      const light = await this.runLightCommand(workspace, command, cwd, timeoutPolicy, options)
+      // One light command at a time, so the workspace-wide miss signals below
+      // belong to this command; waiting spends its timeout.
+      const budgetMs = resolveCommandTimeoutMs(timeoutPolicy, options.timeoutMs)
+      const started = Date.now()
+      const expiry = AbortSignal.timeout(budgetMs)
+      let release: () => void
+      try {
+        release = await this.lightTurns.acquire(
+          options.signal === undefined ? expiry : AbortSignal.any([options.signal, expiry]),
+        )
+      } catch (error) {
+        if (options.signal?.aborted === true || !expiry.aborted) throw error
+        return waitTimedOut('light', 'timed out waiting for the lightweight shell')
+      }
+      let light: Awaited<ReturnType<DshEdgeInstance['runLightCommand']>>
+      try {
+        light = await this.runLightCommand(workspace, command, cwd, timeoutPolicy,
+          { ...options, timeoutMs: Math.max(1, budgetMs - (Date.now() - started)) })
+      } finally {
+        release()
+      }
       const settled = light.result.status !== 'cancelled' && !light.result.timedOut
       // A miss is a loud failure the Worker shell reports, or a silent reach
       // for a path only the container has (`test -f /etc/x`, sed `r`).
-      const loud = lightShellCouldNotRun(light.result, cwd)
-      const crossed = light.crossedBoundary && settled
-      if (this.runtimeSelection.bashRouting !== 'auto' || (!loud && !crossed) || options.signal?.aborted === true) {
+      const missed = lightShellCouldNotRun(light.result, cwd) || (light.crossedBoundary && settled)
+      if (this.runtimeSelection.bashRouting !== 'auto' || !missed || options.signal?.aborted === true) {
         return { ...light.result, runtime: 'light' }
       }
       // A routing miss: rerun in the container when the light attempt changed
       // nothing, otherwise report it so the agent decides whether to retry.
       // The rerun shares the command's deadline instead of starting a new one.
-      const remainingMs = resolveCommandTimeoutMs(timeoutPolicy, options.timeoutMs) - light.elapsedMs
-      if (!light.unchanged || remainingMs <= 0) {
-        // A boundary crossing is counted per workspace, so while another light
-        // command ran it may not be this one's; never tell the agent to repeat
-        // a command that wrote files on evidence that may belong to another.
-        const attributable = loud || !light.concurrent
-        return { ...light.result, runtime: 'light', ...attributable ? { lightShellMiss: true } : {} }
-      }
+      // A concurrent container command or file tool can also move the
+      // revision; that only turns a rerun into a report, never into silence.
+      const remainingMs = budgetMs - (Date.now() - started)
+      if (!light.unchanged || remainingMs <= 0) return { ...light.result, runtime: 'light', lightShellMiss: true }
       const rerun = await this.runContainerCommand(workspace, command, cwd, timeoutPolicy,
         { ...options, timeoutMs: remainingMs }, container.id)
       return { ...rerun, retriedFromLight: true }
@@ -1019,21 +1053,14 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     return this.runContainerCommand(workspace, command, cwd, timeoutPolicy, options, container.id)
   }
 
-  /** Run in the lightweight shell, reporting whether the workspace stayed unchanged. */
+  /** Run in the lightweight shell, reporting whether it wrote files or crossed the boundary. */
   private async runLightCommand(
     workspace: EdgeWorkspace,
     command: string,
     cwd: string,
     timeoutPolicy: EdgeCommandTimeoutPolicy,
     options: { timeoutMs?: number; signal?: AbortSignal },
-  ): Promise<{
-    result: EdgeShellResult
-    unchanged: boolean
-    crossedBoundary: boolean
-    concurrent: boolean
-    elapsedMs: number
-  }> {
-    const started = Date.now()
+  ): Promise<{ result: EdgeShellResult; unchanged: boolean; crossedBoundary: boolean }> {
     // Reject invalid input and cancellation before cwd is created.
     resolveCommandTimeoutMs(timeoutPolicy, options.timeoutMs)
     options.signal?.throwIfAborted()
@@ -1042,24 +1069,13 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     await workspace.fs.mkdir(cwd, { recursive: true })
     const before = workspaceRevision(this.ctx.storage.sql)
     const boundaryMark = this.boundary.mark()
-    // Any overlap with another light command makes a boundary crossing
-    // unattributable to this one.
-    const run = { concurrent: this.lightRuns.size > 0 }
-    for (const other of this.lightRuns) other.concurrent = true
-    this.lightRuns.add(run)
-    try {
-      const result = await executeWorkspaceCommand(
-        workspace, command, cwd, timeoutPolicy, options.timeoutMs, options.signal, undefined, true,
-      )
-      return {
-        result,
-        unchanged: leftWorkspaceUnchanged(before, workspaceRevision(this.ctx.storage.sql)),
-        crossedBoundary: this.boundary.crossedSince(boundaryMark),
-        concurrent: run.concurrent,
-        elapsedMs: Date.now() - started,
-      }
-    } finally {
-      this.lightRuns.delete(run)
+    const result = await executeWorkspaceCommand(
+      workspace, command, cwd, timeoutPolicy, options.timeoutMs, options.signal, undefined, true,
+    )
+    return {
+      result,
+      unchanged: leftWorkspaceUnchanged(before, workspaceRevision(this.ctx.storage.sql)),
+      crossedBoundary: this.boundary.crossedSince(boundaryMark),
     }
   }
 
@@ -1082,17 +1098,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       )
     } catch (error) {
       if (options.signal?.aborted === true || !expiry.aborted) throw error
-      return {
-        executionId: EdgeExecutionId(crypto.randomUUID()),
-        status: 'failed',
-        timedOut: true,
-        exitCode: 124,
-        stdout: '',
-        stderr: 'timed out waiting for a free Linux container slot\n',
-        outputTruncated: false,
-        runtime: 'container',
-        queuedMs: budgetMs,
-      }
+      return { ...waitTimedOut('container', 'timed out waiting for a free Linux container slot'), queuedMs: budgetMs }
     }
     const { release, queuedMs } = admission
     try {

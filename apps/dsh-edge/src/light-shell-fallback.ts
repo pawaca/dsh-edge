@@ -86,3 +86,34 @@ export function workspaceRevision(sql: SqlStorage): number | undefined {
 export function leftWorkspaceUnchanged(before: number | undefined, after: number | undefined): boolean {
   return before !== undefined && after === before
 }
+
+/**
+ * Runs light commands one at a time in a container deployment. The miss
+ * signals (the VFS revision and the boundary count) are workspace-wide, so
+ * only a command running alone can claim them. Light commands are short;
+ * waiting counts against the command's own timeout.
+ */
+export class LightShellTurns {
+  private tail: Promise<void> = Promise.resolve()
+
+  /** Wait for this command's turn; the returned release must always run. */
+  async acquire(signal: AbortSignal): Promise<() => void> {
+    const previous = this.tail
+    let release!: () => void
+    const done = new Promise<void>(resolve => { release = resolve })
+    // The next command waits for the previous one even if this one gives up.
+    this.tail = previous.then(() => done)
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const abort = () => reject(signal.reason)
+        if (signal.aborted) return abort()
+        signal.addEventListener('abort', abort, { once: true })
+        void previous.then(resolve).finally(() => signal.removeEventListener('abort', abort))
+      })
+    } catch (error) {
+      release()
+      throw error
+    }
+    return release
+  }
+}
