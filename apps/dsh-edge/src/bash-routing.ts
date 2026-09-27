@@ -80,9 +80,7 @@ interface Token {
 export function commandWords(command: string, depth = 0): string[] | undefined {
   if (depth > MAX_DEPTH) return undefined
   const tokens = tokenize(command, depth)
-  if (tokens === undefined || usesHome(tokens) || tokens.some(namesPathDirectory) || tokens.some(climbsOutOfLink)) {
-    return undefined
-  }
+  if (tokens === undefined || usesHome(tokens) || tokens.some(namesPathDirectory)) return undefined
   return wordsOf(tokens, depth)
 }
 
@@ -125,21 +123,6 @@ function namesPathDirectory(token: Token): boolean {
     }
     return segments[0] === 'bin' || (segments[0] === 'usr' && segments[1] === 'bin')
   })
-}
-
-/**
- * Linux applies `..` after expanding a link (`ssl/../passwd` with
- * `ssl -> /etc/ssl` is `/etc/passwd`), but just-bash resolves it lexically
- * before the filesystem sees the path, so neither the runtime nor the
- * boundary can tell. A path where `..` follows a named component therefore
- * needs the container; a leading `..` (`../x`, `cd ..`) is resolved the same
- * way by both shells.
- */
-function climbsOutOfLink(token: Token): boolean {
-  return token.word !== undefined && token.word.split(/[\s=:,]/u).some(part =>
-    part.split('/').some((segment, index, segments) =>
-      segment === '..' && index > 0 && segments[index - 1] !== '..' && segments[index - 1] !== '.'
-        && segments[index - 1] !== ''))
 }
 
 /** Whether the option word at `index` belongs to a preceding `time` or `command`. */

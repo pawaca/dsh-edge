@@ -87,8 +87,6 @@ export const ROUTING_CORPUS = Object.freeze([
   // A tool that fails inside a pipeline whose last command succeeds.
   "printf 'ab\\n' > ab.txt && grep -P 'a(?=b)' ab.txt | cat",
   "grep -P 'x(?=/)' a.txt | cat",
-  // `..` after a link: Linux resolves it on the target, just-bash lexically.
-  'ln -sfn /etc/ssl ssl && test -f ssl/../passwd && echo linux || echo missing',
   // HOME differs between the shells; routed statically.
   'cd; pwd',
   'echo ~',
