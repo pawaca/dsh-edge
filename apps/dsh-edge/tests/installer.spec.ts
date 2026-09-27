@@ -562,7 +562,7 @@ describe('dsh-edge installer primitives', () => {
       if (args[0] === 'deployments') {
         return commandResult(0, JSON.stringify({ versions: Object.keys(versions).map(version_id => ({ version_id, percentage: 50 })) }))
       }
-      return commandResult(0, JSON.stringify({ resources: { bindings: versions[args[2]!] } }))
+      return commandResult(0, JSON.stringify({ resources: { bindings: [INSTANCE_BINDING, ...versions[args[2]!]!] } }))
     })
     const inspect = () => inspectExistingDeployment({ workerName: 'dsh-edge', runWrangler, profile: 'owner' })
 
@@ -625,7 +625,7 @@ describe('dsh-edge installer primitives', () => {
         }))
       }
       return commandResult(0, JSON.stringify({
-        resources: { bindings: [{
+        resources: { bindings: [INSTANCE_BINDING, {
           name: 'DSH_EDGE_ATTACHMENT_STORAGE',
           type: 'plain_text',
           text: 'temporary-do',
@@ -646,7 +646,7 @@ describe('dsh-edge installer primitives', () => {
         versions: [{ version_id: 'legacy-version', percentage: 100 }],
       })))
       .mockResolvedValueOnce(commandResult(0, JSON.stringify({
-        resources: { bindings: [{ name: 'DSH_EDGE_INSTANCE', type: 'durable_object_namespace' }] },
+        resources: { bindings: [INSTANCE_BINDING] },
       })))
 
     await expect(inspectExistingDeployment({
@@ -661,7 +661,7 @@ describe('dsh-edge installer primitives', () => {
         versions: [{ version_id: 'r2-version', percentage: 100 }],
       })))
       .mockResolvedValueOnce(commandResult(0, JSON.stringify({
-        resources: { bindings: [{ name: 'DSH_EDGE_ATTACHMENTS', type: 'r2_bucket' }] },
+        resources: { bindings: [INSTANCE_BINDING, { name: 'DSH_EDGE_ATTACHMENTS', type: 'r2_bucket' }] },
       })))
 
     await expect(inspectExistingDeployment({
@@ -680,14 +680,14 @@ describe('dsh-edge installer primitives', () => {
     const runWrangler = vi.fn()
       .mockResolvedValueOnce(status)
       .mockResolvedValueOnce(commandResult(0, JSON.stringify({
-        resources: { bindings: [{
+        resources: { bindings: [INSTANCE_BINDING, {
           name: 'DSH_EDGE_ATTACHMENT_STORAGE',
           type: 'plain_text',
           text: 'temporary-do',
         }] },
       })))
       .mockResolvedValueOnce(commandResult(0, JSON.stringify({
-        resources: { bindings: [{ name: 'DSH_EDGE_ATTACHMENTS', type: 'r2_bucket' }] },
+        resources: { bindings: [INSTANCE_BINDING, { name: 'DSH_EDGE_ATTACHMENTS', type: 'r2_bucket' }] },
       })))
 
     await expect(inspectExistingDeployment({
@@ -1265,6 +1265,27 @@ describe('dsh-edge guided installation', () => {
     expect(runWrangler.mock.calls.some(([args]) => args[0] === 'deploy')).toBe(false)
   })
 
+  it('never updates a Worker that is not dsh-edge', async () => {
+    const foreign = vi.fn(async (args: string[]): Promise<CommandResult> => {
+      if (args[0] === 'whoami') return commandResult(0, JSON.stringify({ loggedIn: true, accounts: [ACCOUNT] }))
+      if (args[0] === 'deployments' && args[1] === 'list') return commandResult(0, '[{"id":"deployment"}]')
+      if (args[0] === 'deployments') {
+        return commandResult(0, JSON.stringify({ versions: [{ version_id: 'version-1', percentage: 100 }] }))
+      }
+      if (args[0] === 'versions') {
+        return commandResult(0, JSON.stringify({ resources: { bindings: [{ name: 'API', type: 'kv_namespace' }] } }))
+      }
+      throw new Error(`unexpected command: ${args.join(' ')}`)
+    })
+    const { ui, existingWorker, nameTaken } = createUi({ nameTakenActions: ['cancel'] })
+    await expect(installEdge({ ui, runWrangler: foreign })).rejects.toThrow('cancelled')
+    expect(nameTaken).toHaveBeenCalledWith('dsh-edge')
+    expect(existingWorker).not.toHaveBeenCalled()
+    await expect(installEdge({ command: 'upgrade', ui: createUi().ui, runWrangler: foreign }))
+      .rejects.toThrow('dsh-edge is not a dsh-edge Worker.')
+    expect(foreign.mock.calls.some(([args]) => args[0] === 'deploy')).toBe(false)
+  })
+
   it.each(['install', 'upgrade'] as const)(
     '%s updates an existing Worker in place, keeping its capabilities and secrets',
     async (command) => {
@@ -1435,7 +1456,7 @@ describe('dsh-edge guided installation', () => {
   })
 
   it.each([
-    ['an unmarked pre-attachment', [{ name: 'DSH_EDGE_INSTANCE', type: 'durable_object_namespace' }]],
+    ['an unmarked pre-attachment', []],
     ['a claimed temporary', [{ name: 'DSH_EDGE_ATTACHMENT_STORAGE', type: 'plain_text', text: 'temporary-do' }]],
   ])('updates %s Worker onto Durable Object image storage without R2', async (_label, bindings) => {
     const directory = await mkdtemp(join(tmpdir(), 'dsh-edge-update-do-test-'))
@@ -1863,6 +1884,7 @@ function createUi({
   capabilities = ['direct'],
   accountSelections = ['account:account-1'],
   existingActions = ['update'],
+  nameTakenActions = ['rename'],
   workerNames = [],
   confirmed = true,
   downgradeAnswers = [true],
@@ -1871,6 +1893,7 @@ function createUi({
   capabilities?: RuntimeMode[]
   accountSelections?: string[]
   existingActions?: Array<'update' | 'change' | 'rename' | 'cancel'>
+  nameTakenActions?: Array<'rename' | 'cancel'>
   workerNames?: string[]
   confirmed?: boolean
   downgradeAnswers?: boolean[]
@@ -1885,6 +1908,7 @@ function createUi({
   deploymentFinish: Mock
   deploymentStart: Mock
   existingWorker: Mock
+  nameTaken: Mock
   failedDeployment: Mock
   outputFailureRecovery: Mock
   recovery: Mock
@@ -1899,6 +1923,7 @@ function createUi({
   const workerName = vi.fn()
     .mockImplementation(async (initialValue: string) => workerNames.shift() ?? initialValue)
   const existingWorker = vi.fn().mockImplementation(async () => existingActions.shift() ?? 'update')
+  const nameTaken = vi.fn().mockImplementation(async () => nameTakenActions.shift() ?? 'cancel')
   const selectCapability = vi.fn()
     .mockImplementation(async (current?: RuntimeMode) => capabilities.shift() ?? current ?? 'direct')
   const confirmDowngrade = vi.fn().mockImplementation(async () => downgradeAnswers.shift() ?? false)
@@ -1920,6 +1945,7 @@ function createUi({
     selectAccount,
     workerName,
     existingWorker,
+    nameTaken,
     selectCapability,
     confirmDowngrade,
     r2SubscriptionUnavailable,
@@ -1944,6 +1970,7 @@ function createUi({
     deploymentFinish,
     deploymentStart,
     existingWorker,
+    nameTaken,
     failedDeployment,
     outputFailureRecovery,
     recovery,
@@ -1954,6 +1981,9 @@ function createUi({
     workerName,
   }
 }
+
+/** The Durable Object binding that identifies a dsh-edge Worker. */
+const INSTANCE_BINDING = { name: 'DSH_EDGE_INSTANCE', type: 'durable_object_namespace' }
 
 /** A signed-in account whose `dsh-edge` Worker already runs with `bindings`. */
 function existingWorkerWrangler(
@@ -1969,7 +1999,9 @@ function existingWorkerWrangler(
     if (args[0] === 'deployments' && args[1] === 'status') {
       return commandResult(0, JSON.stringify({ versions: [{ version_id: 'version-1', percentage: 100 }] }))
     }
-    if (args[0] === 'versions') return commandResult(0, JSON.stringify({ resources: { bindings } }))
+    if (args[0] === 'versions') {
+      return commandResult(0, JSON.stringify({ resources: { bindings: [INSTANCE_BINDING, ...bindings] } }))
+    }
     if (args[0] !== 'deploy') throw new Error(`unexpected command: ${args.join(' ')}`)
     await onDeploy(args, options)
     await writeFile(options.environment?.WRANGLER_OUTPUT_FILE_PATH ?? '', JSON.stringify({

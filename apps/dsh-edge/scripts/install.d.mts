@@ -28,6 +28,8 @@ export interface InstallerUi {
     workerName: string
     mode: RuntimeMode
   }): Promise<'update' | 'change' | 'rename' | 'cancel'>
+  /** The Worker name belongs to something other than dsh-edge; it is never updated. */
+  nameTaken(workerName: string): Promise<'rename' | 'cancel'>
   /** Choose what the agent can do; `current` marks an existing instance's capabilities. */
   selectCapability(current?: RuntimeMode): Promise<RuntimeMode>
   confirmDowngrade(lost: string[]): Promise<boolean>
@@ -195,4 +197,4 @@ export function removeStaleContainerApplication(options: ExistingDeploymentOptio
 export function inspectExistingDeployment(options: ExistingDeploymentOptions): Promise<{
   mode: RuntimeMode
   attachmentStorage: AttachmentStorage
-}>
+} | null>

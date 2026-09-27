@@ -149,6 +149,17 @@ export function createInstallerUi(
         ],
       })))
     },
+    async nameTaken(workerName) {
+      return await requireAnswer(await clack.select(withOutput({
+        message: `${workerName} is already used by a Worker that is not dsh-edge`,
+        initialValue: 'rename',
+        signal,
+        options: [
+          { value: 'rename', label: 'Use another name' },
+          { value: 'cancel', label: 'Cancel' },
+        ],
+      })))
+    },
     async selectCapability(current) {
       return await requireAnswer(await clack.select(withOutput({
         message: 'What should your agent be able to do?',

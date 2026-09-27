@@ -443,6 +443,7 @@ function staleContainerCleanupCommand(workerName) {
  * Inspect the active Worker versions once for what an update must preserve:
  * the runtime mode (so the owner is not asked again) and the attachment
  * backend. `--name` alone selects the Worker, whatever mode deployed it.
+ * Returns null for a Worker that is not dsh-edge, which must never be updated.
  */
 export async function inspectExistingDeployment({
   workerName,
@@ -466,6 +467,8 @@ export async function inspectExistingDeployment({
     ], { environment, signal })
     requireSuccess(version, `Could not inspect existing Worker version ${versionId}`)
     const bindings = versionBindings(version.stdout)
+    if (!bindings.some(binding => binding.name === 'DSH_EDGE_INSTANCE'
+      && binding.type === 'durable_object_namespace')) return null
     modes.add(bindingsRuntimeMode(bindings))
     backends.add(bindingsAttachmentStorage(bindings))
   }
@@ -656,7 +659,12 @@ export async function installEdge({
         profile,
         signal,
       })
-      updateAction = await ui.existingWorker({ workerName, mode: existing.mode })
+      if (existing === null && command === 'upgrade') {
+        throw new Error(`${workerName} is not a dsh-edge Worker.`)
+      }
+      updateAction = existing === null
+        ? await ui.nameTaken(workerName)
+        : await ui.existingWorker({ workerName, mode: existing.mode })
       if (updateAction === 'cancel') throw new InstallCancelledError()
       if (updateAction !== 'rename') break
       existing = undefined

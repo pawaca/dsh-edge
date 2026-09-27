@@ -150,6 +150,21 @@ describe('dsh-edge CLI', () => {
     expect(select).toHaveBeenCalledWith(expect.objectContaining({ signal: controller.signal }))
   })
 
+  it('offers only another name for a Worker that is not dsh-edge', async () => {
+    const select = selectMock('rename')
+    const clack = { ...prompt, select } as unknown as typeof prompt
+
+    await expect(createInstallerUi(clack).nameTaken('dsh-edge')).resolves.toBe('rename')
+    expect(select).toHaveBeenCalledWith(expect.objectContaining({
+      message: 'dsh-edge is already used by a Worker that is not dsh-edge',
+      initialValue: 'rename',
+      options: [
+        { value: 'rename', label: 'Use another name' },
+        { value: 'cancel', label: 'Cancel' },
+      ],
+    }))
+  })
+
   it('offers an existing Worker as an in-place update that Enter confirms', async () => {
     const select = selectMock('update')
     const note = vi.fn()
