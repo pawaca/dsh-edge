@@ -17,6 +17,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { unstable_dev } from 'wrangler'
 import { workerArtifactPath, writePrebuiltModeWranglerConfig } from '../scripts/wrangler-config.mjs'
 import { LIGHT_SHELL_SAMPLES, LIGHT_SHELL_SETUP } from './fixtures/light-shell-samples.mjs'
+import { ROUTING_CORPUS, ROUTING_CORPUS_SETUP } from './fixtures/routing-corpus.mjs'
 
 const ACCESS_KEY = 'container-integration-owner-key-32b'
 const FILES = 100
@@ -44,30 +45,7 @@ let worker
 let cookie
 try {
   await writePrebuiltModeWranglerConfig('container', config, { localContainerImage: true })
-  worker = await unstable_dev(workerArtifactPath('container'), {
-    config,
-    env: 'container',
-    persistTo,
-    vars: {
-      DEEPSEEK_API_KEY: 'container-integration-key',
-      DSH_EDGE_ACCESS_KEY: ACCESS_KEY,
-    },
-    logLevel: 'error',
-    experimental: {
-      disableExperimentalWarning: true,
-      showInteractiveDevSession: false,
-      watch: false,
-      enableContainers: true,
-    },
-  })
-  const login = await fetch(`http://${worker.address}:${worker.port}/api/auth/login`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ accessKey: ACCESS_KEY }).toString(),
-    redirect: 'manual',
-  })
-  cookie = login.headers.get('set-cookie')?.split(';', 1)[0]
-  assert.ok(cookie)
+  await startWorker(persistTo)
 
   const health = await json('/api/health')
   assert.equal(health.shell, 'linux-container')
@@ -118,18 +96,6 @@ try {
   assert.equal(linked.runtime, 'light')
   assert.equal(linked.lightShellMiss, true)
 
-  // Every command routing keeps light must stay light: no rerun, no miss.
-  // A false boundary crossing (say, a new PATH probe) would fail here.
-  const samplesCwd = '/workspace/light-shell-samples'
-  assert.equal((await exec(LIGHT_SHELL_SETUP, false, samplesCwd)).status, 'completed')
-  const rerouted = []
-  for (const [name, command] of Object.entries(LIGHT_SHELL_SAMPLES)) {
-    const sample = await exec(command, false, samplesCwd)
-    if (sample.runtime !== 'light' || sample.retriedFromLight || sample.lightShellMiss) {
-      rerouted.push(`${name}: runtime=${sample.runtime} retried=${sample.retriedFromLight} miss=${sample.lightShellMiss}`)
-    }
-  }
-  assert.deepEqual(rerouted, [], 'light-shell samples left the light shell')
 
   const burst = await exec(`mkdir -p burst && for i in $(seq ${FILES}); do echo "file $i" > burst/f$i; done`, true)
   assert.equal(burst.status, 'completed', burst.stderr)
@@ -148,10 +114,78 @@ try {
   const perFile = rows / FILES
   process.stdout.write(`container storage: ${rows} workspace rows for ${FILES} files (${perFile.toFixed(1)}/file)\n`)
   assert.ok(perFile <= MAX_ROWS_PER_FILE, `Container sync stored ${perFile.toFixed(1)} rows per file`)
+
+  // Routing checks run on fresh state so their files never skew the storage
+  // measurement above.
+  await startWorker(join(scratch, 'routing-state'))
+  // Every command routing keeps light must stay light: no rerun, no miss.
+  // A false boundary crossing (say, a new PATH probe) would fail here.
+  const samplesCwd = '/workspace/light-shell-samples'
+  assert.equal((await exec(LIGHT_SHELL_SETUP, false, samplesCwd)).status, 'completed')
+  const rerouted = []
+  for (const [name, command] of Object.entries(LIGHT_SHELL_SAMPLES)) {
+    const sample = await exec(command, false, samplesCwd)
+    if (sample.runtime !== 'light' || sample.retriedFromLight || sample.lightShellMiss) {
+      rerouted.push(`${name}: runtime=${sample.runtime} retried=${sample.retriedFromLight} miss=${sample.lightShellMiss}`)
+    }
+  }
+  assert.deepEqual(rerouted, [], 'light-shell samples left the light shell')
+
+  // Differential corpus: automatic routing (including any rerun) must match
+  // a forced Linux run, or say it could not rerun a command that wrote files.
+  const differing = []
+  for (const [index, command] of ROUTING_CORPUS.entries()) {
+    const auto = `/workspace/corpus/${index}-auto`
+    const linux = `/workspace/corpus/${index}-linux`
+    for (const dir of [auto, linux]) {
+      const setup = await exec(ROUTING_CORPUS_SETUP, true, dir)
+      assert.equal(setup.status, 'completed', `corpus setup: ${setup.stderr}`)
+    }
+    const routed = await exec(command, false, auto)
+    const forced = await exec(command, true, linux)
+    // Each run has its own directory; compare everything else, stderr included.
+    const normalize = text => text.replaceAll(auto, '<dir>').replaceAll(linux, '<dir>')
+      .replaceAll(`${index}-auto`, '<dir>').replaceAll(`${index}-linux`, '<dir>')
+    const same = routed.exitCode === forced.exitCode && normalize(routed.stdout) === normalize(forced.stdout)
+      && normalize(routed.stderr) === normalize(forced.stderr)
+    if (!same && routed.lightShellMiss !== true) {
+      differing.push(`${command}\n  auto:  ${routed.runtime}${routed.retriedFromLight ? ' (rerun)' : ''} `
+        + `exit=${routed.exitCode} ${JSON.stringify(routed.stdout.slice(0, 80))} ${JSON.stringify(routed.stderr.slice(0, 120))}`
+        + `\n  linux: exit=${forced.exitCode} ${JSON.stringify(forced.stdout.slice(0, 80))} ${JSON.stringify(forced.stderr.slice(0, 120))}`)
+    }
+  }
+  assert.deepEqual(differing, [], 'automatic routing differs from a forced Linux run')
   process.stdout.write('dsh-edge container integration passed\n')
 } finally {
   await worker?.stop()
   rmSync(scratch, { recursive: true, force: true })
+}
+
+async function startWorker(state) {
+  worker = await unstable_dev(workerArtifactPath('container'), {
+    config,
+    env: 'container',
+    persistTo: state,
+    vars: {
+      DEEPSEEK_API_KEY: 'container-integration-key',
+      DSH_EDGE_ACCESS_KEY: ACCESS_KEY,
+    },
+    logLevel: 'error',
+    experimental: {
+      disableExperimentalWarning: true,
+      showInteractiveDevSession: false,
+      watch: false,
+      enableContainers: true,
+    },
+  })
+  const login = await fetch(`http://${worker.address}:${worker.port}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ accessKey: ACCESS_KEY }).toString(),
+    redirect: 'manual',
+  })
+  cookie = login.headers.get('set-cookie')?.split(';', 1)[0]
+  assert.ok(cookie)
 }
 
 async function exec(command, linux = false, cwd = undefined) {

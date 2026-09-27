@@ -37,11 +37,15 @@ describe('light shell miss detection', () => {
     ['a missing Worker module', { stderr: 'curl: No such module "chunk-BO4NKWMI.js".\n' }],
     ['an unsupported option', { stderr: "env: invalid option -- 'S'\n" }],
     ['an unrecognized long option', { stderr: "sort: unrecognized option '--compress-program=gzip'\n" }],
+    ['an unsupported sed address', { stderr: 'sed: invalid command: \\\n' }],
+    ['an unsupported awk construct', { stderr: 'awk: Unexpected token: PIPE at line 1:9\n' }],
+    ['unsupported regex lookaround', {
+      stderr: 'grep: Lookahead (?=, ?!) and lookbehind (?<=, ?<!) assertions are not supported in this environment\n',
+    }],
+    ['a regex the light engine rejects', { exitCode: 2, stderr: 'grep: invalid regular expression: a(?=b)\n' }],
+    ['a find action without a runner', { stderr: 'find: -exec not supported in this context\n' }],
     ['a Linux path', { stderr: 'cat: /etc/os-release: No such file or directory\n' }],
     ['a home path', { stderr: 'cat: //.bashrc: No such file or directory\n' }],
-    ['a Linux path in a pipeline that exits 0', {
-      status: 'completed' as const, exitCode: 0, stdout: '0\n', stderr: 'head: /dev/urandom: No such file or directory\n',
-    }],
     ['a write outside the workspace', { stderr: 'parent directory missing: /tmp/probe: /tmp/probe\n' }],
   ])('recognizes %s', (_name, overrides) => {
     expect(lightShellCouldNotRun(result(overrides), '/workspace')).toBe(true)
@@ -63,6 +67,16 @@ describe('light shell miss detection', () => {
     expect(lightShellCouldNotRun(result({ status: 'cancelled', exitCode: 127, stderr: missing }), '/workspace')).toBe(false)
     expect(lightShellCouldNotRun(result({ timedOut: true, exitCode: 127, stderr: missing }), '/workspace')).toBe(false)
     expect(lightShellCouldNotRun(result({ status: 'completed', exitCode: 0 }), '/workspace')).toBe(false)
+    // Text a successful command printed itself never changes its result.
+    expect(lightShellCouldNotRun(result({ status: 'completed', exitCode: 0, stderr: 'not supported\n' }), '/workspace'))
+      .toBe(false)
+    // A tool's diagnostic counts even when a pipeline around it succeeds.
+    expect(lightShellCouldNotRun(result({ status: 'completed', exitCode: 0,
+      stderr: 'grep: invalid regular expression: a(?=b)\n' }), '/workspace')).toBe(true)
+    expect(lightShellCouldNotRun(result({ exitCode: 1, stderr: 'this feature is not supported\n' }), '/workspace')).toBe(false)
+    // A pipeline that exits 0 is left to the boundary recorder.
+    expect(lightShellCouldNotRun(result({ status: 'completed', exitCode: 0,
+      stderr: 'head: /dev/urandom: No such file or directory\n' }), '/workspace')).toBe(false)
     // An explicit `exit 127` ran as requested.
     expect(lightShellCouldNotRun(result({ exitCode: 127 }), '/workspace')).toBe(false)
     expect(lightShellCouldNotRun(result({ exitCode: 127, stdout: 'x: command not found\n' }), '/workspace')).toBe(false)

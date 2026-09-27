@@ -52,23 +52,11 @@ export function routeBashCommand(command: string, options: {
   policy: BashRoutingPolicy
   containerAvailable: boolean
   requestContainer?: boolean
-  /** The command's working directory, used to resolve relative `..` paths. */
-  cwd?: string
 }): BashRoute {
   if (!options.containerAvailable || options.policy === 'light') return 'light'
   if (options.policy === 'container' || options.requestContainer === true) return 'container'
-  const previous = routingCwd
-  routingCwd = options.cwd ?? SHARED_ROOT
-  try {
-    return runsInLightShell(command) ? 'light' : 'container'
-  } finally {
-    routingCwd = previous
-  }
+  return runsInLightShell(command) ? 'light' : 'container'
 }
-
-const SHARED_ROOT = '/workspace'
-/** The working directory of the command being routed (synchronous, single-threaded). */
-let routingCwd = SHARED_ROOT
 
 /** Whether every program a command would start is one the lightweight shell provides. */
 export function runsInLightShell(command: string, depth = 0): boolean {
@@ -92,34 +80,49 @@ interface Token {
 export function commandWords(command: string, depth = 0): string[] | undefined {
   if (depth > MAX_DEPTH) return undefined
   const tokens = tokenize(command, depth)
-  if (tokens === undefined || tokens.some(touchesContainerFilesystem) || changesDirectoryOpaquely(tokens)) {
-    return undefined
-  }
+  if (tokens === undefined || usesHome(tokens) || tokens.some(namesPathDirectory)) return undefined
   return wordsOf(tokens, depth)
 }
 
 /**
- * Relative paths are resolved against the starting directory. A directory
- * change to an unknown place (`cd "$d"`, `cd -`, `cd ~`, a bare `cd`), or any directory
- * change combined with `..` traversal, is not modelled, so opaque.
+ * The home directory differs between the shells (`/` in the light shell,
+ * `/root` in the container) and reaching it needs no filesystem access the
+ * runtime could see: `echo ~`, `echo "$HOME"`, or an operand-less `cd` that
+ * lands there. Paths outside /workspace are otherwise left to the runtime,
+ * which reruns any light command that touched one.
  */
-function changesDirectoryOpaquely(tokens: Token[]): boolean {
-  // Only words in command position change directory (`echo cd` does not).
-  const changes = tokens.flatMap((token, index) =>
-    (token.word === 'cd' || token.word === 'pushd' || token.word === 'popd') && commandPosition(tokens, index)
-      ? [index] : [])
-  if (changes.length === 0) return false
-  const unknownTarget = changes.some(index => {
-    // Skip options (`-P`, `-L`, `--`); a missing operand means $HOME for cd
-    // and a stack swap for pushd, both outside the modelled directory.
+function usesHome(tokens: Token[]): boolean {
+  if (tokens.some(token => token.word !== undefined && (token.word.startsWith('~') || /\$\{?HOME\b/u.test(token.word)))) {
+    return true
+  }
+  return tokens.some((token, index) => {
+    if ((token.word !== 'cd' && token.word !== 'pushd') || !commandPosition(tokens, index)) return false
+    // Skip options (`-P`, `-L`, `--`); a missing operand means $HOME.
     let next = index + 1
     while (/^-[A-Za-z@]*$|^--$/u.test(tokens[next]?.word ?? '') && tokens[next]!.word !== '-') next++
-    const target = tokens[next]
-    return tokens[index]!.word === 'popd' || target?.word === undefined || target.dynamic === true
-      || target.word === '-' || target.word.startsWith('~')
+    return tokens[next]?.word === undefined
   })
-  const traversal = tokens.some(token => token.word?.split('/').includes('..') === true)
-  return unknownTarget || traversal
+}
+
+/**
+ * The runtime treats lookups under /usr/bin and /bin as the light shell's own
+ * PATH search, so a command that names those directories itself
+ * (`[ -d /usr/bin ]`, `test -x /bin/sh`) would be answered silently from the
+ * light shell's empty filesystem; it needs the container.
+ */
+function namesPathDirectory(token: Token): boolean {
+  if (token.word === undefined) return false
+  // Every absolute path in the word (`/usr//bin`, `PATH=/a:/usr/bin`), after
+  // `.`, `..`, and repeated slashes are resolved.
+  return token.word.split(/[=:]/u).some(part => {
+    if (!part.startsWith('/')) return false
+    const segments: string[] = []
+    for (const segment of part.split('/')) {
+      if (segment === '..') segments.pop()
+      else if (segment !== '' && segment !== '.') segments.push(segment)
+    }
+    return segments[0] === 'bin' || (segments[0] === 'usr' && segments[1] === 'bin')
+  })
 }
 
 /** Whether the option word at `index` belongs to a preceding `time` or `command`. */
@@ -147,50 +150,6 @@ function commandPosition(tokens: Token[], index: number): boolean {
   if (previous === undefined) return true
   if (previous.op !== undefined) return !isRedirection(previous.op)
   return COMMAND_PREFIX_WORDS.has(previous.word ?? '')
-}
-
-/**
- * The light shell shares only /workspace with the container. A word naming a
- * Linux root directory (as an argument, `--opt=/path`, or a redirection
- * target), the root `/` itself, or a home path addresses the container's own filesystem, so the
- * command needs the container. Regex-like words such as `/start/` in sed are
- * not affected because only known root directories count.
- */
-
-const LINUX_ROOTS = new Set(['bin', 'boot', 'dev', 'etc', 'home', 'lib', 'lib32', 'lib64', 'media', 'mnt',
-  'opt', 'proc', 'root', 'run', 'sbin', 'srv', 'sys', 'tmp', 'usr', 'var'])
-const SHARED_DEVICES = new Set(['/dev/null', '/dev/stdin', '/dev/stdout', '/dev/stderr', '/dev/zero'])
-
-function touchesContainerFilesystem(token: Token): boolean {
-  const word = token.word
-  if (word === undefined) return false
-  if (word.startsWith('~')) return true
-  // Split `--opt=/path`, `a:/path`, `a,/path`, and short options with an
-  // attached operand (`-C/etc`, `-o/tmp/out`) into their path parts.
-  // Script words (`sed '1r /etc/x'`, awk `getline < "/etc/x"`) are split on
-  // whitespace, quotes, and shell punctuation so embedded paths count too.
-  return word.split(/[=:,\s"'`;<>()|&]|^-[A-Za-z]+(?=[/.])/u).some(part => {
-    if (SHARED_DEVICES.has(part)) return false
-    const segments = normalizedSegments(part)
-    if (segments === undefined) return false
-    // Climbing out of /workspace with `..`, or naming a Linux root directory
-    // after normalization (`/./etc`, `//etc`, `/workspace/../etc`).
-    if (part.split('/').includes('..') && segments[0] !== 'workspace') return true
-    // The filesystem root itself (`/`, `//`, `/.`) lists the container's root.
-    if (part.startsWith('/') && segments.length === 0) return true
-    return part.startsWith('/') && segments[0] !== undefined && LINUX_ROOTS.has(segments[0])
-  })
-}
-
-/** The segments of a path after resolving `.`, `..`, and repeated slashes, or undefined for a non-path. */
-function normalizedSegments(path: string): string[] | undefined {
-  if (!path.startsWith('/') && !path.split('/').includes('..')) return undefined
-  const resolved = path.startsWith('/') ? [] : routingCwd.split('/').filter(Boolean)
-  for (const segment of path.split('/')) {
-    if (segment === '..') resolved.pop()
-    else if (segment !== '' && segment !== '.') resolved.push(segment)
-  }
-  return resolved
 }
 
 /** Nesting limit for commands inside commands (wrappers, `bash -c`, substitutions). */
@@ -264,110 +223,18 @@ function invokedWords(tokens: Token[], index: number, depth: number): {
   return { words: [word], next: 'args' }
 }
 
-const SELF_EXECUTING_TOOLS = new Set(['rg', 'tar', 'sort', 'awk', 'sed'])
-
 /**
- * Light-shell tools that can start programs through their own options or
- * scripts. These forms are opaque. The list covers the common, cheaply
- * detectable ones; anything it misses fails in the light shell with a missing
- * program, and the result tells the agent to retry with `linux: true`.
+ * ripgrep's `--pre` runs a program on every file, but the light shell ignores
+ * it silently, so the runtime never sees a miss; such commands are opaque.
+ * Other tools that start programs (sed `e`, awk `system()`, tar `-I`, …) fail
+ * loudly or look the program up on PATH in the light shell, and the runtime
+ * reruns them in the container.
  */
 function startsProgramsItself(program: string, args: Token[]): boolean {
-  if (!SELF_EXECUTING_TOOLS.has(program)) return false
-  // An expanded argument could become any of the forms below.
+  if (program !== 'rg') return false
+  // An expanded argument could become `--pre`.
   if (args.some(arg => arg.dynamic === true)) return true
-  const words = args.map(arg => arg.word ?? '')
-  const option = (...names: string[]) => words.some(word =>
-    names.some(name => word === name || word.startsWith(`${name}=`)))
-  switch (program) {
-    case 'rg':
-      return option('--pre')
-    case 'tar':
-      // In a Worker just-bash's tar handles only gzip; every other compressor
-      // needs a program or native module, and several options start programs.
-      // So only known-safe options stay light (an allowlist, not a denylist).
-      return words.some((word, index) => index === 0 && !word.startsWith('-')
-        ? !tarClusterIsSafe(word, true)
-        : word.startsWith('--') ? !TAR_SAFE_LONG.has(word.split('=')[0]!)
-          : word.startsWith('-') && !tarClusterIsSafe(word.slice(1)))
-        // Suffixes cover auto-compress and extraction.
-        || words.some(word => /\.(bz2|tbz2?|xz|txz|zst|tzst|lzma|lz|lzo|Z|taz|taZ)$/u.test(word))
-        // `host:archive` makes tar start rsh unless --force-local is given.
-        || (!option('--force-local')
-          && words.some(word => /^(-[A-Za-z]*f|--file=)?[^-/:=][^/:=]*:/u.test(word)))
-    case 'sort':
-      return option('--compress-program')
-    case 'awk':
-      // A program read from a file cannot be inspected; system(),
-      // `cmd | getline`, and `print | "cmd"` run programs.
-      // Only `-F` and `-v` (and `--`/`-`) stay light: any other option, such as
-      // `-f` or mawk's `-W exec`, may read the program from a file.
-      return words.some(word => word.startsWith('-') && !/^-(?:F|v)|^--?$/u.test(word))
-        || words.some(word => /\bsystem\s*\(|\|/u.test(word))
-    case 'sed':
-      // A script read from a file cannot be inspected.
-      if (option('-f', '--file') || words.some(word => /^-[^-]*f/u.test(word))) return true
-      // The `e` command and the `s///e` flag run programs.
-      // An `e` command can follow any address form (line, `$`, /re/, \cREc,
-      // ranges, `!`), so any standalone `e` counts; so does the `s///e` flag.
-      if (words.some(word => !/^-[A-Za-z]+$/u.test(word) && /(^|[^A-Za-z_])e(\s|$|;|\})|s(.)(?:\\.|(?!\3).)*\3(?:\\.|(?!\3).)*\3[a-zA-Z0-9]*e/u.test(word))) return true
-      // File commands (`r`, `R`, `w`, `W`, and the s///w flag) may glue
-      // their path to the letter (`1r/etc/hostname`).
-      // A missing `r` file reads as empty with exit 0, so the light shell would
-      // fail silently; every such path goes through the shared normalizer.
-      if (sedScripts(words).some(script => [...script.matchAll(/[rRwW]\s*([^\s;}]+)/gu)]
-        .some(match => touchesContainerFilesystem({ word: match[1]! })))) {
-        return true
-      }
-      // GNU sed also accepts the command glued to `e` (`enode -v`); only the
-      // script words are checked so file names starting with `e` stay light.
-      return sedScripts(words).some(script => /(^|[;{}\n!0-9$])\s*e\S/u.test(script))
-    default:
-      return false
-  }
-}
-
-/** Short tar options that neither compress with anything but gzip nor start a program. */
-const TAR_SAFE_SHORT = new Set('cxtruvzkmpPhOSoaUwWlA')
-/** Short tar options whose value follows (attached or as the next word). */
-const TAR_VALUED_SHORT = new Set('fCTXbHKNgLV')
-const TAR_SAFE_LONG = new Set(['--create', '--extract', '--get', '--list', '--append', '--update',
-  '--concatenate', '--catenate', '--verbose', '--gzip', '--gunzip', '--ungzip', '--file', '--directory',
-  '--to-stdout', '--exclude', '--exclude-from', '--files-from', '--strip-components', '--keep-old-files',
-  '--overwrite', '--touch', '--preserve-permissions', '--same-permissions', '--no-same-owner',
-  '--no-same-permissions', '--absolute-names', '--dereference', '--auto-compress', '--wildcards',
-  '--no-wildcards', '--no-recursion', '--recursion', '--transform', '--xform', '--owner', '--group', '--mode',
-  '--mtime', '--sort', '--numeric-owner', '--force-local', '--one-file-system', '--show-transformed-names',
-  '--totals', '--null', '--exclude-vcs', '--exclude-vcs-ignores', '--anchored', '--no-anchored'])
-
-/**
- * Whether a short-option cluster (without its dash) uses only safe letters
- * before any valued one. In the traditional first word (`tar cfI …`) every
- * letter is an option and values come from later words, so all are checked.
- */
-function tarClusterIsSafe(cluster: string, traditional = false): boolean {
-  for (const letter of cluster) {
-    if (TAR_VALUED_SHORT.has(letter)) {
-      if (traditional) continue
-      return true
-    }
-    if (!TAR_SAFE_SHORT.has(letter)) return false
-  }
-  return true
-}
-
-/** The script words of a sed invocation: every -e/--expression value, else the first operand. */
-function sedScripts(words: string[]): string[] {
-  const scripts: string[] = []
-  let operand: string | undefined
-  for (let index = 0; index < words.length; index++) {
-    const word = words[index]!
-    if (word === '-e' || word === '--expression') scripts.push(words[++index] ?? '')
-    else if (word.startsWith('--expression=')) scripts.push(word.slice('--expression='.length))
-    else if (/^-[nrsuzE]*e./u.test(word)) scripts.push(word.slice(word.indexOf('e') + 1))
-    else if (!word.startsWith('-') && operand === undefined) operand = word
-  }
-  return scripts.length > 0 ? scripts : operand === undefined ? [] : [operand]
+  return args.some(arg => arg.word === '--pre' || arg.word?.startsWith('--pre=') === true)
 }
 
 function argumentsOf(tokens: Token[], start: number): Token[] {
@@ -413,30 +280,16 @@ function inlineScript(args: Token[]): string | undefined {
 }
 
 const FIND_ACTIONS = new Set(['-exec', '-execdir', '-ok', '-okdir'])
-/** Tests and options whose next argument is a value, which may safely be expanded. */
-const FIND_VALUED = new Set(['-name', '-iname', '-path', '-ipath', '-wholename', '-iwholename', '-regex',
-  '-iregex', '-lname', '-ilname', '-type', '-xtype', '-newer', '-anewer', '-cnewer', '-perm', '-user',
-  '-group', '-uid', '-gid', '-size', '-mtime', '-mmin', '-atime', '-amin', '-ctime', '-cmin', '-maxdepth',
-  '-mindepth', '-links', '-inum', '-samefile', '-used', '-printf', '-regextype'])
 
 /**
  * Every program `find` actions run; each action's command is walked in full.
- * An expanded word in the expression could itself become an action, so it is
- * opaque unless it is the first starting point or the value of a known test.
+ * An action spelled through expansion (`"$action" node`) is left to the
+ * runtime: the program it starts is missing in the light shell.
  */
 function findActionWords(args: Token[], depth: number): string[] | undefined {
   const words: string[] = []
-  let expression = false
   for (let index = 0; index < args.length; index++) {
-    const arg = args[index]!
-    // Only the first argument may be an expanded starting point (`find "$dir" …`).
-    if (!expression && (index > 0 && arg.dynamic === true || /^[-(!]/u.test(arg.word ?? ''))) expression = true
-    if (FIND_VALUED.has(arg.word ?? '')) {
-      index++
-      continue
-    }
-    if (expression && arg.dynamic === true) return undefined
-    if (!FIND_ACTIONS.has(arg.word ?? '')) continue
+    if (!FIND_ACTIONS.has(args[index]!.word ?? '')) continue
     const end = args.findIndex((arg, at) => at > index && (arg.word === ';' || arg.word === '+'))
     if (end === -1) return undefined
     const inner = wordsOf(args.slice(index + 1, end), depth + 1)

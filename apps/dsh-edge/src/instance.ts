@@ -1004,7 +1004,6 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     const route = routeBashCommand(command, {
       policy: this.runtimeSelection.bashRouting,
       containerAvailable: container !== undefined,
-      cwd,
       ...options.requestContainer === true ? { requestContainer: true } : {},
     })
     if (container === undefined) {
@@ -1052,6 +1051,8 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       // A concurrent container command or file tool can also move the
       // revision; that only turns a rerun into a report, never into silence.
       const remainingMs = budgetMs - (Date.now() - started)
+      // Diagnostics must come from a tool (`name: …`), so a report after a
+      // write means a real tool failed, even inside a successful pipeline.
       if (!light.unchanged || remainingMs <= 0) return { ...light.result, runtime: 'light', lightShellMiss: true }
       const rerun = await this.runContainerCommand(workspace, command, cwd, timeoutPolicy,
         { ...options, timeoutMs: remainingMs }, container.id)
