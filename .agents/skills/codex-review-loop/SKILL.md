@@ -66,7 +66,7 @@ Assign exactly one outcome:
 
 - `fixed`: the claim is correct and in scope. Repair the root cause and cover the affected problem family.
 - `rebutted`: the claim is stale, incorrect, unreachable, already guaranteed, or outside the PR contract. Reply with code or test evidence; do not change code merely to silence it.
-- `user-decision`: the claim is real, but acting on it changes product behavior, security, durable data, public APIs, or the PR's core scope. Stop mutations and request direction; keep the item open until the user's choice is implemented or rebutted.
+- `user-decision`: the claim is real, but acting on it changes product behavior, security, durable data, public APIs, or the PR's core scope, or it is its family's third occurrence (see *Enforce convergence*). Stop mutations and request direction; keep the item open until the user's choice is implemented or rebutted.
 
 Do not weaken assertions, hide errors, add speculative compatibility, or stack fallbacks solely to obtain approval. An item becomes handled only after its disposition, necessary code or reply, verification, and commit reference are complete.
 
@@ -81,12 +81,12 @@ Give each valid finding a stable problem-family label and retain family counts i
 The first `fixed` disposition in a family requires no special justification — the claim is valid, fix it. From the second occurrence onward, `fixed` carries the same evidence burden as `rebutted`: state the concrete premise that makes the claim correct (measurement, path trace, upper-bound calculation), and explain how the repair covers the family invariant. If this evidence cannot be produced, the disposition is wrong — rebut, request user direction, or roll back the approach instead.
 
 - On the second occurrence of one family, stop local patching. State one invariant, audit every affected caller and lifecycle, and use one general repair with a family-level negative test.
-- On the third occurrence of one family, stop the current patching approach and perform a strategy reset. Continue autonomously only when an in-scope general replacement, rollback, split, scope reduction, or technical rebuttal is clearly safer and has family-level tests; otherwise request user direction.
+- On the third occurrence of one family, stop mutating code and request user direction with a strategy-reset proposal (general replacement, rollback, split, scope reduction, or rebuttal against the PR's stated scope). Do not keep repairing the family while the question is open.
 - At three actionable finding rounds overall, and after every two additional actionable rounds, publish a convergence checkpoint before further mutation. Audit problem-family recurrence, whether the prior repair caused the new finding, alignment with the PR theme, material scope growth, and whether open problems are decreasing.
 - After a checkpoint, continue autonomously when the remaining work is in scope and a bounded invariant-preserving repair covers a whole family. Redirect, rebut, simplify, or roll back an approach instead of accumulating local patches.
 - Stop and request user direction when a repair would expand the product, security, data, or public-API contract; materially enlarge or redirect the PR; repeat after a general family repair without a safer replacement; primarily repair problems created by the previous approach; or fail to reduce open problems across two consecutive checkpoints.
 
-Checkpoints diagnose and redirect the loop; no fixed round count alone requires human approval. Human input is reserved for unresolved scope or contract choices and genuine non-convergence.
+Checkpoints diagnose and redirect the loop; apart from a family's third occurrence, no fixed round count alone requires human approval. Human input is reserved for unresolved scope or contract choices, a family's third occurrence, and genuine non-convergence.
 
 ## Record handled state
 
