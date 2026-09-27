@@ -66,7 +66,7 @@ Assign exactly one outcome:
 
 - `fixed`: the claim is correct and in scope. Repair the root cause and cover the affected problem family.
 - `rebutted`: the claim is stale, incorrect, unreachable, already guaranteed, or outside the PR contract. Reply with code or test evidence; do not change code merely to silence it.
-- `user-decision`: the claim is real, but acting on it changes product behavior, security, durable data, public APIs, or the PR's core scope. Stop mutations and request direction; keep the item open until the user's choice is implemented or rebutted.
+- `user-decision`: the claim is real, but acting on it changes product behavior, security, durable data, public APIs, or the PR's core scope, or it is its family's third occurrence (see *Enforce convergence*). Stop mutations and request direction; keep the item open until the user's choice is implemented or rebutted.
 
 Do not weaken assertions, hide errors, add speculative compatibility, or stack fallbacks solely to obtain approval. An item becomes handled only after its disposition, necessary code or reply, verification, and commit reference are complete.
 
