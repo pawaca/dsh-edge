@@ -57,12 +57,7 @@ export class WorkspaceBoundaryRecorder {
  * `"cmd" | getline` does this silently).
  */
 export function crossesBoundary(op: string, path: string, lightCommands: ReadonlySet<string>): boolean {
-  const segments: string[] = []
-  for (const segment of path.split('/')) {
-    if (segment === '..') segments.pop()
-    else if (segment !== '' && segment !== '.') segments.push(segment)
-  }
-  const normalized = `/${segments.join('/')}`
+  const normalized = `/${normalizedSegments(path).join('/')}`
   if (normalized === SHARED_ROOT || normalized.startsWith(`${SHARED_ROOT}/`)) return false
   if (SHARED_DEVICES.has(normalized)) return false
   if (op === 'readFile' && ROOT_IGNORE_FILES.has(normalized)) return false
@@ -74,6 +69,20 @@ export function crossesBoundary(op: string, path: string, lightCommands: Readonl
   return true
 }
 
+function normalizedSegments(path: string): string[] {
+  const segments: string[] = []
+  for (const segment of path.split('/')) {
+    if (segment === '..') segments.pop()
+    else if (segment !== '' && segment !== '.') segments.push(segment)
+  }
+  return segments
+}
+
+function isMissing(error: unknown): boolean {
+  const e = error as { code?: unknown; message?: unknown } | null
+  return e?.code === 'ENOENT' || (typeof e?.message === 'string' && /ENOENT|no such/iu.test(e.message))
+}
+
 type Filesystem = Record<string, (...args: unknown[]) => unknown> & { [Symbol.dispose]?: () => void }
 
 /** The workspace stub's filesystem with every path argument recorded first. */
@@ -83,14 +92,14 @@ class RecordingFilesystemStub extends RpcTarget {
   }
 
   [Symbol.dispose](): void { this.fs[Symbol.dispose]?.() }
-  readFile(path: string, options?: unknown) { return this.call('readFile', [path, options], path) }
-  exists(path: string) { return this.call('exists', [path], path) }
-  stat(path: string) { return this.call('stat', [path], path) }
-  statOrNull(path: string) { return this.call('statOrNull', [path], path) }
+  readFile(path: string, options?: unknown) { return this.probe('readFile', [path, options], path) }
+  exists(path: string) { return this.probe('exists', [path], path) }
+  stat(path: string) { return this.probe('stat', [path], path) }
+  statOrNull(path: string) { return this.probe('statOrNull', [path], path) }
   lstat(path: string) { return this.call('lstat', [path], path) }
   lstatOrNull(path: string) { return this.call('lstatOrNull', [path], path) }
   readlink(path: string) { return this.call('readlink', [path], path) }
-  readdir(path: string, options?: unknown) { return this.call('readdir', [path, options], path) }
+  readdir(path: string, options?: unknown) { return this.probe('readdir', [path, options], path) }
   find(directory: string, pattern?: unknown, options?: unknown) {
     return this.call('find', [directory, pattern, options], directory)
   }
@@ -110,6 +119,42 @@ class RecordingFilesystemStub extends RpcTarget {
     // against the link's directory.
     this.recorder.record('symlink', target.startsWith('/') ? target : `${path.slice(0, path.lastIndexOf('/'))}/${target}`)
     return this.call('symlink', [target, path], path)
+  }
+
+  /**
+   * A lookup that finds nothing may have followed a link created earlier
+   * (possibly by a container command) into the container's filesystem:
+   * `test -f os` where `os -> /etc/os-release`. Only then are the path's
+   * links inspected, so ordinary lookups cost nothing extra.
+   */
+  private async probe(op: string, args: unknown[], path: string): Promise<unknown> {
+    let result: unknown
+    try {
+      result = await this.call(op, args, path)
+    } catch (error) {
+      if (isMissing(error)) await this.checkLinks(path)
+      throw error
+    }
+    if (result === false || result === null) await this.checkLinks(path)
+    return result
+  }
+
+  /** Record a crossing when any link along a /workspace path points outside it. */
+  private async checkLinks(path: string): Promise<void> {
+    const segments = normalizedSegments(path)
+    if (segments[0] !== 'workspace') return
+    for (let length = segments.length; length > 1; length--) {
+      const candidate = `/${segments.slice(0, length).join('/')}`
+      let target: unknown
+      try {
+        target = await this.fs.readlink!(candidate)
+      } catch {
+        continue
+      }
+      if (typeof target !== 'string') continue
+      const directory = `/${segments.slice(0, length - 1).join('/')}`
+      this.recorder.record('readlink', target.startsWith('/') ? target : `${directory}/${target}`)
+    }
   }
 
   private call(op: string, args: unknown[], path: string): unknown {
