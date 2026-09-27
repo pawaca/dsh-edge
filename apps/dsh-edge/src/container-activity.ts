@@ -111,10 +111,14 @@ export class ContainerActivity {
     return outcome
   }
 
-  /** The earliest time an idle check can stop the container. */
+  /**
+   * The earliest time an idle check can stop the container: the moment
+   * {@link idle} turns true under the current sleep window. With no known
+   * activity (after an eviction) that is now.
+   */
   deadline(): number {
-    const from = this.inFlight > 0 ? this.now() : this.lastActivity ?? this.now()
-    return from + this.sleepAfterMs()
+    if (this.inFlight > 0) return this.now() + this.sleepAfterMs()
+    return this.lastActivity === undefined ? this.now() : this.lastActivity + this.sleepAfterMs()
   }
 
   /** Whether no command is running and the last one settled long enough ago. */

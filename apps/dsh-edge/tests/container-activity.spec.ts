@@ -55,6 +55,14 @@ describe('container idle tracking', () => {
     expect(activity.deadline()).toBe(settled + 1_000)
   })
 
+  it('agrees with idle: after an eviction the deadline is now, whatever the window', () => {
+    const { activity, now, setSleepAfter } = tracker(30_000)
+    expect(activity.idle()).toBe(true)
+    expect(activity.deadline()).toBe(now())
+    setSleepAfter(5_000)
+    expect(activity.deadline()).toBe(now())
+  })
+
   it('moves a failed stop one full window out instead of leaving a past deadline', async () => {
     const { activity, advance, now } = tracker()
     activity.begin()()
