@@ -23,6 +23,11 @@ function response(body: unknown, status = 200): Response {
   })
 }
 
+const RUNTIME = {
+  settings: { bashRouting: 'auto', containerSleepMinutes: 10 },
+  container: { running: true, runningCommands: 0, maxConcurrentCommands: 2, lastActivityAt: 1 },
+}
+
 function approvalResponse(): Response { return response({ mode: 'ask' }) }
 function mcpResponse(): Response { return response({ servers: [] }) }
 
@@ -38,12 +43,40 @@ describe('Edge settings controller', () => {
     })
   })
 
-  it('accepts a Container deployment health', async () => {
+  it('loads runtime settings and container status only on a Container deployment', async () => {
     const health = { ...HEALTH, shell: 'linux-container' as const }
-    const fetch = vi.fn().mockResolvedValueOnce(response(health)).mockResolvedValueOnce(approvalResponse()).mockResolvedValueOnce(mcpResponse()).mockResolvedValueOnce(response({ version: '1.2.3' }))
+    const fetch = vi.fn().mockResolvedValueOnce(response(health)).mockResolvedValueOnce(approvalResponse()).mockResolvedValueOnce(response(RUNTIME)).mockResolvedValueOnce(mcpResponse()).mockResolvedValueOnce(response({ version: '1.2.3' }))
     const controller = new EdgeSettingsController({ fetch, copy: vi.fn(), navigate: vi.fn() })
     await controller.load()
-    expect(controller.store.getSnapshot()).toMatchObject({ status: 'ready', health })
+    expect(fetch).toHaveBeenNthCalledWith(3, '/api/runtime', { credentials: 'same-origin' })
+    expect(controller.store.getSnapshot()).toMatchObject({ status: 'ready', health, runtime: RUNTIME })
+  })
+
+  it('saves runtime settings and reports a failed save', async () => {
+    const saved = { ...RUNTIME, settings: { bashRouting: 'light', containerSleepMinutes: 10 } }
+    const fetch = vi.fn().mockResolvedValueOnce(response(saved)).mockResolvedValueOnce(response({ error: 'bad' }, 400))
+    const controller = new EdgeSettingsController({ fetch, copy: vi.fn(), navigate: vi.fn() })
+    await controller.setRuntimeSettings({ bashRouting: 'light' })
+    expect(fetch).toHaveBeenCalledWith('/api/runtime', expect.objectContaining({
+      method: 'PUT', body: JSON.stringify({ bashRouting: 'light' }),
+    }))
+    expect(controller.store.getSnapshot()).toMatchObject({ runtime: saved, runtimeSaved: true, runtimeSaving: false })
+    await controller.setRuntimeSettings({ containerSleepMinutes: 5 })
+    expect(controller.store.getSnapshot()).toMatchObject({ runtime: saved, runtimeError: 'save', runtimeSaving: false })
+  })
+
+  it('stops the container and reports a busy one', async () => {
+    const asleep = { ...RUNTIME, container: { ...RUNTIME.container, running: false } }
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(response({ outcome: 'stopped', ...asleep }))
+      .mockResolvedValueOnce(response({ outcome: 'busy', ...RUNTIME }))
+    const controller = new EdgeSettingsController({ fetch, copy: vi.fn(), navigate: vi.fn() })
+    await controller.stopContainer()
+    expect(fetch).toHaveBeenCalledWith('/api/runtime/container/stop', { method: 'POST', credentials: 'same-origin' })
+    expect(controller.store.getSnapshot()).toMatchObject({ runtime: asleep, containerStopping: false })
+    expect(controller.store.getSnapshot().runtimeError).toBeUndefined()
+    await controller.stopContainer()
+    expect(controller.store.getSnapshot()).toMatchObject({ runtime: RUNTIME, runtimeError: 'busy' })
   })
 
   it('signs out through the same-origin route', async () => {

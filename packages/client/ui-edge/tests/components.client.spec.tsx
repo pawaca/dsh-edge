@@ -34,7 +34,27 @@ const READY: EdgeSettingsState = {
   mcpServers: [],
   mcpLoaded: true,
   mcpSaving: false,
+  runtimeSaving: false,
+  runtimeSaved: false,
+  containerStopping: false,
+}
+
+const CONTAINER_READY: EdgeSettingsState = {
+  ...READY,
+  health: { ...READY.health!, shell: 'linux-container' },
+  runtime: {
+    settings: { bashRouting: 'auto', containerSleepMinutes: 10 },
+    container: { running: true, runningCommands: 0, maxConcurrentCommands: 2, lastActivityAt: 1 },
+  },
+}
+
+function runtimeActions() {
+  return {
+    refreshRuntime: vi.fn(() => Promise.resolve()),
+    setRuntimeSettings: vi.fn(() => Promise.resolve()),
+    stopContainer: vi.fn(() => Promise.resolve()),
   }
+}
 
 describe('Edge settings section', () => {
   it('renders deployment facts and delegates owner actions', () => {
@@ -49,8 +69,13 @@ describe('Edge settings section', () => {
       copyUpgrade={vi.fn(() => Promise.resolve())}
       signOut={signOut}
       setApprovalMode={vi.fn(() => Promise.resolve())}
+      {...runtimeActions()}
     />)
-    expect(screen.getByText('Paid · isolated Worker shell')).toBeTruthy()
+    expect(screen.getByText('Research and write')).toBeTruthy()
+    expect(screen.getByText('Analyze data and split big jobs')).toBeTruthy()
+    expect(screen.queryByText('Work on code projects')).toBeNull()
+    expect(screen.getByText('npx dsh-edge@latest upgrade')).toBeTruthy()
+    expect(screen.queryByText('Linux container')).toBeNull()
     expect(screen.getByText('deploy-123')).toBeTruthy()
     expect(screen.getByText('Could not check npm')).toBeTruthy()
     expect(container.querySelector('[data-state="done"]')).toBeNull()
@@ -59,18 +84,55 @@ describe('Edge settings section', () => {
     expect(load).toHaveBeenCalledOnce()
   })
 
-  it('names the Container runtime', () => {
+  it('shows Container capabilities, status, and live settings', () => {
+    const actions = runtimeActions()
     render(<EdgeSettingsSection
       {...runtime}
       close={() => {}}
       t={t}
-      useEdgeSettings={selector => selector({ ...READY, health: { ...READY.health!, shell: 'linux-container' } })}
+      useEdgeSettings={selector => selector(CONTAINER_READY)}
       load={vi.fn(() => Promise.resolve())}
       copyUpgrade={vi.fn(() => Promise.resolve())}
       signOut={vi.fn(() => Promise.resolve())}
       setApprovalMode={vi.fn(() => Promise.resolve())}
+      {...actions}
     />)
-    expect(screen.getByText('Paid · isolated Worker shell + Linux container')).toBeTruthy()
+    expect(screen.getByText('Work on code projects')).toBeTruthy()
+    expect(screen.getByText('Running')).toBeTruthy()
+    expect(screen.getByText('0 / 2')).toBeTruthy()
+    expect(screen.getByText(en.routingAutoHelp)).toBeTruthy()
+    fireEvent.change(screen.getByRole('combobox', { name: 'Where commands run' }), { target: { value: 'light' } })
+    expect(actions.setRuntimeSettings).toHaveBeenCalledWith({ bashRouting: 'light' })
+    fireEvent.change(screen.getByRole('combobox', { name: 'Sleep after idle' }), { target: { value: '30' } })
+    expect(actions.setRuntimeSettings).toHaveBeenCalledWith({ containerSleepMinutes: 30 })
+    fireEvent.click(screen.getByRole('button', { name: 'Sleep now' }))
+    expect(actions.stopContainer).toHaveBeenCalledOnce()
+  })
+
+  it('offers sleep now only for an idle running container', () => {
+    const busy: EdgeSettingsState = {
+      ...CONTAINER_READY,
+      runtime: { ...CONTAINER_READY.runtime!, container: { ...CONTAINER_READY.runtime!.container!, runningCommands: 1 } },
+    }
+    const asleep: EdgeSettingsState = {
+      ...CONTAINER_READY,
+      runtime: { ...CONTAINER_READY.runtime!, container: { ...CONTAINER_READY.runtime!.container!, running: false } },
+    }
+    for (const state of [busy, asleep]) {
+      render(<EdgeSettingsSection
+        {...runtime}
+        close={() => {}}
+        t={t}
+        useEdgeSettings={selector => selector(state)}
+        load={vi.fn(() => Promise.resolve())}
+        copyUpgrade={vi.fn(() => Promise.resolve())}
+        signOut={vi.fn(() => Promise.resolve())}
+        setApprovalMode={vi.fn(() => Promise.resolve())}
+        {...runtimeActions()}
+      />)
+      expect((screen.getByRole('button', { name: 'Sleep now' }) as HTMLButtonElement).disabled).toBe(true)
+      cleanup()
+    }
   })
 
   it('contains load failure behind a retry action', () => {
@@ -83,11 +145,14 @@ describe('Edge settings section', () => {
       useEdgeSettings={selector => selector({
         status: 'error', error: 'private transport detail', copied: false, signingOut: false,
         approvalMode: 'ask', approvalSaving: false, approvalSaved: false,
-        mcpServers: [], mcpLoaded: false, mcpSaving: false,       })}
+        mcpServers: [], mcpLoaded: false, mcpSaving: false,
+        runtimeSaving: false, runtimeSaved: false, containerStopping: false,
+      })}
       load={load}
       copyUpgrade={vi.fn(() => Promise.resolve())}
       signOut={signOut}
       setApprovalMode={vi.fn(() => Promise.resolve())}
+      {...runtimeActions()}
     />)
     expect(screen.getByRole('alert').textContent).not.toContain('private transport detail')
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }))

@@ -10,6 +10,7 @@
 .actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
 .actions a { color: var(--dsw-alias-brand-primary); }
 .status { display: flex; align-items: center; gap: 8px; }
+.capabilities { margin: 0; padding-left: 18px; }
 .notice { color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary)); font-size: 13px; }
 .error { color: var(--dsw-alias-state-error-primary) !important; word-break: break-word; overflow-wrap: anywhere; font-size: 13px; }
 .select { border: 0.5px solid var(--dsw-alias-border-l4, var(--dsw-alias-border-subtle)); background: var(--dsw-alias-bg-layer-3, var(--dsw-alias-background-primary)); color: var(--dsw-alias-label-primary, var(--dsw-alias-text-primary)); border-radius: 8px; height: 34px; padding: 0 28px 0 10px; font: inherit; font-size: 13px; line-height: 1.5; appearance: none; background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23999' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 10px center; }

@@ -30,6 +30,22 @@ export interface EdgeHealth {
 
 export type ApprovalMode = 'ask' | 'never'
 
+/** Where a Container deployment runs each bash command. */
+export type BashRouting = 'auto' | 'light' | 'container'
+
+export type ContainerSleepMinutes = 5 | 10 | 30
+
+/** Runtime settings and live container status projected by `/api/runtime`. */
+export interface EdgeRuntimeState {
+  settings: { bashRouting: BashRouting; containerSleepMinutes: ContainerSleepMinutes }
+  container: {
+    running: boolean
+    runningCommands: number
+    maxConcurrentCommands: number
+    lastActivityAt: number | null
+  } | null
+}
+
 export type McpAuthType = 'none' | 'bearer' | 'oauth'
 
 export type McpToolPolicyMode = 'allow_all' | 'read_only' | 'approve_all'
@@ -69,6 +85,12 @@ export interface EdgeSettingsState {
   approvalSaving: boolean
   approvalSaved: boolean
   approvalError?: string
+  /** Loaded only on Container deployments, where the settings apply. */
+  runtime?: EdgeRuntimeState
+  runtimeSaving: boolean
+  runtimeSaved: boolean
+  containerStopping: boolean
+  runtimeError?: 'load' | 'save' | 'busy' | 'stop'
   mcpServers: McpServerEntry[]
   mcpLoaded: boolean
   mcpSaving: boolean
@@ -92,6 +114,16 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+function isRuntimeState(value: unknown): value is EdgeRuntimeState {
+  if (value === null || typeof value !== 'object') return false
+  const { settings, container } = value as Partial<EdgeRuntimeState>
+  return typeof settings === 'object' && settings !== null
+    && ['auto', 'light', 'container'].includes(settings.bashRouting)
+    && [5, 10, 30].includes(settings.containerSleepMinutes)
+    && (container === null || (typeof container === 'object'
+      && typeof container.running === 'boolean' && typeof container.runningCommands === 'number'))
+}
+
 function isHealth(value: unknown): value is EdgeHealth {
   if (value === null || typeof value !== 'object') return false
   const health = value as Partial<EdgeHealth>
@@ -112,10 +144,12 @@ export class EdgeSettingsController {
   readonly store: SnapshotStore<EdgeSettingsState> = createSnapshotStore({
     status: 'idle', copied: false, signingOut: false,
     approvalMode: 'never', approvalSaving: false, approvalSaved: false,
+    runtimeSaving: false, runtimeSaved: false, containerStopping: false,
     mcpServers: [], mcpLoaded: false, mcpSaving: false,
   })
   private loadGeneration = 0
   private approvalGeneration = 0
+  private runtimeGeneration = 0
   private mcpGeneration = 0
   private oauthMessageHandler: ((e: MessageEvent) => void) | undefined
 
@@ -172,6 +206,8 @@ export class EdgeSettingsController {
           this.store.update((state) => { state.approvalError = 'Could not load approval setting.' })
         }
       }
+
+      if (health.shell === 'linux-container') await this.refreshRuntime()
 
       const mcpGen = ++this.mcpGeneration
       try {
@@ -244,6 +280,66 @@ export class EdgeSettingsController {
         state.approvalSaving = false
         state.approvalError = messageOf(error)
       })
+    }
+  }
+
+  /** Reload runtime settings and container status. */
+  async refreshRuntime(): Promise<void> {
+    const generation = ++this.runtimeGeneration
+    try {
+      const response = await this.io.fetch('/api/runtime', { credentials: 'same-origin' })
+      const body: unknown = response.ok ? await response.json() : undefined
+      if (generation !== this.runtimeGeneration) return
+      if (!isRuntimeState(body)) throw new Error('Invalid runtime response')
+      this.store.update((state) => { state.runtime = body; delete state.runtimeError })
+    } catch {
+      if (generation !== this.runtimeGeneration) return
+      this.store.update((state) => { state.runtimeError = 'load' })
+    }
+  }
+
+  async setRuntimeSettings(patch: Partial<EdgeRuntimeState['settings']>): Promise<void> {
+    const generation = ++this.runtimeGeneration
+    this.store.update((state) => { state.runtimeSaving = true; state.runtimeSaved = false; delete state.runtimeError })
+    try {
+      const response = await this.io.fetch('/api/runtime', {
+        method: 'PUT',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(patch),
+      })
+      const body: unknown = response.ok ? await response.json() : undefined
+      if (!isRuntimeState(body)) throw new Error('Invalid runtime response')
+      this.store.update((state) => {
+        state.runtimeSaving = false
+        if (generation !== this.runtimeGeneration) return
+        state.runtime = body
+        state.runtimeSaved = true
+      })
+    } catch {
+      this.store.update((state) => { state.runtimeSaving = false; state.runtimeError = 'save' })
+    }
+  }
+
+  /** Stop the idle container now; the next Linux command starts it again. */
+  async stopContainer(): Promise<void> {
+    const generation = ++this.runtimeGeneration
+    this.store.update((state) => { state.containerStopping = true; state.runtimeSaved = false; delete state.runtimeError })
+    try {
+      const response = await this.io.fetch('/api/runtime/container/stop', {
+        method: 'POST',
+        credentials: 'same-origin',
+      })
+      const body = await response.json() as Partial<EdgeRuntimeState> & { outcome?: string }
+      const { outcome, ...runtime } = body
+      this.store.update((state) => {
+        state.containerStopping = false
+        if (generation === this.runtimeGeneration && isRuntimeState(runtime)) state.runtime = runtime
+        if (outcome === 'busy') state.runtimeError = 'busy'
+        else if (outcome !== 'stopped') state.runtimeError = 'stop'
+      })
+    } catch {
+      this.store.update((state) => { state.containerStopping = false; state.runtimeError = 'stop' })
     }
   }
 
