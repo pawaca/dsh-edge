@@ -15,6 +15,7 @@ describe('repository workflows', () => {
   it('contains only Edge CI and release automation', () => {
     expect(readdirSync(workflowDirectory).sort()).toEqual([
       'edge-ci.yml',
+      'edge-container.yml',
       'release-edge.yml',
       'request-release.yml',
     ])
@@ -138,6 +139,24 @@ describe('repository workflows', () => {
     expect(build).not.toContain('push: true')
     expect(build).not.toContain('secrets.')
     expect(ci).toContain('test "$CONTAINER_RESULT" = success')
+  })
+
+  it('runs the Container integration daily without gating pull requests', () => {
+    const source = workflow('edge-container.yml')
+    expect(source).toMatch(/schedule:\n\s+- cron: '0 18 \* \* \*'/u)
+    expect(source).toContain('workflow_dispatch:')
+    expect(source).not.toContain('pull_request')
+    // It tests the promoted artifact built before the repository install,
+    // so a parent dependency cannot mask a missing standalone input.
+    expect(source).toContain('node apps/dsh-edge/tests/container.integration.mjs')
+    expect(source).not.toContain('test:container')
+    expect(source.indexOf('pnpm --dir apps/dsh-edge/standalone run build'))
+      .toBeLessThan(source.indexOf('pnpm install --frozen-lockfile'))
+    expect(source.indexOf('promote.mjs all')).toBeLessThan(source.indexOf('pnpm install --frozen-lockfile'))
+    // A runner without Docker must fail, never skip into a green run.
+    expect(source).toContain("DSH_EDGE_REQUIRE_DOCKER: '1'")
+    expect(source).not.toContain('secrets.')
+    expect(workflow('edge-ci.yml')).not.toContain('test:container')
   })
 
   it('keeps recovery possible after the default branch advances without accepting a side-branch tag', () => {
