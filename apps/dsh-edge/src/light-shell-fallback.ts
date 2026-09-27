@@ -18,40 +18,26 @@ import type { EdgeShellResult } from './agent.ts'
 
 const SHARED_ROOT = '/workspace'
 
-/**
- * Diagnostics for features the Worker shell lacks, as the message bodies a
- * tool prints after its `name: ` prefix. Each must start a line in that
- * form, so ordinary text a command prints cannot match.
- */
-const CAPABILITY_DIAGNOSTICS: readonly string[] = [
+/** Diagnostics for features the Worker shell lacks, independent of exit code. */
+const CAPABILITY_DIAGNOSTICS: readonly RegExp[] = [
   // A missing program; an explicit `exit 127` alone does not count.
-  String.raw`[^\n]+: command not found$`,
+  /^[\w.[-]+: [^\n]+: command not found$/mu,
   // Programs just-bash cannot provide in a Worker (`python3`, `tar` in-process).
-  String.raw`.*command not available in browser environments`,
+  /command not available in browser environments/u,
   // sed `e`, awk `system()`.
-  String.raw`.*not supported in sandboxed environment`,
-  String.raw`.*shell execution not allowed in sandboxed environment`,
+  /not supported in sandboxed environment/u,
+  /shell execution not allowed in sandboxed environment/u,
   // tar bzip2 / xz / zstd native codecs.
-  String.raw`.*is not available in this Worker`,
-  String.raw`.*requires node-liblzma`,
-  String.raw`.*requires @mongodb-js/zstd`,
+  /is not available in this Worker/u,
+  /requires node-liblzma/u,
+  /requires @mongodb-js\/zstd/u,
   // Computer's git command without a configured git client.
-  String.raw`Workspace git is not configured`,
+  /Workspace git is not configured/u,
   // A Worker module the command needs is missing (`curl` in the isolated shell).
-  String.raw`No such module "`,
+  /No such module "/u,
   // A GNU option just-bash does not implement (`env -S`, `tar -I`, `sort --compress-program`).
-  String.raw`(?:invalid|unrecognized) option\b`,
-  // Syntax just-bash's own parsers lack: sed addresses such as `\%re%`, awk
-  // output pipes (GNU awk words its errors differently), regex lookaround,
-  // PCRE2, and anything the tools report as not supported or implemented.
-  String.raw`.*(?:invalid|unknown) command\b`,
-  String.raw`.*Unexpected token\b`,
-  String.raw`.*\bnot (?:yet )?(?:supported|implemented)\b`,
-  // A regex just-bash's engine rejects (`grep -P 'a(?=b)'`); a genuinely
-  // invalid pattern fails the same way in the container, costing one rerun.
-  String.raw`.*\b[Ii]nvalid regular expression\b`,
+  /^[\w.[-]+: (?:invalid|unrecognized) option\b/mu,
 ]
-const TOOL_DIAGNOSTIC = new RegExp(String.raw`^[\w.[-]+: (?:${CAPABILITY_DIAGNOSTICS.join('|')})`, 'mu')
 
 /** Paths a command reported missing (`cat: /etc/x: No such file or directory`). */
 const MISSING_PATH = /(?:^|\s)([^\s:'"]+): No such file or directory|parent directory missing: ([^\s:]+)/gu
@@ -62,11 +48,7 @@ const MISSING_PATH = /(?:^|\s)([^\s:'"]+): No such file or directory|parent dire
  */
 export function lightShellCouldNotRun(result: EdgeShellResult, cwd: string): boolean {
   if (result.status === 'cancelled' || result.timedOut) return false
-  // A tool can fail inside a pipeline whose last command succeeds
-  // (`grep -P '(?=a)' f | cat`), so tool diagnostics count at any exit code.
-  if (TOOL_DIAGNOSTIC.test(result.stderr)) return true
-  // A missing path in a successful command is left to the filesystem boundary.
-  if (result.exitCode === 0) return false
+  if (CAPABILITY_DIAGNOSTICS.some(pattern => pattern.test(result.stderr))) return true
   for (const match of result.stderr.matchAll(MISSING_PATH)) {
     const path = match[1] ?? match[2]
     if (path !== undefined && !insideSharedRoot(path, cwd)) return true
@@ -103,35 +85,4 @@ export function workspaceRevision(sql: SqlStorage): number | undefined {
  */
 export function leftWorkspaceUnchanged(before: number | undefined, after: number | undefined): boolean {
   return before !== undefined && after === before
-}
-
-/**
- * Runs light commands one at a time in a container deployment. The miss
- * signals (the VFS revision and the boundary count) are workspace-wide, so
- * only a command running alone can claim them. Light commands are short;
- * waiting counts against the command's own timeout.
- */
-export class LightShellTurns {
-  private tail: Promise<void> = Promise.resolve()
-
-  /** Wait for this command's turn; the returned release must always run. */
-  async acquire(signal: AbortSignal): Promise<() => void> {
-    const previous = this.tail
-    let release!: () => void
-    const done = new Promise<void>(resolve => { release = resolve })
-    // The next command waits for the previous one even if this one gives up.
-    this.tail = previous.then(() => done)
-    try {
-      await new Promise<void>((resolve, reject) => {
-        const abort = () => reject(signal.reason)
-        if (signal.aborted) return abort()
-        signal.addEventListener('abort', abort, { once: true })
-        void previous.then(resolve).finally(() => signal.removeEventListener('abort', abort))
-      })
-    } catch (error) {
-      release()
-      throw error
-    }
-    return release
-  }
 }

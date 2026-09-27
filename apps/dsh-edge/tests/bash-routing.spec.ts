@@ -25,6 +25,7 @@ describe('bash command routing', () => {
     ['ls | xargs rm', 'light'],
     ['find . -exec pip install {} \\;', 'container'],
     ['find . -name "*.log" -exec rm {} \\;', 'light'],
+    ['action=-exec; find . "$action" node {} \\;', 'container'],
     ['find "$DIR" -name "$PATTERN" -type f', 'light'],
     // The light shell has no node, so the lookup is only truthful in the container.
     ['command -v node', 'container'],
@@ -162,14 +163,33 @@ describe('bash command routing', () => {
     ["rg --pre 'node -v' needle file", 'container'],
     ['rg --pre=./decode.sh needle', 'container'],
     ['rg -n needle src', 'light'],
+    ['tar -I zstd -cf out.tar.zst src', 'container'],
+    ["tar --to-command='node x.js' -xf a.tar", 'container'],
     ['tar -tf a.tar', 'light'],
+    ['sort --compress-program=gzip big.txt', 'container'],
+    ["awk 'BEGIN { system(\"node -v\") }'", 'container'],
+    ["awk '{ print | \"sort\" }' a.txt", 'container'],
     ["awk -F, '{ s += $2 } END { print s }' c.csv", 'light'],
+    ["sed 'e node -v' a.txt", 'container'],
+    ["printf 'x\\n' | sed '1e node -v'", 'container'],
+    ["sed '/x/e node -v' a.txt", 'container'],
+    ["sed '$e date' a.txt", 'container'],
+    ["sed '1,3!e ls' a.txt", 'container'],
     ["sed 's/e/E/g' a.txt", 'light'],
+    ["printf 'x\\n' | sed -e'enode -v'", 'container'],
+    ["printf 'x\\n' | sed --expression='enode -v'", 'container'],
+    ["printf 'x\\n' | sed -n -e 'p;enode -v'", 'container'],
+    ["sed 'enode -v' a.txt", 'container'],
+    ["sed '1enode -v' a.txt", 'container'],
     ['sed -n 1p errors.log', 'light'],
     ["sed -e 's/a/b/' env.txt", 'light'],
     ["sed '/^#/d; s/e$/E/' a.txt", 'light'],
     ['type -P node', 'container'],
+    ["script='1e node -v'; printf 'x\\n' | sed \"$script\"", 'container'],
+    ['awk "$PROGRAM" data.txt', 'container'],
     ['rg $FLAGS needle', 'container'],
+    ['tar $OPTS -xf a.tar', 'container'],
+    ['sed -n "${LINE}p" a.txt', 'container'],
     ['grep "$PATTERN" a.txt', 'light'],
     ['cat "$FILE"', 'light'],
     ['rg "$(printf -- --pre)" node needle file.js', 'container'],
@@ -182,6 +202,7 @@ describe('bash command routing', () => {
     ['timeout --foreground -s KILL 5 ls', 'light'],
     ['env -i FOO=1 printenv FOO', 'light'],
     // A PATH naming Linux directories means Linux programs.
+    ['env -i PATH=/bin ls', 'container'],
     ['timeout -k 2 5 ls', 'light'],
     // nice is not a light-shell command itself.
     ['nice -5 ls', 'container'],
@@ -199,16 +220,38 @@ describe('bash command routing', () => {
     ["grep 'plain text' a.txt", 'light'],
     ["printf '%s\\n' --pre=node | xargs -I{} rg {} needle file", 'container'],
     ['echo --pre=node | xargs rg needle', 'container'],
+    ['ls | xargs -I% sed -n 1p %', 'container'],
     ['ls | xargs wc -l', 'light'],
     ['ls | xargs -I{} cp {} out/', 'light'],
     ["env -S 'timeout 5' node -v", 'container'],
     ["env -S 'ls' -la", 'container'],
+    ["printf 'x\\n' | sed '\\%x%e node -v'", 'container'],
+    ["sed '2,/end/!e ls' a.txt", 'container'],
+    ["sed '0~2e date' a.txt", 'container'],
     ["sed -n '/start/,/end/p' a.txt", 'light'],
+    ['tar -Inode -cf out.tar a.txt', 'container'],
+    ['tar -Izstd -xf a.tar.zst', 'container'],
+    ['tar -cInode -f out.tar a', 'container'],
+    ['tar cIf node out.tar a', 'container'],
+    ['tar -cf host:archive a', 'container'],
+    ['tar -cfhost:archive a', 'container'],
     ['tar --force-local -cf a:b.tar a', 'light'],
     ['tar czf out.tgz src', 'light'],
+    ['tar -cJf out.tar.xz src', 'container'],
+    ['tar --zstd -cf out.tar src', 'container'],
+    ['tar -caf out.tar.zst src', 'container'],
+    ['tar -xf in.tar.xz', 'container'],
+    ['tar cJf out.tar.xz src', 'container'],
+    ['tar -cjf out.tar.bz2 src', 'container'],
+    ['tar -cZf out.tar.Z src', 'container'],
+    ['tar cfI out.tar node a', 'container'],
+    ['tar cfj out.tar.bz2 a', 'container'],
     ['tar cf out.tar a', 'light'],
+    ['tar --compress -cf out.tar src', 'container'],
+    ['tar -acf out.tar.Z src', 'container'],
     ['tar --exclude=node_modules --strip-components=1 -xzf in.tgz', 'light'],
     ['tar -C out -xf in.tar', 'light'],
+    ['tar -tf in.tbz', 'container'],
     ['tar -xzf in.tgz', 'light'],
     ['tar -xvf a.tar -C out', 'light'],
     ["BASH_ENV=hooks.sh bash -c 'echo ok'", 'container'],
@@ -222,15 +265,34 @@ describe('bash command routing', () => {
     ["env 'TAPE=host:archive' tar -c a", 'container'],
     ["env 'TAR_OPTIONS=-Inode' tar -cf out.tar a.txt", 'container'],
     ["ENV=rc sh -c 'ls'", 'container'],
+    ['cat /etc/os-release', 'container'],
+    ['ls /usr/bin', 'container'],
+    ['echo hi >/dev/tcp/host/80', 'container'],
+    ['cat /proc/cpuinfo | head', 'container'],
+    ['cp a.txt /tmp/a.txt', 'container'],
     ['ls ~/.config', 'container'],
+    ['grep -r x --include=*.ts --exclude-dir=/var/cache .', 'container'],
     ['ls /workspace/src && cat /workspace/a.txt', 'light'],
     ['echo hi > /dev/null 2>&1', 'light'],
     ["sed -n '/start/,/end/p' a.txt", 'light'],
+    ['tar --rsh-command=node -cf host:/tmp/a file', 'container'],
+    ['tar --rmt-command=/usr/sbin/rmt -cf a.tar b', 'container'],
+    ['awk -f rules.awk data.txt', 'container'],
+    ['awk --file=rules.awk data.txt', 'container'],
+    ['awk -F, -f rules.awk data.txt', 'container'],
+    ['sed -f rules.sed a.txt', 'container'],
+    ['sed -nf rules.sed a.txt', 'container'],
+    ['sed --file=rules.sed a.txt', 'container'],
     ["sed -i 's/a/b/' a.txt", 'light'],
     ["awk -F: '{ print $1 }' a.txt", 'light'],
     ['type ls', 'container'],
+    ["sed 's/x/node -v/e' a.txt", 'container'],
+    ['awk -W exec rules.awk 2>/dev/null', 'container'],
+    ['awk -Wexec rules.awk', 'container'],
+    ['awk --file=rules.awk a.txt', 'container'],
     ["awk -F, -v n=1 '{ print $n }' c.csv", 'light'],
     ["awk -F- '{ print $1 }' -", 'light'],
+    ["printf 'x/y\\n' | sed -n 's/x\\/y/npm -v/ep'", 'container'],
     ["sed 's/a\\/b/c\\/d/g' a.txt", 'light'],
     ["sed -n '1,5p' a.txt", 'light'],
     ["sed 's/foo/bar/g' a.txt", 'light'],
@@ -243,53 +305,69 @@ describe('bash command routing', () => {
     expect(auto('echo "`echo \\`ls\\``"')).toBe('container')
   })
 
-  it('sends commands naming the PATH directories to the container, since the runtime treats those lookups as its own', () => {
-    expect(auto('[ -d /usr/bin ] && echo yes')).toBe('container')
-    expect(auto('test -x /bin/sh')).toBe('container')
-    expect(auto('ls /usr/bin/')).toBe('container')
-    expect(auto('env PATH=/usr/bin:/bin ls')).toBe('container')
-    expect(auto('test -d /usr//bin && echo yes')).toBe('container')
-    expect(auto('test -d //usr/bin && echo yes')).toBe('container')
-    expect(auto('test -d /usr/foo/../bin && echo yes')).toBe('container')
-    expect(auto('ls /usr/binaries')).toBe('light')
-    expect(auto('cat src/bin/tool.ts')).toBe('light')
-    expect(auto('ls /usr/local')).toBe('light')
-  })
-
-  it('sends only home-directory uses to the container, since no file access reveals them', () => {
-    expect(auto('echo ~')).toBe('container')
-    expect(auto('echo "$HOME"')).toBe('container')
-    expect(auto('ls ${HOME}/.config')).toBe('container')
-    expect(auto('cd; pwd')).toBe('container')
-    expect(auto('cd -P; pwd')).toBe('container')
-    expect(auto('cd && ls')).toBe('container')
-    expect(auto('if cd; then pwd; fi')).toBe('container')
-    expect(auto('A=1 cd; pwd')).toBe('container')
-    expect(auto('time -p cd; pwd')).toBe('container')
-    expect(auto('2>/dev/null cd; pwd')).toBe('container')
-    expect(auto('pushd')).toBe('container')
-    expect(auto('cd src && ls && cat a.txt')).toBe('light')
-    expect(auto('cd -P src && ls')).toBe('light')
-    expect(auto('A=1 cd src && ls')).toBe('light')
-    expect(auto('echo cd')).toBe('light')
-    expect(auto('echo HOMEWORK $HOMEDIR')).toBe('light')
-  })
-
-  // Loud failures (sed `e`, tar codecs, missing programs) and reaches outside
-  // /workspace (`test -f /etc/x`, sed `r`) are detected when they run and
-  // rerun in the container, so routing leaves them light. The Container
-  // integration's routing corpus proves each against a forced Linux run.
-  it.each([
-    "sed 'e node -v' a.txt",
-    'tar -cJf out.tar.xz src',
-    "awk 'BEGIN { system(\"node -v\") }'",
-    'sort --compress-program=gzip a.txt',
-    'cat /etc/os-release',
-    "printf 'x\\n' | sed -n '1r /etc/os-release'",
-    'd=etc; test -f /"$d"/os-release',
-    'cat ../../etc/passwd',
-  ])('leaves %s to the runtime', command => {
-    expect(auto(command)).toBe('light')
+  it('routes relative paths that climb out of /workspace to the container', () => {
+    const at = (cwd: string, command: string) =>
+      routeBashCommand(command, { policy: 'auto', containerAvailable: true, cwd })
+    expect(at('/workspace', 'cat ../etc/os-release')).toBe('container')
+    expect(at('/workspace', 'cd ..; ls')).toBe('container')
+    expect(at('/workspace', 'ls ..')).toBe('container')
+    expect(at('/workspace/app', 'cat ../../etc/hosts')).toBe('container')
+    expect(at('/workspace/app/src', 'cat ../README.md')).toBe('light')
+    // A directory change combined with `..` is not modelled.
+    expect(at('/workspace/app', 'ls ../other && cd ..')).toBe('container')
+    expect(at('/workspace', 'cat ./a/../b.txt')).toBe('light')
+    expect(at('/workspace', 'cat /workspace/../etc/os-release')).toBe('container')
+    expect(at('/workspace', 'ls /workspace/app/../..')).toBe('container')
+    expect(at('/workspace', 'cat /workspace/app/../README.md')).toBe('light')
+    expect(at('/workspace', 'cat /./etc/os-release')).toBe('container')
+    expect(at('/workspace', 'cat //etc/os-release')).toBe('container')
+    expect(at('/workspace', 'ls /')).toBe('container')
+    expect(at('/workspace', 'cd /; cat etc/os-release')).toBe('container')
+    expect(at('/workspace', 'ls //.')).toBe('container')
+    expect(at('/workspace', 'env -C/etc pwd')).toBe('container')
+    expect(at('/workspace', "printf 'x\\n' | sed -n '1r /etc/os-release'")).toBe('container')
+    expect(at('/workspace', "sed 'w /tmp/copy' a.txt")).toBe('container')
+    expect(at('/workspace', "printf 'x\\n' | sed -n '1r/etc/os-release'")).toBe('container')
+    expect(at('/workspace', "sed 's/a/b/w/tmp/out' a.txt")).toBe('container')
+    expect(at('/workspace', "printf 'x\\n' | sed -n '1r/./etc/os-release'")).toBe('container')
+    expect(at('/workspace', "sed -n '1r//etc/os-release' a.txt")).toBe('container')
+    expect(at('/workspace', "sed -n '1r/workspace/../etc/os-release' a.txt")).toBe('container')
+    expect(at('/workspace', "sed -n '1r/workspace/notes.txt' a.txt")).toBe('light')
+    expect(at('/workspace', "printf 'x\\n' | sed -n '1r../etc/os-release'")).toBe('container')
+    expect(at('/workspace/app', "sed -n '1r ../notes.txt' a.txt")).toBe('light')
+    expect(at('/workspace', "sed 's/error/warn/g' a.txt")).toBe('light')
+    expect(at('/workspace', "cat $'/etc/os-release'")).toBe('container')
+    expect(at('/workspace', 'cat $"/etc/os-release"')).toBe('container')
+    expect(at('/workspace', "printf $'a\\tb\\n'")).toBe('light')
+    expect(at('/workspace', `awk 'BEGIN { while ((getline l < "/etc/passwd") > 0) print l }'`)).toBe('container')
+    expect(at('/workspace', "sed -n '/start/,/end/p' a.txt")).toBe('light')
+    expect(at('/workspace', 'sort -o/tmp/out a.txt')).toBe('container')
+    expect(at('/workspace', 'cp -t../../etc a.txt')).toBe('container')
+    expect(at('/workspace', 'sort -o./out a.txt')).toBe('light')
+    expect(at('/workspace', 'cat /workspace//src/./a.ts')).toBe('light')
+    expect(at('/workspace/app', 'cd ..; cat ../etc/os-release')).toBe('container')
+    expect(at('/workspace', 'cd "$DIR"; ls')).toBe('container')
+    expect(at('/workspace', 'cd -; ls')).toBe('container')
+    expect(at('/workspace', 'cd; pwd')).toBe('container')
+    expect(at('/workspace', 'cd -P; pwd')).toBe('container')
+    expect(at('/workspace', 'cd && ls')).toBe('container')
+    expect(at('/workspace', 'cd -P src && ls')).toBe('light')
+    expect(at('/workspace', 'echo cd')).toBe('light')
+    expect(at('/workspace', "printf '%s\\n' pushd popd")).toBe('light')
+    expect(at('/workspace', 'ls && popd')).toBe('container')
+    expect(at('/workspace', 'if true; then cd; fi')).toBe('container')
+    expect(at('/workspace', 'if cd; then pwd; fi')).toBe('container')
+    expect(at('/workspace', 'while cd; do break; done')).toBe('container')
+    expect(at('/workspace', 'A=1 cd; pwd')).toBe('container')
+    expect(at('/workspace', 'time -p cd; pwd')).toBe('container')
+    expect(at('/workspace', 'command -p cd; pwd')).toBe('container')
+    expect(at('/workspace', 'ls -la cd')).toBe('light')
+    expect(at('/workspace', 'if A=1 cd; then pwd; fi')).toBe('container')
+    expect(at('/workspace', '2>/dev/null cd; pwd')).toBe('container')
+    expect(at('/workspace', 'A=1 cd src && ls')).toBe('light')
+    expect(at('/workspace', 'echo A=1 cd')).toBe('light')
+    expect(at('/workspace', 'pushd src && ls && popd')).toBe('container')
+    expect(at('/workspace', 'cd src && ls && cat a.txt')).toBe('light')
   })
 
   it('honours the policy, the explicit request, and a missing container', () => {
