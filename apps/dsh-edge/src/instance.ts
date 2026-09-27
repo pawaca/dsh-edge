@@ -666,12 +666,17 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
 
   /** End hibernating downlinks when the owner session used to open them expires. */
   override async alarm(): Promise<void> {
+    // The idle stop reads the saved sleep window.
+    await this.sessions.waitForInitialization()
     await this.driveMain(true)
     await this.stopIdleContainer()
     await this.scheduleMainWake()
   }
 
   private async scheduleMainWake(): Promise<void> {
+    // The container deadline reads the saved sleep window; wakes that bypass
+    // fetch() (alarms, hibernated sockets, RPCs) must not see defaults.
+    await this.sessions.waitForInitialization()
     const expiry = this.closeExpiredDownlinks()
     const work = this.mainQueue.hasWork()
       ? Date.now() + (this.mainDriving || this.mainQueue.current() !== undefined ? MAIN_WAKE_MS : 1)
@@ -994,6 +999,8 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
 
   /** Run one bounded workspace command for the entry Worker's HTTP exec route. */
   async runWorkspaceCommand(command: string, cwd: string, requestContainer = false): Promise<EdgeShellResult> {
+    // This RPC bypasses fetch(); routing must read the saved settings, not defaults.
+    await this.sessions.waitForInitialization()
     const timeoutPolicy = resolveEdgeCommandTimeoutPolicy(
       this.env.DSH_EDGE_DEFAULT_COMMAND_TIMEOUT_MS,
       this.env.DSH_EDGE_MAX_COMMAND_TIMEOUT_MS,

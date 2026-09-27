@@ -119,11 +119,7 @@ import EdgeSessionQuery from './edge-session-query.ts'
 import { resolveEdgeModel } from './deepseek.ts'
 import type { CreateEdgeSessionInput, EdgeSession } from './protocol.ts'
 import { installEdgeApprovalPolicy, type EdgeApprovalMode, type EdgeApprovalSettings } from './approval-policy.ts'
-import {
-  DEFAULT_RUNTIME_SETTINGS,
-  installEdgeRuntimeSettings,
-  type EdgeRuntimeSettings,
-} from './runtime-settings.ts'
+import { installEdgeRuntimeSettings, type EdgeRuntimeSettings } from './runtime-settings.ts'
 import type { SettingsScope } from '@deepseek-ai/dsh-settings'
 import { installEdgeWebSearch } from './web-search.ts'
 import { DurableEventDeliveryQueue } from './durable-event-delivery.ts'
@@ -1029,9 +1025,13 @@ export class EdgeSessionStore {
     await this.approvalScope?.update({ mode })
   }
 
-  /** Current runtime settings; defaults until initialization registers them. */
+  /**
+   * Current runtime settings. Only valid after {@link waitForInitialization}:
+   * reading earlier would silently apply defaults instead of the saved values.
+   */
   runtimeSettings(): EdgeRuntimeSettings {
-    return this.runtimeScope?.get() ?? DEFAULT_RUNTIME_SETTINGS
+    if (this.runtimeScope === undefined) throw new Error('Runtime settings were read before initialization.')
+    return this.runtimeScope.get()
   }
 
   async updateRuntimeSettings(patch: Partial<EdgeRuntimeSettings>): Promise<EdgeRuntimeSettings> {

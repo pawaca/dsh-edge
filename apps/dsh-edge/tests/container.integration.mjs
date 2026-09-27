@@ -186,6 +186,12 @@ try {
   assert.equal((await stopped.json()).outcome, 'stopped')
   assert.equal((await json('/api/runtime')).container.running, false)
   assert.equal((await exec('uname -s')).stdout, 'Linux\n')
+
+  // The first command after a restart routes by the saved policy, not the default.
+  await putRuntime({ bashRouting: 'light' })
+  await worker.stop()
+  await startWorker(join(scratch, 'routing-state'))
+  assert.equal((await exec('node -v')).runtime, 'light')
   process.stdout.write('dsh-edge container integration passed\n')
 } finally {
   await worker?.stop()

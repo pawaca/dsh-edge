@@ -22,7 +22,7 @@ export interface EdgeRuntimeSettings {
   containerSleepMinutes: ContainerSleepMinutes
 }
 
-export const DEFAULT_RUNTIME_SETTINGS: Readonly<EdgeRuntimeSettings> = Object.freeze({
+const DEFAULT_RUNTIME_SETTINGS: Readonly<EdgeRuntimeSettings> = Object.freeze({
   bashRouting: 'auto',
   containerSleepMinutes: 10,
 })
