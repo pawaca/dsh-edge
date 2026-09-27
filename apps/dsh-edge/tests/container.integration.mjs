@@ -111,6 +111,12 @@ try {
   const linked = await exec('d=etc; ln -s /"$d"/os-release os; test -f os && echo linux || echo missing')
   assert.equal(linked.runtime, 'light')
   assert.equal(linked.lightShellMiss, true)
+  // A later command that follows a link made earlier (here by a container
+  // command) still reaches the container's filesystem.
+  await exec('ln -sf /etc/os-release earlier-link', true)
+  const followed = await exec('test -f earlier-link && echo linux || echo missing')
+  assert.equal(followed.stdout, 'linux\n')
+  assert.equal(followed.retriedFromLight, true)
 
   // Every command routing keeps light must stay light: no rerun, no miss.
   // A false boundary crossing (say, a new PATH probe) would fail here.
