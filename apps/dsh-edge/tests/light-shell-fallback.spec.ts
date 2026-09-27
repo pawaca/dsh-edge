@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { EdgeShellResult } from '../src/agent.ts'
-import { leftWorkspaceUnchanged, lightShellCouldNotRun } from '../src/light-shell-fallback.ts'
+import { LightShellTurns, leftWorkspaceUnchanged, lightShellCouldNotRun } from '../src/light-shell-fallback.ts'
 
 function result(overrides: Partial<EdgeShellResult>): EdgeShellResult {
   return {
@@ -73,5 +73,26 @@ describe('light shell miss detection', () => {
     expect(leftWorkspaceUnchanged(7, 8)).toBe(false)
     expect(leftWorkspaceUnchanged(undefined, undefined)).toBe(false)
     expect(leftWorkspaceUnchanged(7, undefined)).toBe(false)
+  })
+
+  it('runs light commands one at a time, and a cancelled wait never lets the next one jump ahead', async () => {
+    const turns = new LightShellTurns()
+    const never = new AbortController().signal
+    const order: string[] = []
+    const first = await turns.acquire(never)
+    const cancelled = new AbortController()
+    const second = turns.acquire(cancelled.signal)
+    const third = turns.acquire(never).then(release => { order.push('third'); return release })
+    cancelled.abort(new Error('cancelled'))
+    await expect(second).rejects.toThrow('cancelled')
+    await Promise.resolve()
+    // The first command still holds its turn, so the third keeps waiting.
+    expect(order).toEqual([])
+    order.push('first done')
+    first()
+    const release = await third
+    expect(order).toEqual(['first done', 'third'])
+    release()
+    await expect(turns.acquire(AbortSignal.abort(new Error('gone')))).rejects.toThrow('gone')
   })
 })
