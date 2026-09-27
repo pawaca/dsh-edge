@@ -51,3 +51,17 @@ it('drains healthy inputs on repeated alarms despite reminder preparation failur
     expect(runtime.mainDriving).toBe(false)
   } finally { log.mockRestore(); retry.mockRestore(); next.mockRestore(); vi.useRealTimers() }
 })
+
+it('recomputes the wake schedule after sleep now stops the container', async () => {
+  const container = { running: true, destroy: vi.fn(async () => { container.running = false }) }
+  const scheduleMainWake = vi.fn().mockResolvedValue(undefined)
+  const stopNow = vi.fn(async (destroy: () => Promise<void>) => { await destroy(); return 'stopped' as const })
+  const runtime = Object.assign(Object.create(DshEdgeInstance.prototype) as object, {
+    containerActivity: { stopNow },
+    scheduleMainWake,
+  }) as unknown as { stopContainerNow(container: unknown): Promise<string> }
+  await expect(runtime.stopContainerNow(container)).resolves.toBe('stopped')
+  expect(container.destroy).toHaveBeenCalledOnce()
+  expect(scheduleMainWake).toHaveBeenCalledOnce()
+  expect(scheduleMainWake.mock.invocationCallOrder[0]).toBeGreaterThan(container.destroy.mock.invocationCallOrder[0]!)
+})

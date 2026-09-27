@@ -486,14 +486,10 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         }
       }
       if (url.pathname === '/api/runtime/container/stop' && request.method === 'POST') {
-        const container = this.ctx.container
-        if (this.containerBackend() === undefined || container === undefined) {
+        if (this.containerBackend() === undefined || this.ctx.container === undefined) {
           return jsonResponse({ error: 'this deployment has no Linux container' }, 404)
         }
-        // A command holding a slot keeps even a starting or crashed container.
-        const outcome = await this.containerActivity.stopNow(
-          async () => { if (container.running) await container.destroy() },
-        )
+        const outcome = await this.stopContainerNow(this.ctx.container)
         return jsonResponse({ outcome, ...this.runtimeState() }, outcome === 'failed' ? 502 : 200)
       }
       if (url.pathname === '/api/mcp-servers') {
@@ -1165,6 +1161,19 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       ...this.containerActivity.snapshot(),
     }
     return { settings: this.sessions.runtimeSettings(), container }
+  }
+
+  /**
+   * Stop the container now, then recompute the merged wake schedule so the
+   * idle alarm left by the last command does not wake the object for nothing.
+   * A command holding a slot keeps even a starting or crashed container.
+   */
+  private async stopContainerNow(container: Container): Promise<'stopped' | 'busy' | 'failed'> {
+    const outcome = await this.containerActivity.stopNow(
+      async () => { if (container.running) await container.destroy() },
+    )
+    await this.scheduleMainWake()
+    return outcome
   }
 
   private async stopIdleContainer(): Promise<void> {
