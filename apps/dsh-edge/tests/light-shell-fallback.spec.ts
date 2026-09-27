@@ -70,8 +70,9 @@ describe('light shell miss detection', () => {
     // Text a successful command printed itself never changes its result.
     expect(lightShellCouldNotRun(result({ status: 'completed', exitCode: 0, stderr: 'not supported\n' }), '/workspace'))
       .toBe(false)
-    expect(lightShellCouldNotRun(result({ status: 'completed', exitCode: 0, stderr: 'sed: invalid command: x\n' }), '/workspace'))
-      .toBe(false)
+    // A tool's diagnostic counts even when a pipeline around it succeeds.
+    expect(lightShellCouldNotRun(result({ status: 'completed', exitCode: 0,
+      stderr: 'grep: invalid regular expression: a(?=b)\n' }), '/workspace')).toBe(true)
     expect(lightShellCouldNotRun(result({ exitCode: 1, stderr: 'this feature is not supported\n' }), '/workspace')).toBe(false)
     // A pipeline that exits 0 is left to the boundary recorder.
     expect(lightShellCouldNotRun(result({ status: 'completed', exitCode: 0,

@@ -83,6 +83,10 @@ export const ROUTING_CORPUS = Object.freeze([
   // PATH directories look like the light shell's own lookups; routed statically.
   '[ -d /usr/bin ] && echo yes || echo no',
   'test -x /bin/sh && echo yes || echo no',
+  'test -d /usr//bin && echo yes || echo no',
+  // A tool that fails inside a pipeline whose last command succeeds.
+  "printf 'ab\\n' > ab.txt && grep -P 'a(?=b)' ab.txt | cat",
+  "grep -P 'x(?=/)' a.txt | cat",
   // HOME differs between the shells; routed statically.
   'cd; pwd',
   'echo ~',

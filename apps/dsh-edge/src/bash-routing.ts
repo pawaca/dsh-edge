@@ -111,7 +111,18 @@ function usesHome(tokens: Token[]): boolean {
  * light shell's empty filesystem; it needs the container.
  */
 function namesPathDirectory(token: Token): boolean {
-  return token.word !== undefined && /(^|[=:])\/(usr\/)?bin(\/|$)/u.test(token.word)
+  if (token.word === undefined) return false
+  // Every absolute path in the word (`/usr//bin`, `PATH=/a:/usr/bin`), after
+  // `.`, `..`, and repeated slashes are resolved.
+  return token.word.split(/[=:]/u).some(part => {
+    if (!part.startsWith('/')) return false
+    const segments: string[] = []
+    for (const segment of part.split('/')) {
+      if (segment === '..') segments.pop()
+      else if (segment !== '' && segment !== '.') segments.push(segment)
+    }
+    return segments[0] === 'bin' || (segments[0] === 'usr' && segments[1] === 'bin')
+  })
 }
 
 /** Whether the option word at `index` belongs to a preceding `time` or `command`. */
