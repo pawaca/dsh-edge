@@ -46,9 +46,6 @@ describe('light shell miss detection', () => {
     ['a find action without a runner', { stderr: 'find: -exec not supported in this context\n' }],
     ['a Linux path', { stderr: 'cat: /etc/os-release: No such file or directory\n' }],
     ['a home path', { stderr: 'cat: //.bashrc: No such file or directory\n' }],
-    ['a Linux path in a pipeline that exits 0', {
-      status: 'completed' as const, exitCode: 0, stdout: '0\n', stderr: 'head: /dev/urandom: No such file or directory\n',
-    }],
     ['a write outside the workspace', { stderr: 'parent directory missing: /tmp/probe: /tmp/probe\n' }],
   ])('recognizes %s', (_name, overrides) => {
     expect(lightShellCouldNotRun(result(overrides), '/workspace')).toBe(true)
@@ -70,6 +67,15 @@ describe('light shell miss detection', () => {
     expect(lightShellCouldNotRun(result({ status: 'cancelled', exitCode: 127, stderr: missing }), '/workspace')).toBe(false)
     expect(lightShellCouldNotRun(result({ timedOut: true, exitCode: 127, stderr: missing }), '/workspace')).toBe(false)
     expect(lightShellCouldNotRun(result({ status: 'completed', exitCode: 0 }), '/workspace')).toBe(false)
+    // Text a successful command printed itself never changes its result.
+    expect(lightShellCouldNotRun(result({ status: 'completed', exitCode: 0, stderr: 'not supported\n' }), '/workspace'))
+      .toBe(false)
+    expect(lightShellCouldNotRun(result({ status: 'completed', exitCode: 0, stderr: 'sed: invalid command: x\n' }), '/workspace'))
+      .toBe(false)
+    expect(lightShellCouldNotRun(result({ exitCode: 1, stderr: 'this feature is not supported\n' }), '/workspace')).toBe(false)
+    // A pipeline that exits 0 is left to the boundary recorder.
+    expect(lightShellCouldNotRun(result({ status: 'completed', exitCode: 0,
+      stderr: 'head: /dev/urandom: No such file or directory\n' }), '/workspace')).toBe(false)
     // An explicit `exit 127` ran as requested.
     expect(lightShellCouldNotRun(result({ exitCode: 127 }), '/workspace')).toBe(false)
     expect(lightShellCouldNotRun(result({ exitCode: 127, stdout: 'x: command not found\n' }), '/workspace')).toBe(false)

@@ -18,7 +18,11 @@ import type { EdgeShellResult } from './agent.ts'
 
 const SHARED_ROOT = '/workspace'
 
-/** Diagnostics for features the Worker shell lacks, independent of exit code. */
+/**
+ * Diagnostics for features the Worker shell lacks. They count only when the
+ * command failed and appear in a tool's `name: …` diagnostic form, so text a
+ * command prints itself cannot change the result of one that succeeded.
+ */
 const CAPABILITY_DIAGNOSTICS: readonly RegExp[] = [
   // A missing program; an explicit `exit 127` alone does not count.
   /^[\w.[-]+: [^\n]+: command not found$/mu,
@@ -42,10 +46,10 @@ const CAPABILITY_DIAGNOSTICS: readonly RegExp[] = [
   // PCRE2, and anything the tools report as not supported or implemented.
   /^sed: .*(?:invalid|unknown) command\b/mu,
   /^awk: .*Unexpected token\b/mu,
-  /\bnot (?:yet )?(?:supported|implemented)\b/u,
+  /^[\w.[-]+: .*\bnot (?:yet )?(?:supported|implemented)\b/mu,
   // A regex just-bash's engine rejects (`grep -P 'a(?=b)'`); a genuinely
   // invalid pattern fails the same way in the container, costing one rerun.
-  /\binvalid regular expression\b/iu,
+  /^[\w.[-]+: .*\binvalid regular expression\b/imu,
 ]
 
 /** Paths a command reported missing (`cat: /etc/x: No such file or directory`). */
@@ -56,7 +60,9 @@ const MISSING_PATH = /(?:^|\s)([^\s:'"]+): No such file or directory|parent dire
  * the Linux container has. Cancelled and timed-out runs never count.
  */
 export function lightShellCouldNotRun(result: EdgeShellResult, cwd: string): boolean {
-  if (result.status === 'cancelled' || result.timedOut) return false
+  // A successful command is never a miss; paths it reached outside
+  // /workspace are caught at the filesystem boundary instead.
+  if (result.status === 'cancelled' || result.timedOut || result.exitCode === 0) return false
   if (CAPABILITY_DIAGNOSTICS.some(pattern => pattern.test(result.stderr))) return true
   for (const match of result.stderr.matchAll(MISSING_PATH)) {
     const path = match[1] ?? match[2]

@@ -25,6 +25,5 @@ export const LIGHT_SHELL_MISSES = Object.freeze([
   { name: 'unsupported regex lookahead', command: "grep -P 'a(?=b)' a.txt" },
   { name: 'Linux path', command: 'cat /etc/os-release' },
   { name: 'relative Linux path', command: 'cat ../../etc/passwd' },
-  { name: 'Linux path in a pipeline', command: 'head -c 5 /dev/urandom | wc -c' },
   { name: 'write outside the workspace', command: 'echo x > /tmp/probe' },
 ])
