@@ -43,6 +43,11 @@ export class WorkspaceBoundaryRecorder {
     return this.count > mark
   }
 
+  /** Count a crossing established by resolving links rather than by one path argument. */
+  recordCrossing(): void {
+    this.count += 1
+  }
+
   record(op: string, path: unknown): void {
     if (typeof path === 'string' && crossesBoundary(op, path, this.lightCommands)) this.count += 1
   }
@@ -96,9 +101,9 @@ class RecordingFilesystemStub extends RpcTarget {
   exists(path: string) { return this.probe('exists', [path], path) }
   stat(path: string) { return this.probe('stat', [path], path) }
   statOrNull(path: string) { return this.probe('statOrNull', [path], path) }
-  lstat(path: string) { return this.call('lstat', [path], path) }
-  lstatOrNull(path: string) { return this.call('lstatOrNull', [path], path) }
-  readlink(path: string) { return this.call('readlink', [path], path) }
+  lstat(path: string) { return this.probe('lstat', [path], path, false) }
+  lstatOrNull(path: string) { return this.probe('lstatOrNull', [path], path, false) }
+  readlink(path: string) { return this.probe('readlink', [path], path, false) }
   readdir(path: string, options?: unknown) { return this.probe('readdir', [path, options], path) }
   find(directory: string, pattern?: unknown, options?: unknown) {
     return this.call('find', [directory, pattern, options], directory)
@@ -122,39 +127,58 @@ class RecordingFilesystemStub extends RpcTarget {
   }
 
   /**
-   * A lookup that finds nothing may have followed a link created earlier
-   * (possibly by a container command) into the container's filesystem:
-   * `test -f os` where `os -> /etc/os-release`. Only then are the path's
-   * links inspected, so ordinary lookups cost nothing extra.
+   * A lookup that finds nothing may have gone through a link (possibly made
+   * earlier by a container command) into the container's filesystem:
+   * `test -f os` where `os -> /etc/os-release`, or a chain of links. Only
+   * then is the path resolved, so ordinary lookups cost nothing extra.
+   * `followLast` is false for operations that do not follow a final link
+   * (`lstat`, `readlink`).
    */
-  private async probe(op: string, args: unknown[], path: string): Promise<unknown> {
+  private async probe(op: string, args: unknown[], path: string, followLast = true): Promise<unknown> {
     let result: unknown
     try {
       result = await this.call(op, args, path)
     } catch (error) {
-      if (isMissing(error)) await this.checkLinks(path)
+      if (isMissing(error) && await this.escapesThroughLinks(path, followLast)) this.recorder.recordCrossing()
       throw error
     }
-    if (result === false || result === null) await this.checkLinks(path)
+    if ((result === false || result === null) && await this.escapesThroughLinks(path, followLast)) {
+      this.recorder.recordCrossing()
+    }
     return result
   }
 
-  /** Record a crossing when any link along a /workspace path points outside it. */
-  private async checkLinks(path: string): Promise<void> {
-    const segments = normalizedSegments(path)
-    if (segments[0] !== 'workspace') return
-    for (let length = segments.length; length > 1; length--) {
-      const candidate = `/${segments.slice(0, length).join('/')}`
+  /**
+   * Resolve a /workspace path the way the kernel does, component by
+   * component and link by link, and report whether any step leaves
+   * /workspace. Resolution stops after 40 links, as Linux does (ELOOP fails
+   * the same way in both shells).
+   */
+  private async escapesThroughLinks(path: string, followLast: boolean): Promise<boolean> {
+    let pending = normalizedSegments(path)
+    // Paths outside /workspace were already classified by `record` (PATH
+    // lookups there miss on every command and must stay benign).
+    if (pending[0] !== 'workspace') return false
+    let resolved: string[] = []
+    for (let links = 0; pending.length > 0;) {
+      const [segment, ...rest] = pending
+      pending = rest
+      const candidate = [...resolved, segment!]
+      if (candidate[0] !== 'workspace') return true
+      if (pending.length === 0 && !followLast) return false
       let target: unknown
       try {
-        target = await this.fs.readlink!(candidate)
+        target = await this.fs.readlink!(`/${candidate.join('/')}`)
       } catch {
+        resolved = candidate
         continue
       }
-      if (typeof target !== 'string') continue
-      const directory = `/${segments.slice(0, length - 1).join('/')}`
-      this.recorder.record('readlink', target.startsWith('/') ? target : `${directory}/${target}`)
+      if (typeof target !== 'string' || ++links > 40) return false
+      // Continue from the link's directory (or the root) with the rest of the path.
+      pending = [...normalizedSegments(target.startsWith('/') ? target : `/${[...resolved, target].join('/')}`), ...pending]
+      resolved = []
     }
+    return false
   }
 
   private call(op: string, args: unknown[], path: string): unknown {

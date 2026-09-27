@@ -126,4 +126,40 @@ describe('workspace boundary', () => {
     await expect(stub.fs.readFile('/workspace/etcdir/os-release')).rejects.toThrow('no such file')
     expect(recorder.crossedSince(mark)).toBe(true)
   })
+
+  it('resolves link chains, ancestor links under lstat and readlink, and loops', async () => {
+    const recorder = new WorkspaceBoundaryRecorder(LIGHT)
+    const links: Record<string, string> = {
+      '/workspace/alias': 'external',
+      '/workspace/external': '/etc',
+      '/workspace/root': '/',
+      '/workspace/loop-a': 'loop-b',
+      '/workspace/loop-b': 'loop-a',
+      '/workspace/inside': 'src',
+    }
+    const missing = () => Object.assign(new Error('no such file'), { code: 'ENOENT' })
+    const fs = {
+      exists: () => Promise.resolve(false),
+      lstatOrNull: () => Promise.resolve(null),
+      readlink: (path: string) => path in links ? Promise.resolve(links[path]) : Promise.reject(missing()),
+    }
+    const stub = new RecordingWorkspaceStub({ fs, runtime: {}, git: {}, assets: undefined, artifacts: {}, useThink: false } as never, recorder)
+    const crosses = async (run: () => Promise<unknown>) => {
+      const mark = recorder.mark()
+      await run().catch(() => undefined)
+      return recorder.crossedSince(mark)
+    }
+    // A PATH lookup that misses stays a benign lookup, not a link resolution.
+    expect(await crosses(() => stub.fs.exists('/usr/bin/cat'))).toBe(false)
+    expect(await crosses(() => stub.fs.exists('/bin/cat'))).toBe(false)
+    // Two hops: alias -> external -> /etc.
+    expect(await crosses(() => stub.fs.exists('/workspace/alias/os-release'))).toBe(true)
+    // readlink and lstat do not follow the final link, but do follow ancestors.
+    expect(await crosses(() => stub.fs.readlink('/workspace/root/tmp/edge-target'))).toBe(true)
+    expect(await crosses(() => stub.fs.lstatOrNull('/workspace/root/tmp/x'))).toBe(true)
+    expect(await crosses(() => stub.fs.lstatOrNull('/workspace/external'))).toBe(false)
+    // Links that stay inside, and loops, are not crossings.
+    expect(await crosses(() => stub.fs.exists('/workspace/inside/missing.ts'))).toBe(false)
+    expect(await crosses(() => stub.fs.exists('/workspace/loop-a/x'))).toBe(false)
+  })
 })
