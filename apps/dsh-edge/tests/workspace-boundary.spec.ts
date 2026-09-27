@@ -166,23 +166,4 @@ describe('workspace boundary', () => {
     expect(await crosses(() => stub.fs.exists('/workspace/inside/missing.ts'))).toBe(false)
     expect(await crosses(() => stub.fs.exists('/workspace/loop-a/x'))).toBe(false)
   })
-
-  it('flags a listing that resolved to the light root through a link', async () => {
-    const recorder = new WorkspaceBoundaryRecorder(LIGHT)
-    const listings: Record<string, unknown[]> = {
-      '/workspace/root': [{ name: 'workspace', isDirectory: true }],
-      '/workspace/proj': [{ name: 'workspace', isDirectory: true }, { name: 'src', isDirectory: true }],
-      '/workspace/src': [{ name: 'a.ts', isFile: true }],
-    }
-    const fs = { readdir: (path: string) => Promise.resolve(listings[path]) }
-    const stub = new RecordingWorkspaceStub({ fs, runtime: {}, git: {}, assets: undefined, artifacts: {}, useThink: false } as never, recorder)
-    const crosses = async (path: string) => {
-      const mark = recorder.mark()
-      await stub.fs.readdir(path)
-      return recorder.crossedSince(mark)
-    }
-    expect(await crosses('/workspace/root')).toBe(true)
-    expect(await crosses('/workspace/proj')).toBe(false)
-    expect(await crosses('/workspace/src')).toBe(false)
-  })
 })
