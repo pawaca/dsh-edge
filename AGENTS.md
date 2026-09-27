@@ -66,7 +66,7 @@ Use `.agents/skills/dsh-pre-push-checks/SKILL.md` before a push and `.agents/ski
 
 Review rounds are convergence checkpoints, not a fixed retry budget. On repeated problem families, audit all affected callers and replace local patches with one invariant-preserving repair. Stop only for genuine scope decisions or non-convergence. Never merge automatically.
 
-Review scope: a finding needs a code change only when it shows a wrong result in a workflow a coding agent realistically runs; routing findings must reproduce in the differential routing corpus (`apps/dsh-edge/tests/fixtures/routing-corpus.mjs`). Findings that depend on exotic preconditions (symlinks pointing outside `/workspace`, state only another runtime can create, deliberately adversarial command spellings) are P3: document them as limitations instead of adding code. A PR states its scope in its description, and review replies cite it. Keep code simple over closing such cases.
+Review scope: a finding needs a code change only when it shows a wrong result in a workflow a coding agent realistically runs; routing findings must reproduce in the Container integration's differential routing corpus. Findings that depend on exotic preconditions (symlinks pointing outside `/workspace`, state only another runtime can create, deliberately adversarial command spellings) are P3: document them as limitations instead of adding code. A PR states its scope in its description, and review replies cite it. Keep code simple over closing such cases.
 
 ## Release procedure
 
