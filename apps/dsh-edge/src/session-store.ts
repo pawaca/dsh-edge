@@ -119,6 +119,7 @@ import EdgeSessionQuery from './edge-session-query.ts'
 import { resolveEdgeModel } from './deepseek.ts'
 import type { CreateEdgeSessionInput, EdgeSession } from './protocol.ts'
 import { installEdgeApprovalPolicy, type EdgeApprovalMode, type EdgeApprovalSettings } from './approval-policy.ts'
+import { installEdgeRuntimeSettings, type EdgeRuntimeSettings } from './runtime-settings.ts'
 import type { SettingsScope } from '@deepseek-ai/dsh-settings'
 import { installEdgeWebSearch } from './web-search.ts'
 import { DurableEventDeliveryQueue } from './durable-event-delivery.ts'
@@ -147,6 +148,8 @@ interface EdgeSessionStoreConfig {
   withWorkspaceFiles<T>(read: (files: EdgeWorkspaceFiles) => Promise<T>): Promise<T>
   onLateSessionEvent?: (sessionId: SessionId, event: SessionEvent) => void
   onProjectionChanged?: (sessionId: SessionId, key: string, value: unknown, seq: number) => void
+  /** Called after every committed runtime-settings change, whichever API wrote it. */
+  onRuntimeSettingsChanged?: () => void | Promise<void>
 }
 
 interface TurnDeliveryItem {
@@ -294,6 +297,7 @@ export class EdgeSessionStore {
   private readonly publishesLateEvents: boolean
   private readonly residentAgents = new Map<SessionId, AgentHandle>()
   private approvalScope?: SettingsScope<EdgeApprovalSettings>
+  private runtimeScope?: SettingsScope<EdgeRuntimeSettings>
   private mcpToolManager?: McpToolManager
   private readonly doStorage: DurableObjectStorage
   private readonly ready: Promise<void>
@@ -565,6 +569,8 @@ export class EdgeSessionStore {
     this.approvalScope = installEdgeApprovalPolicy(this.context, {
       resolveMcpPolicy: name => this.mcpToolManager!.resolveToolPolicy(name),
     })
+    this.runtimeScope = installEdgeRuntimeSettings(this.context)
+    if (config.onRuntimeSettingsChanged !== undefined) this.runtimeScope.watch(config.onRuntimeSettingsChanged)
     await this.mcpToolManager.ready
     const mcpSummary = await this.mcpToolManager.getServerSummary()
     if (mcpSummary !== undefined) {
@@ -1017,6 +1023,21 @@ export class EdgeSessionStore {
     await this.ready
     if (mode !== 'ask' && mode !== 'never') throw new Error('Invalid approval mode.')
     await this.approvalScope?.update({ mode })
+  }
+
+  /**
+   * Current runtime settings. Only valid after {@link waitForInitialization}:
+   * reading earlier would silently apply defaults instead of the saved values.
+   */
+  runtimeSettings(): EdgeRuntimeSettings {
+    if (this.runtimeScope === undefined) throw new Error('Runtime settings were read before initialization.')
+    return this.runtimeScope.get()
+  }
+
+  async updateRuntimeSettings(patch: Partial<EdgeRuntimeSettings>): Promise<EdgeRuntimeSettings> {
+    await this.ready
+    await this.runtimeScope!.update(patch)
+    return this.runtimeSettings()
   }
 
   private static readonly MCP_STORAGE_KEY = 'dsh-edge:mcp-servers'

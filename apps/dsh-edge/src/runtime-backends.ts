@@ -18,7 +18,6 @@ import {
   resolveEdgeRuntimeSelection,
   type EdgeRuntimeProviderDescriptor,
   type EdgeRuntimeProviderId,
-  type EdgeRuntimeSettings,
 } from './runtime-provider.ts'
 
 /** Deployment bindings runtime providers build backends from. */
@@ -87,20 +86,13 @@ const PROVIDERS: Readonly<Record<EdgeRuntimeProviderId, EdgeRuntimeProvider>> = 
   container: ContainerProvider,
 })
 
-/**
- * Resolve the workspace backends for this deployment: every distinct provider
- * selected for a loaded layer contributes its backends once.
- */
-export function resolveEdgeRuntimeBackends(
-  host: EdgeRuntimeHost,
-  settings?: EdgeRuntimeSettings,
-): WorkspaceRegisteredBackend[] {
-  const selection = resolveEdgeRuntimeSelection(availableEdgeRuntimeProviders(host.env), settings)
+/** Resolve the workspace backends for this deployment's selected providers. */
+export function resolveEdgeRuntimeBackends(host: EdgeRuntimeHost): WorkspaceRegisteredBackend[] {
+  const selection = resolveEdgeRuntimeSelection(availableEdgeRuntimeProviders(host.env))
   // The lightweight bash provider registers first, so a command without an
   // explicit backend runs there; the container is reached only by routing.
-  const selected = new Set<EdgeRuntimeProviderId>()
-  for (const id of [selection.bash, selection.container, selection.coding, selection.subprocess]) {
-    if (id !== null) selected.add(id)
-  }
-  return [...selected].flatMap(id => PROVIDERS[id].backends(host))
+  const selected: EdgeRuntimeProviderId[] = selection.container === null
+    ? [selection.bash]
+    : [selection.bash, selection.container]
+  return selected.flatMap(id => PROVIDERS[id].backends(host))
 }

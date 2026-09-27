@@ -33,7 +33,7 @@ import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { normalizeSessionTitle } from '@deepseek-ai/dsh-session-title'
 import { DurableObject } from 'cloudflare:workers'
 import { OWNER_SESSION_EXPIRY_HEADER } from './auth.ts'
-import { ContainerActivity } from './container-activity.ts'
+import { CONTAINER_MAX_CONCURRENT_COMMANDS, ContainerActivity } from './container-activity.ts'
 import { resolveEdgeRuntimeBackends } from './runtime-backends.ts'
 import { LIGHT_SHELL_COMMANDS, routeBashCommand } from './bash-routing.ts'
 import { RecordingWorkspaceStub, WorkspaceBoundaryRecorder } from './workspace-boundary.ts'
@@ -46,10 +46,9 @@ import {
 import {
   CONTAINER_RUNTIME_MARKER,
   DYNAMIC_WORKER_RUNTIME_PROVIDER,
-  availableEdgeRuntimeProviders,
-  resolveEdgeRuntimeSelection,
   resolveEdgeRuntimeShell,
 } from './runtime-provider.ts'
+import { parseRuntimeSettingsPatch } from './runtime-settings.ts'
 import type { WorkflowLoader } from './edge-workflow-engine.ts'
 import {
   resolveEdgeModel,
@@ -219,9 +218,7 @@ export interface EdgeEnv {
 // Every build carries the Container mixin; it touches `ctx.container` only
 // when the container provider serves a layer.
 class DshEdgeObjectBase extends withWorkspaceContainer(class extends DurableObject<EdgeEnv> {}) {
-  // Backends bind when the Durable Object is constructed, before settings
-  // load, so this resolves each layer's default provider for the deployment.
-  protected readonly runtimeSelection = resolveEdgeRuntimeSelection(availableEdgeRuntimeProviders(this.env))
+  // Backends bind when the Durable Object is constructed, from its bindings.
   protected readonly runtimeBackends = resolveEdgeRuntimeBackends({
     env: this.env,
     ctx: this.ctx,
@@ -330,6 +327,8 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       onLateSessionEvent: (sessionId, event) => {
         this.publishSessionEvent(sessionId, event)
       },
+      // A shorter sleep window moves the idle stop earlier.
+      onRuntimeSettingsChanged: () => this.scheduleMainWake(),
       onProjectionChanged: (sessionId, key, value, seq) => {
         // sessionListMetadata uses a dedicated push with its own fold logic in publishSessionEvent
         if (key === 'sessionListMetadata') return
@@ -353,7 +352,9 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
   private readonly mainStreams = new Map<number, Set<{ publish(event: SessionEvent): void; resolve(): void; reject(error: unknown): void }>>()
   private readonly activeTurns = new Map<SessionId, ActiveTurn>()
   private residentWorkspace: EdgeWorkspace | undefined
-  private readonly containerActivity = new ContainerActivity()
+  private readonly containerActivity = new ContainerActivity(
+    () => this.sessions.runtimeSettings().containerSleepMinutes * 60_000,
+  )
   private readonly boundary = new WorkspaceBoundaryRecorder(LIGHT_SHELL_COMMANDS)
   private readonly lightTurns = new LightShellTurns()
 
@@ -468,6 +469,28 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
           await this.sessions.setApprovalMode(body.mode)
           return jsonResponse({ mode: body.mode })
         }
+      }
+      if (url.pathname === '/api/runtime') {
+        if (request.method === 'GET') return jsonResponse(this.runtimeState())
+        if (request.method === 'PUT') {
+          let body: unknown
+          try {
+            body = await request.json()
+          } catch {
+            return jsonResponse({ error: 'invalid JSON body' }, 400)
+          }
+          const patch = parseRuntimeSettingsPatch(body)
+          if (typeof patch === 'string') return jsonResponse({ error: patch }, 400)
+          await this.sessions.updateRuntimeSettings(patch)
+          return jsonResponse(this.runtimeState())
+        }
+      }
+      if (url.pathname === '/api/runtime/container/stop' && request.method === 'POST') {
+        if (this.containerBackend() === undefined || this.ctx.container === undefined) {
+          return jsonResponse({ error: 'this deployment has no Linux container' }, 404)
+        }
+        const outcome = await this.stopContainerNow(this.ctx.container)
+        return jsonResponse({ outcome, ...this.runtimeState() }, outcome === 'failed' ? 502 : 200)
       }
       if (url.pathname === '/api/mcp-servers') {
         if (request.method === 'GET') {
@@ -639,12 +662,17 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
 
   /** End hibernating downlinks when the owner session used to open them expires. */
   override async alarm(): Promise<void> {
+    // The idle stop reads the saved sleep window.
+    await this.sessions.waitForInitialization()
     await this.driveMain(true)
     await this.stopIdleContainer()
     await this.scheduleMainWake()
   }
 
   private async scheduleMainWake(): Promise<void> {
+    // The container deadline reads the saved sleep window; wakes that bypass
+    // fetch() (alarms, hibernated sockets, RPCs) must not see defaults.
+    await this.sessions.waitForInitialization()
     const expiry = this.closeExpiredDownlinks()
     const work = this.mainQueue.hasWork()
       ? Date.now() + (this.mainDriving || this.mainQueue.current() !== undefined ? MAIN_WAKE_MS : 1)
@@ -967,6 +995,8 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
 
   /** Run one bounded workspace command for the entry Worker's HTTP exec route. */
   async runWorkspaceCommand(command: string, cwd: string, requestContainer = false): Promise<EdgeShellResult> {
+    // This RPC bypasses fetch(); routing must read the saved settings, not defaults.
+    await this.sessions.waitForInitialization()
     const timeoutPolicy = resolveEdgeCommandTimeoutPolicy(
       this.env.DSH_EDGE_DEFAULT_COMMAND_TIMEOUT_MS,
       this.env.DSH_EDGE_MAX_COMMAND_TIMEOUT_MS,
@@ -1001,15 +1031,16 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     options: { timeoutMs?: number; signal?: AbortSignal; requestContainer?: boolean },
   ): Promise<EdgeShellResult> {
     const container = this.containerBackend()
+    const policy = this.sessions.runtimeSettings().bashRouting
     const route = routeBashCommand(command, {
-      policy: this.runtimeSelection.bashRouting,
+      policy,
       containerAvailable: container !== undefined,
       ...options.requestContainer === true ? { requestContainer: true } : {},
     })
     if (container === undefined) {
       return executeWorkspaceCommand(workspace, command, cwd, timeoutPolicy, options.timeoutMs, options.signal)
     }
-    if (route === 'light' && this.runtimeSelection.bashRouting !== 'auto') {
+    if (route === 'light' && policy !== 'auto') {
       // A forced light policy never reruns, so it needs no miss signals and no turns.
       const result = await executeWorkspaceCommand(
         workspace, command, cwd, timeoutPolicy, options.timeoutMs, options.signal,
@@ -1120,6 +1151,29 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       const scheduled = await this.ctx.storage.getAlarm()
       if (scheduled === null || scheduled > deadline) await this.ctx.storage.setAlarm(deadline)
     }
+  }
+
+  /** Runtime settings and, on Container deployments, the container's live status. */
+  private runtimeState() {
+    const container = this.containerBackend() === undefined ? null : {
+      running: this.ctx.container?.running === true,
+      maxConcurrentCommands: CONTAINER_MAX_CONCURRENT_COMMANDS,
+      ...this.containerActivity.snapshot(),
+    }
+    return { settings: this.sessions.runtimeSettings(), container }
+  }
+
+  /**
+   * Stop the container now, then recompute the merged wake schedule so the
+   * idle alarm left by the last command does not wake the object for nothing.
+   * A command holding a slot keeps even a starting or crashed container.
+   */
+  private async stopContainerNow(container: Container): Promise<'stopped' | 'busy' | 'failed'> {
+    const outcome = await this.containerActivity.stopNow(
+      async () => { if (container.running) await container.destroy() },
+    )
+    await this.scheduleMainWake()
+    return outcome
   }
 
   private async stopIdleContainer(): Promise<void> {

@@ -7,9 +7,6 @@
  * eviction the tracker starts empty, which reads as idle.
  */
 
-/** How long a container stays up after its last command settles. */
-export const CONTAINER_SLEEP_AFTER_MS = 10 * 60_000
-
 /**
  * Commands that may run in the container at once. Every session and subagent
  * shares one small container; later commands wait for a slot.
@@ -22,8 +19,9 @@ export class ContainerActivity {
   private stopping: Promise<void> | undefined
   private readonly waiters: Array<() => void> = []
 
+  /** @param sleepAfterMs - how long the container stays up after its last command settles; read on every check. */
   constructor(
-    private readonly sleepAfterMs = CONTAINER_SLEEP_AFTER_MS,
+    private readonly sleepAfterMs: () => number,
     private readonly now: () => number = Date.now,
     private readonly maxConcurrent = CONTAINER_MAX_CONCURRENT_COMMANDS,
   ) {}
@@ -77,17 +75,32 @@ export class ContainerActivity {
     }
   }
 
-  /**
-   * Stop the container with `destroy` when idle. A failed stop restarts the
-   * idle window so the next attempt is one window out, not an immediate retry.
-   */
+  /** Stop the container with `destroy` once the sleep window has passed. */
   async stopIfIdle(destroy: () => Promise<void>): Promise<'stopped' | 'busy' | 'failed'> {
-    if (!this.idle() || this.stopping !== undefined) return 'busy'
+    return this.idle() ? await this.stop(destroy) : 'busy'
+  }
+
+  /** Stop the container now unless a command is running or a stop is underway. */
+  async stopNow(destroy: () => Promise<void>): Promise<'stopped' | 'busy' | 'failed'> {
+    return this.inFlight === 0 ? await this.stop(destroy) : 'busy'
+  }
+
+  /** Commands running now and when the last one started or settled. */
+  snapshot(): { runningCommands: number; lastActivityAt: number | null } {
+    return { runningCommands: this.inFlight, lastActivityAt: this.lastActivity ?? null }
+  }
+
+  /**
+   * A failed stop restarts the idle window so the next attempt is one window
+   * out, not an immediate retry.
+   */
+  private async stop(destroy: () => Promise<void>): Promise<'stopped' | 'busy' | 'failed'> {
+    if (this.stopping !== undefined) return 'busy'
     let outcome: 'stopped' | 'failed' = 'stopped'
     const stopping = destroy().catch((error: unknown) => {
       outcome = 'failed'
       this.lastActivity = this.now()
-      console.error('dsh-edge idle container stop failed.', error)
+      console.error('dsh-edge container stop failed.', error)
     })
     this.stopping = stopping
     try {
@@ -98,16 +111,20 @@ export class ContainerActivity {
     return outcome
   }
 
-  /** The earliest time an idle check can stop the container. */
+  /**
+   * The earliest time an idle check can stop the container: the moment
+   * {@link idle} turns true under the current sleep window. With no known
+   * activity (after an eviction) that is now.
+   */
   deadline(): number {
-    const from = this.inFlight > 0 ? this.now() : this.lastActivity ?? this.now()
-    return from + this.sleepAfterMs
+    if (this.inFlight > 0) return this.now() + this.sleepAfterMs()
+    return this.lastActivity === undefined ? this.now() : this.lastActivity + this.sleepAfterMs()
   }
 
   /** Whether no command is running and the last one settled long enough ago. */
   idle(): boolean {
     return this.inFlight === 0
-      && (this.lastActivity === undefined || this.now() >= this.lastActivity + this.sleepAfterMs)
+      && (this.lastActivity === undefined || this.now() >= this.lastActivity + this.sleepAfterMs())
   }
 }
 

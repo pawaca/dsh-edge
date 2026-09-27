@@ -162,6 +162,36 @@ try {
     }
   }
   assert.deepEqual(differing, [], 'automatic routing differs from a forced Linux run')
+
+  // Settings apply to the next command without a restart.
+  assert.deepEqual((await json('/api/runtime')).settings, { bashRouting: 'auto', containerSleepMinutes: 10 })
+  await putRuntime({ bashRouting: 'light' })
+  const forcedLight = await exec('node -v')
+  assert.equal(forcedLight.runtime, 'light')
+  assert.notEqual(forcedLight.exitCode, 0)
+  await putRuntime({ bashRouting: 'container' })
+  assert.equal((await exec('echo hi')).runtime, 'container')
+  await putRuntime({ bashRouting: 'auto', containerSleepMinutes: 5 })
+  assert.equal((await exec('echo hi')).runtime, 'light')
+
+  // Sleep now stops the idle container; the next Linux command wakes it.
+  const status = await json('/api/runtime')
+  assert.equal(status.container.running, true)
+  assert.equal(status.container.runningCommands, 0)
+  const stopped = await fetch(`http://${worker.address}:${worker.port}/api/runtime/container/stop`, {
+    method: 'POST',
+    headers: { cookie },
+  })
+  assert.equal(stopped.status, 200)
+  assert.equal((await stopped.json()).outcome, 'stopped')
+  assert.equal((await json('/api/runtime')).container.running, false)
+  assert.equal((await exec('uname -s')).stdout, 'Linux\n')
+
+  // The first command after a restart routes by the saved policy, not the default.
+  await putRuntime({ bashRouting: 'light' })
+  await worker.stop()
+  await startWorker(join(scratch, 'routing-state'))
+  assert.equal((await exec('node -v')).runtime, 'light')
   process.stdout.write('dsh-edge container integration passed\n')
 } finally {
   await worker?.stop()
@@ -208,6 +238,15 @@ async function exec(command, linux = false, cwd = undefined) {
 function containersRunning() {
   const names = execFileSync('docker', ['ps', '--format', '{{.Image}}'], { encoding: 'utf8' })
   return names.split('\n').filter(name => name.includes('dshedgeinstance')).length
+}
+
+async function putRuntime(settings) {
+  const response = await fetch(`http://${worker.address}:${worker.port}/api/runtime`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json', cookie },
+    body: JSON.stringify(settings),
+  })
+  assert.equal(response.status, 200, await response.clone().text())
 }
 
 async function json(path) {

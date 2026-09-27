@@ -340,6 +340,28 @@ try {
     assert.match(disabledNetwork.body.stderr, /curl: command not found/u)
   }
 
+  // Runtime settings persist per instance; without a container there is no
+  // status to report and nothing to stop.
+  const runtimeSettings = await jsonRequest('/api/runtime')
+  assert.deepEqual(runtimeSettings.body, {
+    settings: { bashRouting: 'auto', containerSleepMinutes: 10 },
+    container: null,
+  })
+  const savedRuntime = await jsonRequest('/api/runtime', {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ containerSleepMinutes: 30 }),
+  })
+  assert.equal(savedRuntime.response.status, 200)
+  assert.equal((await jsonRequest('/api/runtime')).body.settings.containerSleepMinutes, 30)
+  const invalidRuntime = await jsonRequest('/api/runtime', {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ bashRouting: 'sometimes' }),
+  })
+  assert.equal(invalidRuntime.response.status, 400)
+  assert.equal((await jsonRequest('/api/runtime/container/stop', { method: 'POST' })).response.status, 404)
+
   const conventionalSignalExit = await jsonRequest('/api/workspace/exec', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
