@@ -136,6 +136,7 @@ describe('workspace boundary', () => {
       '/workspace/loop-a': 'loop-b',
       '/workspace/loop-b': 'loop-a',
       '/workspace/inside': 'src',
+      '/workspace/ssl': '/etc/ssl',
     }
     const missing = () => Object.assign(new Error('no such file'), { code: 'ENOENT' })
     const fs = {
@@ -158,6 +159,9 @@ describe('workspace boundary', () => {
     expect(await crosses(() => stub.fs.readlink('/workspace/root/tmp/edge-target'))).toBe(true)
     expect(await crosses(() => stub.fs.lstatOrNull('/workspace/root/tmp/x'))).toBe(true)
     expect(await crosses(() => stub.fs.lstatOrNull('/workspace/external'))).toBe(false)
+    // `..` applies after the link expands: ssl/../passwd is /etc/passwd.
+    expect(await crosses(() => stub.fs.exists('/workspace/ssl/../passwd'))).toBe(true)
+    expect(await crosses(() => stub.fs.exists('/workspace/src/../missing.ts'))).toBe(false)
     // Links that stay inside, and loops, are not crossings.
     expect(await crosses(() => stub.fs.exists('/workspace/inside/missing.ts'))).toBe(false)
     expect(await crosses(() => stub.fs.exists('/workspace/loop-a/x'))).toBe(false)
