@@ -43,11 +43,6 @@ export class WorkspaceBoundaryRecorder {
     return this.count > mark
   }
 
-  /** Count a crossing established by resolving links rather than by one path argument. */
-  recordCrossing(): void {
-    this.count += 1
-  }
-
   record(op: string, path: unknown): void {
     if (typeof path === 'string' && crossesBoundary(op, path, this.lightCommands)) this.count += 1
   }
@@ -62,7 +57,12 @@ export class WorkspaceBoundaryRecorder {
  * `"cmd" | getline` does this silently).
  */
 export function crossesBoundary(op: string, path: string, lightCommands: ReadonlySet<string>): boolean {
-  const normalized = `/${normalizedSegments(path).join('/')}`
+  const segments: string[] = []
+  for (const segment of path.split('/')) {
+    if (segment === '..') segments.pop()
+    else if (segment !== '' && segment !== '.') segments.push(segment)
+  }
+  const normalized = `/${segments.join('/')}`
   if (normalized === SHARED_ROOT || normalized.startsWith(`${SHARED_ROOT}/`)) return false
   if (SHARED_DEVICES.has(normalized)) return false
   if (op === 'readFile' && ROOT_IGNORE_FILES.has(normalized)) return false
@@ -74,24 +74,6 @@ export function crossesBoundary(op: string, path: string, lightCommands: Readonl
   return true
 }
 
-function normalizedSegments(path: string): string[] {
-  const segments: string[] = []
-  for (const segment of path.split('/')) {
-    if (segment === '..') segments.pop()
-    else if (segment !== '' && segment !== '.') segments.push(segment)
-  }
-  return segments
-}
-
-function rawSegments(path: string): string[] {
-  return path.split('/').filter(segment => segment !== '')
-}
-
-function isMissing(error: unknown): boolean {
-  const e = error as { code?: unknown; message?: unknown } | null
-  return e?.code === 'ENOENT' || (typeof e?.message === 'string' && /ENOENT|no such/iu.test(e.message))
-}
-
 type Filesystem = Record<string, (...args: unknown[]) => unknown> & { [Symbol.dispose]?: () => void }
 
 /** The workspace stub's filesystem with every path argument recorded first. */
@@ -101,14 +83,14 @@ class RecordingFilesystemStub extends RpcTarget {
   }
 
   [Symbol.dispose](): void { this.fs[Symbol.dispose]?.() }
-  readFile(path: string, options?: unknown) { return this.probe('readFile', [path, options], path) }
-  exists(path: string) { return this.probe('exists', [path], path) }
-  stat(path: string) { return this.probe('stat', [path], path) }
-  statOrNull(path: string) { return this.probe('statOrNull', [path], path) }
-  lstat(path: string) { return this.probe('lstat', [path], path, false) }
-  lstatOrNull(path: string) { return this.probe('lstatOrNull', [path], path, false) }
-  readlink(path: string) { return this.probe('readlink', [path], path, false) }
-  readdir(path: string, options?: unknown) { return this.probe('readdir', [path, options], path) }
+  readFile(path: string, options?: unknown) { return this.call('readFile', [path, options], path) }
+  exists(path: string) { return this.call('exists', [path], path) }
+  stat(path: string) { return this.call('stat', [path], path) }
+  statOrNull(path: string) { return this.call('statOrNull', [path], path) }
+  lstat(path: string) { return this.call('lstat', [path], path) }
+  lstatOrNull(path: string) { return this.call('lstatOrNull', [path], path) }
+  readlink(path: string) { return this.call('readlink', [path], path) }
+  readdir(path: string, options?: unknown) { return this.call('readdir', [path, options], path) }
   find(directory: string, pattern?: unknown, options?: unknown) {
     return this.call('find', [directory, pattern, options], directory)
   }
@@ -128,69 +110,6 @@ class RecordingFilesystemStub extends RpcTarget {
     // against the link's directory.
     this.recorder.record('symlink', target.startsWith('/') ? target : `${path.slice(0, path.lastIndexOf('/'))}/${target}`)
     return this.call('symlink', [target, path], path)
-  }
-
-  /**
-   * A lookup that finds nothing may have gone through a link (possibly made
-   * earlier by a container command) into the container's filesystem:
-   * `test -f os` where `os -> /etc/os-release`, or a chain of links. Only
-   * then is the path resolved, so ordinary lookups cost nothing extra.
-   * `followLast` is false for operations that do not follow a final link
-   * (`lstat`, `readlink`).
-   */
-  private async probe(op: string, args: unknown[], path: string, followLast = true): Promise<unknown> {
-    let result: unknown
-    try {
-      result = await this.call(op, args, path)
-    } catch (error) {
-      if (isMissing(error) && await this.escapesThroughLinks(path, followLast)) this.recorder.recordCrossing()
-      throw error
-    }
-    if ((result === false || result === null) && await this.escapesThroughLinks(path, followLast)) {
-      this.recorder.recordCrossing()
-    }
-    return result
-  }
-
-  /**
-   * Resolve a /workspace path the way the kernel does, component by
-   * component and link by link, and report whether any step leaves
-   * /workspace. Resolution stops after 40 links, as Linux does (ELOOP fails
-   * the same way in both shells).
-   */
-  private async escapesThroughLinks(path: string, followLast: boolean): Promise<boolean> {
-    // Paths outside /workspace were already classified by `record` (PATH
-    // lookups there miss on every command and must stay benign).
-    if (normalizedSegments(path)[0] !== 'workspace') return false
-    // Components stay raw so `..` applies after a link expands, as in the
-    // kernel: `link/../passwd` with `link -> /etc/ssl` is `/etc/passwd`.
-    let pending = rawSegments(path)
-    let resolved: string[] = []
-    for (let links = 0; pending.length > 0;) {
-      const [segment, ...rest] = pending
-      pending = rest
-      if (segment === '.') continue
-      if (segment === '..') {
-        resolved.pop()
-        if (resolved.length > 0 && resolved[0] !== 'workspace') return true
-        continue
-      }
-      const candidate = [...resolved, segment!]
-      if (candidate[0] !== 'workspace') return true
-      if (pending.length === 0 && !followLast) return false
-      let target: unknown
-      try {
-        target = await this.fs.readlink!(`/${candidate.join('/')}`)
-      } catch {
-        resolved = candidate
-        continue
-      }
-      if (typeof target !== 'string' || ++links > 40) return false
-      // Continue from the root or the link's directory with the rest of the path.
-      if (target.startsWith('/')) resolved = []
-      pending = [...rawSegments(target), ...pending]
-    }
-    return resolved.length > 0 && resolved[0] !== 'workspace'
   }
 
   private call(op: string, args: unknown[], path: string): unknown {
