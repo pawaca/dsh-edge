@@ -256,6 +256,15 @@ describe('bash command routing', () => {
     expect(auto('ls /usr/local')).toBe('light')
   })
 
+  it('sends `..` after a named component to the container, since the light shell resolves it lexically', () => {
+    expect(auto('test -f ssl/../passwd')).toBe('container')
+    expect(auto('cat src/../README.md')).toBe('container')
+    expect(auto('cat /workspace/app/../a.txt')).toBe('container')
+    expect(auto('cat ../README.md')).toBe('light')
+    expect(auto('cd .. && ls ../..')).toBe('light')
+    expect(auto('cat ./../a.txt')).toBe('light')
+  })
+
   it('sends only home-directory uses to the container, since no file access reveals them', () => {
     expect(auto('echo ~')).toBe('container')
     expect(auto('echo "$HOME"')).toBe('container')
