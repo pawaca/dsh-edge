@@ -391,50 +391,6 @@ export function parseWorkerExistence(result) {
   throw new Error(commandFailure('Could not check whether the Worker already exists', result))
 }
 
-/**
- * After a Worker leaves Container mode, delete the Container application its
- * earlier deployment created. A deploy without a container block does not
- * remove it, and nothing in the Worker can stop it any more. Its files live in
- * the Durable Object, so deleting the application loses no workspace data.
- * A failure is reported with the manual command rather than failing the upgrade.
- */
-export async function removeStaleContainerApplication({
-  ui,
-  runWrangler,
-  environment,
-  profile,
-  workerName,
-  signal,
-}) {
-  const name = containerApplicationName(workerName)
-  const manual = staleContainerCleanupCommand(workerName)
-  try {
-    const listed = await runWrangler(['containers', 'list', '--json', ...profileArgs(profile)], {
-      environment,
-      signal,
-    })
-    requireSuccess(listed, 'Could not list Container applications')
-    const applications = JSON.parse(listed.stdout)
-    if (!Array.isArray(applications)) throw new Error('Wrangler returned an unexpected Container list.')
-    const stale = applications.filter(application => application?.name === name)
-    for (const application of stale) {
-      if (typeof application.id !== 'string' || !/^[0-9a-f-]{36}$/u.test(application.id)) {
-        throw new Error('Wrangler returned an invalid Container application id.')
-      }
-      ui.step(`Removing the ${name} Container application this Worker no longer uses…`)
-      requireSuccess(await runWrangler(['containers', 'delete', application.id, ...profileArgs(profile)], {
-        environment,
-        signal,
-      }), `Could not delete the ${name} Container application`)
-    }
-  } catch (error) {
-    // Best effort, including on interruption: the caller reports the deployed
-    // result, so this only leaves the manual step behind.
-    const reason = signal?.aborted ? 'Container cleanup was interrupted.' : describeError(error)
-    ui.cleanupFailure(`${reason} Remove it manually to stop Container billing: ${manual}.`)
-  }
-}
-
 function staleContainerCleanupCommand(workerName) {
   return `npx wrangler containers list, then npx wrangler containers delete <id> for ${containerApplicationName(workerName)}`
 }
@@ -825,27 +781,15 @@ export async function installEdge({
         throw error
       }
     }
-    // Record the deployed result before best-effort cleanup so an interruption
-    // there still prints the recovery details (including a new owner key).
     completedResult = result
-    // The previous Container version keeps serving during propagation, so its
-    // Container application is removed only once the replacement release is
-    // verified to be the one serving (an update without the owner key reports live).
+    // Leaving Container mode does not delete the Container application: it is
+    // the rollback target, and an update (which keeps the owner key it cannot
+    // read back) cannot verify the replacement's runtime. The owner removes it
+    // after signing in; its files live in the Durable Object, not the container.
     if (existing?.mode === 'container' && mode !== 'container') {
-      if (result.activation?.status === 'ready' || result.activation?.status === 'live') {
-        await removeStaleContainerApplication({
-          ui,
-          runWrangler,
-          environment: commandEnvironment,
-          profile,
-          workerName,
-          signal,
-        })
-      } else {
-        ui.cleanupFailure(`The ${containerApplicationName(workerName)} Container application was kept because `
-          + `the new version is not verified yet. Once it works, remove it to stop Container billing: ${
-            staleContainerCleanupCommand(workerName)}.`)
-      }
+      ui.cleanupFailure(`The ${containerApplicationName(workerName)} Container application was kept for rollback. `
+        + `Once you have signed in and the new version works, remove it to stop Container billing: ${
+          staleContainerCleanupCommand(workerName)}.`)
     }
   } catch (error) {
     primaryError = signal?.aborted ? abortReason(signal, 'Installation interrupted.') : error

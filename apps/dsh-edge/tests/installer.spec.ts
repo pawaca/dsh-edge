@@ -17,7 +17,6 @@ import {
   createOutputForwarder,
   createTerminalSanitizer,
   inspectExistingDeployment,
-  removeStaleContainerApplication,
   executeWrangler,
   ensureR2Bucket,
   generateOwnerSecret,
@@ -580,38 +579,6 @@ describe('dsh-edge installer primitives', () => {
     ])
     versions['version-b'] = [storage]
     await expect(inspect()).rejects.toThrow(/run different capabilities/u)
-  })
-
-  it('deletes only the Container application named for this Worker', async () => {
-    const step = vi.fn()
-    const cleanupFailure = vi.fn()
-    const runWrangler = vi.fn(async (args: string[]): Promise<CommandResult> => {
-      if (args[1] === 'list') {
-        return commandResult(0, JSON.stringify([
-          { id: 'a03efd01-3c6e-4609-bb6c-e07fb44e207c', name: 'dsh-edge-container' },
-          { id: 'b03efd01-3c6e-4609-bb6c-e07fb44e207c', name: 'other-edge-container' },
-        ]))
-      }
-      return commandResult(0)
-    })
-    await removeStaleContainerApplication({
-      ui: { step, cleanupFailure }, runWrangler, environment: {}, workerName: 'dsh-edge', profile: 'owner',
-    })
-    expect(runWrangler.mock.calls.map(call => call[0])).toEqual([
-      ['containers', 'list', '--json', '--profile', 'owner'],
-      ['containers', 'delete', 'a03efd01-3c6e-4609-bb6c-e07fb44e207c', '--profile', 'owner'],
-    ])
-    expect(step).toHaveBeenCalledOnce()
-    expect(cleanupFailure).not.toHaveBeenCalled()
-  })
-
-  it('reports a failed Container cleanup with the manual command instead of failing the upgrade', async () => {
-    const cleanupFailure = vi.fn()
-    const runWrangler = vi.fn(async (): Promise<CommandResult> => commandResult(1, '', 'Unauthorized'))
-    await expect(removeStaleContainerApplication({
-      ui: { step: vi.fn(), cleanupFailure }, runWrangler, environment: {}, workerName: 'dsh-edge',
-    })).resolves.toBeUndefined()
-    expect(cleanupFailure).toHaveBeenCalledWith(expect.stringMatching(/Could not list Container applications.*dsh-edge-container/su))
   })
 
   it('detects one consistent attachment backend across active Worker versions', async () => {
@@ -1387,72 +1354,25 @@ describe('dsh-edge guided installation', () => {
     expect(result).toMatchObject({ mode: 'isolated', updated: true })
   })
 
-  it('removes the Container application only after the replacement without it is serving', async () => {
+  it('keeps the Container application for rollback and prints how to remove it', async () => {
     const storage = { name: 'DSH_EDGE_ATTACHMENT_STORAGE', type: 'plain_text', text: 'temporary-do' }
     const loader = { name: 'LOADER', type: 'worker_loader' }
     const container = { name: 'DSH_EDGE_CONTAINER_RUNTIME', type: 'plain_text', text: 'enabled' }
-    for (const [previous, activation] of [
-      ['container', 'live'],
-      ['container', 'ready'],
-      ['container', 'pending'],
-      ['isolated', 'live'],
-    ] as const) {
-      const directory = await mkdtemp(join(tmpdir(), `dsh-edge-leave-container-${previous}-${activation}-`))
+    for (const previous of ['container', 'isolated'] as const) {
+      const directory = await mkdtemp(join(tmpdir(), `dsh-edge-leave-container-${previous}-`))
       const { ui, cleanupFailure } = createUi({ existingActions: ['change'], capabilities: ['direct'] })
-      const runWrangler = existingWorkerWrangler(
-        previous === 'container' ? [storage, loader, container] : [storage, loader],
-        undefined,
-        (args) => {
-          if (args[0] !== 'containers') return undefined
-          return args[1] === 'list'
-            ? commandResult(0, JSON.stringify([{ id: 'a03efd01-3c6e-4609-bb6c-e07fb44e207c', name: 'dsh-edge-container' }]))
-            : commandResult(0)
-        },
-      )
-      const observeActivation = vi.fn(async () => ({ status: activation, attempts: 1, elapsedMs: 0 }))
+      const runWrangler = existingWorkerWrangler(previous === 'container' ? [storage, loader, container] : [storage, loader])
       await installEdge({
-        command: 'upgrade', ui, runWrangler, observeActivation, createTemporaryDirectory: async () => directory,
+        command: 'upgrade', ui, runWrangler, createTemporaryDirectory: async () => directory,
+        observeActivation: async () => ({ status: 'live', attempts: 1, elapsedMs: 0 }),
       })
-      const containerCalls = runWrangler.mock.calls.map(call => call[0]).filter(args => args[0] === 'containers')
-      expect(containerCalls).toEqual(previous === 'container' && activation !== 'pending'
-        ? [
-            ['containers', 'list', '--json'],
-            ['containers', 'delete', 'a03efd01-3c6e-4609-bb6c-e07fb44e207c'],
-          ]
-        : [])
-      if (previous === 'container' && activation === 'pending') {
-        // The previous Container version may still be the one serving.
-        expect(cleanupFailure).toHaveBeenCalledWith(expect.stringMatching(/was kept.*dsh-edge-container/su))
+      expect(runWrangler.mock.calls.some(([args]) => args[0] === 'containers')).toBe(false)
+      if (previous === 'container') {
+        expect(cleanupFailure).toHaveBeenCalledWith(expect.stringMatching(/kept for rollback.*dsh-edge-container/su))
       } else {
         expect(cleanupFailure).not.toHaveBeenCalled()
       }
     }
-  })
-
-  it('still prints the recovery details when Container cleanup is interrupted', async () => {
-    const directory = await mkdtemp(join(tmpdir(), 'dsh-edge-leave-container-abort-'))
-    const { ui, cleanupFailure, recovery } = createUi({ existingActions: ['change'], capabilities: ['direct'] })
-    const controller = new AbortController()
-    const runWrangler = existingWorkerWrangler([
-      { name: 'DSH_EDGE_ATTACHMENT_STORAGE', type: 'plain_text', text: 'temporary-do' },
-      { name: 'LOADER', type: 'worker_loader' },
-      { name: 'DSH_EDGE_CONTAINER_RUNTIME', type: 'plain_text', text: 'enabled' },
-    ], undefined, (args) => {
-      if (args[0] !== 'containers') return undefined
-      controller.abort(new Error('owner interrupted'))
-      return { ...commandResult(null), interrupted: true }
-    })
-    await expect(installEdge({
-      command: 'upgrade', ui, runWrangler, signal: controller.signal,
-      observeActivation: async () => ({ status: 'live', attempts: 1, elapsedMs: 0 }),
-      createTemporaryDirectory: async () => directory,
-    })).rejects.toThrow()
-    expect(cleanupFailure).toHaveBeenCalledWith(expect.stringMatching(/interrupted.*dsh-edge-container/su))
-    expect(recovery).toHaveBeenCalledWith(expect.objectContaining({
-      ownerSecret: undefined,
-      publicUrl: 'https://dsh-edge.owner.workers.dev',
-      workerName: 'dsh-edge',
-    }))
   })
 
   it.each([

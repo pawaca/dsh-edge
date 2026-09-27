@@ -283,7 +283,7 @@ npx dsh-edge upgrade
   - `Research and write`（direct 模式，默认）：联网搜索、读网页、写文档，并通过 MCP 连接你的工具。可在 Workers Free 上运行。
   - `+ Analyze data and split big jobs`（isolated 模式）：增加 `run_code`，用脚本处理你的数据；增加 `workflow`，把任务交给并行子 agent。需要 Workers Paid（每月 5 美元起）。
   - `+ Work on code projects`（container 模式）：增加用于 git、npm、python 的 Linux 容器。命令先在隔离 shell 中执行；只有当命令启动的程序不在轻量 shell 已验证的清单内、命令无法被可靠解析，或 agent 设置了 `linux: true` 时，才分流到容器。容器内最多同时运行两条命令。需要 Workers Paid，外加容器运行时长。
-- **调整能力。** 能力列表会标出当前选择。选择更少的能力时会二次确认，列出将被移除的内容，默认 No。离开 container 模式后，一旦替换版本开始服务，安装器会删除该 Worker 的 Container application。
+- **调整能力。** 能力列表会标出当前选择。选择更少的能力时会二次确认，列出将被移除的内容，默认 No。离开 container 模式后，安装器会保留该 Worker 的 Container application 作为回退目标，并打印删除它的命令；登录确认新版本正常后运行该命令，即可停止 Container 计费。
 - **唯一一次确认。** 摘要列出实例能做什么、费用、账户、Worker、图片存储以及下面的默认值。使用临时账户时，确认即同时接受 Cloudflare 服务条款与隐私政策。
 
 ### 默认值

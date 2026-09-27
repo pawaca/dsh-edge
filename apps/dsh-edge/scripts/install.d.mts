@@ -190,10 +190,6 @@ export function executeWrangler(args: string[], options?: {
   stdoutDestination?: NodeJS.WritableStream
 }): Promise<CommandResult>
 
-export function removeStaleContainerApplication(options: ExistingDeploymentOptions & {
-  ui: Pick<InstallerUi, 'step' | 'cleanupFailure'>
-}): Promise<void>
-
 export function inspectExistingDeployment(options: ExistingDeploymentOptions): Promise<{
   mode: RuntimeMode
   attachmentStorage: AttachmentStorage

@@ -283,7 +283,7 @@ The installer asks in this order: account, Worker name, then what to change. Eve
   - `Research and write` (the direct mode, the default): search the web, read pages, draft docs, and connect your tools through MCP. It runs on Workers Free.
   - `+ Analyze data and split big jobs` (the isolated mode): adds `run_code` for scripts over your data and `workflow` for parallel subagents. It requires Workers Paid (from $5/month).
   - `+ Work on code projects` (the container mode): adds a Linux container for git, npm, and python. Commands start in the isolated shell; routing sends a command to the container only when a program it starts is outside the lightweight shell's verified set, the command cannot be parsed confidently, or the agent sets `linux: true`. At most two container commands run at once. It requires Workers Paid plus container time while it runs.
-- **Changing capabilities.** The capability list marks the current choice. Choosing less asks a second confirmation that names what is removed and defaults to No. Leaving the container mode removes the Worker's Container application once the replacement release is serving.
+- **Changing capabilities.** The capability list marks the current choice. Choosing less asks a second confirmation that names what is removed and defaults to No. Leaving the container mode keeps the Worker's Container application as the rollback target and prints the command that removes it; run it after you sign in and the new version works, to stop Container billing.
 - **One confirmation.** The summary lists what the instance can do, its cost, the account, the Worker, image storage, and the defaults below. For a temporary account, confirming also accepts Cloudflare's Terms of Service and Privacy Policy.
 
 ### Defaults
