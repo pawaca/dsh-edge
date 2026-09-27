@@ -25,15 +25,12 @@ if pid == 0:
     os.execvpe(node, [node, cli, "install"], env)
 fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 120, 0, 0))
 
+# Every answer is Enter: the defaults alone must reach the browser.
 steps = [
-    (b"Choose a runtime", b"\r"),
     (b"Choose a Cloudflare account", b"\r"),
     (b"Worker name", b"\r"),
-    (b"Install this instance?", b"\r"),
-    (b"Accept these terms and create a temporary Cloudflare account?", b"y\r"),
-    (b"Set the owner access key", b"\r"),
-    (b"Configure provider key", b"\r"),
-    (b"DeepSeek API key", b"sk-keyless-no-call\r"),
+    (b"Accept the terms and install?", b"\r"),
+    (b"Open dsh-edge in your browser?", b"\r"),
 ]
 output = bytearray()
 step = 0
@@ -129,9 +126,7 @@ export async function runKeylessInstall() {
 function normalizeTerminal(source) {
   return stripVTControlCharacters(source)
     .replaceAll('\r', '')
-    .replaceAll('sk-keyless-no-call', '{{deepseek-key}}')
     .replace(/Owner access key: [A-Za-z0-9_-]+/u, 'Owner access key: {{generated-access-key}}')
-    .replace(/^│  •_.*◇  DeepSeek API key$/gmu, '◇  DeepSeek API key')
     .replaceAll(edgeVersion, '{{version}}')
     .split('\n')
     .map(line => line.trimEnd())

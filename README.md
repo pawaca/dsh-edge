@@ -20,7 +20,7 @@ You need Node.js 22.14 or newer and your own DeepSeek API key:
 npx dsh-edge install
 ```
 
-The installer guides you through every choice and deploys the Worker. You can try it without an existing Cloudflare login, or install it permanently in your own Cloudflare account. No source checkout is required.
+Press Enter at every prompt to deploy the Worker and open it in your browser, then add your DeepSeek API key in Settings → Models. You can try it without an existing Cloudflare login, or install it permanently in your own Cloudflare account. No source checkout is required.
 
 [![Install dsh-edge, unlock the deployment, select Vision Exp, and analyze an image](docs/assets/dsh-edge-demo.gif)](docs/assets/dsh-edge-demo.mp4)
 
@@ -37,9 +37,15 @@ The installer guides you through every choice and deploys the Worker. You can tr
 | Path | What you need | Best for |
 | --- | --- | --- |
 | **Try now** | No existing Cloudflare login; claim within 60 minutes to keep it | Exploring the complete experience with the lowest friction |
-| **Keep it** | An existing or new Cloudflare account with R2 enabled | A long-lived personal deployment |
+| **Keep it** | An existing or new Cloudflare account | A long-lived personal deployment |
 
-Choose one of three tiers. **Free** runs on Cloudflare Workers Free with a lightweight shell (just-bash, a sandboxed shell for file and text work, not Linux) inside the instance. **Paid** (Workers Paid, from $5/month) runs that shell in an isolated Worker and adds two tools: `workflow` (multi-agent orchestration) and `run_code` (a TypeScript program that calls the other tools). **Paid + Linux container** adds a real Debian container with git, node, npm, and python3: each command still starts in the lightweight shell, and only a command that needs Linux (or that the agent marks with `linux: true`) runs in the container, which starts on demand, sleeps after 10 idle minutes, and is billed by Cloudflare while it runs. All tiers share the same UI, conversations, workspace, images, and subagents.
+The installer asks what your agent should be able to do. Each choice includes the ones before it:
+
+- **Research and write** (Workers Free): search the web, read pages, draft docs, and connect your tools through MCP. Commands run in a lightweight shell (just-bash, a sandboxed shell for file and text work, not Linux) inside the instance.
+- **+ Analyze data and split big jobs** (Workers Paid, from $5/month): runs that shell in an isolated Worker and adds `run_code` (a TypeScript program that calls the other tools) and `workflow` (parallel subagents).
+- **+ Work on code projects** (Workers Paid plus container time): adds a real Debian container with git, node, npm, and python3. Each command still starts in the lightweight shell; only a command that needs Linux (or that the agent marks with `linux: true`) runs in the container, which starts on demand, sleeps after 10 idle minutes, and is billed by Cloudflare while it runs.
+
+All choices share the same UI, conversations, workspace, images, and subagents.
 
 ## Upgrade
 
@@ -47,7 +53,7 @@ Choose one of three tiers. **Free** runs on Cloudflare Workers Free with a light
 npx dsh-edge upgrade
 ```
 
-The installer finds your Worker and upgrades it in place while preserving its durable data. See the [release notes](docs/releases/) for version-specific details.
+The installer finds your Worker and upgrades it in place, keeping its capabilities, durable data, and keys unless you choose to change what it can do. Running `install` again with the same Worker name does the same. See the [release notes](docs/releases/) for version-specific details.
 
 ## Important boundaries
 

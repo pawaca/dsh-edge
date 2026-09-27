@@ -8,7 +8,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { execa } from 'execa'
 import { containerApplicationName, writePrebuiltModeWranglerConfig } from './wrangler-config.mjs'
-import { isRuntimeMode, RUNTIME_MODES } from './runtime-providers.mjs'
+import { isRuntimeMode, lostCapabilities, RUNTIME_MODES } from './runtime-providers.mjs'
 
 export { RUNTIME_MODES }
 
@@ -149,22 +149,21 @@ class R2SubscriptionUnavailableError extends Error {
   }
 }
 
-/** Return account choices permitted by the selected runtime. */
-export function accountChoices(mode, accounts, command = 'install') {
-  requireRuntimeMode(mode)
-  const choices = []
-  if (!RUNTIME_MODES[mode].paid && command === 'install') {
+/**
+ * Return account choices, signed-in accounts first so pressing Enter keeps a
+ * permanent instance. Without a login the temporary account comes first.
+ */
+export function accountChoices(accounts, command = 'install') {
+  const choices = accounts.map(account => ({
+    value: `account:${account.id}`,
+    label: account.name,
+    hint: `Cloudflare account ${account.id}`,
+  }))
+  if (command === 'install') {
     choices.push({
       value: 'temporary',
       label: 'Temporary account — no Cloudflare login',
-      hint: 'available for 60 minutes; claim it to keep the instance',
-    })
-  }
-  for (const account of accounts) {
-    choices.push({
-      value: `account:${account.id}`,
-      label: account.name,
-      hint: `Cloudflare account ${account.id}`,
+      hint: 'free capabilities; claim within 60 minutes to keep it',
     })
   }
   choices.push({
@@ -219,15 +218,21 @@ export function validateOwnerSecret(value) {
   if (length < 32 || length > 512) return 'The access key must be 32–512 UTF-8 bytes.'
 }
 
-/** Validate a provider key without encoding assumptions that DeepSeek does not promise. */
-export function validateDeepSeekKey(value) {
-  if (value === undefined || value === '') return undefined
-  if (value !== value.trim()) return 'The DeepSeek API key cannot start or end with whitespace.'
-  if (CONTROL_CHARACTER.test(value)) return 'The DeepSeek API key cannot contain control characters.'
-}
-
 export function generateOwnerSecret() {
   return randomBytes(32).toString('base64url')
+}
+
+/**
+ * A new instance's owner key: `DSH_EDGE_ACCESS_KEY` when the owner supplies
+ * one (an environment variable stays out of shell history and process lists),
+ * otherwise a generated key.
+ */
+export function resolveOwnerSecret(environment = process.env) {
+  const supplied = environment.DSH_EDGE_ACCESS_KEY
+  if (supplied === undefined || supplied === '') return generateOwnerSecret()
+  const error = validateOwnerSecret(supplied)
+  if (error !== undefined) throw new Error(`DSH_EDGE_ACCESS_KEY is invalid: ${error}`)
+  return supplied
 }
 
 /** Derive one stable account-local R2 bucket name from the Worker service name. */
@@ -277,15 +282,6 @@ export async function ensureR2Bucket({
   ))
 }
 
-/** Verify R2 availability without creating a bucket or collecting deployment credentials. */
-async function verifyR2Subscription({ runWrangler, environment, profile, signal }) {
-  const result = await runWrangler([
-    'r2', 'bucket', 'list', ...profileArgs(profile),
-  ], { environment, signal })
-  throwIfR2SubscriptionUnavailable(result)
-  requireSuccess(result, 'Could not check Cloudflare R2 availability')
-}
-
 function throwIfR2SubscriptionUnavailable(result) {
   if (!/\[code:\s*10042\]/u.test(`${result.stdout}\n${result.stderr}`)) return
   throw new R2SubscriptionUnavailableError(commandFailure(
@@ -320,7 +316,10 @@ export function unauthenticatedEnvironment(environment = process.env) {
   return pickEnvironment(environment, RUNTIME_ENV_KEYS)
 }
 
-/** Build an exact, secret-free Wrangler deployment command. */
+/**
+ * Build an exact, secret-free Wrangler deployment command. An update passes no
+ * secrets file, so the Worker keeps its existing secrets.
+ */
 export function wranglerDeployArgs({
   mode,
   workerName,
@@ -341,9 +340,8 @@ export function wranglerDeployArgs({
     workerName,
     '--config',
     configFile,
-    '--secrets-file',
-    secretsFile,
   ]
+  if (secretsFile !== undefined) args.push('--secrets-file', secretsFile)
   if (temporary) args.push('--temporary')
   if (profile !== undefined) args.push('--profile', profile)
   return args
@@ -441,54 +439,56 @@ function staleContainerCleanupCommand(workerName) {
   return `npx wrangler containers list, then npx wrangler containers delete <id> for ${containerApplicationName(workerName)}`
 }
 
-/** Inspect active Worker versions so upgrades preserve the existing attachment backend. */
-export async function detectExistingAttachmentStorage(options) {
-  return (await inspectExistingDeployment(options)).attachmentStorage
-}
-
 /**
- * Inspect active Worker versions once for what an upgrade must preserve or
- * clean up: the attachment backend, and whether any version ran a Container.
+ * Inspect the active Worker versions once for what an update must preserve:
+ * the runtime mode (so the owner is not asked again) and the attachment
+ * backend. `--name` alone selects the Worker, whatever mode deployed it.
  */
 export async function inspectExistingDeployment({
   workerName,
-  mode,
   runWrangler,
   environment,
   profile,
   signal,
 }) {
-  const args = [
-    '--name', workerName, '--json',
-    ...runtimeEnvironmentArgs(mode),
-    ...profileArgs(profile),
-  ]
+  const args = ['--name', workerName, '--json', ...profileArgs(profile)]
   const status = await runWrangler(['deployments', 'status', ...args], {
     environment,
     signal,
   })
   requireSuccess(status, 'Could not inspect the existing Worker deployment')
   const versionIds = deploymentVersionIds(status.stdout)
+  const modes = new Set()
   const backends = new Set()
-  let containerRuntime = false
   for (const versionId of versionIds) {
     const version = await runWrangler([
       'versions', 'view', versionId, ...args,
     ], { environment, signal })
     requireSuccess(version, `Could not inspect existing Worker version ${versionId}`)
-    backends.add(versionAttachmentStorage(version.stdout))
-    containerRuntime ||= versionContainerRuntime(version.stdout)
+    const bindings = versionBindings(version.stdout)
+    modes.add(bindingsRuntimeMode(bindings))
+    backends.add(bindingsAttachmentStorage(bindings))
+  }
+  if (modes.size !== 1) {
+    throw new Error('The active Worker versions run different capabilities. Finish the existing rollout before updating.')
   }
   if (backends.size !== 1) {
-    throw new Error('The active Worker versions use different attachment backends. Finish the existing rollout before upgrading.')
+    throw new Error('The active Worker versions use different attachment backends. Finish the existing rollout before updating.')
   }
-  return { attachmentStorage: backends.values().next().value, containerRuntime }
+  return {
+    mode: modes.values().next().value,
+    attachmentStorage: backends.values().next().value,
+  }
 }
 
-function versionContainerRuntime(source) {
-  const bindings = JSON.parse(source).resources.bindings
-  return bindings.some(binding => binding.name === 'DSH_EDGE_CONTAINER_RUNTIME'
-    && binding.type === 'plain_text' && binding.text === 'enabled')
+// The same bindings the Worker's runtime providers probe decide its mode.
+function bindingsRuntimeMode(bindings) {
+  if (bindings.some(binding => binding.name === 'DSH_EDGE_CONTAINER_RUNTIME'
+    && binding.type === 'plain_text' && binding.text === 'enabled')) return 'container'
+  if (bindings.some(binding => binding.name === 'LOADER' && binding.type === 'worker_loader')) {
+    return 'isolated'
+  }
+  return 'direct'
 }
 
 function deploymentVersionIds(source) {
@@ -511,7 +511,7 @@ function deploymentVersionIds(source) {
   return [...new Set(ids)]
 }
 
-function versionAttachmentStorage(source) {
+function versionBindings(source) {
   let version
   try {
     version = JSON.parse(source)
@@ -524,6 +524,10 @@ function versionAttachmentStorage(source) {
   if (!Array.isArray(bindings) || bindings.some(binding => !isRecord(binding))) {
     throw new Error('Wrangler returned unexpected Worker version details.')
   }
+  return bindings
+}
+
+function bindingsAttachmentStorage(bindings) {
   const attachment = bindings.filter(binding => binding.name === 'DSH_EDGE_ATTACHMENTS')
   if (attachment.length > 1
     || (attachment.length === 1 && attachment[0].type !== 'r2_bucket')) {
@@ -543,11 +547,17 @@ function versionAttachmentStorage(source) {
   if (marker !== undefined) return marker
   // An R2 binding predating the explicit marker is still authoritative. A
   // release with neither binding nor marker predates image attachments, so it
-  // has no image references to strand and can ask the owner to choose once.
-  return attachment.length === 1 ? 'private-r2' : undefined
+  // has no image references to strand and takes the new-install default.
+  return attachment.length === 1 ? 'private-r2' : 'temporary-do'
 }
 
-/** Run the complete guided install with UI and Wrangler supplied as replaceable boundaries. */
+/**
+ * Run the complete guided install with UI and Wrangler supplied as replaceable
+ * boundaries. The order is account, Worker name, then what to change: a name
+ * that already exists becomes an in-place update that keeps the instance's
+ * capabilities, data, and secrets. Every question comes before the one
+ * confirmation; after it the installer only deploys and hands over.
+ */
 export async function installEdge({
   command = 'install',
   ui,
@@ -566,12 +576,9 @@ export async function installEdge({
   if (command !== 'install' && command !== 'upgrade') throw new Error(`Unknown installer command: ${command}`)
   ui.intro(`dsh-edge ${command}`)
   try {
-    const mode = await ui.selectRuntime()
-    requireRuntimeMode(mode)
-
     ui.step('Checking Cloudflare accounts…')
     const detected = await detectAccounts({ runWrangler, environment, signal })
-    let accountSelection = await ui.selectAccount(accountChoices(mode, detected.accounts, command))
+    let accountSelection = await ui.selectAccount(accountChoices(detected.accounts, command))
     let profile
     let profileEnvironment
     let accounts = detected.accounts
@@ -610,7 +617,7 @@ export async function installEdge({
         ).catch(() => {})
         await removePath(profileDir, { recursive: true, force: true }).catch(() => {})
       }
-      accountSelection = await ui.selectAccount(accountChoices(mode, accounts, command)
+      accountSelection = await ui.selectAccount(accountChoices(accounts, command)
         .filter(choice => choice.value.startsWith('account:')))
     }
 
@@ -618,156 +625,84 @@ export async function installEdge({
     if (temporary && command === 'upgrade') {
       throw new Error('Temporary accounts cannot be upgraded before they are claimed.')
     }
-    if (temporary && RUNTIME_MODES[mode].paid) {
-      throw new Error('Temporary accounts support only the Free direct runtime.')
-    }
     const account = temporary
       ? undefined
       : requireSelectedAccount(accountSelection, accounts)
-
-    let workerName = DEFAULT_WORKER_NAME
-    let updatingExisting = false
-    while (true) {
-      workerName = await ui.workerName(workerName, validateWorkerName)
-      if (temporary) break
-      ui.step(`Checking ${workerName}…`)
-      const exists = parseWorkerExistence(await runWrangler([
-        'deployments', 'list', '--name', workerName, '--json',
-        ...runtimeEnvironmentArgs(mode),
-        ...profileArgs(profile),
-      ], {
-        environment: accountEnvironment(profileEnvironment ?? environment, account.id),
-        signal,
-      }))
-      if (command === 'upgrade') {
-        if (!exists) throw new Error(`${workerName} does not exist in this account and runtime. Run dsh-edge install first.`)
-        updatingExisting = true
-        break
-      }
-      if (!exists) break
-      const action = await ui.workerConflict(workerName)
-      if (action === 'update') {
-        updatingExisting = true
-        break
-      }
-      if (action === 'cancel') throw new InstallCancelledError()
-      workerName = `${workerName}-2`
-    }
-
     const commandEnvironment = temporary
       ? unauthenticatedEnvironment(environment)
       : accountEnvironment(profileEnvironment ?? environment, account.id)
-    const existingDeployment = updatingExisting
-      ? await inspectExistingDeployment({
-          workerName,
-          mode,
-          runWrangler,
-          environment: commandEnvironment,
-          profile,
-          signal,
-        })
-      : undefined
-    const existingAttachmentStorage = existingDeployment?.attachmentStorage
-    let attachmentStorage = updatingExisting
-      ? existingAttachmentStorage ?? await ui.selectInitialAttachmentStorage()
-      : temporary ? 'temporary-do' : 'private-r2'
-    requireAttachmentStorage(attachmentStorage)
 
-    const canSwitchToDurableObject = updatingExisting
-      && existingAttachmentStorage === undefined
-    while (attachmentStorage === 'private-r2') {
-      ui.step('Checking Cloudflare R2 availability…')
-      try {
-        await verifyR2Subscription({
-          runWrangler,
-          environment: commandEnvironment,
-          profile,
-          signal,
-        })
+    let workerName = DEFAULT_WORKER_NAME
+    let existing
+    let updateAction
+    while (true) {
+      workerName = await ui.workerName(workerName, validateWorkerName)
+      // A temporary account is new, so it cannot hold this Worker yet.
+      if (temporary) break
+      ui.step(`Checking ${workerName}…`)
+      const exists = parseWorkerExistence(await runWrangler([
+        'deployments', 'list', '--name', workerName, '--json', ...profileArgs(profile),
+      ], { environment: commandEnvironment, signal }))
+      if (!exists) {
+        if (command === 'upgrade') {
+          throw new Error(`${workerName} does not exist in this account. Run dsh-edge install first.`)
+        }
         break
-      } catch (error) {
-        if (!(error instanceof R2SubscriptionUnavailableError)) throw error
-        const resolution = await promptR2Recovery(
-          ui,
-          account.id,
-          canSwitchToDurableObject,
-        )
-        if (resolution === 'temporary-do') attachmentStorage = 'temporary-do'
       }
+      existing = await inspectExistingDeployment({
+        workerName,
+        runWrangler,
+        environment: commandEnvironment,
+        profile,
+        signal,
+      })
+      updateAction = await ui.existingWorker({ workerName, mode: existing.mode })
+      if (updateAction === 'cancel') throw new InstallCancelledError()
+      if (updateAction !== 'rename') break
+      existing = undefined
     }
 
-    const confirmed = await ui.confirm({
+    const updating = existing !== undefined
+    let mode
+    if (!updating) mode = temporary ? 'direct' : await ui.selectCapability()
+    else if (updateAction === 'change') mode = await chooseChangedMode(ui, existing.mode)
+    else mode = existing.mode
+    requireRuntimeMode(mode)
+    const attachmentStorage = existing?.attachmentStorage ?? 'temporary-do'
+    requireAttachmentStorage(attachmentStorage)
+    // An update keeps the Worker's secrets; only a new instance gets an owner key.
+    const ownerSecret = updating ? undefined : resolveOwnerSecret(environment)
+    // Choosing "Update it" was the confirmation; everything else confirms once here.
+    if (updateAction !== 'update' && !await ui.confirm({
       mode,
-      modeLabel: RUNTIME_MODES[mode].label,
       accountLabel: temporary ? 'Temporary account' : account.name,
       workerName,
-      paid: RUNTIME_MODES[mode].paid,
       temporary,
+      updating,
       attachmentStorage,
-    })
-    if (!confirmed) throw new InstallCancelledError()
-    if (temporary && !await ui.acceptTemporaryTerms()) {
+    })) {
       throw new InstallCancelledError()
     }
 
-    const secretMode = await ui.selectOwnerSecretMode()
-    const ownerSecret = secretMode === 'generate'
-      ? generateOwnerSecret()
-      : await ui.ownerSecret(validateOwnerSecret)
-    const secretError = validateOwnerSecret(ownerSecret)
-    if (secretError !== undefined) throw new Error(secretError)
-    const deepSeekKey = await ui.deepSeekKey(validateDeepSeekKey)
-    const deepSeekError = validateDeepSeekKey(deepSeekKey)
-    if (deepSeekError !== undefined) throw new Error(deepSeekError)
-    const enableImages = !temporary && typeof ui.enableImages === 'function'
-      ? await ui.enableImages(temporary)
-      : false
-
-    let bucketName
-    if (attachmentStorage === 'private-r2') {
-      bucketName = attachmentBucketName(workerName)
-      ui.step(`Preparing private image storage (${bucketName})…`)
-      while (true) {
-        try {
-          await ensureR2Bucket({
-            bucketName,
-            runWrangler,
-            environment: commandEnvironment,
-            profile,
-            signal,
-          })
-          break
-        } catch (error) {
-          if (!(error instanceof R2SubscriptionUnavailableError)) throw error
-          const resolution = await promptR2Recovery(
-            ui,
-            account.id,
-            canSwitchToDurableObject,
-          )
-          if (resolution === 'temporary-do') {
-            attachmentStorage = 'temporary-do'
-            bucketName = undefined
-            break
-          }
-        }
-      }
-    }
+    const bucketName = attachmentStorage === 'private-r2'
+      ? await prepareR2Bucket({ ui, workerName, account, runWrangler, environment: commandEnvironment, profile, signal })
+      : undefined
 
     temporaryDirectory = await createTemporaryDirectory()
-    const secretsFile = join(temporaryDirectory, 'secrets.json')
+    const secretsFile = ownerSecret === undefined ? undefined : join(temporaryDirectory, 'secrets.json')
     const configFile = join(temporaryDirectory, 'wrangler.json')
     const outputFile = join(temporaryDirectory, 'wrangler-output.ndjson')
     await writePrebuiltModeWranglerConfig(mode, configFile, {
       ...bucketName === undefined ? {} : { r2BucketName: bucketName },
-      enableImages,
+      enableImages: !temporary,
       workerName,
     })
-    await writeFile(secretsFile, JSON.stringify({
-      ...deepSeekKey !== '' ? { DEEPSEEK_API_KEY: deepSeekKey } : {},
-      DSH_EDGE_ACCESS_KEY: ownerSecret,
-    }), { encoding: 'utf8', mode: 0o600, flag: 'wx' })
+    if (secretsFile !== undefined) {
+      await writeFile(secretsFile, JSON.stringify({ DSH_EDGE_ACCESS_KEY: ownerSecret }),
+        { encoding: 'utf8', mode: 0o600, flag: 'wx' })
+    }
 
-    const deploymentMessage = command === 'upgrade'
+    const deploymentMessage = updating
       ? 'Uploading the tested Worker release…'
       : 'Installing the tested Worker release…'
     ui.deploymentStart?.(deploymentMessage)
@@ -797,7 +732,7 @@ export async function installEdge({
     } finally {
       ui.deploymentFinish?.(deploySucceeded)
       try {
-        await removePath(secretsFile, { force: true })
+        if (secretsFile !== undefined) await removePath(secretsFile, { force: true })
       } catch (error) {
         credentialCleanupError = error
       }
@@ -861,6 +796,7 @@ export async function installEdge({
       mode,
       ownerSecret,
       temporary,
+      updated: updating,
       workerName,
     }
     if (observeActivation !== undefined) {
@@ -884,11 +820,11 @@ export async function installEdge({
     // Record the deployed result before best-effort cleanup so an interruption
     // there still prints the recovery details (including a new owner key).
     completedResult = result
-    // The previous Container version keeps serving during propagation and is
-    // the rollback target until the replacement is verified, so its Container
-    // application is removed only after activation reports ready.
-    if (existingDeployment?.containerRuntime === true && mode !== 'container') {
-      if (result.activation?.status === 'ready') {
+    // The previous Container version keeps serving during propagation, so its
+    // Container application is removed only once the replacement release is
+    // verified to be the one serving (an update without the owner key reports live).
+    if (existing?.mode === 'container' && mode !== 'container') {
+      if (result.activation?.status === 'ready' || result.activation?.status === 'live') {
         await removeStaleContainerApplication({
           ui,
           runWrangler,
@@ -934,8 +870,38 @@ export async function installEdge({
   }
   if (primaryError !== undefined) throw primaryError
   if (completedResult === undefined) throw new Error('Installation ended without a result.')
-  ui.success(completedResult)
+  await ui.success(completedResult)
   return completedResult
+}
+
+/** Let the owner pick new capabilities; a downgrade needs its own confirmation. */
+async function chooseChangedMode(ui, current) {
+  while (true) {
+    const mode = await ui.selectCapability(current)
+    requireRuntimeMode(mode)
+    const lost = lostCapabilities(current, mode)
+    if (lost.length === 0 || await ui.confirmDowngrade(lost)) return mode
+  }
+}
+
+/**
+ * Reuse an existing Worker's private R2 bucket. Its image references live
+ * there, so an account whose R2 lapsed can only retry after re-enabling it.
+ */
+async function prepareR2Bucket({ ui, workerName, account, runWrangler, environment, profile, signal }) {
+  const bucketName = attachmentBucketName(workerName)
+  ui.step(`Preparing private image storage (${bucketName})…`)
+  while (true) {
+    try {
+      await ensureR2Bucket({ bucketName, runWrangler, environment, profile, signal })
+      return bucketName
+    } catch (error) {
+      if (!(error instanceof R2SubscriptionUnavailableError)) throw error
+      const action = await ui.r2SubscriptionUnavailable({ activationUrl: r2ActivationUrl(account.id) })
+      if (action === 'cancel') throw new InstallCancelledError()
+      if (action !== 'retry') throw new Error(`Unsupported R2 recovery action: ${String(action)}`)
+    }
+  }
 }
 
 export function wranglerProcessInvocation(args, {
@@ -1314,11 +1280,6 @@ function profileArgs(profile) {
   return profile === undefined ? [] : ['--profile', profile]
 }
 
-function runtimeEnvironmentArgs(mode) {
-  const target = RUNTIME_MODES[mode].environment
-  return target === '' ? [] : ['--env', target]
-}
-
 function accountEnvironment(environment, accountId) {
   return { ...wranglerEnvironment(environment), CLOUDFLARE_ACCOUNT_ID: accountId }
 }
@@ -1347,23 +1308,6 @@ function requireAttachmentStorage(storage) {
   if (storage !== 'temporary-do' && storage !== 'private-r2') {
     throw new Error(`Unsupported attachment storage: ${String(storage)}`)
   }
-}
-
-function requireR2RecoveryAction(action, canSwitchToDurableObject) {
-  if (action === 'cancel') throw new InstallCancelledError()
-  if (action === 'retry') return action
-  if (action === 'temporary-do' && canSwitchToDurableObject) return action
-  throw new Error(`Unsupported R2 recovery action: ${String(action)}`)
-}
-
-async function promptR2Recovery(ui, accountId, canSwitchToDurableObject) {
-  return requireR2RecoveryAction(
-    await ui.r2SubscriptionUnavailable({
-      activationUrl: r2ActivationUrl(accountId),
-      canSwitchToDurableObject,
-    }),
-    canSwitchToDurableObject,
-  )
 }
 
 function requireSuccess(result, prefix) {
@@ -1407,8 +1351,8 @@ function formatDeployFailure(mode, result) {
   }
   const failure = `${detail} Run the command again with --verbose to inspect Wrangler output.`
   if (RUNTIME_MODES[mode]?.paid !== true) return failure
-  return `${failure}\nThe ${RUNTIME_MODES[mode].label} runtime requires the Workers Paid plan (starting at $5/month). `
-    + 'Enable Workers Paid for this account or install the Free direct runtime.'
+  return `${failure}\nThe capabilities you chose require the Workers Paid plan (starting at $5/month). `
+    + `Enable Workers Paid for this account, or choose "${RUNTIME_MODES.direct.label}".`
 }
 
 function stripAnsi(value) {

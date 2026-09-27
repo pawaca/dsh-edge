@@ -21,29 +21,26 @@ export interface CommandResult {
 export interface InstallerUi {
   intro(message: string): void
   step(message: string): void
-  selectRuntime(): Promise<RuntimeMode>
   selectAccount(choices: Array<{ value: string; label: string; hint?: string }>): Promise<string>
   workerName(initialValue: string, validate: (value: string) => string | undefined): Promise<string>
-  workerConflict(workerName: string): Promise<'rename' | 'update' | 'cancel'>
-  selectInitialAttachmentStorage(): Promise<AttachmentStorage>
-  r2SubscriptionUnavailable(options: {
-    activationUrl: string
-    canSwitchToDurableObject: boolean
-  }): Promise<'retry' | 'temporary-do' | 'cancel'>
-  selectOwnerSecretMode(): Promise<'generate' | 'custom'>
-  ownerSecret(validate: (value: string) => string | undefined): Promise<string>
-  deepSeekKey(validate: (value: string) => string | undefined): Promise<string>
-  enableImages?(isTemporary: boolean): Promise<boolean>
+  /** The Worker name already exists; `update` keeps everything and is the confirmation. */
+  existingWorker(existing: {
+    workerName: string
+    mode: RuntimeMode
+  }): Promise<'update' | 'change' | 'rename' | 'cancel'>
+  /** Choose what the agent can do; `current` marks an existing instance's capabilities. */
+  selectCapability(current?: RuntimeMode): Promise<RuntimeMode>
+  confirmDowngrade(lost: string[]): Promise<boolean>
+  r2SubscriptionUnavailable(options: { activationUrl: string }): Promise<'retry' | 'cancel'>
+  /** The one confirmation; for a temporary account it also accepts Cloudflare's terms. */
   confirm(summary: {
     mode: RuntimeMode
-    modeLabel: string
     accountLabel: string
     workerName: string
-    paid: boolean
     temporary: boolean
+    updating: boolean
     attachmentStorage: AttachmentStorage
   }): Promise<boolean>
-  acceptTemporaryTerms(): Promise<boolean>
   deploymentStart?(message: string): void
   deploymentFinish?(succeeded: boolean): void
   activationStart?(message: string): void
@@ -55,12 +52,14 @@ export interface InstallerUi {
     result: InstallRecovery,
     failedStream: 'stderr' | 'stdout',
   ): boolean | Promise<boolean> | void
-  success(result: InstallResult): void
+  /** Hand the instance to the owner, offering to open it in a browser. */
+  success(result: InstallResult): void | Promise<void>
 }
 
 export interface InstallRecovery {
   claimUrl?: string
-  ownerSecret: string
+  /** Absent after an update, which keeps the existing owner key. */
+  ownerSecret?: string
   publicUrl?: string
   workerName: string
 }
@@ -73,8 +72,10 @@ export interface InstallResult {
   attachmentStorage: AttachmentStorage
   claimUrl?: string
   mode: RuntimeMode
-  ownerSecret: string
+  ownerSecret?: string
   temporary: boolean
+  /** Whether this run updated an existing Worker in place. */
+  updated: boolean
   workerName: string
 }
 
@@ -84,7 +85,7 @@ export class InstallCancelledError extends Error {}
 export class InstallerOutputError extends Error {
   readonly stream: 'stderr' | 'stdout'
 }
-export function accountChoices(mode: RuntimeMode, accounts: CloudflareAccount[], command?: InstallerCommand): Array<{
+export function accountChoices(accounts: CloudflareAccount[], command?: InstallerCommand): Array<{
   value: string
   label: string
   hint?: string
@@ -92,8 +93,8 @@ export function accountChoices(mode: RuntimeMode, accounts: CloudflareAccount[],
 export function parseWhoami(source: string): { accounts: CloudflareAccount[]; email?: string }
 export function validateWorkerName(value: string): string | undefined
 export function validateOwnerSecret(value: string): string | undefined
-export function validateDeepSeekKey(value: string): string | undefined
 export function generateOwnerSecret(): string
+export function resolveOwnerSecret(environment?: NodeJS.ProcessEnv): string
 export function attachmentBucketName(workerName: string): string
 export function ensureR2Bucket(options: {
   bucketName: string
@@ -110,7 +111,7 @@ export function unauthenticatedEnvironment(environment?: NodeJS.ProcessEnv): Nod
 export function wranglerDeployArgs(options: {
   mode: RuntimeMode
   workerName: string
-  secretsFile: string
+  secretsFile?: string
   configFile: string
   profile?: string
   temporary?: boolean
@@ -120,7 +121,6 @@ export function parseClaimUrl(source: string): string | undefined
 export function parseWorkerExistence(result: CommandResult): boolean
 export interface ExistingDeploymentOptions {
   workerName: string
-  mode: RuntimeMode
   runWrangler: (args: string[], options?: {
     environment?: NodeJS.ProcessEnv
     signal?: AbortSignal
@@ -129,7 +129,6 @@ export interface ExistingDeploymentOptions {
   profile?: string
   signal?: AbortSignal
 }
-export function detectExistingAttachmentStorage(options: ExistingDeploymentOptions): Promise<AttachmentStorage | undefined>
 export function truncateUtf8Tail(value: string, maxBytes: number): string
 export function createOutputForwarder(
   source: NodeJS.ReadableStream,
@@ -165,7 +164,7 @@ export function installEdge(options: {
   createTemporaryDirectory?: () => Promise<string>
   removePath?: typeof import('node:fs/promises').rm
   observeActivation?: (options: {
-    ownerSecret: string
+    ownerSecret?: string
     versionId?: string
     publicUrl: string
     mode: RuntimeMode
@@ -189,11 +188,11 @@ export function executeWrangler(args: string[], options?: {
   stdoutDestination?: NodeJS.WritableStream
 }): Promise<CommandResult>
 
-export function removeStaleContainerApplication(options: Omit<ExistingDeploymentOptions, 'mode'> & {
+export function removeStaleContainerApplication(options: ExistingDeploymentOptions & {
   ui: Pick<InstallerUi, 'step' | 'cleanupFailure'>
 }): Promise<void>
 
 export function inspectExistingDeployment(options: ExistingDeploymentOptions): Promise<{
-  attachmentStorage: AttachmentStorage | undefined
-  containerRuntime: boolean
+  mode: RuntimeMode
+  attachmentStorage: AttachmentStorage
 }>

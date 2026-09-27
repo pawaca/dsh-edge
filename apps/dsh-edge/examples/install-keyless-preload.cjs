@@ -14,6 +14,11 @@ childProcess.spawn = function spawn(command, args = [], options) {
     && ['auth', 'deploy', 'deployments', 'whoami'].includes(wranglerCommand)) {
     return originalSpawn.call(this, command, [fixtureWrangler, eventsFile, ...args.slice(1)], options)
   }
+  // Record the browser hand-off instead of opening a real browser.
+  if (['open', 'xdg-open'].includes(command)) {
+    appendFileSync(eventsFile, `${JSON.stringify({ kind: 'browser', url: args.at(-1) })}\n`, 'utf8')
+    return originalSpawn.call(this, process.execPath, ['-e', ''], options)
+  }
   return originalSpawn.call(this, command, args, options)
 }
 

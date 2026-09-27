@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import * as prompt from '@clack/prompts'
+import { spawn } from 'node:child_process'
 import { realpathSync, writeSync } from 'node:fs'
 import { Writable } from 'node:stream'
 import { fileURLToPath } from 'node:url'
@@ -12,7 +13,7 @@ import {
   InstallerOutputError,
   installEdge,
 } from './install.mjs'
-import { runtimeModeChoices } from './runtime-providers.mjs'
+import { modeCapabilities, RUNTIME_MODES, runtimeModeChoices } from './runtime-providers.mjs'
 
 const INTERRUPT_EXIT_CODES = new Map([
   ['SIGHUP', 129],
@@ -26,6 +27,8 @@ const DSH_EDGE_HERO = String.raw` ____  ____  _   _       _____ ____   ____ ____
 | | | \___ \| |_| |_____|  _| | | | | |  _|  _|
 | |_| |___) |  _  |_____| |___| |_| | |_| | |___
 |____/|____/|_| |_|     |_____|____/ \____|_____|`
+const KEPT_ON_UPDATE = 'conversations, files, access key, and DeepSeek key'
+const CONTAINER_ROLLOUT_NOTE = 'The first command after this can take a few minutes while the container image rolls out.'
 
 export class InstallInterruptedError extends InstallCancelledError {
   constructor(signal) {
@@ -65,6 +68,26 @@ export function renderInstallerIntro(command, {
   ].join('\n')
 }
 
+/** The platform command that opens `url` in the default browser. */
+export function browserOpenCommand(url, platform = process.platform) {
+  if (platform === 'darwin') return { command: 'open', args: [url] }
+  if (platform === 'win32') return { command: 'rundll32', args: ['url.dll,FileProtocolHandler', url] }
+  return { command: 'xdg-open', args: [url] }
+}
+
+/** Open `url` in the default browser; resolves whether the opener started. */
+export function openInBrowser(url) {
+  const { command, args } = browserOpenCommand(url)
+  return new Promise((resolve) => {
+    const child = spawn(command, args, { detached: true, stdio: 'ignore' })
+    child.once('error', () => resolve(false))
+    child.once('spawn', () => {
+      child.unref()
+      resolve(true)
+    })
+  })
+}
+
 export function createInstallerUi(
   clack = prompt,
   signal,
@@ -72,6 +95,7 @@ export function createInstallerUi(
   output,
   writeRecovery,
   command = 'install',
+  openUrl = openInBrowser,
 ) {
   const withOutput = options => output === undefined ? options : { ...options, output }
   const log = (writer, message) => output === undefined
@@ -89,14 +113,6 @@ export function createInstallerUi(
       isTTY: terminal.isTTY === true,
     })),
     step: message => log(clack.log.step, message),
-    async selectRuntime() {
-      return await requireAnswer(await clack.select(withOutput({
-        message: 'Choose a runtime',
-        signal,
-        initialValue: 'direct',
-        options: runtimeModeChoices(),
-      })))
-    },
     async selectAccount(choices) {
       return await requireAnswer(await clack.select(withOutput({
         message: 'Choose a Cloudflare account',
@@ -112,148 +128,99 @@ export function createInstallerUi(
         validate,
       })))
     },
-    async workerConflict(workerName) {
+    async existingWorker({ workerName, mode }) {
+      note([
+        ...fields([
+          ['Can', modeCapabilities(mode).join(', ')],
+          ['After', `dsh-edge ${edgePackage.version} with the same capabilities`],
+          ['Kept', KEPT_ON_UPDATE],
+        ]),
+        ...(mode === 'container' ? [CONTAINER_ROLLOUT_NOTE] : []),
+      ].join('\n'), `${workerName} already exists`)
       return await requireAnswer(await clack.select(withOutput({
-        message: `${workerName} already exists`,
+        message: `Update ${workerName}?`,
+        initialValue: 'update',
         signal,
         options: [
-          { value: 'rename', label: 'Choose another name' },
-          { value: 'update', label: 'Update this Worker', hint: 'keeps its Durable Object data' },
+          { value: 'update', label: 'Update it', hint: 'keeps everything' },
+          { value: 'change', label: 'Update and change what it can do' },
+          { value: 'rename', label: 'Use another name' },
           { value: 'cancel', label: 'Cancel' },
         ],
       })))
     },
-    async selectInitialAttachmentStorage() {
-      note([
-        'This Worker predates image attachments, so no existing image references need migration.',
-        'The selected backend is pinned for future upgrades and is not changed automatically.',
-      ].join('\n'), 'Choose image storage once')
+    async selectCapability(current) {
       return await requireAnswer(await clack.select(withOutput({
-        message: 'Where should this Worker store new images?',
-        initialValue: 'temporary-do',
+        message: 'What should your agent be able to do?',
+        initialValue: current ?? 'direct',
         signal,
-        options: [
-          {
-            value: 'temporary-do',
-            label: 'Durable Object — no R2 setup',
-            hint: 'recommended for Workers Free; 64 MiB per instance',
-          },
-          {
-            value: 'private-r2',
-            label: 'Private R2 bucket',
-            hint: 'requires an enabled R2 subscription; includes a free tier',
-          },
-        ],
+        options: runtimeModeChoices().map(choice => choice.value === current
+          ? { ...choice, hint: `${choice.hint} · current` }
+          : choice),
       })))
     },
-    async r2SubscriptionUnavailable({ activationUrl, canSwitchToDurableObject }) {
+    async confirmDowngrade(lost) {
       note([
-        'Cloudflare requires R2 to be enabled before dsh-edge can create a private bucket.',
+        `This removes: ${lost.join(', ')}.`,
+        'Conversations and files are kept.',
+      ].join('\n'), 'Fewer capabilities')
+      return await requireAnswer(await clack.confirm(withOutput({
+        message: 'Continue with fewer capabilities?',
+        initialValue: false,
+        signal,
+      })))
+    },
+    async r2SubscriptionUnavailable({ activationUrl }) {
+      note([
+        'This Worker stores its images in Cloudflare R2, which is not enabled for this account.',
         `Enable R2: ${activationUrl}`,
         'R2 Standard includes monthly free usage, but activation requires Dashboard checkout.',
         'After checkout completes, return here and retry.',
       ].join('\n'), 'R2 is not enabled for this account')
-      const options = [
-        ...(canSwitchToDurableObject
-          ? [{
-              value: 'temporary-do',
-              label: 'Use Durable Object storage',
-              hint: 'continue now without R2; 64 MiB per instance',
-            }]
-          : []),
-        {
-          value: 'retry',
-          label: 'Retry R2',
-          hint: 'choose this after enabling R2 in the Dashboard',
-        },
-        { value: 'cancel', label: 'Cancel installation' },
-      ]
       return await requireAnswer(await clack.select(withOutput({
         message: 'How should dsh-edge continue?',
-        initialValue: canSwitchToDurableObject ? 'temporary-do' : 'retry',
-        signal,
-        options,
-      })))
-    },
-    async selectOwnerSecretMode() {
-      return await requireAnswer(await clack.select(withOutput({
-        message: 'Set the owner access key',
-        initialValue: 'generate',
+        initialValue: 'retry',
         signal,
         options: [
-          { value: 'generate', label: 'Generate a secure key', hint: 'recommended' },
-          { value: 'custom', label: 'Enter my own key' },
+          { value: 'retry', label: 'Retry R2', hint: 'choose this after enabling R2 in the Dashboard' },
+          { value: 'cancel', label: 'Cancel installation' },
         ],
       })))
-    },
-    async ownerSecret(validate) {
-      return await requireAnswer(await clack.password(withOutput({
-        message: 'Owner access key',
-        mask: '•',
-        signal,
-        validate,
-      })))
-    },
-    async deepSeekKey(validate) {
-      const mode = await requireAnswer(await clack.select(withOutput({
-        message: 'Configure provider key',
-        initialValue: 'enter',
-        signal,
-        options: [
-          { value: 'enter', label: 'Enter now' },
-          { value: 'skip', label: 'Configure later in Settings → Models', hint: 'optional' },
-        ],
-      })))
-      if (mode === 'skip') return ''
-      return await requireAnswer(await clack.password(withOutput({
-        message: 'DeepSeek API key',
-        mask: '•',
-        signal,
-        validate,
-      })))
-    },
-    async enableImages(isTemporary) {
-      if (isTemporary) return false
-      const mode = await requireAnswer(await clack.select(withOutput({
-        message: 'Image optimization',
-        initialValue: 'enable',
-        signal,
-        options: [
-          { value: 'enable', label: 'Enable', hint: 'free 5,000 transforms/month' },
-          { value: 'skip', label: 'Skip' },
-        ],
-      })))
-      return mode === 'enable'
     },
     async confirm(summary) {
       note([
-        `Runtime: ${summary.modeLabel}`,
-        `Account: ${summary.accountLabel}`,
-        `Worker: ${summary.workerName}`,
-        `Cost: ${summary.paid ? 'Workers Paid is required' : 'Works on Workers Free'}`,
+        ...fields([
+          ['Can', modeCapabilities(summary.mode).join(', ')],
+          ['Cost', RUNTIME_MODES[summary.mode].cost],
+          ['Account', summary.accountLabel],
+          ['Worker', summary.workerName],
+          ['Images', summary.attachmentStorage === 'temporary-do'
+            ? 'stored in this instance (64 MiB limit)'
+            : 'stored privately in Cloudflare R2'],
+          ...(summary.updating
+            ? [['Kept', KEPT_ON_UPDATE]]
+            : [
+                ['Owner key', 'generated and shown when installation finishes'],
+                ['DeepSeek', 'add your API key later in Settings → Models'],
+              ]),
+        ]),
         ...(summary.mode === 'container'
-          ? ['Container: usage is billed while it runs and it sleeps after 10 idle minutes.',
-              'The first command after installing or upgrading can take a few minutes while the image rolls out.']
+          ? ['', 'The container sleeps after 10 idle minutes.', CONTAINER_ROLLOUT_NOTE]
           : []),
-        `Images: ${summary.attachmentStorage === 'temporary-do'
-          ? 'stored in this instance (64 MiB limit)'
-          : 'stored privately in Cloudflare R2'}`,
-        ...(command === 'upgrade' ? ['Existing Durable Object data is preserved.', 'You will re-enter the two Worker secrets after confirming.'] : []),
-      ].join('\n'), command === 'upgrade' ? 'Upgrade summary' : 'Installation summary')
+        ...(summary.temporary
+          ? [
+              '',
+              'The temporary account lasts 60 minutes unless you claim it.',
+              'Installing accepts the Cloudflare Terms of Service (https://www.cloudflare.com/terms/)',
+              'and Privacy Policy (https://www.cloudflare.com/privacypolicy/).',
+            ]
+          : []),
+      ].join('\n'), summary.updating ? `Update ${summary.workerName}` : `Install ${summary.workerName}`)
       return await requireAnswer(await clack.confirm(withOutput({
-        message: command === 'upgrade' ? 'Upgrade this instance?' : 'Install this instance?',
+        message: summary.temporary
+          ? 'Accept the terms and install?'
+          : summary.updating ? 'Update this instance?' : 'Install this instance?',
         initialValue: true,
-        signal,
-      })))
-    },
-    async acceptTemporaryTerms() {
-      note([
-        'Cloudflare Terms of Service: https://www.cloudflare.com/terms/',
-        'Cloudflare Privacy Policy: https://www.cloudflare.com/privacypolicy/',
-      ].join('\n'), 'Temporary account terms')
-      return await requireAnswer(await clack.confirm(withOutput({
-        message: 'Accept these terms and create a temporary Cloudflare account?',
-        initialValue: false,
         signal,
       })))
     },
@@ -274,6 +241,7 @@ export function createInstallerUi(
     activationFinish(result) {
       if (activationSpinner === undefined) return
       if (result?.status === 'ready') activationSpinner.stop('Chat and workspace services are ready.')
+      else if (result?.status === 'live') activationSpinner.stop('The new release is live.')
       else if (result?.status === 'pending') {
         activationSpinner.stop('Worker uploaded; application readiness is not yet verified.')
       } else {
@@ -308,59 +276,72 @@ export function createInstallerUi(
       }
       return writeAlternate(writeDescriptor, failedStream, lines)
     },
-    success(result) {
-      const lines = [
-        ...(result.activation?.status === 'ready'
+    async success(result) {
+      const status = result.activation?.status
+      const newKey = result.ownerSecret !== undefined
+      const steps = [
+        ...(result.claimUrl === undefined
+          ? []
+          : ['Claim this temporary account within 60 minutes to keep the Worker and its data.']),
+        'Open the URL above.',
+        newKey
+          ? 'Enter the owner access key when prompted.'
+          : 'Sign in with your existing owner access key.',
+        ...(result.updated ? [] : ['Add your DeepSeek API key in Settings → Models.']),
+        ...(newKey ? ['Save the owner access key; you need it to sign in.'] : []),
+      ]
+      note([
+        ...(status === 'ready'
           ? ['Status: Ready']
-          : [
-              'Status: Application readiness has not been verified.',
-              'The public URL or application may still be starting.',
-              'Open the URL and confirm your chats and workspaces load before using it.',
-            ]),
+          : status === 'live'
+            ? ['Status: Live — the new release is serving.',
+                'Sign in to confirm your chats and workspaces load.']
+            : [
+                'Status: Application readiness has not been verified.',
+                'The public URL or application may still be starting.',
+                'Open the URL and confirm your chats and workspaces load before using it.',
+              ]),
         '',
         `URL: ${result.publicUrl}`,
-        `Owner access key: ${result.ownerSecret}`,
-      ]
-      if (result.claimUrl !== undefined) {
-        lines.push(
-          `Claim URL: ${result.claimUrl}`,
-          '',
-          'Next steps:',
-          '1. Claim this temporary account within 60 minutes to keep the Worker and its data.',
-          '2. Open the URL above.',
-          '3. Enter the owner access key when prompted.',
-          '4. Save the owner access key for future upgrades.',
-        )
-      } else {
-        lines.push(
-          '',
-          'Next steps:',
-          '1. Open the URL above.',
-          '2. Enter the owner access key when prompted.',
-          '3. Save the owner access key for future upgrades.',
-        )
+        `Owner access key: ${newKey ? result.ownerSecret : 'unchanged'}`,
+        ...(result.claimUrl === undefined ? [] : [`Claim URL: ${result.claimUrl}`]),
+        '',
+        'Next steps:',
+        ...steps.map((step, index) => `${index + 1}. ${step}`),
+      ].join('\n'), status === 'ready' || status === 'live'
+        ? (result.updated ? 'dsh-edge update is live' : 'dsh-edge is ready')
+        : 'Worker uploaded — readiness unverified')
+      // The instance is already deployed, so declining or cancelling only skips the browser.
+      if (terminal.isTTY === true && await clack.confirm(withOutput({
+        message: 'Open dsh-edge in your browser?',
+        initialValue: true,
+        signal,
+      })) === true && !await openUrl(result.publicUrl)) {
+        log(clack.log.warn, 'Could not open a browser. Open the URL above.')
       }
-      const ready = result.activation?.status === 'ready'
-      const title = ready
-        ? (command === 'upgrade' ? 'dsh-edge upgrade is live' : 'dsh-edge is ready')
-        : 'Worker uploaded — readiness unverified'
-      note(lines.join('\n'), title)
-      const outro = ready
-        ? (command === 'upgrade' ? 'Your dsh-edge upgrade is live.' : 'Your dsh-edge is ready.')
-        : 'Worker uploaded; application readiness remains unverified.'
-      log(clack.outro, outro)
+      log(clack.outro, status === 'ready' || status === 'live'
+        ? (result.updated ? 'Your dsh-edge update is live.' : 'Your dsh-edge is ready.')
+        : 'Worker uploaded; application readiness remains unverified.')
     },
   }
+}
+
+/** Align `label: value` rows into one column. */
+function fields(rows) {
+  const width = Math.max(...rows.map(([label]) => label.length)) + 2
+  return rows.map(([label, value]) => `${label}:`.padEnd(width) + value)
 }
 
 function recoveryLines(result) {
   const lines = [
     `Worker: ${result.workerName}`,
-    `Active owner access key: ${result.ownerSecret}`,
+    result.ownerSecret === undefined
+      ? 'Owner access key: unchanged'
+      : `Active owner access key: ${result.ownerSecret}`,
   ]
   if (result.publicUrl !== undefined) lines.unshift(`URL: ${result.publicUrl}`)
   if (result.claimUrl !== undefined) lines.push(`Claim URL: ${result.claimUrl}`)
-  lines.push('Save this key. Wrangler reported a successful upload, but the installer could not complete its handoff.')
+  lines.push(`${result.ownerSecret === undefined ? '' : 'Save this key. '}Wrangler reported a successful upload, but the installer could not complete its handoff.`)
   return lines
 }
 
@@ -467,9 +448,9 @@ export async function runInstaller({
       recoveryStream ??= stream
       deliverAlternateRecovery(result, stream)
     },
-    success(result) {
+    async success(result) {
       lastRecovery = result
-      if (recoveryStream === undefined) baseUi.success(result)
+      if (recoveryStream === undefined) await baseUi.success(result)
       else deliverAlternateRecovery(result, recoveryStream)
     },
   }
@@ -621,7 +602,7 @@ async function main() {
   const args = process.argv.slice(2)
   const command = parseCommand(args)
   if (command === 'help') {
-    process.stdout.write('Usage: dsh-edge <install|upgrade> [--verbose]\n\nCommands:\n  install   Create or update an instance\n  upgrade   Upgrade an existing instance without deleting its data\n\nOptions:\n  --verbose  Show Wrangler deployment output\n')
+    process.stdout.write('Usage: dsh-edge <install|upgrade> [--verbose]\n\nCommands:\n  install   Create an instance, or update one that already exists\n  upgrade   Update an existing instance, keeping its data and keys\n\nOptions:\n  --verbose  Show Wrangler deployment output\n\nEnvironment:\n  DSH_EDGE_ACCESS_KEY  Owner access key for a new instance (default: generated)\n')
     return
   }
   if (command === 'version') {

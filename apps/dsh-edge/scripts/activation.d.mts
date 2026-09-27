@@ -3,7 +3,11 @@ import type { RuntimeMode } from './install.mjs'
 export interface ActivationObservation {
   attempts: number
   elapsedMs: number
-  status: 'pending' | 'ready'
+  /**
+   * `ready` verified the signed-in runtime; `live` verified only the public
+   * release, because an in-place update keeps an owner key the installer never sees.
+   */
+  status: 'pending' | 'live' | 'ready'
 }
 
 export interface ExpectedHealth {

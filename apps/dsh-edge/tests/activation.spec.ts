@@ -68,6 +68,22 @@ describe('public deployment activation', () => {
     expect(requests[4]?.init?.body).toBeUndefined()
   })
 
+  it('reports an update that keeps the owner key as live without signing in', async () => {
+    let time = 0
+    const requests: string[] = []
+    const fetchImpl = vi.fn(async (input: string | URL | Request) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+      requests.push(url)
+      return Response.json(time === 0 ? { ...READY_HEALTH, workerVersionId: 'previous-version' } : READY_HEALTH)
+    }) as typeof fetch
+
+    await expect(observePublicActivation({
+      publicUrl: 'https://dsh-edge.owner.workers.dev/', mode: 'direct', versionId: 'uploaded-version',
+      fetchImpl, now: () => time, waitMs: 3, retryMs: 1, sleepImpl: async () => { time++ },
+    })).resolves.toMatchObject({ status: 'live', attempts: 2 })
+    expect(requests.every(url => url.endsWith('/api/health'))).toBe(true)
+  })
+
   it.each([false, true])('retries a previous deployment key rejection (eventuallyReady=%s)', async eventuallyReady => {
     let time = 0
     let logins = 0

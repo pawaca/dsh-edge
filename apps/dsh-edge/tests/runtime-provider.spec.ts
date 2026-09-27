@@ -14,6 +14,8 @@ import {
   RUNTIME_MODES,
   RUNTIME_PROVIDERS,
   isRuntimeMode,
+  lostCapabilities,
+  modeCapabilities,
   runtimeModeChoices,
 } from '../scripts/runtime-providers.mjs'
 
@@ -170,13 +172,11 @@ describe('installer runtime catalog', () => {
   })
 
   it('derives each mode from the providers its bindings enable', () => {
-    expect(RUNTIME_MODES).toEqual({
+    expect(RUNTIME_MODES).toMatchObject({
       direct: {
         environment: '',
         artifact: 'direct',
         expectedShell: 'just-bash-direct',
-        label: 'Free',
-        hint: 'recommended; runs on Workers Free with a lightweight shell',
         paid: false,
         providers: ['direct'],
       },
@@ -184,8 +184,6 @@ describe('installer runtime catalog', () => {
         environment: 'isolated',
         artifact: 'isolated',
         expectedShell: 'just-bash-isolated',
-        label: 'Paid',
-        hint: 'requires Workers Paid (starting at $5/month); isolated shell plus run_code and workflow',
         paid: true,
         providers: ['dynamic-worker'],
       },
@@ -193,28 +191,40 @@ describe('installer runtime catalog', () => {
         environment: 'container',
         artifact: 'isolated',
         expectedShell: 'linux-container',
-        label: 'Paid + Linux container',
-        hint: 'Paid plus a Linux container for git, node, and python, used only when a command needs it; billed while it runs',
         paid: true,
         providers: ['container', 'dynamic-worker'],
       },
     })
   })
 
-  it('offers three tiers: Free, Paid, and Paid with a Linux container', () => {
+  it('offers cumulative capabilities, named by what the agent can do, with the price second', () => {
     expect(runtimeModeChoices()).toEqual([
-      { value: 'direct', label: 'Free', hint: 'recommended; runs on Workers Free with a lightweight shell' },
+      {
+        value: 'direct',
+        label: 'Research and write',
+        hint: 'search the web, read pages, draft docs, connect your tools (MCP) · Free',
+      },
       {
         value: 'isolated',
-        label: 'Paid',
-        hint: 'requires Workers Paid (starting at $5/month); isolated shell plus run_code and workflow',
+        label: '+ Analyze data and split big jobs',
+        hint: 'runs scripts on your data; hands parts of a big task to parallel agents · Workers Paid ($5/mo)',
       },
       {
         value: 'container',
-        label: 'Paid + Linux container',
-        hint: 'Paid plus a Linux container for git, node, and python, used only when a command needs it; billed while it runs',
+        label: '+ Work on code projects',
+        hint: 'clone repos, install packages, run tests (git, npm, python) · Workers Paid + container time',
       },
     ])
+    expect(modeCapabilities('container')).toEqual([
+      'research and write',
+      'analyze data and split big jobs',
+      'work on code projects',
+    ])
+    expect(lostCapabilities('container', 'direct')).toEqual([
+      'analyze data and split big jobs',
+      'work on code projects',
+    ])
+    expect(lostCapabilities('direct', 'container')).toEqual([])
     expect(isRuntimeMode('direct')).toBe(true)
     expect(isRuntimeMode('container')).toBe(true)
     expect(isRuntimeMode('sandbox')).toBe(false)

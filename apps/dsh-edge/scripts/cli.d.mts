@@ -26,7 +26,10 @@ export function createInstallerUi(
   output?: import('node:stream').Writable,
   writeRecovery?: (failedStream: 'stderr' | 'stdout', value: string) => Promise<boolean>,
   command?: InstallerCommand,
+  openUrl?: (url: string) => Promise<boolean>,
 ): InstallerUi
+export function browserOpenCommand(url: string, platform?: NodeJS.Platform): { command: string; args: string[] }
+export function openInBrowser(url: string): Promise<boolean>
 export function runInstaller(options?: {
   command?: InstallerCommand
   install?: (options: { command: InstallerCommand; ui: InstallerUi; signal: AbortSignal }) => Promise<unknown>

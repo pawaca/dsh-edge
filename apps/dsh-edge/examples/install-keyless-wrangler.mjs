@@ -21,8 +21,9 @@ if (command === 'whoami') {
 } else if (command === 'deploy') {
   const secretsPath = argumentAfter(args, '--secrets-file')
   const secrets = JSON.parse(readFileSync(secretsPath, 'utf8'))
-  if (secrets.DEEPSEEK_API_KEY !== 'sk-keyless-no-call') {
-    throw new Error('The keyless example received an unexpected DeepSeek key.')
+  // The DeepSeek key is added later in Settings, never from the installer's environment.
+  if (Object.hasOwn(secrets, 'DEEPSEEK_API_KEY')) {
+    throw new Error('The keyless example received a DeepSeek key.')
   }
   if (typeof secrets.DSH_EDGE_ACCESS_KEY !== 'string'
     || Buffer.byteLength(secrets.DSH_EDGE_ACCESS_KEY, 'utf8') < 32) {

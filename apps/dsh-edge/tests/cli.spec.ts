@@ -7,7 +7,9 @@ import { join } from 'node:path'
 import { Writable } from 'node:stream'
 import * as prompt from '@clack/prompts'
 import { describe, expect, it, vi } from 'vitest'
+import edgePackage from '../package.json' with { type: 'json' }
 import {
+  browserOpenCommand,
   createInstallerUi,
   InstallInterruptedError,
   parseCommand,
@@ -22,6 +24,16 @@ import type {
   InstallRecovery,
   InstallerUi,
 } from '../scripts/install.mjs'
+
+interface SelectPrompt {
+  message: string
+  initialValue?: string
+  options: Array<{ value: string; hint?: string }>
+}
+
+function selectMock(answer: string) {
+  return vi.fn(async (_prompt: SelectPrompt) => answer)
+}
 
 function recoveryUiFactory(outputFailureRecovery: InstallerUi['outputFailureRecovery']) {
   return (
@@ -130,7 +142,7 @@ describe('dsh-edge CLI', () => {
       })
     })
     const clack = { ...prompt, select } as unknown as typeof prompt
-    const pending = createInstallerUi(clack, controller.signal).selectRuntime()
+    const pending = createInstallerUi(clack, controller.signal).selectCapability()
 
     controller.abort(interrupted)
 
@@ -138,66 +150,142 @@ describe('dsh-edge CLI', () => {
     expect(select).toHaveBeenCalledWith(expect.objectContaining({ signal: controller.signal }))
   })
 
-  it('explains and defaults the one-time storage choice for legacy Workers', async () => {
-    const select = vi.fn().mockResolvedValue('temporary-do')
+  it('offers an existing Worker as an in-place update that Enter confirms', async () => {
+    const select = selectMock('update')
     const note = vi.fn()
     const clack = { ...prompt, note, select } as unknown as typeof prompt
 
-    await expect(createInstallerUi(clack).selectInitialAttachmentStorage())
-      .resolves.toBe('temporary-do')
+    await expect(createInstallerUi(clack).existingWorker({ workerName: 'dsh-edge', mode: 'container' }))
+      .resolves.toBe('update')
 
-    expect(note).toHaveBeenCalledWith(
-      expect.stringContaining('pinned for future upgrades'),
-      'Choose image storage once',
-    )
+    expect(note).toHaveBeenCalledWith([
+      'Can:   research and write, analyze data and split big jobs, work on code projects',
+      `After: dsh-edge ${edgePackage.version} with the same capabilities`,
+      'Kept:  conversations, files, access key, and DeepSeek key',
+      'The first command after this can take a few minutes while the container image rolls out.',
+    ].join('\n'), 'dsh-edge already exists')
     expect(select).toHaveBeenCalledWith(expect.objectContaining({
-      initialValue: 'temporary-do',
-      message: 'Where should this Worker store new images?',
-      options: [
-        expect.objectContaining({
-          value: 'temporary-do',
-          label: 'Durable Object — no R2 setup',
-        }),
-        expect.objectContaining({
-          value: 'private-r2',
-          label: 'Private R2 bucket',
-        }),
-      ],
+      message: 'Update dsh-edge?',
+      initialValue: 'update',
     }))
+    expect(select.mock.calls[0]?.[0].options.map(option => option.value))
+      .toEqual(['update', 'change', 'rename', 'cancel'])
   })
 
-  it('offers a no-R2 recovery only when switching storage is safe', async () => {
-    const answers = ['temporary-do', 'retry']
-    const calls: Array<{
-      initialValue: string
-      options: Array<{ value: string }>
-    }> = []
-    const select = vi.fn(async (options: unknown) => {
-      calls.push(options as typeof calls[number])
-      return answers.shift()
+  it('asks what the agent should do, marking an existing instance\'s capabilities', async () => {
+    const select = selectMock('isolated')
+    const clack = { ...prompt, select } as unknown as typeof prompt
+    const ui = createInstallerUi(clack)
+
+    await ui.selectCapability()
+    expect(select).toHaveBeenLastCalledWith(expect.objectContaining({
+      message: 'What should your agent be able to do?',
+      initialValue: 'direct',
+    }))
+    await ui.selectCapability('isolated')
+    expect(select).toHaveBeenLastCalledWith(expect.objectContaining({ initialValue: 'isolated' }))
+    expect(select.mock.lastCall?.[0].options[1]?.hint).toMatch(/ · current$/u)
+    expect(select.mock.lastCall?.[0].options[0]?.hint).not.toMatch(/current/u)
+  })
+
+  it('defaults a downgrade to No after naming what it removes', async () => {
+    const confirm = vi.fn().mockResolvedValue(false)
+    const note = vi.fn()
+    const clack = { ...prompt, confirm, note } as unknown as typeof prompt
+
+    await expect(createInstallerUi(clack).confirmDowngrade(['work on code projects'])).resolves.toBe(false)
+    expect(note).toHaveBeenCalledWith(expect.stringContaining('This removes: work on code projects.'),
+      'Fewer capabilities')
+    expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ initialValue: false }))
+  })
+
+  it('confirms once, listing the price, the defaults, and a temporary account\'s terms', async () => {
+    const confirm = vi.fn().mockResolvedValue(true)
+    const note = vi.fn()
+    const clack = { ...prompt, confirm, note } as unknown as typeof prompt
+    const ui = createInstallerUi(clack)
+
+    await ui.confirm({
+      mode: 'direct',
+      accountLabel: 'Temporary account',
+      workerName: 'dsh-edge',
+      temporary: true,
+      updating: false,
+      attachmentStorage: 'temporary-do',
     })
+    expect(note).toHaveBeenLastCalledWith(expect.stringMatching(/^Cost: +free on Workers Free$/mu), 'Install dsh-edge')
+    expect(note.mock.lastCall?.[0]).toMatch(/^DeepSeek: +add your API key later in Settings → Models$/mu)
+    expect(note.mock.lastCall?.[0]).toContain('https://www.cloudflare.com/terms/')
+    expect(confirm).toHaveBeenLastCalledWith(expect.objectContaining({
+      message: 'Accept the terms and install?',
+      initialValue: true,
+    }))
+
+    await ui.confirm({
+      mode: 'container',
+      accountLabel: 'Personal',
+      workerName: 'dsh-edge',
+      temporary: false,
+      updating: true,
+      attachmentStorage: 'private-r2',
+    })
+    expect(note.mock.lastCall?.[0]).toContain('Workers Paid on this account')
+    expect(note.mock.lastCall?.[0]).toMatch(/^Kept: +conversations, files, access key, and DeepSeek key$/mu)
+    expect(note.mock.lastCall?.[0]).not.toContain('terms')
+    expect(confirm).toHaveBeenLastCalledWith(expect.objectContaining({ message: 'Update this instance?' }))
+  })
+
+  it('offers only a retry when a Worker\'s R2 storage is not enabled', async () => {
+    const select = selectMock('retry')
     const note = vi.fn()
     const clack = { ...prompt, note, select } as unknown as typeof prompt
 
     await expect(createInstallerUi(clack).r2SubscriptionUnavailable({
       activationUrl: 'https://dash.cloudflare.com/account-1/r2/overview',
-      canSwitchToDurableObject: true,
-    })).resolves.toBe('temporary-do')
+    })).resolves.toBe('retry')
 
     expect(note).toHaveBeenCalledWith(
       expect.stringContaining('https://dash.cloudflare.com/account-1/r2/overview'),
       'R2 is not enabled for this account',
     )
-    expect(calls[0]?.initialValue).toBe('temporary-do')
-    expect(calls[0]?.options.map(option => option.value))
-      .toEqual(['temporary-do', 'retry', 'cancel'])
+    expect(select).toHaveBeenCalledWith(expect.objectContaining({ initialValue: 'retry' }))
+    expect(select.mock.calls[0]?.[0].options.map(option => option.value))
+      .toEqual(['retry', 'cancel'])
+  })
 
-    await expect(createInstallerUi(clack).r2SubscriptionUnavailable({
-      activationUrl: 'https://dash.cloudflare.com/account-1/r2/overview',
-      canSwitchToDurableObject: false,
-    })).resolves.toBe('retry')
-    expect(calls[1]?.initialValue).toBe('retry')
-    expect(calls[1]?.options.map(option => option.value)).toEqual(['retry', 'cancel'])
+  it('opens the instance in a browser when the owner presses Enter at the end', async () => {
+    const confirm = vi.fn().mockResolvedValue(true)
+    const openUrl = vi.fn().mockResolvedValue(false)
+    const warn = vi.fn()
+    const clack = {
+      ...prompt, confirm, note: vi.fn(), outro: vi.fn(), log: { ...prompt.log, warn },
+    } as unknown as typeof prompt
+    const output = Object.assign(new Writable({ write: (_chunk, _encoding, callback) => callback() }), {
+      isTTY: true,
+    })
+
+    await createInstallerUi(clack, undefined, undefined, output, undefined, 'install', openUrl).success({
+      activation: { attempts: 1, elapsedMs: 0, status: 'ready' },
+      attachmentStorage: 'temporary-do',
+      publicUrl: 'https://dsh-edge.example.workers.dev',
+      mode: 'direct',
+      ownerSecret: 'active-owner-key',
+      temporary: false,
+      updated: false,
+      workerName: 'dsh-edge',
+    })
+
+    expect(confirm).toHaveBeenCalledWith(expect.objectContaining({
+      message: 'Open dsh-edge in your browser?',
+      initialValue: true,
+    }))
+    expect(openUrl).toHaveBeenCalledWith('https://dsh-edge.example.workers.dev')
+    expect(warn).toHaveBeenCalledWith('Could not open a browser. Open the URL above.', { output })
+    expect(browserOpenCommand('https://x.workers.dev', 'darwin')).toEqual({ command: 'open', args: ['https://x.workers.dev'] })
+    expect(browserOpenCommand('https://x.workers.dev', 'linux').command).toBe('xdg-open')
+    expect(browserOpenCommand('https://x.workers.dev', 'win32')).toEqual({
+      command: 'rundll32', args: ['url.dll,FileProtocolHandler', 'https://x.workers.dev'],
+    })
   })
 
   it.each([
@@ -460,6 +548,7 @@ describe('dsh-edge CLI', () => {
         mode: 'direct' as const,
         ownerSecret: 'active-owner-key',
         temporary: false,
+        updated: false,
         workerName: 'dsh-edge',
       }
     })
@@ -595,18 +684,20 @@ describe('dsh-edge CLI', () => {
     )
   })
 
-  it('hands a pending authenticated deployment to the owner without claiming readiness', () => {
+  // `confirm` declines the browser in case the test runner's stdout is a TTY.
+  it('hands a pending authenticated deployment to the owner without claiming readiness', async () => {
     const note = vi.fn()
     const outro = vi.fn()
-    const clack = { ...prompt, note, outro } as unknown as typeof prompt
+    const clack = { ...prompt, confirm: vi.fn().mockResolvedValue(false), note, outro } as unknown as typeof prompt
 
-    createInstallerUi(clack).success({
+    await createInstallerUi(clack).success({
       attachmentStorage: 'private-r2',
       publicUrl: 'https://dsh-edge.example.workers.dev',
       account: { id: 'account-1', name: 'Personal' },
       mode: 'direct',
       ownerSecret: 'active-owner-key',
       temporary: false,
+      updated: false,
       workerName: 'dsh-edge',
     })
 
@@ -615,19 +706,20 @@ describe('dsh-edge CLI', () => {
     ), 'Worker uploaded — readiness unverified')
     expect(note).toHaveBeenCalledWith(expect.stringContaining(
       '1. Open the URL above.\n2. Enter the owner access key when prompted.\n'
-      + '3. Save the owner access key for future upgrades.',
+      + '3. Add your DeepSeek API key in Settings → Models.\n'
+      + '4. Save the owner access key; you need it to sign in.',
     ), 'Worker uploaded — readiness unverified')
     expect(outro).toHaveBeenCalledWith(
       'Worker uploaded; application readiness remains unverified.',
     )
   })
 
-  it('celebrates a deployment only after the exact public release is ready', () => {
+  it('celebrates a deployment only after the exact public release is ready', async () => {
     const note = vi.fn()
     const outro = vi.fn()
-    const clack = { ...prompt, note, outro } as unknown as typeof prompt
+    const clack = { ...prompt, confirm: vi.fn().mockResolvedValue(false), note, outro } as unknown as typeof prompt
 
-    createInstallerUi(clack).success({
+    await createInstallerUi(clack).success({
       activation: { attempts: 3, elapsedMs: 3_000, status: 'ready' },
       attachmentStorage: 'private-r2',
       publicUrl: 'https://dsh-edge.example.workers.dev',
@@ -635,6 +727,7 @@ describe('dsh-edge CLI', () => {
       mode: 'direct',
       ownerSecret: 'active-owner-key',
       temporary: false,
+      updated: false,
       workerName: 'dsh-edge',
     })
 
@@ -643,17 +736,44 @@ describe('dsh-edge CLI', () => {
     expect(outro).toHaveBeenCalledWith('Your dsh-edge is ready.')
   })
 
-  it('puts account claim before opening a temporary deployment', () => {
+  it('hands over an in-place update without a new key', async () => {
     const note = vi.fn()
-    const clack = { ...prompt, note, outro: vi.fn() } as unknown as typeof prompt
+    const outro = vi.fn()
+    const clack = { ...prompt, confirm: vi.fn().mockResolvedValue(false), note, outro } as unknown as typeof prompt
 
-    createInstallerUi(clack).success({
+    await createInstallerUi(clack).success({
+      activation: { attempts: 1, elapsedMs: 0, status: 'live' },
+      attachmentStorage: 'temporary-do',
+      publicUrl: 'https://dsh-edge.example.workers.dev',
+      mode: 'isolated',
+      temporary: false,
+      updated: true,
+      workerName: 'dsh-edge',
+    })
+
+    expect(note).toHaveBeenCalledWith(expect.stringContaining('Owner access key: unchanged'),
+      'dsh-edge update is live')
+    expect(note.mock.lastCall?.[0]).toContain(
+      '1. Open the URL above.\n2. Sign in with your existing owner access key.',
+    )
+    expect(note.mock.lastCall?.[0]).not.toContain('DeepSeek')
+    expect(outro).toHaveBeenCalledWith('Your dsh-edge update is live.')
+  })
+
+  it('puts account claim before opening a temporary deployment', async () => {
+    const note = vi.fn()
+    const clack = {
+      ...prompt, confirm: vi.fn().mockResolvedValue(false), note, outro: vi.fn(),
+    } as unknown as typeof prompt
+
+    await createInstallerUi(clack).success({
       attachmentStorage: 'temporary-do',
       publicUrl: 'https://dsh-edge.preview.workers.dev',
       claimUrl: 'https://dash.cloudflare.com/claim-preview?token=claim-secret',
       mode: 'direct',
       ownerSecret: 'active-owner-key',
       temporary: true,
+      updated: false,
       workerName: 'dsh-edge',
     })
 
