@@ -14,7 +14,7 @@ import {
   workerArtifactPath,
   writePrebuiltModeWranglerConfig,
 } from '../scripts/wrangler-config.mjs'
-import { startMockDeepSeek } from './fixtures/mock-deepseek.mjs'
+import { latestUserPromptIndex, startMockDeepSeek } from './fixtures/mock-deepseek.mjs'
 
 const ACCESS_KEY = 'integration-owner-access-key-32-bytes'
 const RELEASED_SESSION_ID = 'session-v0-1-3'
@@ -561,8 +561,14 @@ try {
     referenceSessionId,
     `compare with @[Released](dsh-session:${sessionReferencePayload(RELEASED_SESSION_ID)})`,
   )
+  // The loop's runtime-context snapshot (the current date) is a plugin
+  // message of its own; the reference messages are the rest.
+  const runtimeContexts = referenceEvents.filter(event => event.type === 'user/message'
+    && event.data.source.kind === 'plugin' && event.data.source.plugin === '@deepseek-ai/dsh-system-prompt')
+  assert.equal(runtimeContexts.length, 1)
+  assert.match(runtimeContexts[0].data.content[0].text, /Current date: \w+, \d{4}-\d{2}-\d{2} \(UTC\)\./u)
   const referenceMessages = referenceEvents
-    .filter(event => event.type === 'user/message')
+    .filter(event => event.type === 'user/message' && !runtimeContexts.includes(event))
     .map(event => event.data)
   assert.equal(referenceMessages.length, 2, referenceEvents.map(event => `${event.seq}:${event.type}`).join(' '))
   assert.equal(referenceMessages[0].source.kind, 'user')
@@ -1187,7 +1193,7 @@ try {
       sessionId: protocolSessionId,
       mode: 'queue',
       content: [{ type: 'text', text: 'upstream protocol path' }],
-      clientTimeZone: 'UTC',
+      clientTimeZone: 'Asia/Shanghai',
     },
   })
   assert.equal(protocolPrompt.body.result.ok, true, JSON.stringify(protocolPrompt.body))
@@ -1221,6 +1227,11 @@ try {
   const protocolUser = protocolHistory.body.result.value.events
     .find(entry => entry.event.type === 'user/message')
   assert.equal(protocolUser.event.data.source.rpcId, protocolRequestId)
+  // The date context uses the owner's zone from their latest prompt.
+  const isDateContext = event => event.type === 'user/message' && event.data.source.kind === 'plugin'
+    && event.data.source.plugin === '@deepseek-ai/dsh-system-prompt'
+  assert.match(protocolHistory.body.result.value.events.map(entry => entry.event).find(isDateContext)
+    ?.data.content[0].text ?? '', /Current date: \w+, \d{4}-\d{2}-\d{2} \(Asia\/Shanghai\)\./u)
   const protocolPromptProjection = await mux.next(message =>
     message.payload.type === 'session/projection'
       && message.payload.sessionId === protocolSessionId
@@ -1241,6 +1252,10 @@ try {
     ok: true,
     value: { items: [], hasMore: false },
   })
+  // The date runtime context is loop-owned, not conversation text: every
+  // session carries one, and none of them is searchable.
+  const dateSearch = await rpc('session.search', { query: 'Current date' })
+  assert.deepEqual(dateSearch.body.result, { ok: true, value: { items: [], hasMore: false } })
   const protocolRequestHeader = protocolHistory.body.result.value.events
     .findLast(entry => entry.event.type === 'request/header')
   assert.equal(protocolRequestHeader.event.data.header.config.provider, 'deepseek-official')
@@ -1304,6 +1319,16 @@ try {
     .find(item => item.sessionId === forkedSessionId)
   assert.equal(forkSummary.parentSessionId, protocolSessionId)
   assert.equal(forkSummary.projections.values.title, 'Protocol path (2)')
+  // A fork is a root conversation of its own: its next turn keeps the date
+  // context it inherited (same day, same owner zone) instead of clearing it
+  // as a subagent would.
+  const forkTurn = await turn(forkedSessionId, 'continue the fork')
+  assert.equal(forkTurn.some(event => isDateContext(event)
+    && event.data.content[0].text.includes('Current runtime context: none')), false)
+  const forkDates = (await rpc('session.history', { sessionId: forkedSessionId })).body.result.value.events
+    .map(entry => entry.event).filter(isDateContext)
+  assert.match(forkDates.at(-1)?.data.content[0].text ?? '',
+    /Current date: \w+, \d{4}-\d{2}-\d{2} \(Asia\/Shanghai\)\./u)
 
   const missingArchive = await rpc('workspace.archiveSession', {
     sessionId: 'session-ghost',
@@ -1743,7 +1768,7 @@ try {
     req.messages.some(msg => Array.isArray(msg.content) && msg.content.some(part =>
       part.type === 'image_url')))
   assert.ok(imageApiRequest, 'expected at least one API request with an image_url part')
-  const imageRequestContent = imageApiRequest.messages.findLast(msg => msg.role === 'user').content
+  const imageRequestContent = imageApiRequest.messages[latestUserPromptIndex(imageApiRequest.messages)].content
   assert.ok(Array.isArray(imageRequestContent) && imageRequestContent.some(part =>
     part.type === 'image_url' && typeof part.image_url?.url === 'string'))
   const imageHistory = await rpc('session.history', { sessionId: imageSessionId })
@@ -1910,8 +1935,9 @@ try {
   // ask_user_question and exit_plan_mode turns each add a tool-call request
   // and its continuation; in the isolated build the workflow turn adds a
   // tool-call request, its five children, and its continuation, and the
-  // run_code turn adds a tool-call request and its continuation.
-  assert.equal(turnRequests().length, runtimeMode === 'isolated' ? 33 : 24)
+  // run_code turn adds a tool-call request and its continuation; the fork's
+  // own date-context turn adds one request.
+  assert.equal(turnRequests().length, runtimeMode === 'isolated' ? 34 : 25)
   await worker.stop()
   worker = undefined
   const { physicalRows, writeBatches } = sessionEventStorageStats(batchedSessionId)

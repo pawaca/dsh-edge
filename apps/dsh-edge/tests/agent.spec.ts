@@ -16,6 +16,9 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { describe, expect, it, vi } from 'vitest'
 import {
+  EDGE_PLAN_MODE_SECTION,
+  edgeBashGuidance,
+  edgeCurrentDate,
   edgeSystemPrompt,
   EdgeShellBindings,
   createEdgeBashTool,
@@ -173,8 +176,35 @@ describe('dsh-edge native agent runtime', () => {
     const container = edgeSystemPrompt('linux-container')
     expect(container).toContain('Commands start in just-bash')
     expect(container).toContain('runs automatically in a Linux container')
-    expect(container).not.toContain('native binaries and background processes are unavailable')
-    expect(container.endsWith(EDGE_SYSTEM_PROMPT.slice(EDGE_SYSTEM_PROMPT.indexOf('Each tool')))).toBe(true)
+    expect(container).not.toContain('has no git, node, npm, python')
+    // Both tiers share the identity and the tool paragraphs; only the shell text differs.
+    expect(EDGE_SYSTEM_PROMPT).toContain('has no git, node, npm, python')
+    expect(EDGE_SYSTEM_PROMPT).toContain('"Work on code projects"')
+    for (const prompt of [EDGE_SYSTEM_PROMPT, container]) {
+      expect(prompt.startsWith('You are dsh-edge, a coding agent running in a Cloudflare Worker. ')).toBe(true)
+      expect(prompt.endsWith('survive session restarts.')).toBe(true)
+    }
+  })
+
+  it('states the deployment timeout ceiling to the model', () => {
+    expect(edgeBashGuidance(120_000)).toBe('Check the [exit code: N] marker on every bash result and investigate '
+      + 'failures before moving on. timeoutMs is optional and at most 120000; split longer work into separate commands.')
+    const tool = createEdgeBashTool(new EdgeShellBindings(), 'linux-container', 240_000)
+    const timeout = (tool.parameters as { properties: Record<string, { description: string }> }).properties.timeoutMs
+    expect(timeout?.description).toBe('Optional execution timeout in milliseconds, at most 240000.')
+  })
+
+  it('renders the current date in the user\'s time zone, falling back to UTC', () => {
+    const instant = new Date('2026-09-28T05:30:00Z')
+    expect(edgeCurrentDate(instant, 'America/Los_Angeles')).toBe('Current date: Sunday, 2026-09-27 (America/Los_Angeles).')
+    expect(edgeCurrentDate(instant, 'Asia/Shanghai')).toBe('Current date: Monday, 2026-09-28 (Asia/Shanghai).')
+    expect(edgeCurrentDate(instant)).toBe('Current date: Monday, 2026-09-28 (UTC).')
+  })
+
+  it('keeps the upstream plan-mode rules except the todo tool Edge does not mount', () => {
+    expect(EDGE_PLAN_MODE_SECTION).toContain('Make exit_plan_mode the only and final tool call')
+    expect(EDGE_PLAN_MODE_SECTION).toContain('approves nothing and does not end plan mode')
+    expect(EDGE_PLAN_MODE_SECTION).not.toContain('todo_write')
   })
 
   it('reuses the upstream DeepSeek catalog including the experimental vision model', async () => {

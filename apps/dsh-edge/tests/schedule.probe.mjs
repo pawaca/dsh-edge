@@ -6,13 +6,13 @@ import { join } from 'node:path'
 import { chromium } from 'playwright'
 import { unstable_dev } from 'wrangler'
 import { workerArtifactPath, writePrebuiltModeWranglerConfig } from '../scripts/wrangler-config.mjs'
-import { startMockDeepSeek } from './fixtures/mock-deepseek.mjs'
+import { latestUserPromptIndex, startMockDeepSeek } from './fixtures/mock-deepseek.mjs'
 const mode = process.env.DSH_EDGE_TEST_RUNTIME_MODE ?? 'direct'
 const state = mkdtempSync(join(tmpdir(), 'dsh-schedule-probe-'))
 const mock = await startMockDeepSeek()
 const ownerKey = 'schedule-probe-owner-key-32-bytes'
 let worker, browser
-const latest = request => request.messages.findLast(message => message.role === 'user')?.content
+const latest = request => request.messages[latestUserPromptIndex(request.messages)]?.content
 const reminders = () => mock.requests.filter(request => typeof latest(request) === 'string' && latest(request).startsWith('[SCHEDULE REMINDER'))
 const wait = async (predicate, label, timeout = 30_000) => {
   const until = Date.now() + timeout
@@ -40,8 +40,10 @@ try {
     const response = await fetch(`/api/${method.replace('.', '/')}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type: 'client-request', rpcId: crypto.randomUUID(), payload: { args: { request: payload } } }) })
     return (await response.json()).result
   }, { method, payload })
-  const prompt = async (page, sessionId, text) => {
-    const result = await rpc(page, 'session.prompt', { sessionId, mode: 'queue', content: [{ type: 'text', text }] })
+  const prompt = async (page, sessionId, text, clientTimeZone) => {
+    const result = await rpc(page, 'session.prompt', {
+      sessionId, mode: 'queue', content: [{ type: 'text', text }], ...clientTimeZone === undefined ? {} : { clientTimeZone },
+    })
     assert.ok(result.ok, JSON.stringify(result))
   }
   const history = async id => (await rpc(a, 'session.history', { sessionId: id })).value.events.map(entry => entry.event)
@@ -72,7 +74,7 @@ try {
   assert.equal(reminders().length, 1)
   console.log(`PASS ${mode}: deleted reminder does not fire`)
 
-  await prompt(a, 'restart', 'schedule once 10')
+  await prompt(a, 'restart', 'schedule once 10', 'Asia/Tokyo')
   await wait(() => ended('restart', 1), 'restart reminder committed')
   await context.close()
   await worker.stop()
@@ -81,6 +83,11 @@ try {
   await wait(() => reminders().length === 2, 'alarm after process restart')
   await new Promise(resolve => setTimeout(resolve, 1500))
   assert.equal(reminders().length, 2)
+  // The restarted object reloads the owner's stored zone rather than falling
+  // back to UTC for the reminder's date context.
+  const restartContexts = reminders()[1].messages
+    .filter(message => typeof message.content === 'string' && message.content.startsWith('Current runtime context'))
+  assert.match(restartContexts.at(-1)?.content ?? '', /\(Asia\/Tokyo\)\./u)
   console.log(`PASS ${mode}: persisted alarm wakes original session after Worker restart; no duplicate delivery`)
 } finally {
   mock.releaseSlowResponses()

@@ -323,6 +323,10 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         ? { workerLoader: this.env.LOADER as unknown as WorkflowLoader }
         : {},
       shell: resolveEdgeRuntimeShell(this.env),
+      maxCommandTimeoutMs: resolveEdgeCommandTimeoutPolicy(
+        this.env.DSH_EDGE_DEFAULT_COMMAND_TIMEOUT_MS,
+        this.env.DSH_EDGE_MAX_COMMAND_TIMEOUT_MS,
+      ).maxTimeoutMs,
       withWorkspaceFiles: read => this.withWorkspaceFiles(read),
       onLateSessionEvent: (sessionId, event) => {
         this.publishSessionEvent(sessionId, event)
@@ -788,6 +792,10 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     const message = freezeMessage({ ...createUserMessage({ content, source: {
       kind: 'user', ...rpcId === undefined ? {} : { rpcId }, ...clientTimeZone === undefined ? {} : { clientTimeZone },
     } }), id: MessageId(inputId) })
+    // Every owner prompt, queued or steering, updates the instance's zone.
+    // It is written before the receipt exists, so a failed write fails the
+    // request and its retry writes it again.
+    if (clientTimeZone !== undefined) await this.sessions.noteOwnerTimeZone(clientTimeZone)
     const input = this.mainQueue.enqueue(sessionId, inputId, digest, message, !announce)
     await this.scheduleMainWake()
     if (announce) this.publishSessionQueue(sessionId)
