@@ -86,15 +86,15 @@ it('opens the first turn only after a preset switch that began before its claim'
     selectAgentPreset(sessionId: string, preset: string): Promise<string>
     claimTurn(sessionId: string): Promise<unknown>
   }
-  const selecting = runtime.selectAgentPreset(sessionId, 'dsh-edge-ptc')
+  const selecting = runtime.selectAgentPreset(sessionId, 'ptc')
   const claiming = runtime.claimTurn(sessionId)
   await new Promise(resolve => setTimeout(resolve, 0))
   // The claimed turn owns the session: a later switch is refused, and the
   // Agent stays closed while the earlier switch is still recomposing it.
   await expect(runtime.selectAgentPreset(sessionId, 'dsh-edge')).rejects.toMatchObject({ code: 'PRESET_LOCKED' })
   expect(sessions.getOrResumeAgent).not.toHaveBeenCalled()
-  switched.resolve('dsh-edge-ptc')
-  await expect(selecting).resolves.toBe('dsh-edge-ptc')
+  switched.resolve('ptc')
+  await expect(selecting).resolves.toBe('ptc')
   await claiming
   expect(order).toEqual(['switched', 'opened'])
 })

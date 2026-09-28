@@ -217,10 +217,6 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
             details: { path: resolvedCwd },
           })
         }
-        if (agentPreset !== undefined) {
-          const available = (await runtime.sessions.agentPresetRows()).map(row => row.id)
-          if (!available.includes(agentPreset)) return presetNotFound(request, agentPreset, available)
-        }
         try {
           const created = await runtime.sessions.createBlankSession({
             model: runtime.model,
@@ -247,6 +243,10 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
             agentPreset: created.agentPreset,
           })
         } catch (error) {
+          if (agentPreset !== undefined && error instanceof EdgeSessionStoreError && error.code === 'PRESET_UNAVAILABLE') {
+            const available = (await runtime.sessions.agentPresetRows()).map(row => row.id)
+            return presetNotFound(request, agentPreset, available)
+          }
           return sessionFailure(request, error, sessionId)
         }
       },
@@ -720,8 +720,8 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
           return ok(request, {
             agentPreset: preset.id,
             trust: preset.trust,
-            name: preset.name,
-            description: preset.description,
+            ...preset.name === undefined ? {} : { name: preset.name },
+            ...preset.description === undefined ? {} : { description: preset.description },
             content: edgeAgentPresetContent(
               runtime,
               preset.id,

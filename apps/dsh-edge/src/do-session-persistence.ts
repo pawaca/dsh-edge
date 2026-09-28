@@ -715,6 +715,12 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
       if (updated.rowsWritten !== 1) throw new Error(`session ${storage.meta.id} is not materialized`)
       this.storage.sql.exec('DELETE FROM dsh_edge_blank_sessions WHERE id = ?', storage.meta.id)
       this.updateSummaryFromBatch(storage.meta.id, events)
+      // A blank session's preset selection rewrites its durable header with
+      // the event, so summaries, resume, and fork read one bounded value.
+      const selected = events.findLast(event => event.type === 'agent-preset/selected')
+      if (selected !== undefined) {
+        this.storage.sql.exec('UPDATE dsh_sessions SET agent_preset = ? WHERE id = ?', selected.data.agentPreset, storage.meta.id)
+      }
       acknowledgeMainInputs(this.storage, storage.meta.id, events)
       persistScheduleChanges(this.storage, storage.meta.id, events, storage.inheritedEventCount)
     }

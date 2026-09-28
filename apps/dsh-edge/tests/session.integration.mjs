@@ -956,13 +956,18 @@ try {
   const presetList = await rpc('agentPreset.list', {})
   assert.deepEqual(
     presetList.body.result.value.presets.map(preset => preset.id),
-    runtimeMode === 'isolated' ? ['dsh-edge', 'dsh-edge-ptc'] : ['dsh-edge'],
+    runtimeMode === 'isolated' ? ['dsh-edge', 'ptc'] : ['dsh-edge'],
   )
+  // A blank session keeps its selected preset in every summary and create retry.
+  let blankPtcSessionId
   if (runtimeMode === 'isolated') {
+    blankPtcSessionId = (await rpc('session.create', {})).body.result.value.sessionId
+    await rpc('agentPreset.select', { agentId: blankPtcSessionId, agentPreset: 'ptc' })
+    await assertBlankPtcPreset(blankPtcSessionId)
     const ptcSession = await rpc('session.create', {})
     const ptcSessionId = ptcSession.body.result.value.sessionId
-    const selected = await rpc('agentPreset.select', { agentId: ptcSessionId, agentPreset: 'dsh-edge-ptc' })
-    assert.equal(selected.body.result.value, 'dsh-edge-ptc')
+    const selected = await rpc('agentPreset.select', { agentId: ptcSessionId, agentPreset: 'ptc' })
+    assert.equal(selected.body.result.value, 'ptc')
     const codeEvents = await turn(ptcSessionId, 'run some code that echoes a marker')
     assert.equal(codeEvents.find(event => event.type === 'tool/call')?.data.name, 'run_code')
     const codeResultText = toolResultText(codeEvents.find(event => event.type === 'tool/result'))
@@ -975,7 +980,7 @@ try {
     const locked = await rpc('agentPreset.select', { agentId: ptcSessionId, agentPreset: 'dsh-edge' })
     assert.equal(locked.body.result.error.code, 'agent-preset-locked')
   } else {
-    const refused = await rpc('session.create', { agentPreset: 'dsh-edge-ptc' })
+    const refused = await rpc('session.create', { agentPreset: 'ptc' })
     assert.equal(refused.body.result.error.code, 'agent-preset-not-found')
   }
   remoteMux.send({ type: 'cancel', streamId: 'events-1' })
@@ -1141,6 +1146,8 @@ try {
   assert.deepEqual(emptySkills.body.skills, [])
   mux = await openDownlink('/api/events.mux')
   host = await openDownlink('/api/events.host')
+  // After a Worker restart the selected preset comes from the durable header.
+  if (blankPtcSessionId !== undefined) await assertBlankPtcPreset(blankPtcSessionId)
   const restoredBlankList = await rpc('session.list', {})
   const restoredBlank = restoredBlankList.body.result.value.items
     .find(item => item.sessionId === protocolSessionId)
@@ -1975,9 +1982,19 @@ try {
   try {
     assert.equal(repaired.prepare('SELECT version FROM dsh_sessions WHERE id = ?').get(RELEASED_SESSION_ID).version, 999)
     repaired.prepare('UPDATE dsh_sessions SET version = ? WHERE id = ?').run(savedVersion, RELEASED_SESSION_ID)
+    // A session recorded under PTC mode on a deployment that no longer offers it
+    // (the Loader was removed) still answers an idempotent create retry.
+    if (runtimeMode === 'direct') {
+      repaired.prepare('UPDATE dsh_sessions SET agent_preset = ? WHERE id = ?').run('ptc', batchedSessionId)
+    }
   } finally { repaired.close() }
   worker = await startWorker()
   assert.equal((await jsonRequest('/api/ready')).response.status, 200)
+  if (runtimeMode === 'direct') {
+    const retried = await rpc('session.create', { sessionId: batchedSessionId, agentPreset: 'ptc' })
+    assert.equal(retried.body.result.ok, true, JSON.stringify(retried.body.result))
+    assert.equal(retried.body.result.value.agentPreset, 'ptc')
+  }
   process.stdout.write(`dsh-edge ${runtimeMode} session integration passed\n`)
 } finally {
   mock.releaseSlowResponses()
@@ -2158,6 +2175,14 @@ function loginOwner(accessKey) {
     body: new URLSearchParams({ accessKey }).toString(),
     redirect: 'manual',
   })
+}
+
+async function assertBlankPtcPreset(sessionId) {
+  const listed = (await rpc('session.list', {})).body.result.value.items.find(item => item.sessionId === sessionId)
+  assert.equal(listed.agentPreset, 'ptc')
+  assert.equal(listed.blank, true)
+  const retried = await rpc('session.create', { sessionId })
+  assert.equal(retried.body.result.value.agentPreset, 'ptc')
 }
 
 async function rpc(method, payload) {

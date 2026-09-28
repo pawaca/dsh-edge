@@ -1451,7 +1451,7 @@ export class EdgeSessionStore {
       rejectCwdConflict(input.cwd, attached.header.cwd)
       return {
         sessionId: id,
-        agentPreset: sessionAgentPreset(attached.header, attached.snapshotEvents()),
+        agentPreset: sessionAgentPreset(attached.header),
         created: false,
       }
     }
@@ -1463,7 +1463,7 @@ export class EdgeSessionStore {
       rejectCwdConflict(input.cwd, stored.meta.cwd)
       return {
         sessionId: id,
-        agentPreset: stored.meta.agentPreset ?? DEFAULT_AGENT_PRESET,
+        agentPreset: sessionAgentPreset(stored.meta),
         created: false,
       }
     }
@@ -1472,11 +1472,16 @@ export class EdgeSessionStore {
       rejectCwdConflict(input.cwd, retainedBlank.cwd)
       return {
         sessionId: id,
-        agentPreset: retainedBlank.agentPreset ?? DEFAULT_AGENT_PRESET,
+        agentPreset: sessionAgentPreset(retainedBlank),
         created: false,
       }
     }
+    // Availability applies to new sessions only: an existing one (a retry or
+    // restore) keeps the preset its header recorded, even if no longer offered.
     const agentPreset = input.agentPreset ?? DEFAULT_AGENT_PRESET
+    if (!(this.context.get('agentPresets') as EdgeAgentPresets).offers(agentPreset)) {
+      throw new EdgeSessionStoreError('PRESET_UNAVAILABLE', `Agent preset "${agentPreset}" is not available.`)
+    }
     await persistence.retainBlankSession({
       id, version: SESSION_FORMAT_VERSION, createdAt: Date.now(), isSeeded: false,
       cwd: sessionCwd, agentPreset,
@@ -1747,7 +1752,7 @@ export class EdgeSessionStore {
         ...header.cwd === undefined ? {} : { cwd: header.cwd },
         parentSession: id,
         isSeeded: seed.length > 0,
-        agentPreset: sessionAgentPreset(header, events),
+        agentPreset: sessionAgentPreset(header),
       },
       agentOptions: { provider: EDGE_PROVIDER, model },
       setup: (agentCtx, agent) => this.composeAgent(agentCtx, agent, model),
@@ -1881,7 +1886,7 @@ export class EdgeSessionStore {
   /** Compose one Agent from its session's preset and model selection before it is published. */
   private composeAgent(agentCtx: Context, agent: Agent, defaultModel: string): void {
     const presets = this.context.get('agentPresets') as EdgeAgentPresets
-    presets.join(agentCtx, sessionAgentPreset(agent.session.header, agent.session.snapshotEvents()))
+    presets.join(agentCtx, sessionAgentPreset(agent.session.header))
     this.installAgentModelSelection(agentCtx, agent, defaultModel)
   }
 
@@ -1893,9 +1898,10 @@ export class EdgeSessionStore {
 
   /**
    * Record a blank session's preset before its first turn, as upstream does:
-   * an `agent-preset/selected` event the agentPreset projection folds. The
-   * resident agent was composed from the previous preset, so it is released
-   * and the next turn resumes under the selected one.
+   * an `agent-preset/selected` event, persisted in the same transaction that
+   * rewrites the durable header. The resident agent (and its live copy of the
+   * old header) was composed from the previous preset, so it is released and
+   * the next turn resumes under the selected one.
    */
   async selectAgentPreset(id: SessionId, agentPreset: string, model: string): Promise<string> {
     const presets = this.context.get('agentPresets') as EdgeAgentPresets
@@ -1907,10 +1913,13 @@ export class EdgeSessionStore {
     if (events.some(event => event.type === 'turn/start')) {
       throw new EdgeSessionStoreError('PRESET_LOCKED', `Session ${id} has already started; its agent preset is fixed.`)
     }
-    if (sessionAgentPreset(session.header, events) === agentPreset) return agentPreset
+    if (sessionAgentPreset(session.header) === agentPreset) return agentPreset
     session.append('agent-preset/selected', { agentPreset })
     await this.context.sessions.flush(session)
-    await this.disposeResidentAgent(id)
+    // The selection is durable; a teardown failure must not report it as refused.
+    await this.disposeResidentAgent(id).catch((disposeError: unknown) => {
+      console.error('dsh-edge failed to release the agent after a preset selection.', disposeError)
+    })
     return agentPreset
   }
 

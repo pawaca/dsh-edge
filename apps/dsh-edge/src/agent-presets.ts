@@ -1,18 +1,21 @@
 /**
  * The Edge agent presets. Every deployment offers `dsh-edge`, whose tools are
- * presented natively. Deployments with a Worker Loader also offer PTC mode,
- * which mirrors the upstream `ptc` preset: the model reaches every tool through
- * one `run_code` TypeScript program, and `workflow` is not offered because
- * `run_code` is the only orchestration surface.
+ * presented natively. Deployments with a Worker Loader also offer upstream's
+ * `ptc` preset (PTC mode) under its upstream id, so the Web client shows its
+ * built-in bilingual name and description: the model reaches every tool
+ * through one `run_code` TypeScript program, and `workflow` is not offered
+ * because `run_code` is the only orchestration surface.
  *
- * A session runs the preset its header names, advanced by any
- * `agent-preset/selected` event recorded while it was still blank. Tools and
- * prompt sections stay mounted globally; a preset only changes how one agent's
- * scope presents them.
+ * A session runs the preset its durable header names. Selecting a preset for
+ * a blank session records the upstream `agent-preset/selected` event, and the
+ * persistence backend rewrites the header in the same transaction, so every
+ * reader (summaries, resume, fork, subagents) reads one bounded value. Tools
+ * and prompt sections stay mounted globally; a preset only changes how one
+ * agent's scope presents them.
  */
 
 import { Service as CordisService, type Context } from '@deepseek-ai/cordis'
-import type { SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
+import type { SessionHeader } from '@deepseek-ai/dsh-session'
 
 // The upstream event the preset host records; declared here because the Edge
 // serves agentPresets itself instead of loading the upstream host package.
@@ -23,14 +26,15 @@ declare module '@deepseek-ai/dsh-session/types' {
 }
 
 export const DEFAULT_AGENT_PRESET = 'dsh-edge'
-export const PTC_AGENT_PRESET = 'dsh-edge-ptc'
+export const PTC_AGENT_PRESET = 'ptc'
 
 export interface EdgeAgentPresetRow {
   id: string
   trust: 'system'
   isDefault: boolean
-  name: string
-  description: string
+  /** Absent for upstream built-in ids, which the client localizes itself. */
+  name?: string
+  description?: string
 }
 
 const PRESETS: readonly EdgeAgentPresetRow[] = [
@@ -41,14 +45,7 @@ const PRESETS: readonly EdgeAgentPresetRow[] = [
     name: 'DSH Edge',
     description: 'DeepSeek Harness running in a Cloudflare Durable Object.',
   },
-  {
-    id: PTC_AGENT_PRESET,
-    trust: 'system',
-    isDefault: false,
-    name: 'PTC mode',
-    description: 'The full coding agent, with every tool presented through a TypeScript SDK so the model '
-      + 'composes multi-step work in one run_code program. The workflow tool is not offered.',
-  },
+  { id: PTC_AGENT_PRESET, trust: 'system', isDefault: false },
 ]
 
 /** The presets a deployment offers; PTC mode needs the Worker Loader that runs `run_code`. */
@@ -56,17 +53,9 @@ export function edgeAgentPresetRows(codeRuntime: boolean): EdgeAgentPresetRow[] 
   return PRESETS.filter(preset => codeRuntime || preset.id !== PTC_AGENT_PRESET)
 }
 
-/**
- * The preset a session runs: its header, advanced by selections recorded
- * before its first turn (the upstream `agentPreset` projection's fold).
- */
-export function sessionAgentPreset(header: SessionHeader, events: readonly SessionEvent[]): string {
-  let preset = header.agentPreset ?? DEFAULT_AGENT_PRESET
-  for (const event of events) {
-    if (event.type === 'turn/start') break
-    if (event.type === 'agent-preset/selected') preset = event.data.agentPreset
-  }
-  return preset
+/** The preset a session runs, from its durable header. */
+export function sessionAgentPreset(header: SessionHeader): string {
+  return header.agentPreset ?? DEFAULT_AGENT_PRESET
 }
 
 /**
