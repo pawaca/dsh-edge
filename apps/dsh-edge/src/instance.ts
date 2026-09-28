@@ -323,6 +323,10 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         ? { workerLoader: this.env.LOADER as unknown as WorkflowLoader }
         : {},
       shell: resolveEdgeRuntimeShell(this.env),
+      maxCommandTimeoutMs: resolveEdgeCommandTimeoutPolicy(
+        this.env.DSH_EDGE_DEFAULT_COMMAND_TIMEOUT_MS,
+        this.env.DSH_EDGE_MAX_COMMAND_TIMEOUT_MS,
+      ).maxTimeoutMs,
       withWorkspaceFiles: read => this.withWorkspaceFiles(read),
       onLateSessionEvent: (sessionId, event) => {
         this.publishSessionEvent(sessionId, event)
@@ -786,6 +790,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       kind: 'user', ...rpcId === undefined ? {} : { rpcId }, ...clientTimeZone === undefined ? {} : { clientTimeZone },
     } }), id: MessageId(inputId) })
     const input = this.mainQueue.enqueue(sessionId, inputId, digest, message, !announce)
+    if (clientTimeZone !== undefined) this.sessions.noteClientTimeZone(sessionId, clientTimeZone)
     await this.scheduleMainWake()
     if (announce) this.publishSessionQueue(sessionId)
     return input

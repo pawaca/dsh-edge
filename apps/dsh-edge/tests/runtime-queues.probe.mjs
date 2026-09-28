@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import { chromium } from 'playwright'
 import { unstable_dev } from 'wrangler'
 import { workerArtifactPath, writePrebuiltModeWranglerConfig } from '../scripts/wrangler-config.mjs'
+import { latestUserPromptIndex } from './fixtures/mock-deepseek.mjs'
 const mode = process.env.DSH_EDGE_TEST_RUNTIME_MODE ?? 'direct'
 const state = mkdtempSync(join(tmpdir(), 'dsh-runtime-probe-'))
 const requests = []
@@ -27,7 +28,7 @@ const mock = createServer(async (req, res) => {
     res.on('close', () => held.delete(path))
     return
   }
-  const last = body.messages.findLast(m => m.role === 'user')
+  const last = body.messages[latestUserPromptIndex(body.messages)]
   const text = typeof last?.content === 'string' ? last.content : JSON.stringify(last?.content)
   requests.push(text)
   const afterUser = body.messages.slice(body.messages.lastIndexOf(last) + 1)

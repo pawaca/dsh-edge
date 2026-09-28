@@ -88,7 +88,11 @@ import { EdgeLoader } from './edge-plugin-loader.ts'
 import * as EdgeSkillProvider from './edge-skill-provider.ts'
 import type { EdgeRuntimeProviderDescriptor } from './runtime-provider.ts'
 import {
+  EDGE_CONTAINER_WEB_GUIDANCE,
+  EDGE_PERSONA_SUFFIX,
   EDGE_PLAN_MODE_SECTION,
+  edgeBashGuidance,
+  edgeCurrentDate,
   edgeSystemPrompt,
   EdgeShellBindings,
   createEdgeBashTool,
@@ -150,6 +154,8 @@ interface EdgeSessionStoreConfig {
   workerLoader?: WorkflowLoader
   /** The public identity of the shell serving the bash layer. */
   shell: EdgeRuntimeProviderDescriptor['shell']
+  /** The deployment's bash timeout ceiling, stated to the model. */
+  maxCommandTimeoutMs: number
   /** Run one bounded Computer workspace operation outside a turn (`@file` completion, directory browsing). */
   withWorkspaceFiles<T>(read: (files: EdgeWorkspaceFiles) => Promise<T>): Promise<T>
   onLateSessionEvent?: (sessionId: SessionId, event: SessionEvent) => void
@@ -177,6 +183,7 @@ const MAX_SEARCH_SESSIONS = 32
 const MAX_SEARCH_EVENTS_PER_SESSION = 512
 const MAX_SEARCH_STORED_BYTES_PER_SESSION = 256 * 1_024
 const EDGE_PROVIDER = 'deepseek-official'
+const EDGE_CURRENT_DATE_CONTEXT = 'edge:current-date'
 const DEFAULT_EDGE_MODEL = 'deepseek-v4-flash'
 const AGENT_DEFAULT_MODEL_KEY = 'dsh-edge:agent-default-model'
 const MESSAGE_TYPES = new Set<SessionEvent['type']>(['user/message', 'assistant/message'])
@@ -261,6 +268,8 @@ export class EdgeSessionCwdConflictError extends Error {
 export class EdgeSessionStore {
   private readonly context = new Context()
   private readonly shells = new EdgeShellBindings()
+  /** The latest browser time zone per root session, for the current-date context (UTC until one arrives). */
+  private readonly clientTimeZones = new Map<SessionId, string>()
   private readonly modelSelections: EdgeModelSelectionBridge
   private readonly turnPublishedAgents = new WeakSet<Agent>()
   private readonly lateEventDeliveries = new Map<SessionId, LateDeliveryState>()
@@ -349,7 +358,25 @@ export class EdgeSessionStore {
       provider: EDGE_PROVIDER,
       model: DEFAULT_EDGE_MODEL,
     })
-    await this.context.plugin(SystemPrompt, { personaPrefix: edgeSystemPrompt(config.shell) })
+    await this.context.plugin(SystemPrompt, {
+      includeHarnessIdentity: false,
+      personaPrefix: edgeSystemPrompt(config.shell),
+      personaSuffix: EDGE_PERSONA_SUFFIX,
+    })
+    this.context.systemPrompt.variable('workdir', ({ agent }) =>
+      (agent === undefined ? undefined : this.shells.get(agent.id)?.cwd ?? agent.session.header.cwd) ?? '/workspace')
+    this.context.systemPrompt.section({
+      name: 'tool:bash',
+      order: this.context.systemPrompt.getSectionOrder('TOOL_BASH'),
+      text: edgeBashGuidance(config.maxCommandTimeoutMs),
+    })
+    if (config.shell === 'linux-container') {
+      this.context.systemPrompt.section({
+        name: 'edge:container-web',
+        order: this.context.systemPrompt.getSectionOrder('TOOL_WEB_FETCH') + 1,
+        text: EDGE_CONTAINER_WEB_GUIDANCE,
+      })
+    }
     await this.context.plugin(EdgeVfsSpillStore)
     await this.context.plugin(EdgeFileSystem)
     // Tools are presented natively; the PTC mode preset opts one session into
@@ -534,11 +561,22 @@ export class EdgeSessionStore {
     // streams through the gateway's own pending-event bookkeeping.
     await this.context.plugin(ApiRemotes)
     await this.context.plugin(ApprovalService, { policy: 'ask' })
-    // Suppress the approval service's runtime-context contribution (the
-    // ASK/NEVER sentence) so it does not add a durable user-role snapshot
-    // to every turn. dsh-edge owns the approval policy through the
-    // pre-execute listener, not through the model transcript.
-    this.context.systemPrompt.suppressRuntimeContext()
+    // Upstream runtime context becomes a durable user-role snapshot whenever
+    // it changes. Edge keeps only the current date, which changes once a day,
+    // and only for root sessions: a subagent gets its task from a parent that
+    // knows the date. Approval is enforced by its pre-execute listener, and
+    // subagent delegation context would rewrite snapshots as children start and end.
+    this.context.systemPrompt.context({
+      name: EDGE_CURRENT_DATE_CONTEXT,
+      order: 100,
+      text: ({ agent }) => agent === undefined || agent.session.header.parentSession !== undefined
+        ? ''
+        : edgeCurrentDate(new Date(), this.clientTimeZones.get(agent.id)),
+    })
+    this.context.on('system-prompt/assemble', async (_assembly, _context, next) => {
+      const assembly = await next()
+      return { ...assembly, contexts: assembly.contexts.filter(context => context.name === EDGE_CURRENT_DATE_CONTEXT) }
+    })
     this.mcpToolManager = installEdgeMcpServers(this.context, storage)
     this.approvalScope = installEdgeApprovalPolicy(this.context, {
       resolveMcpPolicy: name => this.mcpToolManager!.resolveToolPolicy(name),
@@ -634,7 +672,7 @@ export class EdgeSessionStore {
       agent.ctx.effect(() => release, 'dsh-edge: subagent shell binding')
     })
     this.context.effect(
-      () => this.context.tools.register(createEdgeBashTool(this.shells, config.shell)),
+      () => this.context.tools.register(createEdgeBashTool(this.shells, config.shell, config.maxCommandTimeoutMs)),
       'dsh-edge: bash tool',
     )
     if (config.onLateSessionEvent !== undefined) {
@@ -997,6 +1035,11 @@ export class EdgeSessionStore {
     await this.ready
     if (mode !== 'ask' && mode !== 'never') throw new Error('Invalid approval mode.')
     await this.approvalScope?.update({ mode })
+  }
+
+  /** Record the time zone of a user's latest message for its session's current-date context. */
+  noteClientTimeZone(sessionId: SessionId, timeZone: string): void {
+    this.clientTimeZones.set(sessionId, timeZone)
   }
 
   /**

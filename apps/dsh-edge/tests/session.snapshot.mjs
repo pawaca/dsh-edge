@@ -88,7 +88,9 @@ describe('dsh-edge assembled runtime snapshot', () => {
         .replaceAll(mock.url, '{{mock-deepseek}}')
         .replace(/"time":\d+/g, '"time":0')
         .replace(/"time0":\d+/g, '"time0":0')
-        .replace(/"id":"(?:edge:)?[0-9a-f-]{36}"/g, '"id":"{{messageId}}"'))
+        .replace(/"id":"(?:edge:)?[0-9a-f-]{36}"/g, '"id":"{{messageId}}"')
+        // The current-date runtime context follows the wall clock.
+        .replace(/Current date: \w+, \d{4}-\d{2}-\d{2} \(/g, 'Current date: {{date}} ('))
       const snapshot = {
         requests: normalize(mock.requests),
         liveEvents: normalize(liveEvents),

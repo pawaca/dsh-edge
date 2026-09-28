@@ -17,6 +17,9 @@
 - text: snapshot the browser edge path {{clock}}
 - button "Copy":
   - img
+- button "Thought for a while":
+  - text: Thought for a while
+  - img
 - paragraph: remembered-alpha
 - button "Copy":
   - img

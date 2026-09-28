@@ -2,6 +2,17 @@ import { createServer } from 'node:http'
 import { pathToFileURL } from 'node:url'
 
 /** Start a deterministic chat-completions SSE stand-in for edge integration tests. */
+/** Loop-owned user-role notes that are not a prompt: model changes and runtime-context snapshots. */
+export function isLoopNote(message) {
+  return message.role === 'user' && typeof message.content === 'string'
+    && (message.content.startsWith('[model changed: ') || message.content.startsWith('Current runtime context'))
+}
+
+/** The index of the latest user prompt in a chat request, skipping loop-owned notes. */
+export function latestUserPromptIndex(messages) {
+  return messages.findLastIndex(message => message.role === 'user' && !isLoopNote(message))
+}
+
 export async function startMockDeepSeek(port = 0) {
   const requests = []
   const searchRequests = []
@@ -98,10 +109,7 @@ export async function startMockDeepSeek(port = 0) {
       const body = JSON.parse(source)
       requests.push(body)
       const messages = Array.isArray(body.messages) ? body.messages : []
-      // Model transitions are synthetic user notes in Format V3, not a new prompt.
-      const latestUserIndex = messages.findLastIndex(message => message.role === 'user'
-        && !(typeof message.content === 'string' && message.content.startsWith('[model changed: '))
-        && !(typeof message.content === 'string' && message.content.startsWith('Current runtime context')))
+      const latestUserIndex = latestUserPromptIndex(messages)
       const latestUser = messages[latestUserIndex]
       const rawContent = latestUser?.content
       const prompt = typeof rawContent === 'string'
