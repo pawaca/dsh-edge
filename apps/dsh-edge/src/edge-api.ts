@@ -720,8 +720,8 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
           return ok(request, {
             agentPreset: preset.id,
             trust: preset.trust,
-            name: preset.name,
-            description: preset.description,
+            ...preset.name === undefined ? {} : { name: preset.name },
+            ...preset.description === undefined ? {} : { description: preset.description },
             content: edgeAgentPresetContent(
               runtime,
               preset.id,

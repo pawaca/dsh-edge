@@ -396,10 +396,10 @@ describe('durable-object bounded event pages', () => {
     const meta: SessionHeader = { id, version: SESSION_FORMAT_VERSION, createdAt: 1, isSeeded: false, agentPreset: 'dsh-edge' }
     try {
       await persistence.appendBatch({ meta, inheritedEventCount: SessionLogOffset(0) }, [
-        { type: 'agent-preset/selected', seq: SessionSeq(0), time: 2, data: { agentPreset: 'dsh-edge-ptc' } },
+        { type: 'agent-preset/selected', seq: SessionSeq(0), time: 2, data: { agentPreset: 'ptc' } },
       ], false)
-      expect(persistence.readSessionSummary(id)?.meta.agentPreset).toBe('dsh-edge-ptc')
-      expect(persistence.readSessionSummaryPage(undefined, 10)?.sessions[0]?.meta.agentPreset).toBe('dsh-edge-ptc')
+      expect(persistence.readSessionSummary(id)?.meta.agentPreset).toBe('ptc')
+      expect(persistence.readSessionSummaryPage(undefined, 10)?.sessions[0]?.meta.agentPreset).toBe('ptc')
     } finally { await fiber.dispose(); await ctx.fiber.dispose() }
 
     // A restarted Durable Object reads the selected preset from the header row.
@@ -408,9 +408,9 @@ describe('durable-object bounded event pages', () => {
     const coldFiber = await restarted.plugin(DurableObjectSessionPersistence, { storage: storage as never })
     try {
       const cold = restarted.sessionPersistence as DurableObjectSessionPersistence
-      expect(cold.readSessionSummary(id)?.meta.agentPreset).toBe('dsh-edge-ptc')
+      expect(cold.readSessionSummary(id)?.meta.agentPreset).toBe('ptc')
       await using handle = await cold.open(id, 'read')
-      expect(handle.header.agentPreset).toBe('dsh-edge-ptc')
+      expect(handle.header.agentPreset).toBe('ptc')
     } finally { await coldFiber.dispose(); await restarted.fiber.dispose(); storage.close() }
   })
 

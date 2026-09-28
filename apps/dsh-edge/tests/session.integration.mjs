@@ -950,18 +950,18 @@ try {
   const presetList = await rpc('agentPreset.list', {})
   assert.deepEqual(
     presetList.body.result.value.presets.map(preset => preset.id),
-    runtimeMode === 'isolated' ? ['dsh-edge', 'dsh-edge-ptc'] : ['dsh-edge'],
+    runtimeMode === 'isolated' ? ['dsh-edge', 'ptc'] : ['dsh-edge'],
   )
   // A blank session keeps its selected preset in every summary and create retry.
   let blankPtcSessionId
   if (runtimeMode === 'isolated') {
     blankPtcSessionId = (await rpc('session.create', {})).body.result.value.sessionId
-    await rpc('agentPreset.select', { agentId: blankPtcSessionId, agentPreset: 'dsh-edge-ptc' })
+    await rpc('agentPreset.select', { agentId: blankPtcSessionId, agentPreset: 'ptc' })
     await assertBlankPtcPreset(blankPtcSessionId)
     const ptcSession = await rpc('session.create', {})
     const ptcSessionId = ptcSession.body.result.value.sessionId
-    const selected = await rpc('agentPreset.select', { agentId: ptcSessionId, agentPreset: 'dsh-edge-ptc' })
-    assert.equal(selected.body.result.value, 'dsh-edge-ptc')
+    const selected = await rpc('agentPreset.select', { agentId: ptcSessionId, agentPreset: 'ptc' })
+    assert.equal(selected.body.result.value, 'ptc')
     const codeEvents = await turn(ptcSessionId, 'run some code that echoes a marker')
     assert.equal(codeEvents.find(event => event.type === 'tool/call')?.data.name, 'run_code')
     const codeResultText = toolResultText(codeEvents.find(event => event.type === 'tool/result'))
@@ -974,7 +974,7 @@ try {
     const locked = await rpc('agentPreset.select', { agentId: ptcSessionId, agentPreset: 'dsh-edge' })
     assert.equal(locked.body.result.error.code, 'agent-preset-locked')
   } else {
-    const refused = await rpc('session.create', { agentPreset: 'dsh-edge-ptc' })
+    const refused = await rpc('session.create', { agentPreset: 'ptc' })
     assert.equal(refused.body.result.error.code, 'agent-preset-not-found')
   }
   remoteMux.send({ type: 'cancel', streamId: 'events-1' })
@@ -2147,10 +2147,10 @@ function loginOwner(accessKey) {
 
 async function assertBlankPtcPreset(sessionId) {
   const listed = (await rpc('session.list', {})).body.result.value.items.find(item => item.sessionId === sessionId)
-  assert.equal(listed.agentPreset, 'dsh-edge-ptc')
+  assert.equal(listed.agentPreset, 'ptc')
   assert.equal(listed.blank, true)
   const retried = await rpc('session.create', { sessionId })
-  assert.equal(retried.body.result.value.agentPreset, 'dsh-edge-ptc')
+  assert.equal(retried.body.result.value.agentPreset, 'ptc')
 }
 
 async function rpc(method, payload) {

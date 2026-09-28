@@ -30,6 +30,12 @@ describe('Edge agent presets', () => {
       .toEqual([[DEFAULT_AGENT_PRESET, true], [PTC_AGENT_PRESET, false]])
   })
 
+  it('offers PTC mode under the upstream id, leaving its copy to the client', () => {
+    const ptc = edgeAgentPresetRows(true).find(row => row.id === PTC_AGENT_PRESET)
+    // The Web client localizes a system preset whose id is upstream's `ptc`.
+    expect(ptc).toEqual({ id: 'ptc', trust: 'system', isDefault: false })
+  })
+
   it('reads the preset from the durable header', () => {
     expect(sessionAgentPreset({ ...header, agentPreset: PTC_AGENT_PRESET })).toBe(PTC_AGENT_PRESET)
     const { agentPreset: _recorded, ...unrecorded } = header

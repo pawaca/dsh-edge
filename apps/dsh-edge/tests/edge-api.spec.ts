@@ -224,13 +224,13 @@ describe('Edge upstream API invariants', () => {
     const listed = await isolated.agentPresets.list(request({}))
     expect(listed.result).toMatchObject({
       ok: true,
-      value: { presets: [{ id: 'dsh-edge', isDefault: true }, { id: 'dsh-edge-ptc', isDefault: false }] },
+      value: { presets: [{ id: 'dsh-edge', isDefault: true }, { id: 'ptc', isDefault: false }] },
     })
-    const read = await isolated.agentPresets.read(request({ agentPreset: 'dsh-edge-ptc' }))
+    const read = await isolated.agentPresets.read(request({ agentPreset: 'ptc' }))
     if (!read.result.ok) throw new Error('PTC mode should be readable')
     expect((read.result.value as { content: string }).content).toContain('toolPresentation: ptc')
 
-    const refused = await createEdgeApi(runtime({})).sessions.create(request({ agentPreset: 'dsh-edge-ptc' }))
+    const refused = await createEdgeApi(runtime({})).sessions.create(request({ agentPreset: 'ptc' }))
     expect(refused.result).toMatchObject({
       ok: false,
       error: { code: 'agent-preset-not-found', details: { available: ['dsh-edge'] } },
@@ -240,15 +240,15 @@ describe('Edge upstream API invariants', () => {
   it('selects a preset for a blank session and reports a started one as locked', async () => {
     const sessionId = SessionId('session-blank')
     const selectAgentPreset = vi.fn()
-      .mockResolvedValueOnce('dsh-edge-ptc')
+      .mockResolvedValueOnce('ptc')
       .mockRejectedValueOnce(new EdgeSessionStoreError('PRESET_LOCKED', 'Session has already started.'))
       .mockRejectedValueOnce(new EdgeSessionStoreError('PRESET_UNAVAILABLE', 'Agent preset "missing" is not available.'))
     const api = createEdgeApi(runtime({}, { selectAgentPreset }))
 
-    const selected = await api.agentPresets.select(request({ agentId: sessionId, agentPreset: 'dsh-edge-ptc' }))
-    expect(selected.result).toEqual({ ok: true, value: 'dsh-edge-ptc' })
-    expect(selectAgentPreset).toHaveBeenCalledWith(sessionId, 'dsh-edge-ptc')
-    const locked = await api.agentPresets.select(request({ agentId: sessionId, agentPreset: 'dsh-edge-ptc' }))
+    const selected = await api.agentPresets.select(request({ agentId: sessionId, agentPreset: 'ptc' }))
+    expect(selected.result).toEqual({ ok: true, value: 'ptc' })
+    expect(selectAgentPreset).toHaveBeenCalledWith(sessionId, 'ptc')
+    const locked = await api.agentPresets.select(request({ agentId: sessionId, agentPreset: 'ptc' }))
     expect(locked.result).toMatchObject({ ok: false, error: { code: 'agent-preset-locked' } })
     const missing = await api.agentPresets.select(request({ agentId: sessionId, agentPreset: 'missing' }))
     expect(missing.result).toMatchObject({ ok: false, error: { code: 'agent-preset-not-found' } })
