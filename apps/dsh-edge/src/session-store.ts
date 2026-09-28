@@ -569,7 +569,7 @@ export class EdgeSessionStore {
     this.context.systemPrompt.context({
       name: EDGE_CURRENT_DATE_CONTEXT,
       order: 100,
-      text: ({ agent }) => agent === undefined || agent.session.header.parentSession !== undefined
+      text: ({ agent }) => agent === undefined || !this.context.agents.roots().includes(agent)
         ? ''
         : edgeCurrentDate(new Date(), this.clientTimeZones.get(agent.id)),
     })
@@ -1037,7 +1037,7 @@ export class EdgeSessionStore {
     await this.approvalScope?.update({ mode })
   }
 
-  /** Record the time zone of a user's latest message for its session's current-date context. */
+  /** Record the time zone of the prompt a session's turn is running, for its current-date context. */
   noteClientTimeZone(sessionId: SessionId, timeZone: string): void {
     this.clientTimeZones.set(sessionId, timeZone)
   }

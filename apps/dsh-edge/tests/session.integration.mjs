@@ -1186,7 +1186,7 @@ try {
       sessionId: protocolSessionId,
       mode: 'queue',
       content: [{ type: 'text', text: 'upstream protocol path' }],
-      clientTimeZone: 'UTC',
+      clientTimeZone: 'Asia/Shanghai',
     },
   })
   assert.equal(protocolPrompt.body.result.ok, true, JSON.stringify(protocolPrompt.body))
@@ -1220,6 +1220,11 @@ try {
   const protocolUser = protocolHistory.body.result.value.events
     .find(entry => entry.event.type === 'user/message')
   assert.equal(protocolUser.event.data.source.rpcId, protocolRequestId)
+  // The date context follows the zone of the prompt the turn ran.
+  const isDateContext = event => event.type === 'user/message' && event.data.source.kind === 'plugin'
+    && event.data.source.plugin === '@deepseek-ai/dsh-system-prompt'
+  assert.match(protocolHistory.body.result.value.events.map(entry => entry.event).find(isDateContext)
+    ?.data.content[0].text ?? '', /Current date: \w+, \d{4}-\d{2}-\d{2} \(Asia\/Shanghai\)\./u)
   const protocolPromptProjection = await mux.next(message =>
     message.payload.type === 'session/projection'
       && message.payload.sessionId === protocolSessionId
@@ -1303,6 +1308,11 @@ try {
     .find(item => item.sessionId === forkedSessionId)
   assert.equal(forkSummary.parentSessionId, protocolSessionId)
   assert.equal(forkSummary.projections.values.title, 'Protocol path (2)')
+  // A fork is a root conversation of its own: its next turn states the date
+  // for its own zone rather than clearing the parent's inherited snapshot.
+  const forkTurn = await turn(forkedSessionId, 'continue the fork')
+  assert.match(forkTurn.find(isDateContext)?.data.content[0].text ?? '',
+    /Current date: \w+, \d{4}-\d{2}-\d{2} \(UTC\)\./u)
 
   const missingArchive = await rpc('workspace.archiveSession', {
     sessionId: 'session-ghost',
@@ -1909,8 +1919,9 @@ try {
   // ask_user_question and exit_plan_mode turns each add a tool-call request
   // and its continuation; in the isolated build the workflow turn adds a
   // tool-call request, its five children, and its continuation, and the
-  // run_code turn adds a tool-call request and its continuation.
-  assert.equal(turnRequests().length, runtimeMode === 'isolated' ? 33 : 24)
+  // run_code turn adds a tool-call request and its continuation; the fork's
+  // own date-context turn adds one request.
+  assert.equal(turnRequests().length, runtimeMode === 'isolated' ? 34 : 25)
   await worker.stop()
   worker = undefined
   const { physicalRows, writeBatches } = sessionEventStorageStats(batchedSessionId)
