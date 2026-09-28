@@ -1046,8 +1046,9 @@ export class EdgeSessionStore {
   async noteOwnerTimeZone(timeZone: string): Promise<void> {
     await this.ready
     if (this.ownerTimeZone === timeZone) return
-    this.ownerTimeZone = timeZone
+    // Durable first: memory never runs ahead of what a restart reloads.
     await this.doStorage.put(EdgeSessionStore.OWNER_TIME_ZONE_KEY, timeZone)
+    this.ownerTimeZone = timeZone
   }
 
   /**
