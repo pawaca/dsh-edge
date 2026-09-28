@@ -299,7 +299,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
       async models(request: RpcRequest<SessionModelsPayload>) {
         try {
           const [current, catalog] = await Promise.all([
-            runtime.sessions.modelSelection(request.payload.sessionId, runtime.model),
+            runtime.sessions.modelSelection(request.payload.sessionId),
             runtime.sessions.modelCatalog(),
           ])
           return ok(request, {
@@ -413,7 +413,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
                   details: { reason: 'EDGE_ATTACHMENTS_UNAVAILABLE' },
                 })
               }
-              if (!await runtime.sessions.modelSupportsImages(sessionId, runtime.model)) {
+              if (!await runtime.sessions.modelSupportsImages(sessionId)) {
                 return fail(request, {
                   code: 'attachment-error',
                   message: 'The selected model does not support image input.',

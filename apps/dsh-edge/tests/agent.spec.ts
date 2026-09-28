@@ -37,7 +37,18 @@ import {
 } from '../src/deepseek.ts'
 import { EdgeExecutionId } from '../src/protocol.ts'
 import { EdgeAgentPresets } from '../src/agent-presets.ts'
+import { DurableObjectSettingsProvider } from '../src/do-settings-provider.ts'
 import { createDurablePromptAdmitter, disposeAgentHandle } from '../src/session-store.ts'
+
+/** Durable Object KV stand-in for the settings document. */
+function memoryStorage(): DurableObjectStorage {
+  const store = new Map<string, unknown>()
+  return {
+    get: (key: string) => Promise.resolve(store.get(key)),
+    put: (key: string, value: unknown) => { store.set(key, value); return Promise.resolve() },
+    delete: (key: string) => Promise.resolve(store.delete(key)),
+  } as unknown as DurableObjectStorage
+}
 
 class ScriptedAdapter extends LlmAdapter {
   readonly requests: GenerateOptions[] = []
@@ -411,6 +422,7 @@ describe('dsh-edge subagent delegation', () => {
     await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentLoop, { agents: [] })
+    await ctx.plugin(DurableObjectSettingsProvider, { storage: memoryStorage() })
     await ctx.plugin(EdgeAgentPresets, { codeRuntime: false })
 
     const { default: SubagentRuntime } = await import('@deepseek-ai/dsh-subagent')
@@ -555,6 +567,7 @@ describe('dsh-edge background job registry', () => {
     await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentLoop, { agents: [] })
+    await ctx.plugin(DurableObjectSettingsProvider, { storage: memoryStorage() })
     await ctx.plugin(EdgeAgentPresets, { codeRuntime: false })
 
     const { default: LocalJobRegistry } = await import('@deepseek-ai/dsh-jobs-local')
