@@ -83,8 +83,8 @@ try {
   await wait(() => reminders().length === 2, 'alarm after process restart')
   await new Promise(resolve => setTimeout(resolve, 1500))
   assert.equal(reminders().length, 2)
-  // The restarted object restores the session's zone from durable history
-  // rather than falling back to UTC for the reminder's date context.
+  // The restarted object reloads the owner's stored zone rather than falling
+  // back to UTC for the reminder's date context.
   const restartContexts = reminders()[1].messages
     .filter(message => typeof message.content === 'string' && message.content.startsWith('Current runtime context'))
   assert.match(restartContexts.at(-1)?.content ?? '', /\(Asia\/Tokyo\)\./u)

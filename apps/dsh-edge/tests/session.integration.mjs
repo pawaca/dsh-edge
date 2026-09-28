@@ -1220,7 +1220,7 @@ try {
   const protocolUser = protocolHistory.body.result.value.events
     .find(entry => entry.event.type === 'user/message')
   assert.equal(protocolUser.event.data.source.rpcId, protocolRequestId)
-  // The date context follows the zone of the prompt the turn ran.
+  // The date context uses the owner's zone from their latest prompt.
   const isDateContext = event => event.type === 'user/message' && event.data.source.kind === 'plugin'
     && event.data.source.plugin === '@deepseek-ai/dsh-system-prompt'
   assert.match(protocolHistory.body.result.value.events.map(entry => entry.event).find(isDateContext)
@@ -1309,8 +1309,8 @@ try {
   assert.equal(forkSummary.parentSessionId, protocolSessionId)
   assert.equal(forkSummary.projections.values.title, 'Protocol path (2)')
   // A fork is a root conversation of its own: its next turn keeps the date
-  // context it inherited (same day, and the zone restored from the parent's
-  // prompt) instead of clearing it as a subagent would.
+  // context it inherited (same day, same owner zone) instead of clearing it
+  // as a subagent would.
   const forkTurn = await turn(forkedSessionId, 'continue the fork')
   assert.equal(forkTurn.some(event => isDateContext(event)
     && event.data.content[0].text.includes('Current runtime context: none')), false)

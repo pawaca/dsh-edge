@@ -268,8 +268,12 @@ export class EdgeSessionCwdConflictError extends Error {
 export class EdgeSessionStore {
   private readonly context = new Context()
   private readonly shells = new EdgeShellBindings()
-  /** Cache of each root session's latest browser time zone; see {@link clientTimeZone}. */
-  private readonly clientTimeZones = new Map<SessionId, string>()
+  /**
+   * The owner's time zone for the current-date context: one per instance,
+   * since an instance has one owner. Loaded at initialization and persisted
+   * only when a prompt arrives from a different zone.
+   */
+  private ownerTimeZone: string | undefined
   private readonly modelSelections: EdgeModelSelectionBridge
   private readonly turnPublishedAgents = new WeakSet<Agent>()
   private readonly lateEventDeliveries = new Map<SessionId, LateDeliveryState>()
@@ -566,12 +570,13 @@ export class EdgeSessionStore {
     // and only for root sessions: a subagent gets its task from a parent that
     // knows the date. Approval is enforced by its pre-execute listener, and
     // subagent delegation context would rewrite snapshots as children start and end.
+    this.ownerTimeZone = await storage.get<string>(EdgeSessionStore.OWNER_TIME_ZONE_KEY)
     this.context.systemPrompt.context({
       name: EDGE_CURRENT_DATE_CONTEXT,
       order: 100,
       text: ({ agent }) => agent === undefined || !this.context.agents.roots().includes(agent)
         ? ''
-        : edgeCurrentDate(new Date(), this.clientTimeZone(agent)),
+        : edgeCurrentDate(new Date(), this.ownerTimeZone),
     })
     this.context.on('system-prompt/assemble', async (_assembly, _context, next) => {
       const assembly = await next()
@@ -1037,27 +1042,12 @@ export class EdgeSessionStore {
     await this.approvalScope?.update({ mode })
   }
 
-  /** Record the time zone of the prompt a session's turn is running, for its current-date context. */
-  noteClientTimeZone(sessionId: SessionId, timeZone: string): void {
-    this.clientTimeZones.set(sessionId, timeZone)
-  }
-
-  /**
-   * The zone of the session's latest browser prompt. The map only caches it:
-   * after a restart (a reminder turn has no prompt of its own) it is restored
-   * once from the durable history, newest first.
-   */
-  private clientTimeZone(agent: Agent): string | undefined {
-    const cached = this.clientTimeZones.get(agent.id)
-    if (cached !== undefined) return cached
-    for (const event of agent.session.snapshotEvents().toReversed()) {
-      if (event.type !== 'user/message' || event.data.source.kind !== 'user') continue
-      const zone = 'clientTimeZone' in event.data.source ? event.data.source.clientTimeZone : undefined
-      if (zone === undefined) continue
-      this.clientTimeZones.set(agent.id, zone)
-      return zone
-    }
-    return undefined
+  /** Record the zone of the owner's latest prompt; a change is written once. */
+  async noteOwnerTimeZone(timeZone: string): Promise<void> {
+    await this.ready
+    if (this.ownerTimeZone === timeZone) return
+    this.ownerTimeZone = timeZone
+    await this.doStorage.put(EdgeSessionStore.OWNER_TIME_ZONE_KEY, timeZone)
   }
 
   /**
@@ -1075,6 +1065,7 @@ export class EdgeSessionStore {
     return this.runtimeSettings()
   }
 
+  private static readonly OWNER_TIME_ZONE_KEY = 'dsh-edge:owner-time-zone'
   private static readonly MCP_STORAGE_KEY = 'dsh-edge:mcp-servers'
   private static readonly MCP_TOOLS_PREFIX = 'dsh-edge:mcp-tools:'
 

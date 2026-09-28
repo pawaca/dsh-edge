@@ -793,6 +793,8 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       kind: 'user', ...rpcId === undefined ? {} : { rpcId }, ...clientTimeZone === undefined ? {} : { clientTimeZone },
     } }), id: MessageId(inputId) })
     const input = this.mainQueue.enqueue(sessionId, inputId, digest, message, !announce)
+    // Every owner prompt, queued or steering, updates the instance's zone.
+    if (clientTimeZone !== undefined) await this.sessions.noteOwnerTimeZone(clientTimeZone)
     await this.scheduleMainWake()
     if (announce) this.publishSessionQueue(sessionId)
     return input
@@ -1821,12 +1823,6 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     publish?: (event: SessionEvent) => void | Promise<void>
   }): Promise<void> {
     const { sessionId, turn, handle } = input.claimed
-    // The date context follows the prompt this turn runs, restored from its
-    // durable source; a reminder without one keeps the session's last zone.
-    const source = input.message?.source
-    if (source?.kind === 'user' && 'clientTimeZone' in source && source.clientTimeZone !== undefined) {
-      this.sessions.noteClientTimeZone(sessionId, source.clientTimeZone)
-    }
     try {
       await this.runTurn({
         ...input,
