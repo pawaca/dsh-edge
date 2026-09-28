@@ -1252,6 +1252,10 @@ try {
     ok: true,
     value: { items: [], hasMore: false },
   })
+  // The date runtime context is loop-owned, not conversation text: every
+  // session carries one, and none of them is searchable.
+  const dateSearch = await rpc('session.search', { query: 'Current date' })
+  assert.deepEqual(dateSearch.body.result, { ok: true, value: { items: [], hasMore: false } })
   const protocolRequestHeader = protocolHistory.body.result.value.events
     .findLast(entry => entry.event.type === 'request/header')
   assert.equal(protocolRequestHeader.event.data.header.config.provider, 'deepseek-official')

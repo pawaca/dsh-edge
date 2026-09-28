@@ -21,6 +21,23 @@ import SessionQueryEngine, {
 } from '@deepseek-ai/dsh-session-query'
 import type DurableObjectSessionPersistence from './do-session-persistence.ts'
 
+/**
+ * Search documents for a session's conversation. Runtime-context snapshots
+ * (the current date) are loop-owned user messages, not what anyone said, so
+ * they would match dates and zones in nearly every session.
+ */
+export function edgeSearchDocuments(
+  sessionId: SessionId,
+  events: readonly SessionEvent[],
+): SessionEventSearchDocument[] {
+  // Build from every event (surface folding follows seq references), then
+  // drop the snapshots' documents.
+  const snapshots = new Set(events.filter(event => event.type === 'user/message'
+    && event.data.source.kind === 'plugin' && event.data.source.plugin === '@deepseek-ai/dsh-system-prompt')
+    .map(event => event.seq))
+  return buildSessionEventSearchDocuments(sessionId, events).filter(document => !snapshots.has(document.seq))
+}
+
 const MAX_SEARCH_SESSIONS = 32
 const MAX_SEARCH_EVENTS_PER_SESSION = 512
 const MAX_SEARCH_STORED_BYTES_PER_SESSION = 256 * 1_024
@@ -149,7 +166,7 @@ export class EdgeSessionQuery extends SessionQueryEngine {
       }
       if (events === undefined) continue
       const documents = filterSessionEventDocuments(
-        buildSessionEventSearchDocuments(record.header.id, events),
+        edgeSearchDocuments(record.header.id, events),
         filters,
       )
       const best = documents.at(-1)
@@ -192,7 +209,7 @@ export class EdgeSessionQuery extends SessionQueryEngine {
       events = page.events
     }
     const documents = filterSessionEventDocuments(
-      buildSessionEventSearchDocuments(request.sessionId, events),
+      edgeSearchDocuments(request.sessionId, events),
       materializeSessionEventResultFilters(this.searchFilters(request.filters ?? [], query)),
     )
     return {

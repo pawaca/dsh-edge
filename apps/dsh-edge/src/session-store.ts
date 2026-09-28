@@ -46,7 +46,6 @@ import SessionStore, {
   type UserMessage,
 } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
-import { buildSessionEventSearchDocuments } from '@deepseek-ai/dsh-session-query'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SessionProjectionCache from '@deepseek-ai/dsh-session-projection-cache'
 import {
@@ -119,7 +118,7 @@ import DurableObjectSessionPersistence, {
   type EdgeEventPage,
 } from './do-session-persistence.ts'
 import EdgeModelSelectionBridge from './model-selection-bridge.ts'
-import EdgeSessionQuery from './edge-session-query.ts'
+import EdgeSessionQuery, { edgeSearchDocuments } from './edge-session-query.ts'
 import { resolveEdgeModel } from './deepseek.ts'
 import type { CreateEdgeSessionInput, EdgeSession } from './protocol.ts'
 import {
@@ -1589,7 +1588,7 @@ export class EdgeSessionStore {
         }
         events = page.events
       }
-      const match = buildSessionEventSearchDocuments(summary.id, events)
+      const match = edgeSearchDocuments(summary.id, events)
         .findLast(document => document.surface === 'current'
           && MESSAGE_TYPES.has(document.type)
           && normalizeSearchText(document.text).includes(normalizedQuery))
