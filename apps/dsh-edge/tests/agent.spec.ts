@@ -503,7 +503,8 @@ describe('dsh-edge subagent delegation', () => {
       expect(runtime.childHeaders.length).toBeGreaterThanOrEqual(1)
       expect(runtime.childHeaders[0]).toMatchObject({
         parentSession: runtime.agent.session.header.id,
-        agentPreset: 'dsh-edge',
+        // The parent's header records the legacy default id; children run `standard`.
+        agentPreset: 'standard',
       })
       const childRequest = runtime.adapter.requests[1]!
       expect(childRequest.sessionId).not.toBe(runtime.agent.id)

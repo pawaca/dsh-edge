@@ -2,7 +2,7 @@
   - navigation "Session hierarchy":
     - button "Browser snapshot (1)" [disabled]
   - img
-  - text: DSH Edge
+  - text: Standard mode
   - button "Open right sidebar":
     - img
   - tablist:

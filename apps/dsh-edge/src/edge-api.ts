@@ -61,7 +61,7 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import { isUserInvocable } from '@deepseek-ai/dsh-skill'
 import { edgeSystemPrompt } from './agent.ts'
-import { PTC_AGENT_PRESET } from './agent-presets.ts'
+import { normalizeAgentPreset, PTC_AGENT_PRESET } from './agent-presets.ts'
 import type { EdgeDeploymentProfile } from './deployment.ts'
 import { EDGE_DO_ATTACHMENT_MAX_STORED_BYTES } from './edge-attachment-store.ts'
 import type { EdgeApiSessionSummary, EdgeSessionStore } from './session-store.ts'
@@ -691,7 +691,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
       },
       async read(request: RpcRequest<AgentPresetPayload>) {
         const presets = await runtime.sessions.agentPresetRows()
-        const preset = presets.find(row => row.id === request.payload.agentPreset)
+        const preset = presets.find(row => row.id === normalizeAgentPreset(request.payload.agentPreset))
         if (preset === undefined) {
           return presetNotFound(request, request.payload.agentPreset, presets.map(row => row.id))
         }
@@ -720,8 +720,6 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
           return ok(request, {
             agentPreset: preset.id,
             trust: preset.trust,
-            ...preset.name === undefined ? {} : { name: preset.name },
-            ...preset.description === undefined ? {} : { description: preset.description },
             content: edgeAgentPresetContent(
               runtime,
               preset.id,
@@ -979,7 +977,7 @@ function sessionSummary(
       : { parentSessionId: summary.parentSessionId },
     ...summary.origin === undefined ? {} : { origin: summary.origin },
     ...summary.cwd === undefined ? {} : { cwd: summary.cwd },
-    ...summary.agentPreset === undefined ? {} : { agentPreset: summary.agentPreset },
+    ...summary.agentPreset === undefined ? {} : { agentPreset: normalizeAgentPreset(summary.agentPreset) },
     projections: summaryProjections(summary, runtime.imageLimits,
       (runtime.sessions.projectionSnapshot(summary.id) ?? runtime.sessions.projectionCachedSnapshot(summary))?.values),
   }

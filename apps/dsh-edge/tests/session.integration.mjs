@@ -956,7 +956,7 @@ try {
   const presetList = await rpc('agentPreset.list', {})
   assert.deepEqual(
     presetList.body.result.value.presets.map(preset => preset.id),
-    runtimeMode === 'isolated' ? ['dsh-edge', 'ptc'] : ['dsh-edge'],
+    runtimeMode === 'isolated' ? ['standard', 'ptc'] : ['standard'],
   )
   // A blank session keeps its selected preset in every summary and create retry.
   let blankPtcSessionId
@@ -977,7 +977,7 @@ try {
     assert.equal(codeEvents.filter(event => event.type === 'tool/ptc-dispatch').length, 2)
     const ptcTools = (turnRequests().at(-1).tools ?? []).map(tool => tool.function?.name)
     assert.deepEqual(ptcTools, ['run_code'])
-    const locked = await rpc('agentPreset.select', { agentId: ptcSessionId, agentPreset: 'dsh-edge' })
+    const locked = await rpc('agentPreset.select', { agentId: ptcSessionId, agentPreset: 'standard' })
     assert.equal(locked.body.result.error.code, 'agent-preset-locked')
   } else {
     const refused = await rpc('session.create', { agentPreset: 'ptc' })
@@ -985,8 +985,10 @@ try {
   }
   remoteMux.send({ type: 'cancel', streamId: 'events-1' })
   remoteMux.close()
-  const preset = await rpc('agentPreset.read', { agentPreset: 'dsh-edge' })
+  const preset = await rpc('agentPreset.read', { agentPreset: 'standard' })
   assert.equal(preset.body.result.ok, true)
+  // The released fixture's sessions recorded the legacy default id; it reads as `standard`.
+  assert.equal((await rpc('agentPreset.read', { agentPreset: 'dsh-edge' })).body.result.value.agentPreset, 'standard')
   assert.match(preset.body.result.value.content, /Effective dsh-edge composition/u)
   assert.match(
     preset.body.result.value.content,
@@ -1955,6 +1957,7 @@ try {
   const durableBatch = durableBatchHistory.body.result.value.events
     .find(entry => entry.event.type === 'assistant/message').event
   assert.deepEqual(durableBatch, batchAssistant)
+  const legacyPresetSessionId = (await rpc('session.create', {})).body.result.value.sessionId
   await worker.stop()
   worker = undefined
   let damagedDatabase
@@ -1986,6 +1989,10 @@ try {
   try {
     assert.equal(repaired.prepare('SELECT version FROM dsh_sessions WHERE id = ?').get(RELEASED_SESSION_ID).version, 999)
     repaired.prepare('UPDATE dsh_sessions SET version = ? WHERE id = ?').run(savedVersion, RELEASED_SESSION_ID)
+    // Headers written before the Standard mode rename record the default as `dsh-edge`.
+    const legacyHeader = repaired.prepare('UPDATE dsh_sessions SET agent_preset = ? WHERE id = ?')
+    assert.equal(legacyHeader.run('dsh-edge', RELEASED_SESSION_ID).changes, 1)
+    assert.equal(legacyHeader.run('dsh-edge', legacyPresetSessionId).changes, 1)
     // A session recorded under PTC mode on a deployment that no longer offers it
     // (the Loader was removed) still answers an idempotent create retry.
     if (runtimeMode === 'direct') {
@@ -1994,6 +2001,14 @@ try {
   } finally { repaired.close() }
   worker = await startWorker()
   assert.equal((await jsonRequest('/api/ready')).response.status, 200)
+  // Both the summary field and the projection the browser reads report Standard mode.
+  const legacyListing = (await rpc('session.list', {})).body.result.value.items
+    .find(item => item.sessionId === RELEASED_SESSION_ID)
+  assert.equal(legacyListing.agentPreset, 'standard')
+  const reselected = await rpc('agentPreset.select', { agentId: legacyPresetSessionId, agentPreset: 'standard' })
+  assert.equal(reselected.body.result.ok, true, JSON.stringify(reselected.body.result))
+  const legacyHistory = (await rpc('session.history', { sessionId: legacyPresetSessionId })).body.result.value
+  assert.equal(legacyHistory.projections.values.agentPreset, 'standard')
   if (runtimeMode === 'direct') {
     const retried = await rpc('session.create', { sessionId: batchedSessionId, agentPreset: 'ptc' })
     assert.equal(retried.body.result.ok, true, JSON.stringify(retried.body.result))

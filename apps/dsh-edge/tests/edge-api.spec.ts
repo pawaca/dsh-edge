@@ -177,16 +177,14 @@ describe('Edge upstream API invariants', () => {
     const edge = runtime({})
     const api = createEdgeApi(edge)
 
-    const response = await api.agentPresets.read(request({ agentPreset: 'dsh-edge' }))
+    const response = await api.agentPresets.read(request({ agentPreset: 'standard' }))
 
-    expect(response.result).toMatchObject({
-      ok: true,
-      value: {
-        agentPreset: 'dsh-edge',
-        trust: 'system',
-        name: 'DSH Edge',
-      },
-    })
+    expect(response.result).toMatchObject({ ok: true, value: { agentPreset: 'standard', trust: 'system' } })
+    // The client localizes upstream's built-in ids; the Edge sends no copy of its own.
+    expect(response.result.ok && 'name' in (response.result.value as object)).toBe(false)
+    // The id earlier releases stored reads as `standard`.
+    const legacy = await api.agentPresets.read(request({ agentPreset: 'dsh-edge' }))
+    expect(legacy.result).toMatchObject({ ok: true, value: { agentPreset: 'standard' } })
     if (!response.result.ok) throw new Error('unreachable')
     const value = response.result.value as Record<string, unknown>
     expect(value.content).toContain('# Effective dsh-edge composition (read-only)')
@@ -207,7 +205,7 @@ describe('Edge upstream API invariants', () => {
 
     const invalidProfile = await createEdgeApi(runtime({}, {
       deploymentProfile: () => { throw new Error('invalid deployment profile') },
-    })).agentPresets.read(request({ agentPreset: 'dsh-edge' }))
+    })).agentPresets.read(request({ agentPreset: 'standard' }))
     expect(invalidProfile.result).toMatchObject({
       ok: false,
       error: { code: 'internal', message: 'invalid deployment profile' },
@@ -216,7 +214,7 @@ describe('Edge upstream API invariants', () => {
 
   it('offers PTC mode beside the default preset only with a code runtime', async () => {
     const direct = await createEdgeApi(runtime({})).agentPresets.list(request({}))
-    expect(direct.result).toMatchObject({ ok: true, value: { presets: [{ id: 'dsh-edge', isDefault: true }] } })
+    expect(direct.result).toMatchObject({ ok: true, value: { presets: [{ id: 'standard', isDefault: true }] } })
     if (!direct.result.ok) throw new Error('unreachable')
     expect((direct.result.value as { presets: unknown[] }).presets).toHaveLength(1)
 
@@ -224,7 +222,7 @@ describe('Edge upstream API invariants', () => {
     const listed = await isolated.agentPresets.list(request({}))
     expect(listed.result).toMatchObject({
       ok: true,
-      value: { presets: [{ id: 'dsh-edge', isDefault: true }, { id: 'ptc', isDefault: false }] },
+      value: { presets: [{ id: 'standard', isDefault: true }, { id: 'ptc', isDefault: false }] },
     })
     const read = await isolated.agentPresets.read(request({ agentPreset: 'ptc' }))
     if (!read.result.ok) throw new Error('PTC mode should be readable')
@@ -237,7 +235,7 @@ describe('Edge upstream API invariants', () => {
     })).sessions.create(request({ agentPreset: 'ptc' }))
     expect(refused.result).toMatchObject({
       ok: false,
-      error: { code: 'agent-preset-not-found', details: { available: ['dsh-edge'] } },
+      error: { code: 'agent-preset-not-found', details: { available: ['standard'] } },
     })
 
     // An existing session keeps its recorded preset on a retry, even once no longer offered.
