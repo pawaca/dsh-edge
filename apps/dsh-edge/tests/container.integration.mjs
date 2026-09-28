@@ -104,9 +104,10 @@ try {
   assert.equal(tools.stdout, '1\nx\nx\nx\n')
   assert.equal(tools.runtime, 'container')
 
-  // Linux programs emit raw bytes: GBK text, or `head -c` cutting a character
-  // mid-output, decodes like a terminal instead of failing the command.
-  const bytes = await exec(`printf '\\xd0\\xc2\\n'; printf '新闻' | head -c 4; echo; uname -s`, true)
+  // Linux programs emit raw bytes: GBK text (octal escapes, since the
+  // container's sh is dash), or `head -c` cutting a character mid-output,
+  // decodes like a terminal instead of failing the command.
+  const bytes = await exec(`printf '\\320\\302\\n'; printf '新闻' | head -c 4; echo; uname -s`, true)
   assert.equal(bytes.status, 'completed', bytes.stderr)
   assert.equal(bytes.stdout, '\uFFFD\uFFFD\n新\uFFFD\nLinux\n')
 
