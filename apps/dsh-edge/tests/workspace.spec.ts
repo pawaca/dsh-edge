@@ -154,6 +154,39 @@ describe('dsh-edge workspace command execution', () => {
     expect(result.exitCode).toBe(126)
   })
 
+  it('decodes output that is not UTF-8 like a terminal instead of failing the command', async () => {
+    const utf8 = new TextEncoder().encode('新闻')
+    const runtime = executionRuntime([
+      // A GBK page, then `head -c` cutting 「闻」 mid-character before more output.
+      { name: 'stdout', value: new Uint8Array([0xd0, 0xc2, 0xce, 0xc5, 0x0a]) },
+      { name: 'stdout', value: utf8.subarray(0, 4) },
+      { name: 'stdout', value: new TextEncoder().encode('\n---EXIT:0---\n') },
+      { name: 'stderr', value: new Uint8Array([0xff, 0x6f, 0x6b]) },
+      { name: 'exit', code: 0 },
+    ])
+
+    const result = await executeWorkspaceCommand(
+      runtime.workspace, 'curl feed | head -c 600; echo', '/workspace', resolveEdgeCommandTimeoutPolicy(),
+    )
+
+    expect(result.status).toBe('completed')
+    expect(result.stdout).toBe('\uFFFD\uFFFD\uFFFD\uFFFD\n新\uFFFD\n---EXIT:0---\n')
+    expect(result.stderr).toBe('\uFFFDok')
+  })
+
+  it('drops a character cut by the output limit at the very end instead of replacing it', async () => {
+    const runtime = executionRuntime([
+      { name: 'stdout', value: new TextEncoder().encode('ok新').subarray(0, 4) },
+      { name: 'exit', code: 0 },
+    ])
+
+    const result = await executeWorkspaceCommand(
+      runtime.workspace, 'printf', '/workspace', resolveEdgeCommandTimeoutPolicy(),
+    )
+
+    expect(result.stdout).toBe('ok')
+  })
+
   it('does not infer terminal causes from command-controlled stderr and exit codes', async () => {
     for (const [exitCode, diagnostic] of [
       [124, 'execution deadline'],
