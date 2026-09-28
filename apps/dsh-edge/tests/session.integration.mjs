@@ -979,6 +979,16 @@ try {
     assert.deepEqual(ptcTools, ['run_code'])
     const locked = await rpc('agentPreset.select', { agentId: ptcSessionId, agentPreset: 'standard' })
     assert.equal(locked.body.result.error.code, 'agent-preset-locked')
+    // The Settings page makes a preset the default for new sessions.
+    const madeDefault = await rpc('settings.update', { ns: 'agent-presets', patch: { default: 'ptc' } })
+    assert.equal(madeDefault.body.result.ok, true, JSON.stringify(madeDefault.body.result))
+    assert.deepEqual(
+      (await rpc('agentPreset.list', {})).body.result.value.presets.map(row => [row.id, row.isDefault]),
+      [['standard', false], ['ptc', true]],
+    )
+    assert.equal((await rpc('session.create', {})).body.result.value.agentPreset, 'ptc')
+    await rpc('settings.update', { ns: 'agent-presets', patch: { default: 'standard' } })
+    assert.equal((await rpc('session.create', {})).body.result.value.agentPreset, 'standard')
   } else {
     const refused = await rpc('session.create', { agentPreset: 'ptc' })
     assert.equal(refused.body.result.error.code, 'agent-preset-not-found')
@@ -1119,6 +1129,10 @@ try {
     model: 'deepseek-v4-flash-vision-exp',
     reasoningEffort: 'high',
   })
+  // As upstream, the latest pick is where the next new session starts.
+  const nextSessionId = (await rpc('session.create', {})).body.result.value.sessionId
+  assert.deepEqual((await rpc('session.models', { sessionId: nextSessionId })).body.result.value.current,
+    selectedVision.body.result.value.selected)
 
   const protocolList = await rpc('session.list', {})
   assert.equal(protocolList.response.headers.get('access-control-allow-origin'), '*')

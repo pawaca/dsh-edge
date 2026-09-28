@@ -12,9 +12,14 @@
  * reader (summaries, resume, fork, subagents) reads one bounded value. Tools
  * and prompt sections stay mounted globally; a preset only changes how one
  * agent's scope presents them.
+ *
+ * As upstream, new sessions start on the `default` field of the
+ * `agent-presets` settings namespace, which the Settings page writes.
  */
 
 import { Service as CordisService, type Context } from '@deepseek-ai/cordis'
+import Schema from '@deepseek-ai/schemastery'
+import type { SettingsScope } from '@deepseek-ai/dsh-settings'
 import type { SessionHeader } from '@deepseek-ai/dsh-session'
 
 // The upstream event the preset host records; declared here because the Edge
@@ -27,6 +32,7 @@ declare module '@deepseek-ai/dsh-session/types' {
 
 export const DEFAULT_AGENT_PRESET = 'standard'
 export const PTC_AGENT_PRESET = 'ptc'
+export const AGENT_PRESET_SETTINGS_NAMESPACE = 'agent-presets'
 /** The id releases up to 0.18.0-alpha.2 stored for the default preset. */
 const LEGACY_DEFAULT_AGENT_PRESET = 'dsh-edge'
 
@@ -41,16 +47,20 @@ export interface EdgeAgentPresetRow {
   isDefault: boolean
 }
 
-// No name or description: the client localizes upstream's built-in ids itself.
-const PRESETS: readonly EdgeAgentPresetRow[] = [
-  { id: DEFAULT_AGENT_PRESET, trust: 'system', isDefault: true },
-  { id: PTC_AGENT_PRESET, trust: 'system', isDefault: false },
-]
+const PRESET_IDS: readonly string[] = [DEFAULT_AGENT_PRESET, PTC_AGENT_PRESET]
 
 /** The presets a deployment offers; PTC mode needs the Worker Loader that runs `run_code`. */
-export function edgeAgentPresetRows(codeRuntime: boolean): EdgeAgentPresetRow[] {
-  return PRESETS.filter(preset => codeRuntime || preset.id !== PTC_AGENT_PRESET)
+export function edgeAgentPresetIds(codeRuntime: boolean): string[] {
+  return PRESET_IDS.filter(id => codeRuntime || id !== PTC_AGENT_PRESET)
 }
+
+interface AgentPresetSettings {
+  default: string
+}
+
+const AgentPresetSettingsSchema = Schema.object({
+  default: Schema.string().default(DEFAULT_AGENT_PRESET),
+}) as unknown as Schema<AgentPresetSettings>
 
 /** The preset a session runs, from its durable header. */
 export function sessionAgentPreset(header: SessionHeader): string {
@@ -64,22 +74,43 @@ export function sessionAgentPreset(header: SessionHeader): string {
  * through `composeFrom`, so children run their parent's preset.
  */
 export class EdgeAgentPresets extends CordisService {
+  static inject = ['settings']
+
   private readonly composed = new WeakMap<Context, string>()
+  private readonly settings: SettingsScope<AgentPresetSettings>
 
   constructor(ctx: Context, private readonly config: { codeRuntime: boolean }) {
     super(ctx, 'agentPresets')
+    this.settings = ctx.settings.register(AGENT_PRESET_SETTINGS_NAMESPACE, AgentPresetSettingsSchema, {
+      // Checked against every Edge preset rather than this deployment's offer:
+      // a stored `ptc` must not fail registration after the Loader is removed.
+      validate: ({ default: id }) => {
+        if (!PRESET_IDS.includes(normalizeAgentPreset(id))) {
+          throw new Error(`Agent preset "${id}" is not available.`)
+        }
+      },
+    })
   }
 
+  /** The preset new sessions start on; one this deployment no longer offers reads as `standard`. */
+  defaultPreset(): string {
+    const id = normalizeAgentPreset(this.settings.get().default)
+    return this.offers(id) ? id : DEFAULT_AGENT_PRESET
+  }
+
+  // No name or description: the client localizes upstream's built-in ids itself.
   rows(): EdgeAgentPresetRow[] {
-    return edgeAgentPresetRows(this.config.codeRuntime)
+    const defaultId = this.defaultPreset()
+    return edgeAgentPresetIds(this.config.codeRuntime)
+      .map(id => ({ id, trust: 'system' as const, isDefault: id === defaultId }))
   }
 
   offers(presetId: string): boolean {
-    return this.rows().some(row => row.id === normalizeAgentPreset(presetId))
+    return edgeAgentPresetIds(this.config.codeRuntime).includes(normalizeAgentPreset(presetId))
   }
 
   async resolve(presetId?: string): Promise<{ id: string; trust: 'system'; isDefault: boolean }> {
-    const id = normalizeAgentPreset(presetId ?? DEFAULT_AGENT_PRESET)
+    const id = presetId === undefined ? this.defaultPreset() : normalizeAgentPreset(presetId)
     const row = this.rows().find(candidate => candidate.id === id)
     if (row === undefined) throw new Error(`Agent preset "${id}" is not available.`)
     return { id: row.id, trust: row.trust, isDefault: row.isDefault }

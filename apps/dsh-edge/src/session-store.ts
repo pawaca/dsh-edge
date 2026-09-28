@@ -122,7 +122,6 @@ import EdgeSessionQuery, { edgeSearchDocuments } from './edge-session-query.ts'
 import { resolveEdgeModel } from './deepseek.ts'
 import type { CreateEdgeSessionInput, EdgeSession } from './protocol.ts'
 import {
-  DEFAULT_AGENT_PRESET,
   normalizeAgentPreset,
   EdgeAgentPresets,
   sessionAgentPreset,
@@ -187,6 +186,13 @@ const EDGE_CURRENT_DATE_CONTEXT = 'edge:current-date'
 const DEFAULT_EDGE_MODEL = 'deepseek-v4-flash'
 const AGENT_DEFAULT_MODEL_KEY = 'dsh-edge:agent-default-model'
 const MESSAGE_TYPES = new Set<SessionEvent['type']>(['user/message', 'assistant/message'])
+
+/** The upstream `agentDefaultModel` seam, served from Durable Object KV. */
+interface AgentDefaultModelSeam {
+  currentSelection(): ModelSelection
+  saveSelection(selection: ModelSelection): Promise<void>
+}
+
 /** Wire-visible reason the Host cannot open a workspace path on a desktop. */
 export const EDGE_NATIVE_OPEN_UNAVAILABLE = 'Native file open is not available on Cloudflare Workers; the Web client downloads the file instead.'
 
@@ -826,8 +832,8 @@ export class EdgeSessionStore {
   }
 
   /** Check the current session selection through the upstream model catalog. */
-  async modelSupportsImages(id: SessionId, defaultModel: string): Promise<boolean> {
-    const selection = await this.modelSelection(id, defaultModel)
+  async modelSupportsImages(id: SessionId): Promise<boolean> {
+    const selection = await this.modelSelection(id)
     const info = await this.context.llm.resolveModelInfo(selection.provider, selection.model)
     return info.inputModalities === undefined || info.inputModalities.includes('image')
   }
@@ -1290,8 +1296,20 @@ export class EdgeSessionStore {
     }
   }
 
+  private agentDefaultModel(): AgentDefaultModelSeam {
+    return this.context.get('agentDefaultModel') as AgentDefaultModelSeam
+  }
+
+  /**
+   * The selection a session without one of its own starts on: as upstream,
+   * the owner's latest pick in any session, else the deployment model.
+   */
+  private defaultModelSelection(): ModelSelection {
+    return this.agentDefaultModel().currentSelection()
+  }
+
   /** Resolve the selection using the same pending → logged → default order as upstream ApiProxy. */
-  async modelSelection(id: SessionId, defaultModel: string): Promise<ModelSelection> {
+  async modelSelection(id: SessionId): Promise<ModelSelection> {
     const { sessions, persistence } = await this.services()
     // A live agent adopted from the upstream SessionController consumes the
     // agent-layer pending selection on its next request, so that selection
@@ -1301,15 +1319,15 @@ export class EdgeSessionStore {
     const pending = await this.loadModelSelection(id)
     if (pending !== undefined) return pending
     const live = sessions.get(id)
-    if (live !== undefined) return loggedModelSelection(live.requestHeader()?.config, defaultModel)
+    if (live !== undefined) return loggedModelSelection(live.requestHeader()?.config, this.defaultModelSelection())
     if (!(persistence instanceof DurableObjectSessionPersistence)) {
       throw new EdgeSessionStoreError('INVALID_DATA', 'Edge persistence backend is unavailable.')
     }
-    if (persistence.readBlankSession(id) !== undefined) return defaultModelSelection(defaultModel)
+    if (persistence.readBlankSession(id) !== undefined) return this.defaultModelSelection()
     if (persistence.readSessionHeader(id) === undefined) {
       throw new EdgeSessionStoreError('NOT_FOUND', 'Session not found.')
     }
-    return loggedModelSelection(persistence.readLatestModelSelection(id), defaultModel)
+    return loggedModelSelection(persistence.readLatestModelSelection(id), this.defaultModelSelection())
   }
 
   /** Validate and install one session-local selection through the upstream LLM resolver. */
@@ -1340,6 +1358,10 @@ export class EdgeSessionStore {
         : { reasoningEffort: resolved.reasoningEffort },
     }
     await this.modelSelections.save(id, selected)
+    // As upstream, the latest pick also becomes the default for new sessions.
+    await this.agentDefaultModel().saveSelection(selected).catch((error: unknown) => {
+      console.warn('dsh-edge: model selection changed for the session but the default was not saved.', error)
+    })
     // Publish the upstream durable projection even when no Agent is resident.
     const { sessions, persistence } = await this.services()
     const live = sessions.get(id)
@@ -1414,10 +1436,10 @@ export class EdgeSessionStore {
       sessionId: id,
       meta: {
         cwd: input.cwd ?? '/workspace',
-        agentPreset: DEFAULT_AGENT_PRESET,
+        agentPreset: (this.context.get('agentPresets') as EdgeAgentPresets).defaultPreset(),
       },
       agentOptions: { provider: EDGE_PROVIDER, model: DEFAULT_EDGE_MODEL },
-      setup: (agentCtx, agent) => this.composeAgent(agentCtx, agent, DEFAULT_EDGE_MODEL),
+      setup: (agentCtx, agent) => this.composeAgent(agentCtx, agent),
     })
     const { agent } = handle
     const { session } = agent
@@ -1480,8 +1502,9 @@ export class EdgeSessionStore {
     }
     // Availability applies to new sessions only: an existing one (a retry or
     // restore) keeps the preset its header recorded, even if no longer offered.
-    const agentPreset = normalizeAgentPreset(input.agentPreset ?? DEFAULT_AGENT_PRESET)
-    if (!(this.context.get('agentPresets') as EdgeAgentPresets).offers(agentPreset)) {
+    const presets = this.context.get('agentPresets') as EdgeAgentPresets
+    const agentPreset = normalizeAgentPreset(input.agentPreset ?? presets.defaultPreset())
+    if (!presets.offers(agentPreset)) {
       throw new EdgeSessionStoreError('PRESET_UNAVAILABLE', `Agent preset "${agentPreset}" is not available.`)
     }
     await persistence.retainBlankSession({
@@ -1757,7 +1780,7 @@ export class EdgeSessionStore {
         agentPreset: sessionAgentPreset(header),
       },
       agentOptions: { provider: EDGE_PROVIDER, model },
-      setup: (agentCtx, agent) => this.composeAgent(agentCtx, agent, model),
+      setup: (agentCtx, agent) => this.composeAgent(agentCtx, agent),
     })
     try {
       await sessions.flush(handle.agent.session)
@@ -1858,7 +1881,7 @@ export class EdgeSessionStore {
     const handle = await agents.resume({
       resumeSessionId: id,
       agentOptions: { provider: EDGE_PROVIDER, model },
-      setup: (agentCtx, agent) => this.composeAgent(agentCtx, agent, model),
+      setup: (agentCtx, agent) => this.composeAgent(agentCtx, agent),
     })
     try {
       await this.context.sessions.flush(handle.agent.session)
@@ -1886,10 +1909,10 @@ export class EdgeSessionStore {
   }
 
   /** Compose one Agent from its session's preset and model selection before it is published. */
-  private composeAgent(agentCtx: Context, agent: Agent, defaultModel: string): void {
+  private composeAgent(agentCtx: Context, agent: Agent): void {
     const presets = this.context.get('agentPresets') as EdgeAgentPresets
     presets.join(agentCtx, sessionAgentPreset(agent.session.header))
-    this.installAgentModelSelection(agentCtx, agent, defaultModel)
+    this.installAgentModelSelection(agentCtx, agent)
   }
 
   /** The agent presets this deployment offers, default first. */
@@ -1927,13 +1950,14 @@ export class EdgeSessionStore {
   }
 
   /** Mount the upstream per-agent selection seam before the Agent is published. */
-  private installAgentModelSelection(agentCtx: Context, agent: Agent, defaultModel: string): void {
+  private installAgentModelSelection(agentCtx: Context, agent: Agent): void {
     let assembled: ModelSelection | undefined
     const selections = this.modelSelections
+    const defaultSelection = () => this.defaultModelSelection()
     const selection: ModelSelectionRef = {
       get current() {
         return selections.current(agent.id)
-          ?? loggedModelSelection(agent.session.requestHeader()?.config, defaultModel)
+          ?? loggedModelSelection(agent.session.requestHeader()?.config, defaultSelection())
       },
       set current(next) {
         selections.setCurrent(agent.id, next)
@@ -1983,7 +2007,7 @@ export class EdgeSessionStore {
     if (config?.provider === undefined || config.model === undefined) return
     await this.modelSelections.clearIfLogged(
       agent.id,
-      loggedModelSelection(config, DEFAULT_EDGE_MODEL),
+      loggedModelSelection(config, this.defaultModelSelection()),
     )
   }
 
@@ -2486,18 +2510,12 @@ function buildEdgeLlmPluginConfig(config: EdgeSessionStoreConfig): Record<string
   return out
 }
 
-function defaultModelSelection(model: string): ModelSelection {
-  return { provider: EDGE_PROVIDER, model }
-}
-
 /** Rebuild the session-local selection from its latest full request header. */
 function loggedModelSelection(
   config: { provider?: string; model?: string; reasoningEffort?: string } | undefined,
-  defaultModel: string,
+  fallback: ModelSelection,
 ): ModelSelection {
-  if (config?.provider === undefined || config.model === undefined) {
-    return defaultModelSelection(defaultModel)
-  }
+  if (config?.provider === undefined || config.model === undefined) return fallback
   return {
     provider: config.provider,
     model: config.model,

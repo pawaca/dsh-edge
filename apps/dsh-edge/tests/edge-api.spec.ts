@@ -32,9 +32,11 @@ import {
   searchSnippet,
   type EdgeApiSessionSummary,
 } from '../src/session-store.ts'
-import { edgeAgentPresetRows } from '../src/agent-presets.ts'
+import type { EdgeAgentPresetRow } from '../src/agent-presets.ts'
 
 const workspaceId = 'edge-workspace' as WorkspaceId
+const STANDARD_ROW: EdgeAgentPresetRow = { id: 'standard', trust: 'system', isDefault: true }
+const PTC_ROW: EdgeAgentPresetRow = { id: 'ptc', trust: 'system', isDefault: false }
 const parentId = SessionId('session-parent')
 const childId = SessionId('session-child')
 const imageLimits: ImageAttachmentLimits = {
@@ -117,7 +119,7 @@ function runtime(
       })),
       projectionSnapshot: vi.fn(() => undefined),
       projectionCachedSnapshot: vi.fn((_summary: unknown) => undefined),
-      agentPresetRows: vi.fn(async () => edgeAgentPresetRows(false)),
+      agentPresetRows: vi.fn(async (): Promise<EdgeAgentPresetRow[]> => [STANDARD_ROW]),
       ...sessions,
     } as unknown as EdgeApiRuntime['sessions'],
     model: 'deepseek-test',
@@ -218,7 +220,7 @@ describe('Edge upstream API invariants', () => {
     if (!direct.result.ok) throw new Error('unreachable')
     expect((direct.result.value as { presets: unknown[] }).presets).toHaveLength(1)
 
-    const isolated = createEdgeApi(runtime({ agentPresetRows: vi.fn(async () => edgeAgentPresetRows(true)) }))
+    const isolated = createEdgeApi(runtime({ agentPresetRows: vi.fn(async (): Promise<EdgeAgentPresetRow[]> => [STANDARD_ROW, PTC_ROW]) }))
     const listed = await isolated.agentPresets.list(request({}))
     expect(listed.result).toMatchObject({
       ok: true,
@@ -327,7 +329,7 @@ describe('Edge upstream API invariants', () => {
         ] }],
       },
     })
-    expect(modelSelection).toHaveBeenCalledWith(parentId, 'deepseek-test')
+    expect(modelSelection).toHaveBeenCalledWith(parentId)
 
     const selected = await api.sessions.selectModel(request({
       sessionId: parentId,
