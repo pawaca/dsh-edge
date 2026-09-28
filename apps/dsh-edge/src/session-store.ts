@@ -268,7 +268,7 @@ export class EdgeSessionCwdConflictError extends Error {
 export class EdgeSessionStore {
   private readonly context = new Context()
   private readonly shells = new EdgeShellBindings()
-  /** The latest browser time zone per root session, for the current-date context (UTC until one arrives). */
+  /** Cache of each root session's latest browser time zone; see {@link clientTimeZone}. */
   private readonly clientTimeZones = new Map<SessionId, string>()
   private readonly modelSelections: EdgeModelSelectionBridge
   private readonly turnPublishedAgents = new WeakSet<Agent>()
@@ -571,7 +571,7 @@ export class EdgeSessionStore {
       order: 100,
       text: ({ agent }) => agent === undefined || !this.context.agents.roots().includes(agent)
         ? ''
-        : edgeCurrentDate(new Date(), this.clientTimeZones.get(agent.id)),
+        : edgeCurrentDate(new Date(), this.clientTimeZone(agent)),
     })
     this.context.on('system-prompt/assemble', async (_assembly, _context, next) => {
       const assembly = await next()
@@ -1040,6 +1040,24 @@ export class EdgeSessionStore {
   /** Record the time zone of the prompt a session's turn is running, for its current-date context. */
   noteClientTimeZone(sessionId: SessionId, timeZone: string): void {
     this.clientTimeZones.set(sessionId, timeZone)
+  }
+
+  /**
+   * The zone of the session's latest browser prompt. The map only caches it:
+   * after a restart (a reminder turn has no prompt of its own) it is restored
+   * once from the durable history, newest first.
+   */
+  private clientTimeZone(agent: Agent): string | undefined {
+    const cached = this.clientTimeZones.get(agent.id)
+    if (cached !== undefined) return cached
+    for (const event of agent.session.snapshotEvents().toReversed()) {
+      if (event.type !== 'user/message' || event.data.source.kind !== 'user') continue
+      const zone = 'clientTimeZone' in event.data.source ? event.data.source.clientTimeZone : undefined
+      if (zone === undefined) continue
+      this.clientTimeZones.set(agent.id, zone)
+      return zone
+    }
+    return undefined
   }
 
   /**

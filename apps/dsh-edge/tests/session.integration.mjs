@@ -1308,11 +1308,16 @@ try {
     .find(item => item.sessionId === forkedSessionId)
   assert.equal(forkSummary.parentSessionId, protocolSessionId)
   assert.equal(forkSummary.projections.values.title, 'Protocol path (2)')
-  // A fork is a root conversation of its own: its next turn states the date
-  // for its own zone rather than clearing the parent's inherited snapshot.
+  // A fork is a root conversation of its own: its next turn keeps the date
+  // context it inherited (same day, and the zone restored from the parent's
+  // prompt) instead of clearing it as a subagent would.
   const forkTurn = await turn(forkedSessionId, 'continue the fork')
-  assert.match(forkTurn.find(isDateContext)?.data.content[0].text ?? '',
-    /Current date: \w+, \d{4}-\d{2}-\d{2} \(UTC\)\./u)
+  assert.equal(forkTurn.some(event => isDateContext(event)
+    && event.data.content[0].text.includes('Current runtime context: none')), false)
+  const forkDates = (await rpc('session.history', { sessionId: forkedSessionId })).body.result.value.events
+    .map(entry => entry.event).filter(isDateContext)
+  assert.match(forkDates.at(-1)?.data.content[0].text ?? '',
+    /Current date: \w+, \d{4}-\d{2}-\d{2} \(Asia\/Shanghai\)\./u)
 
   const missingArchive = await rpc('workspace.archiveSession', {
     sessionId: 'session-ghost',

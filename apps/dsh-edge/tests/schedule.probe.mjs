@@ -40,8 +40,10 @@ try {
     const response = await fetch(`/api/${method.replace('.', '/')}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type: 'client-request', rpcId: crypto.randomUUID(), payload: { args: { request: payload } } }) })
     return (await response.json()).result
   }, { method, payload })
-  const prompt = async (page, sessionId, text) => {
-    const result = await rpc(page, 'session.prompt', { sessionId, mode: 'queue', content: [{ type: 'text', text }] })
+  const prompt = async (page, sessionId, text, clientTimeZone) => {
+    const result = await rpc(page, 'session.prompt', {
+      sessionId, mode: 'queue', content: [{ type: 'text', text }], ...clientTimeZone === undefined ? {} : { clientTimeZone },
+    })
     assert.ok(result.ok, JSON.stringify(result))
   }
   const history = async id => (await rpc(a, 'session.history', { sessionId: id })).value.events.map(entry => entry.event)
@@ -72,7 +74,7 @@ try {
   assert.equal(reminders().length, 1)
   console.log(`PASS ${mode}: deleted reminder does not fire`)
 
-  await prompt(a, 'restart', 'schedule once 10')
+  await prompt(a, 'restart', 'schedule once 10', 'Asia/Tokyo')
   await wait(() => ended('restart', 1), 'restart reminder committed')
   await context.close()
   await worker.stop()
@@ -81,6 +83,11 @@ try {
   await wait(() => reminders().length === 2, 'alarm after process restart')
   await new Promise(resolve => setTimeout(resolve, 1500))
   assert.equal(reminders().length, 2)
+  // The restarted object restores the session's zone from durable history
+  // rather than falling back to UTC for the reminder's date context.
+  const restartContexts = reminders()[1].messages
+    .filter(message => typeof message.content === 'string' && message.content.startsWith('Current runtime context'))
+  assert.match(restartContexts.at(-1)?.content ?? '', /\(Asia\/Tokyo\)\./u)
   console.log(`PASS ${mode}: persisted alarm wakes original session after Worker restart; no duplicate delivery`)
 } finally {
   mock.releaseSlowResponses()
