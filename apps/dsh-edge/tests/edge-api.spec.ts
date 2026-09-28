@@ -230,11 +230,23 @@ describe('Edge upstream API invariants', () => {
     if (!read.result.ok) throw new Error('PTC mode should be readable')
     expect((read.result.value as { content: string }).content).toContain('toolPresentation: ptc')
 
-    const refused = await createEdgeApi(runtime({})).sessions.create(request({ agentPreset: 'ptc' }))
+    const refused = await createEdgeApi(runtime({
+      createBlankSession: vi.fn(async () => {
+        throw new EdgeSessionStoreError('PRESET_UNAVAILABLE', 'Agent preset "ptc" is not available.')
+      }),
+    })).sessions.create(request({ agentPreset: 'ptc' }))
     expect(refused.result).toMatchObject({
       ok: false,
       error: { code: 'agent-preset-not-found', details: { available: ['dsh-edge'] } },
     })
+
+    // An existing session keeps its recorded preset on a retry, even once no longer offered.
+    const sessionId = SessionId('session-recorded-ptc')
+    const retried = await createEdgeApi(runtime({
+      createBlankSession: vi.fn(async () => ({ sessionId, agentPreset: 'ptc', created: false })),
+      listApiSessions: vi.fn(async () => [summary(sessionId, { agentPreset: 'ptc' })]),
+    })).sessions.create(request({ sessionId, agentPreset: 'ptc' }))
+    expect(retried.result).toEqual({ ok: true, value: { sessionId, agentPreset: 'ptc' } })
   })
 
   it('selects a preset for a blank session and reports a started one as locked', async () => {

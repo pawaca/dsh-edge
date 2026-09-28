@@ -1960,9 +1960,19 @@ try {
   try {
     assert.equal(repaired.prepare('SELECT version FROM dsh_sessions WHERE id = ?').get(RELEASED_SESSION_ID).version, 999)
     repaired.prepare('UPDATE dsh_sessions SET version = ? WHERE id = ?').run(savedVersion, RELEASED_SESSION_ID)
+    // A session recorded under PTC mode on a deployment that no longer offers it
+    // (the Loader was removed) still answers an idempotent create retry.
+    if (runtimeMode === 'direct') {
+      repaired.prepare('UPDATE dsh_sessions SET agent_preset = ? WHERE id = ?').run('ptc', batchedSessionId)
+    }
   } finally { repaired.close() }
   worker = await startWorker()
   assert.equal((await jsonRequest('/api/ready')).response.status, 200)
+  if (runtimeMode === 'direct') {
+    const retried = await rpc('session.create', { sessionId: batchedSessionId, agentPreset: 'ptc' })
+    assert.equal(retried.body.result.ok, true, JSON.stringify(retried.body.result))
+    assert.equal(retried.body.result.value.agentPreset, 'ptc')
+  }
   process.stdout.write(`dsh-edge ${runtimeMode} session integration passed\n`)
 } finally {
   mock.releaseSlowResponses()

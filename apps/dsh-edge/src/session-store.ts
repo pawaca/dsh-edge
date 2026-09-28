@@ -1423,7 +1423,12 @@ export class EdgeSessionStore {
         created: false,
       }
     }
+    // Availability applies to new sessions only: an existing one (a retry or
+    // restore) keeps the preset its header recorded, even if no longer offered.
     const agentPreset = input.agentPreset ?? DEFAULT_AGENT_PRESET
+    if (!(this.context.get('agentPresets') as EdgeAgentPresets).offers(agentPreset)) {
+      throw new EdgeSessionStoreError('PRESET_UNAVAILABLE', `Agent preset "${agentPreset}" is not available.`)
+    }
     await persistence.retainBlankSession({
       id, version: SESSION_FORMAT_VERSION, createdAt: Date.now(), isSeeded: false,
       cwd: sessionCwd, agentPreset,
@@ -1858,7 +1863,10 @@ export class EdgeSessionStore {
     if (sessionAgentPreset(session.header) === agentPreset) return agentPreset
     session.append('agent-preset/selected', { agentPreset })
     await this.context.sessions.flush(session)
-    await this.disposeResidentAgent(id)
+    // The selection is durable; a teardown failure must not report it as refused.
+    await this.disposeResidentAgent(id).catch((disposeError: unknown) => {
+      console.error('dsh-edge failed to release the agent after a preset selection.', disposeError)
+    })
     return agentPreset
   }
 
