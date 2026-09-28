@@ -104,6 +104,12 @@ try {
   assert.equal(tools.stdout, '1\nx\nx\nx\n')
   assert.equal(tools.runtime, 'container')
 
+  // Linux programs emit raw bytes: GBK text, or `head -c` cutting a character
+  // mid-output, decodes like a terminal instead of failing the command.
+  const bytes = await exec(`printf '\\xd0\\xc2\\n'; printf '新闻' | head -c 4; echo; uname -s`, true)
+  assert.equal(bytes.status, 'completed', bytes.stderr)
+  assert.equal(bytes.stdout, '\uFFFD\uFFFD\n新\uFFFD\nLinux\n')
+
   const burst = await exec(`mkdir -p burst && for i in $(seq ${FILES}); do echo "file $i" > burst/f$i; done`, true)
   assert.equal(burst.status, 'completed', burst.stderr)
   assert.equal(burst.runtime, 'container')

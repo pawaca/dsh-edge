@@ -257,24 +257,13 @@ function resolveDeploymentTimeout(raw: string | undefined, fallback: number, nam
 }
 
 function decodeChunks(chunks: Uint8Array[]): string {
-  const byteLength = chunks.reduce((total, chunk) => total + chunk.byteLength, 0)
-  const output = new Uint8Array(byteLength)
-  let offset = 0
-  for (const chunk of chunks) {
-    output.set(chunk, offset)
-    offset += chunk.byteLength
-  }
-  // A byte-exact cut can land inside one UTF-8 code point. The shell backend
-  // encoded these bytes from strings, so at most the final three bytes need
-  // dropping to retain a valid prefix without introducing U+FFFD expansion.
-  for (let dropped = 0; dropped <= 3 && dropped <= output.byteLength; dropped += 1) {
-    try {
-      return new TextDecoder('utf-8', { fatal: true }).decode(
-        output.subarray(0, output.byteLength - dropped),
-      )
-    } catch {
-      // Try the preceding UTF-8 boundary.
-    }
-  }
-  throw new Error('dsh-edge: shell output was not valid UTF-8')
+  // Decode like a terminal: bytes that are not UTF-8 (a GBK page, a binary
+  // file, or `head -c` cutting a character mid-output) become U+FFFD instead
+  // of failing the command. Streaming mode holds back an incomplete sequence
+  // at the very end, which is where the output limit cuts; it is dropped
+  // rather than shown as a replacement character.
+  const decoder = new TextDecoder('utf-8')
+  let text = ''
+  for (const chunk of chunks) text += decoder.decode(chunk, { stream: true })
+  return text
 }
