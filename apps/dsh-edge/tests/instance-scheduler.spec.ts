@@ -7,7 +7,11 @@ vi.mock('@cloudflare/computer/backends/container', () => ({
   withWorkspaceContainer: (base: unknown) => base,
 }))
 vi.mock('../src/direct-shell.ts', () => ({}))
-vi.mock('../src/session-store.ts', () => ({}))
+vi.mock('../src/session-store.ts', () => ({
+  EdgeSessionStoreError: class extends Error {
+    constructor(readonly code: string, message: string) { super(message) }
+  },
+}))
 import { DshEdgeInstance } from '../src/instance.ts'
 import * as scheduleStore from '../src/schedule-store.ts'
 // Exercise the real driver while replacing host services, not its dispatch/claim control flow.
@@ -64,4 +68,33 @@ it('recomputes the wake schedule after sleep now stops the container', async () 
   expect(container.destroy).toHaveBeenCalledOnce()
   expect(scheduleMainWake).toHaveBeenCalledOnce()
   expect(scheduleMainWake.mock.invocationCallOrder[0]).toBeGreaterThan(container.destroy.mock.invocationCallOrder[0]!)
+})
+
+it('opens the first turn only after a preset switch that began before its claim', async () => {
+  const sessionId = 'session-blank'
+  const switched = Promise.withResolvers<string>()
+  const order: string[] = []
+  const sessions = {
+    selectAgentPreset: vi.fn(async () => { const preset = await switched.promise; order.push('switched'); return preset }),
+    getApiSessionSummary: vi.fn(async () => ({})),
+    getOrResumeAgent: vi.fn(async () => { order.push('opened'); return { agent: {} } }),
+  }
+  const runtime = Object.assign(Object.create(DshEdgeInstance.prototype) as object, {
+    sessions, model: 'deepseek-chat', activeTurns: new Map(), presetSwitches: new Map(),
+    rememberSessionListMetadata: vi.fn(),
+  }) as unknown as {
+    selectAgentPreset(sessionId: string, preset: string): Promise<string>
+    claimTurn(sessionId: string): Promise<unknown>
+  }
+  const selecting = runtime.selectAgentPreset(sessionId, 'dsh-edge-ptc')
+  const claiming = runtime.claimTurn(sessionId)
+  await new Promise(resolve => setTimeout(resolve, 0))
+  // The claimed turn owns the session: a later switch is refused, and the
+  // Agent stays closed while the earlier switch is still recomposing it.
+  await expect(runtime.selectAgentPreset(sessionId, 'dsh-edge')).rejects.toMatchObject({ code: 'PRESET_LOCKED' })
+  expect(sessions.getOrResumeAgent).not.toHaveBeenCalled()
+  switched.resolve('dsh-edge-ptc')
+  await expect(selecting).resolves.toBe('dsh-edge-ptc')
+  await claiming
+  expect(order).toEqual(['switched', 'opened'])
 })

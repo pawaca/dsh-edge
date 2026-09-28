@@ -147,6 +147,8 @@ export interface EdgeApiRuntime {
     beforeSessionId?: SessionId,
   ): Promise<WorkspaceView>
   archiveSession(sessionId: SessionId): Promise<SessionId[]>
+  /** Record a blank session's agent preset before any turn can open it. */
+  selectAgentPreset(sessionId: SessionId, agentPreset: string): Promise<string>
   sessionCreated(session: EdgeApiSessionSummary): void
   sessionAttached(session: EdgeApiSessionSummary, workspaceId: WorkspaceId): Promise<void>
   workspaceForSession(sessionId: SessionId): Promise<WorkspaceId | undefined>
@@ -671,7 +673,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
       async select(request: RpcRequest<AgentPresetSelectPayload>) {
         const { agentId, agentPreset } = request.payload
         try {
-          return ok(request, await runtime.sessions.selectAgentPreset(agentId, agentPreset, runtime.model))
+          return ok(request, await runtime.selectAgentPreset(agentId, agentPreset))
         } catch (error) {
           if (error instanceof EdgeSessionStoreError && error.code === 'PRESET_UNAVAILABLE') {
             const available = (await runtime.sessions.agentPresetRows()).map(row => row.id)

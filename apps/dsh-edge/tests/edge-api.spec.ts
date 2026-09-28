@@ -163,6 +163,7 @@ function runtime(
     workspaceInsertBefore: vi.fn(async () => [workspaceId]),
     workspaceInsertSessionBefore: vi.fn(async () => workspace),
     archiveSession: vi.fn(async () => []),
+    selectAgentPreset: vi.fn(async () => 'dsh-edge'),
     sessionCreated: vi.fn(),
     sessionAttached: vi.fn(async () => {}),
     workspaceForSession: vi.fn(async () => workspaceId),
@@ -242,11 +243,11 @@ describe('Edge upstream API invariants', () => {
       .mockResolvedValueOnce('dsh-edge-ptc')
       .mockRejectedValueOnce(new EdgeSessionStoreError('PRESET_LOCKED', 'Session has already started.'))
       .mockRejectedValueOnce(new EdgeSessionStoreError('PRESET_UNAVAILABLE', 'Agent preset "missing" is not available.'))
-    const api = createEdgeApi(runtime({ selectAgentPreset }))
+    const api = createEdgeApi(runtime({}, { selectAgentPreset }))
 
     const selected = await api.agentPresets.select(request({ agentId: sessionId, agentPreset: 'dsh-edge-ptc' }))
     expect(selected.result).toEqual({ ok: true, value: 'dsh-edge-ptc' })
-    expect(selectAgentPreset).toHaveBeenCalledWith(sessionId, 'dsh-edge-ptc', 'deepseek-test')
+    expect(selectAgentPreset).toHaveBeenCalledWith(sessionId, 'dsh-edge-ptc')
     const locked = await api.agentPresets.select(request({ agentId: sessionId, agentPreset: 'dsh-edge-ptc' }))
     expect(locked.result).toMatchObject({ ok: false, error: { code: 'agent-preset-locked' } })
     const missing = await api.agentPresets.select(request({ agentId: sessionId, agentPreset: 'missing' }))
