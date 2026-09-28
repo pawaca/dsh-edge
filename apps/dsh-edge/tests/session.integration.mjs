@@ -952,7 +952,12 @@ try {
     presetList.body.result.value.presets.map(preset => preset.id),
     runtimeMode === 'isolated' ? ['dsh-edge', 'dsh-edge-ptc'] : ['dsh-edge'],
   )
+  // A blank session keeps its selected preset in every summary and create retry.
+  let blankPtcSessionId
   if (runtimeMode === 'isolated') {
+    blankPtcSessionId = (await rpc('session.create', {})).body.result.value.sessionId
+    await rpc('agentPreset.select', { agentId: blankPtcSessionId, agentPreset: 'dsh-edge-ptc' })
+    await assertBlankPtcPreset(blankPtcSessionId)
     const ptcSession = await rpc('session.create', {})
     const ptcSessionId = ptcSession.body.result.value.sessionId
     const selected = await rpc('agentPreset.select', { agentId: ptcSessionId, agentPreset: 'dsh-edge-ptc' })
@@ -1135,6 +1140,8 @@ try {
   assert.deepEqual(emptySkills.body.skills, [])
   mux = await openDownlink('/api/events.mux')
   host = await openDownlink('/api/events.host')
+  // After a Worker restart the selected preset comes from the durable header.
+  if (blankPtcSessionId !== undefined) await assertBlankPtcPreset(blankPtcSessionId)
   const restoredBlankList = await rpc('session.list', {})
   const restoredBlank = restoredBlankList.body.result.value.items
     .find(item => item.sessionId === protocolSessionId)
@@ -2136,6 +2143,14 @@ function loginOwner(accessKey) {
     body: new URLSearchParams({ accessKey }).toString(),
     redirect: 'manual',
   })
+}
+
+async function assertBlankPtcPreset(sessionId) {
+  const listed = (await rpc('session.list', {})).body.result.value.items.find(item => item.sessionId === sessionId)
+  assert.equal(listed.agentPreset, 'dsh-edge-ptc')
+  assert.equal(listed.blank, true)
+  const retried = await rpc('session.create', { sessionId })
+  assert.equal(retried.body.result.value.agentPreset, 'dsh-edge-ptc')
 }
 
 async function rpc(method, payload) {

@@ -1,5 +1,5 @@
 import { Context } from '@deepseek-ai/cordis'
-import { SESSION_FORMAT_VERSION, SessionId, SessionSeq, type SessionEvent, type SessionHeader } from '@deepseek-ai/dsh-session'
+import { SESSION_FORMAT_VERSION, SessionId, type SessionHeader } from '@deepseek-ai/dsh-session'
 import { describe, expect, it, vi } from 'vitest'
 import {
   DEFAULT_AGENT_PRESET,
@@ -17,10 +17,6 @@ const header: SessionHeader = {
   agentPreset: DEFAULT_AGENT_PRESET,
 }
 
-function event(seq: number, type: string, data: unknown): SessionEvent {
-  return { type, seq: SessionSeq(seq), time: seq, data } as unknown as SessionEvent
-}
-
 function agentScope() {
   const presentAs = vi.fn(() => () => {})
   const restrict = vi.fn(() => () => {})
@@ -34,15 +30,10 @@ describe('Edge agent presets', () => {
       .toEqual([[DEFAULT_AGENT_PRESET, true], [PTC_AGENT_PRESET, false]])
   })
 
-  it('folds selections recorded before the first turn and ignores later ones', () => {
-    expect(sessionAgentPreset(header, [])).toBe(DEFAULT_AGENT_PRESET)
+  it('reads the preset from the durable header', () => {
+    expect(sessionAgentPreset({ ...header, agentPreset: PTC_AGENT_PRESET })).toBe(PTC_AGENT_PRESET)
     const { agentPreset: _recorded, ...unrecorded } = header
-    expect(sessionAgentPreset(unrecorded, [])).toBe(DEFAULT_AGENT_PRESET)
-    expect(sessionAgentPreset(header, [
-      event(0, 'agent-preset/selected', { agentPreset: PTC_AGENT_PRESET }),
-      event(1, 'turn/start', { turn: 1 }),
-      event(2, 'agent-preset/selected', { agentPreset: DEFAULT_AGENT_PRESET }),
-    ])).toBe(PTC_AGENT_PRESET)
+    expect(sessionAgentPreset(unrecorded)).toBe(DEFAULT_AGENT_PRESET)
   })
 
   it('presents a PTC mode agent through run_code alone and children inherit it', async () => {
