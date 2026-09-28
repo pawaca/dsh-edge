@@ -215,16 +215,16 @@ describe('dsh-edge assembled browser snapshot', () => {
       await settings.getByRole('button', { name: 'Agent presets', exact: true }).click()
       const presetReadResponse = page.waitForResponse(response =>
         rpcResponseIs(response, 'agentPreset.read'))
-      await settings.getByRole('button', { name: 'View: DSH Edge', exact: true }).click()
+      await settings.getByRole('button', { name: 'View: Standard mode', exact: true }).click()
       const presetWire = await (await presetReadResponse).json()
       expect(presetWire.result.ok).toBe(true)
       expect(presetWire.result.value.content).not.toContain(ACCESS_KEY)
-      const presetViewer = page.getByRole('dialog', { name: 'View · DSH Edge', exact: true })
+      const presetViewer = page.getByRole('dialog', { name: 'View · Standard mode', exact: true })
       await presetViewer.waitFor()
       await expect.poll(
         () => settings.getByText('This capability is not available in the Edge runtime.').count(),
       ).toBe(0)
-      const presetSnapshot = await stableAria(page, '[role="dialog"][aria-label="View · DSH Edge"]')
+      const presetSnapshot = await stableAria(page, '[role="dialog"][aria-label="View · Standard mode"]')
       await expect(normalize(presetSnapshot))
         .toMatchFileSnapshot('./snapshots/edge-agent-preset.expected.md')
       await presetViewer.getByRole('button', { name: 'Close', exact: true }).last().click()

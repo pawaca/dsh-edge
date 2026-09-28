@@ -1,8 +1,8 @@
 /**
- * The Edge agent presets. Every deployment offers `dsh-edge`, whose tools are
- * presented natively. Deployments with a Worker Loader also offer upstream's
- * `ptc` preset (PTC mode) under its upstream id, so the Web client shows its
- * built-in bilingual name and description: the model reaches every tool
+ * The Edge agent presets, under upstream ids so the Web client shows its
+ * built-in bilingual names and descriptions. Every deployment offers
+ * `standard` (Standard mode), whose tools are presented natively. Deployments
+ * with a Worker Loader also offer `ptc` (PTC mode): the model reaches every tool
  * through one `run_code` TypeScript program, and `workflow` is not offered
  * because `run_code` is the only orchestration surface.
  *
@@ -25,26 +25,25 @@ declare module '@deepseek-ai/dsh-session/types' {
   }
 }
 
-export const DEFAULT_AGENT_PRESET = 'dsh-edge'
+export const DEFAULT_AGENT_PRESET = 'standard'
 export const PTC_AGENT_PRESET = 'ptc'
+/** The id releases up to 0.18.0-alpha.2 stored for the default preset. */
+const LEGACY_DEFAULT_AGENT_PRESET = 'dsh-edge'
+
+/** Read a stored or requested preset id; the legacy default id means `standard`. */
+export function normalizeAgentPreset(id: string): string {
+  return id === LEGACY_DEFAULT_AGENT_PRESET ? DEFAULT_AGENT_PRESET : id
+}
 
 export interface EdgeAgentPresetRow {
   id: string
   trust: 'system'
   isDefault: boolean
-  /** Absent for upstream built-in ids, which the client localizes itself. */
-  name?: string
-  description?: string
 }
 
+// No name or description: the client localizes upstream's built-in ids itself.
 const PRESETS: readonly EdgeAgentPresetRow[] = [
-  {
-    id: DEFAULT_AGENT_PRESET,
-    trust: 'system',
-    isDefault: true,
-    name: 'DSH Edge',
-    description: 'DeepSeek Harness running in a Cloudflare Durable Object.',
-  },
+  { id: DEFAULT_AGENT_PRESET, trust: 'system', isDefault: true },
   { id: PTC_AGENT_PRESET, trust: 'system', isDefault: false },
 ]
 
@@ -55,7 +54,7 @@ export function edgeAgentPresetRows(codeRuntime: boolean): EdgeAgentPresetRow[] 
 
 /** The preset a session runs, from its durable header. */
 export function sessionAgentPreset(header: SessionHeader): string {
-  return header.agentPreset ?? DEFAULT_AGENT_PRESET
+  return normalizeAgentPreset(header.agentPreset ?? DEFAULT_AGENT_PRESET)
 }
 
 /**
@@ -76,11 +75,11 @@ export class EdgeAgentPresets extends CordisService {
   }
 
   offers(presetId: string): boolean {
-    return this.rows().some(row => row.id === presetId)
+    return this.rows().some(row => row.id === normalizeAgentPreset(presetId))
   }
 
   async resolve(presetId?: string): Promise<{ id: string; trust: 'system'; isDefault: boolean }> {
-    const id = presetId ?? DEFAULT_AGENT_PRESET
+    const id = normalizeAgentPreset(presetId ?? DEFAULT_AGENT_PRESET)
     const row = this.rows().find(candidate => candidate.id === id)
     if (row === undefined) throw new Error(`Agent preset "${id}" is not available.`)
     return { id: row.id, trust: row.trust, isDefault: row.isDefault }
@@ -92,7 +91,7 @@ export class EdgeAgentPresets extends CordisService {
    * default rather than stranding the session.
    */
   join(agentCtx: Context, presetId: string): void {
-    const id = this.offers(presetId) ? presetId : DEFAULT_AGENT_PRESET
+    const id = this.offers(presetId) ? normalizeAgentPreset(presetId) : DEFAULT_AGENT_PRESET
     this.composed.set(agentCtx, id)
     if (id === PTC_AGENT_PRESET) {
       agentCtx.tools.presentAs('ptc')

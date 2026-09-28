@@ -956,7 +956,7 @@ try {
   const presetList = await rpc('agentPreset.list', {})
   assert.deepEqual(
     presetList.body.result.value.presets.map(preset => preset.id),
-    runtimeMode === 'isolated' ? ['dsh-edge', 'ptc'] : ['dsh-edge'],
+    runtimeMode === 'isolated' ? ['standard', 'ptc'] : ['standard'],
   )
   // A blank session keeps its selected preset in every summary and create retry.
   let blankPtcSessionId
@@ -977,7 +977,7 @@ try {
     assert.equal(codeEvents.filter(event => event.type === 'tool/ptc-dispatch').length, 2)
     const ptcTools = (turnRequests().at(-1).tools ?? []).map(tool => tool.function?.name)
     assert.deepEqual(ptcTools, ['run_code'])
-    const locked = await rpc('agentPreset.select', { agentId: ptcSessionId, agentPreset: 'dsh-edge' })
+    const locked = await rpc('agentPreset.select', { agentId: ptcSessionId, agentPreset: 'standard' })
     assert.equal(locked.body.result.error.code, 'agent-preset-locked')
   } else {
     const refused = await rpc('session.create', { agentPreset: 'ptc' })
@@ -985,8 +985,10 @@ try {
   }
   remoteMux.send({ type: 'cancel', streamId: 'events-1' })
   remoteMux.close()
-  const preset = await rpc('agentPreset.read', { agentPreset: 'dsh-edge' })
+  const preset = await rpc('agentPreset.read', { agentPreset: 'standard' })
   assert.equal(preset.body.result.ok, true)
+  // The released fixture's sessions recorded the legacy default id; it reads as `standard`.
+  assert.equal((await rpc('agentPreset.read', { agentPreset: 'dsh-edge' })).body.result.value.agentPreset, 'standard')
   assert.match(preset.body.result.value.content, /Effective dsh-edge composition/u)
   assert.match(
     preset.body.result.value.content,

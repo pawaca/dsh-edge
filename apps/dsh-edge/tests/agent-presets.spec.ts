@@ -6,6 +6,7 @@ import {
   EdgeAgentPresets,
   PTC_AGENT_PRESET,
   edgeAgentPresetRows,
+  normalizeAgentPreset,
   sessionAgentPreset,
 } from '../src/agent-presets.ts'
 
@@ -34,6 +35,19 @@ describe('Edge agent presets', () => {
     const ptc = edgeAgentPresetRows(true).find(row => row.id === PTC_AGENT_PRESET)
     // The Web client localizes a system preset whose id is upstream's `ptc`.
     expect(ptc).toEqual({ id: 'ptc', trust: 'system', isDefault: false })
+  })
+
+  it('uses upstream ids so the client shows its bilingual copy for both presets', () => {
+    expect(edgeAgentPresetRows(true)).toEqual([
+      { id: 'standard', trust: 'system', isDefault: true },
+      { id: 'ptc', trust: 'system', isDefault: false },
+    ])
+  })
+
+  it('reads the legacy default id as standard wherever a preset is stored or requested', () => {
+    expect(normalizeAgentPreset('dsh-edge')).toBe('standard')
+    expect(normalizeAgentPreset('ptc')).toBe('ptc')
+    expect(sessionAgentPreset({ ...header, agentPreset: 'dsh-edge' })).toBe('standard')
   })
 
   it('reads the preset from the durable header', () => {

@@ -123,6 +123,7 @@ import { resolveEdgeModel } from './deepseek.ts'
 import type { CreateEdgeSessionInput, EdgeSession } from './protocol.ts'
 import {
   DEFAULT_AGENT_PRESET,
+  normalizeAgentPreset,
   EdgeAgentPresets,
   sessionAgentPreset,
   type EdgeAgentPresetRow,
@@ -1477,7 +1478,7 @@ export class EdgeSessionStore {
     }
     // Availability applies to new sessions only: an existing one (a retry or
     // restore) keeps the preset its header recorded, even if no longer offered.
-    const agentPreset = input.agentPreset ?? DEFAULT_AGENT_PRESET
+    const agentPreset = normalizeAgentPreset(input.agentPreset ?? DEFAULT_AGENT_PRESET)
     if (!(this.context.get('agentPresets') as EdgeAgentPresets).offers(agentPreset)) {
       throw new EdgeSessionStoreError('PRESET_UNAVAILABLE', `Agent preset "${agentPreset}" is not available.`)
     }
@@ -1902,7 +1903,8 @@ export class EdgeSessionStore {
    * old header) was composed from the previous preset, so it is released and
    * the next turn resumes under the selected one.
    */
-  async selectAgentPreset(id: SessionId, agentPreset: string, model: string): Promise<string> {
+  async selectAgentPreset(id: SessionId, requested: string, model: string): Promise<string> {
+    const agentPreset = normalizeAgentPreset(requested)
     const presets = this.context.get('agentPresets') as EdgeAgentPresets
     if (!presets.offers(agentPreset)) {
       throw new EdgeSessionStoreError('PRESET_UNAVAILABLE', `Agent preset "${agentPreset}" is not available.`)
@@ -2463,7 +2465,7 @@ function summarizeApiLive(
     ...header.parentSession === undefined ? {} : { parentSessionId: header.parentSession },
     ...header.origin === undefined ? {} : { origin: header.origin },
     ...header.cwd === undefined ? {} : { cwd: header.cwd },
-    ...header.agentPreset === undefined ? {} : { agentPreset: header.agentPreset },
+    ...header.agentPreset === undefined ? {} : { agentPreset: normalizeAgentPreset(header.agentPreset) },
   }
 }
 
@@ -2527,7 +2529,7 @@ function summarizeApiStored(stored: {
     ...stored.meta.cwd === undefined ? {} : { cwd: stored.meta.cwd },
     ...stored.meta.agentPreset === undefined
       ? {}
-      : { agentPreset: stored.meta.agentPreset },
+      : { agentPreset: normalizeAgentPreset(stored.meta.agentPreset) },
   }
 }
 
@@ -2536,7 +2538,7 @@ function summarize(header: SessionHeader, events: readonly SessionEvent[]): Edge
   return {
     id: header.id,
     title,
-    ...header.agentPreset === undefined ? {} : { agentPreset: header.agentPreset },
+    ...header.agentPreset === undefined ? {} : { agentPreset: normalizeAgentPreset(header.agentPreset) },
     createdAt: header.createdAt,
     updatedAt: events.at(-1)?.time ?? header.createdAt,
   }
@@ -2554,7 +2556,7 @@ function summarizeStored(stored: {
       : foldSessionTitle([stored.titleEvent])?.title ?? null,
     ...stored.meta.agentPreset === undefined
       ? {}
-      : { agentPreset: stored.meta.agentPreset },
+      : { agentPreset: normalizeAgentPreset(stored.meta.agentPreset) },
     createdAt: stored.meta.createdAt,
     updatedAt: stored.updatedAt,
   }
