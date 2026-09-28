@@ -26,11 +26,13 @@ import {
   type EdgeEventPage,
 } from '../src/do-session-persistence.ts'
 import {
+  EdgeSessionStoreError,
   findInEventPages,
   paginateHistory,
   searchSnippet,
   type EdgeApiSessionSummary,
 } from '../src/session-store.ts'
+import { edgeAgentPresetRows } from '../src/agent-presets.ts'
 
 const workspaceId = 'edge-workspace' as WorkspaceId
 const parentId = SessionId('session-parent')
@@ -115,6 +117,7 @@ function runtime(
       })),
       projectionSnapshot: vi.fn(() => undefined),
       projectionCachedSnapshot: vi.fn((_summary: unknown) => undefined),
+      agentPresetRows: vi.fn(async () => edgeAgentPresetRows(false)),
       ...sessions,
     } as unknown as EdgeApiRuntime['sessions'],
     model: 'deepseek-test',
@@ -208,6 +211,46 @@ describe('Edge upstream API invariants', () => {
       ok: false,
       error: { code: 'internal', message: 'invalid deployment profile' },
     })
+  })
+
+  it('offers PTC mode beside the default preset only with a code runtime', async () => {
+    const direct = await createEdgeApi(runtime({})).agentPresets.list(request({}))
+    expect(direct.result).toMatchObject({ ok: true, value: { presets: [{ id: 'dsh-edge', isDefault: true }] } })
+    if (!direct.result.ok) throw new Error('unreachable')
+    expect((direct.result.value as { presets: unknown[] }).presets).toHaveLength(1)
+
+    const isolated = createEdgeApi(runtime({ agentPresetRows: vi.fn(async () => edgeAgentPresetRows(true)) }))
+    const listed = await isolated.agentPresets.list(request({}))
+    expect(listed.result).toMatchObject({
+      ok: true,
+      value: { presets: [{ id: 'dsh-edge', isDefault: true }, { id: 'dsh-edge-ptc', isDefault: false }] },
+    })
+    const read = await isolated.agentPresets.read(request({ agentPreset: 'dsh-edge-ptc' }))
+    if (!read.result.ok) throw new Error('PTC mode should be readable')
+    expect((read.result.value as { content: string }).content).toContain('toolPresentation: ptc')
+
+    const refused = await createEdgeApi(runtime({})).sessions.create(request({ agentPreset: 'dsh-edge-ptc' }))
+    expect(refused.result).toMatchObject({
+      ok: false,
+      error: { code: 'agent-preset-not-found', details: { available: ['dsh-edge'] } },
+    })
+  })
+
+  it('selects a preset for a blank session and reports a started one as locked', async () => {
+    const sessionId = SessionId('session-blank')
+    const selectAgentPreset = vi.fn()
+      .mockResolvedValueOnce('dsh-edge-ptc')
+      .mockRejectedValueOnce(new EdgeSessionStoreError('PRESET_LOCKED', 'Session has already started.'))
+      .mockRejectedValueOnce(new EdgeSessionStoreError('PRESET_UNAVAILABLE', 'Agent preset "missing" is not available.'))
+    const api = createEdgeApi(runtime({ selectAgentPreset }))
+
+    const selected = await api.agentPresets.select(request({ agentId: sessionId, agentPreset: 'dsh-edge-ptc' }))
+    expect(selected.result).toEqual({ ok: true, value: 'dsh-edge-ptc' })
+    expect(selectAgentPreset).toHaveBeenCalledWith(sessionId, 'dsh-edge-ptc', 'deepseek-test')
+    const locked = await api.agentPresets.select(request({ agentId: sessionId, agentPreset: 'dsh-edge-ptc' }))
+    expect(locked.result).toMatchObject({ ok: false, error: { code: 'agent-preset-locked' } })
+    const missing = await api.agentPresets.select(request({ agentId: sessionId, agentPreset: 'missing' }))
+    expect(missing.result).toMatchObject({ ok: false, error: { code: 'agent-preset-not-found' } })
   })
 
   it('describes only the configured state of the deployment credential', async () => {

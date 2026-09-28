@@ -938,21 +938,40 @@ try {
       ['completed'],
     )
   }
-  // run_code (PTC) is provider-gated the same way: the isolated build runs the
-  // program in its own Dynamic Worker and dispatches its nested tool calls.
+  // Tools are presented natively: the default session offers workflow on the
+  // isolated build but never run_code.
+  const defaultTools = (turnRequests().at(-1).tools ?? []).map(tool => tool.function?.name)
+  assert.equal(defaultTools.includes('workflow'), runtimeMode === 'isolated')
+  assert.equal(defaultTools.includes('run_code'), false)
+  // run_code is opt-in through the PTC mode preset, which only the isolated
+  // build offers. A blank session selects it; its program runs in its own
+  // Dynamic Worker and dispatches nested tool calls, and the choice locks once
+  // the session has started.
+  const presetList = await rpc('agentPreset.list', {})
+  assert.deepEqual(
+    presetList.body.result.value.presets.map(preset => preset.id),
+    runtimeMode === 'isolated' ? ['dsh-edge', 'dsh-edge-ptc'] : ['dsh-edge'],
+  )
   if (runtimeMode === 'isolated') {
-    const codeEvents = await turn(sessionId, 'run some code that echoes a marker')
+    const ptcSession = await rpc('session.create', {})
+    const ptcSessionId = ptcSession.body.result.value.sessionId
+    const selected = await rpc('agentPreset.select', { agentId: ptcSessionId, agentPreset: 'dsh-edge-ptc' })
+    assert.equal(selected.body.result.value, 'dsh-edge-ptc')
+    const codeEvents = await turn(ptcSessionId, 'run some code that echoes a marker')
     assert.equal(codeEvents.find(event => event.type === 'tool/call')?.data.name, 'run_code')
     const codeResultText = toolResultText(codeEvents.find(event => event.type === 'tool/result'))
     assert.match(codeResultText, /ptc-ok/u)
     assert.match(codeResultText, /ran bash/u)
     assert.doesNotMatch(codeResultText, /only available during an active turn/u)
     assert.equal(codeEvents.filter(event => event.type === 'tool/ptc-dispatch').length, 2)
-    assert.ok(codeEvents.some(event => event.type === 'tool/ptc-dispatch'))
+    const ptcTools = (turnRequests().at(-1).tools ?? []).map(tool => tool.function?.name)
+    assert.deepEqual(ptcTools, ['run_code'])
+    const locked = await rpc('agentPreset.select', { agentId: ptcSessionId, agentPreset: 'dsh-edge' })
+    assert.equal(locked.body.result.error.code, 'agent-preset-locked')
+  } else {
+    const refused = await rpc('session.create', { agentPreset: 'dsh-edge-ptc' })
+    assert.equal(refused.body.result.error.code, 'agent-preset-not-found')
   }
-  const offeredTools = (turnRequests().at(-1).tools ?? []).map(tool => tool.function?.name)
-  assert.equal(offeredTools.includes('workflow'), runtimeMode === 'isolated')
-  assert.equal(offeredTools.includes('run_code'), runtimeMode === 'isolated')
   remoteMux.send({ type: 'cancel', streamId: 'events-1' })
   remoteMux.close()
   const preset = await rpc('agentPreset.read', { agentPreset: 'dsh-edge' })

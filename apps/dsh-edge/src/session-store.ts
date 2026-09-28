@@ -118,6 +118,12 @@ import EdgeModelSelectionBridge from './model-selection-bridge.ts'
 import EdgeSessionQuery from './edge-session-query.ts'
 import { resolveEdgeModel } from './deepseek.ts'
 import type { CreateEdgeSessionInput, EdgeSession } from './protocol.ts'
+import {
+  DEFAULT_AGENT_PRESET,
+  EdgeAgentPresets,
+  sessionAgentPreset,
+  type EdgeAgentPresetRow,
+} from './agent-presets.ts'
 import { installEdgeApprovalPolicy, type EdgeApprovalMode, type EdgeApprovalSettings } from './approval-policy.ts'
 import { installEdgeRuntimeSettings, type EdgeRuntimeSettings } from './runtime-settings.ts'
 import type { SettingsScope } from '@deepseek-ai/dsh-settings'
@@ -231,7 +237,8 @@ export type EdgeAgentPromptAdmitter = (input: EdgeAgentPromptAdmission) => Promi
 
 export class EdgeSessionStoreError extends Error {
   constructor(
-    readonly code: 'NOT_FOUND' | 'BUSY' | 'INVALID_DATA' | 'TITLE_INVALID' | 'FORK_UNAVAILABLE',
+    readonly code: 'NOT_FOUND' | 'BUSY' | 'INVALID_DATA' | 'TITLE_INVALID' | 'FORK_UNAVAILABLE'
+      | 'PRESET_UNAVAILABLE' | 'PRESET_LOCKED',
     message: string,
   ) {
     super(message)
@@ -244,40 +251,6 @@ export class EdgeSessionCwdConflictError extends Error {
     readonly existingCwd: string | undefined,
   ) {
     super('Session cwd conflicts with existing session.')
-  }
-}
-
-/**
- * The Edge ships exactly one system preset; the controller stamps its id
- * into every created session's metadata so the banner chip and preset
- * roster stay consistent with the Edge API's agentPresets namespace.
- *
- * The subagent runtime calls `composedPreset` to stamp a child session's
- * durable header and `composeFrom` to join a child's scope to the parent's
- * composition. Because the Edge mounts tools and prompt sections on the
- * root context, `composeFrom` is a no-op — the child's scope chain
- * already inherits everything.
- */
-export class EdgeAgentPresets extends CordisService {
-  constructor(ctx: Context) { super(ctx, 'agentPresets') }
-  async resolve(presetId?: string): Promise<{ id: string; trust: 'system'; isDefault: true }> {
-    if (presetId !== undefined && presetId !== 'dsh-edge') {
-      throw new Error(`Agent preset "${presetId}" is not available.`)
-    }
-    return { id: 'dsh-edge', trust: 'system', isDefault: true }
-  }
-  async mount(): Promise<void> {
-    // The Edge system prompt and tool composition are mounted globally.
-  }
-  async compositionInventory(): Promise<readonly never[]> {
-    // No per-preset composition rows: the plugin inventory lists the
-    // global composition and the browser boot graph instead.
-    return []
-  }
-  composedPreset(_ctx: Context): string { return 'dsh-edge' }
-  composeFrom(_childCtx: Context, _parentCtx: Context): void {
-    // Edge composition is mounted on the root context, so the child's
-    // scope chain already inherits every tool and prompt section.
   }
 }
 
@@ -379,11 +352,11 @@ export class EdgeSessionStore {
     await this.context.plugin(SystemPrompt, { personaPrefix: edgeSystemPrompt(config.shell) })
     await this.context.plugin(EdgeVfsSpillStore)
     await this.context.plugin(EdgeFileSystem)
-    // With isolates available, `run_code` (PTC) joins the native tools; its
-    // nested calls stay below the Workers six-connection limit.
+    // Tools are presented natively; the PTC mode preset opts one session into
+    // `run_code`, whose nested calls stay below the Workers six-connection limit.
     await this.context.plugin(ToolRuntime, config.workerLoader === undefined
       ? {}
-      : { mode: 'both', maxParallelSubCalls: 4 })
+      : { maxParallelSubCalls: 4 })
     await this.context.plugin(SkillRegistry)
     await this.context.plugin(EdgeSkillProvider, { storage })
     await this.context.plugin(TypertRegistry)
@@ -484,7 +457,7 @@ export class EdgeSessionStore {
     await this.context.plugin(EdgeFileReferenceService, {
       withFiles: read => config.withWorkspaceFiles(read),
     })
-    await this.context.plugin(EdgeAgentPresets)
+    await this.context.plugin(EdgeAgentPresets, { codeRuntime: config.workerLoader !== undefined })
     // Upstream plugin inventory injects the cordis Loader. The Edge composes
     // programmatically, so EdgeLoader answers its read-only entries() from the
     // live plugin registry and the reviewed Web boot graph.
@@ -496,8 +469,8 @@ export class EdgeSessionStore {
     )
     this.context.typert.register(PLUGIN_INVENTORY_TYPERT as never)
     // The upstream preset host package is not part of this deployment, so the
-    // Edge registers the header-derived agentPreset projection the controller
-    // and browser banner read.
+    // Edge registers the upstream agentPreset projection the controller and
+    // browser banner read: the header, advanced by blank-session selections.
     const agentPresetSchema = {
       parse: (value: unknown): string | null => (typeof value === 'string' ? value : null),
     }
@@ -505,7 +478,8 @@ export class EdgeSessionStore {
       key: 'agentPreset',
       stateSchema: agentPresetSchema,
       init: (header: SessionHeader) => header.agentPreset ?? null,
-      apply: (state: string | null) => state,
+      apply: (state: string | null, event: SessionEvent) =>
+        event.type === 'agent-preset/selected' ? event.data.agentPreset : state,
       wire: {
         viewSchema: agentPresetSchema,
         view: (state: string | null) => state,
@@ -1385,10 +1359,10 @@ export class EdgeSessionStore {
       sessionId: id,
       meta: {
         cwd: input.cwd ?? '/workspace',
-        agentPreset: 'dsh-edge',
+        agentPreset: DEFAULT_AGENT_PRESET,
       },
       agentOptions: { provider: EDGE_PROVIDER, model: DEFAULT_EDGE_MODEL },
-      setup: (agentCtx, agent) => this.installAgentModelSelection(agentCtx, agent, DEFAULT_EDGE_MODEL),
+      setup: (agentCtx, agent) => this.composeAgent(agentCtx, agent, DEFAULT_EDGE_MODEL),
     })
     const { agent } = handle
     const { session } = agent
@@ -1414,6 +1388,7 @@ export class EdgeSessionStore {
     sessionId?: SessionId
     model: string
     cwd?: string
+    agentPreset?: string
   }): Promise<{ sessionId: SessionId; agentPreset: string; created: boolean }> {
     const { sessions, persistence } = await this.services()
     const id = input.sessionId ?? SessionId(`session-${crypto.randomUUID()}`)
@@ -1423,7 +1398,7 @@ export class EdgeSessionStore {
       rejectCwdConflict(input.cwd, attached.header.cwd)
       return {
         sessionId: id,
-        agentPreset: attached.header.agentPreset ?? 'dsh-edge',
+        agentPreset: sessionAgentPreset(attached.header, attached.snapshotEvents()),
         created: false,
       }
     }
@@ -1435,7 +1410,7 @@ export class EdgeSessionStore {
       rejectCwdConflict(input.cwd, stored.meta.cwd)
       return {
         sessionId: id,
-        agentPreset: stored.meta.agentPreset ?? 'dsh-edge',
+        agentPreset: stored.meta.agentPreset ?? DEFAULT_AGENT_PRESET,
         created: false,
       }
     }
@@ -1444,16 +1419,17 @@ export class EdgeSessionStore {
       rejectCwdConflict(input.cwd, retainedBlank.cwd)
       return {
         sessionId: id,
-        agentPreset: retainedBlank.agentPreset ?? 'dsh-edge',
+        agentPreset: retainedBlank.agentPreset ?? DEFAULT_AGENT_PRESET,
         created: false,
       }
     }
+    const agentPreset = input.agentPreset ?? DEFAULT_AGENT_PRESET
     await persistence.retainBlankSession({
       id, version: SESSION_FORMAT_VERSION, createdAt: Date.now(), isSeeded: false,
-      cwd: sessionCwd, agentPreset: 'dsh-edge',
+      cwd: sessionCwd, agentPreset,
     })
     await persistence.materializeBlankSession(id)
-    return { sessionId: id, agentPreset: 'dsh-edge', created: true }
+    return { sessionId: id, agentPreset, created: true }
   }
 
   async listSessions(
@@ -1718,10 +1694,10 @@ export class EdgeSessionStore {
         ...header.cwd === undefined ? {} : { cwd: header.cwd },
         parentSession: id,
         isSeeded: seed.length > 0,
-        agentPreset: header.agentPreset ?? 'dsh-edge',
+        agentPreset: sessionAgentPreset(header, events),
       },
       agentOptions: { provider: EDGE_PROVIDER, model },
-      setup: (agentCtx, agent) => this.installAgentModelSelection(agentCtx, agent, model),
+      setup: (agentCtx, agent) => this.composeAgent(agentCtx, agent, model),
     })
     try {
       await sessions.flush(handle.agent.session)
@@ -1822,7 +1798,7 @@ export class EdgeSessionStore {
     const handle = await agents.resume({
       resumeSessionId: id,
       agentOptions: { provider: EDGE_PROVIDER, model },
-      setup: (agentCtx, agent) => this.installAgentModelSelection(agentCtx, agent, model),
+      setup: (agentCtx, agent) => this.composeAgent(agentCtx, agent, model),
     })
     try {
       await this.context.sessions.flush(handle.agent.session)
@@ -1847,6 +1823,42 @@ export class EdgeSessionStore {
   /** @deprecated Use getOrResumeAgent for resident lifecycle. */
   async openAgentForTurn(id: SessionId, model: string): Promise<AgentHandle> {
     return this.getOrResumeAgent(id, model)
+  }
+
+  /** Compose one Agent from its session's preset and model selection before it is published. */
+  private composeAgent(agentCtx: Context, agent: Agent, defaultModel: string): void {
+    const presets = this.context.get('agentPresets') as EdgeAgentPresets
+    presets.join(agentCtx, sessionAgentPreset(agent.session.header, agent.session.snapshotEvents()))
+    this.installAgentModelSelection(agentCtx, agent, defaultModel)
+  }
+
+  /** The agent presets this deployment offers, default first. */
+  async agentPresetRows(): Promise<EdgeAgentPresetRow[]> {
+    await this.services()
+    return (this.context.get('agentPresets') as EdgeAgentPresets).rows()
+  }
+
+  /**
+   * Record a blank session's preset before its first turn, as upstream does:
+   * an `agent-preset/selected` event the agentPreset projection folds. The
+   * resident agent was composed from the previous preset, so it is released
+   * and the next turn resumes under the selected one.
+   */
+  async selectAgentPreset(id: SessionId, agentPreset: string, model: string): Promise<string> {
+    const presets = this.context.get('agentPresets') as EdgeAgentPresets
+    if (!presets.offers(agentPreset)) {
+      throw new EdgeSessionStoreError('PRESET_UNAVAILABLE', `Agent preset "${agentPreset}" is not available.`)
+    }
+    const { session } = (await this.getOrResumeAgent(id, model)).agent
+    const events = session.snapshotEvents()
+    if (events.some(event => event.type === 'turn/start')) {
+      throw new EdgeSessionStoreError('PRESET_LOCKED', `Session ${id} has already started; its agent preset is fixed.`)
+    }
+    if (sessionAgentPreset(session.header, events) === agentPreset) return agentPreset
+    session.append('agent-preset/selected', { agentPreset })
+    await this.context.sessions.flush(session)
+    await this.disposeResidentAgent(id)
+    return agentPreset
   }
 
   /** Mount the upstream per-agent selection seam before the Agent is published. */
