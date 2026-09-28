@@ -2,7 +2,9 @@ import type { ModelSelection } from '@deepseek-ai/dsh-agent'
 import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { describe, expect, it } from 'vitest'
+import { Context } from '@deepseek-ai/cordis'
 import EdgeModelSelectionBridge from '../src/model-selection-bridge.ts'
+import { EdgeAgentDefaultModel } from '../src/session-store.ts'
 
 class TestStorage {
   readonly records = new Map<string, unknown>()
@@ -66,5 +68,31 @@ describe('EdgeModelSelectionBridge', () => {
     })).resolves.toBe(false)
     expect(storage.records.size).toBe(1)
     expect(bridge.current(id)).toEqual(vision)
+  })
+})
+
+describe('EdgeAgentDefaultModel', () => {
+  const flash: ModelSelection = { provider: 'deepseek-official', model: 'deepseek-v4-flash' }
+
+  async function defaultModel(storage: TestStorage): Promise<EdgeAgentDefaultModel> {
+    const ctx = new Context()
+    await ctx.plugin(EdgeAgentDefaultModel, { storage: storage as never, selection: flash })
+    return ctx.get('agentDefaultModel') as EdgeAgentDefaultModel
+  }
+
+  it('makes a durable pick the default for new sessions', async () => {
+    const storage = new TestStorage()
+    const service = await defaultModel(storage)
+    await service.saveSelection(vision)
+    expect(service.currentSelection()).toEqual(vision)
+    expect(storage.records.get('dsh-edge:agent-default-model')).toEqual(vision)
+  })
+
+  it('keeps the prior default when the write fails', async () => {
+    const storage = new TestStorage()
+    storage.put = () => Promise.reject(new Error('storage unavailable'))
+    const service = await defaultModel(storage)
+    await expect(service.saveSelection(vision)).rejects.toThrow('storage unavailable')
+    expect(service.currentSelection()).toEqual(flash)
   })
 })

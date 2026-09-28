@@ -187,10 +187,28 @@ const DEFAULT_EDGE_MODEL = 'deepseek-v4-flash'
 const AGENT_DEFAULT_MODEL_KEY = 'dsh-edge:agent-default-model'
 const MESSAGE_TYPES = new Set<SessionEvent['type']>(['user/message', 'assistant/message'])
 
-/** The upstream `agentDefaultModel` seam, served from Durable Object KV. */
-interface AgentDefaultModelSeam {
-  currentSelection(): ModelSelection
-  saveSelection(selection: ModelSelection): Promise<void>
+/** The upstream `agentDefaultModel` seam: the model new sessions start on, kept in Durable Object KV. */
+export class EdgeAgentDefaultModel extends CordisService {
+  private selection: ModelSelection
+
+  constructor(
+    ctx: Context,
+    private readonly config: { storage: DurableObjectStorage; selection: ModelSelection },
+  ) {
+    super(ctx, 'agentDefaultModel')
+    this.selection = { ...config.selection }
+  }
+
+  currentSelection(): ModelSelection {
+    return { ...this.selection }
+  }
+
+  /** Adopt a selection only once it is durable, so a failed write keeps the prior default. */
+  async saveSelection(selection: ModelSelection): Promise<void> {
+    const next = { ...selection }
+    await this.config.storage.put(AGENT_DEFAULT_MODEL_KEY, next)
+    this.selection = next
+  }
 }
 
 /** Wire-visible reason the Host cannot open a workspace path on a desktop. */
@@ -470,16 +488,10 @@ export class EdgeSessionStore {
       model: resolveEdgeModel(config.model),
     }
     const persistedSelection = await storage.get<ModelSelection>(AGENT_DEFAULT_MODEL_KEY)
-    const EdgeAgentDefaultModel = class extends CordisService {
-      private selection = persistedSelection ?? defaultSelection
-      constructor(ctx: Context) { super(ctx, 'agentDefaultModel') }
-      currentSelection(): ModelSelection { return { ...this.selection } }
-      async saveSelection(selection: ModelSelection): Promise<void> {
-        this.selection = { ...selection }
-        await storage.put(AGENT_DEFAULT_MODEL_KEY, this.selection)
-      }
-    }
-    await this.context.plugin(EdgeAgentDefaultModel)
+    await this.context.plugin(EdgeAgentDefaultModel, {
+      storage,
+      selection: persistedSelection ?? defaultSelection,
+    })
     await this.context.plugin(EdgeSessionQuery)
     // Upstream cross-session references consume ctx.sessionQuery as-is; the
     // registered TYPERT lets the gateway route sessionReferenceResolver/candidates.
@@ -1296,8 +1308,8 @@ export class EdgeSessionStore {
     }
   }
 
-  private agentDefaultModel(): AgentDefaultModelSeam {
-    return this.context.get('agentDefaultModel') as AgentDefaultModelSeam
+  private agentDefaultModel(): EdgeAgentDefaultModel {
+    return this.context.get('agentDefaultModel') as EdgeAgentDefaultModel
   }
 
   /**
