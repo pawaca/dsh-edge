@@ -355,6 +355,8 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
   private readonly liveQueues = new Map<SessionId, QueuedInboxItem[]>()
   private readonly mainStreams = new Map<number, Set<{ publish(event: SessionEvent): void; resolve(): void; reject(error: unknown): void }>>()
   private readonly activeTurns = new Map<SessionId, ActiveTurn>()
+  /** Blank-session preset switches in flight; a claimed turn waits for its session's switch. */
+  private readonly presetSwitches = new Map<SessionId, Promise<unknown>>()
   private residentWorkspace: EdgeWorkspace | undefined
   private readonly containerActivity = new ContainerActivity(
     () => this.sessions.runtimeSettings().containerSleepMinutes * 60_000,
@@ -402,6 +404,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     workspaceInsertSessionBefore: (workspaceId, sessionId, beforeSessionId) =>
       this.insertSessionBefore(workspaceId, sessionId, beforeSessionId),
     archiveSession: sessionId => this.archiveSession(sessionId),
+    selectAgentPreset: (sessionId, agentPreset) => this.selectAgentPreset(sessionId, agentPreset),
     sessionCreated: (session) => {
       this.publishSessionCreated(session)
     },
@@ -1754,6 +1757,26 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     return 'accepted'
   }
 
+  /**
+   * Record a blank session's agent preset. A claimed turn owns its session, so
+   * the switch is refused once one exists; otherwise it is registered before
+   * any await, and claimTurn waits for it, so the first turn opens an Agent
+   * composed from the selected preset rather than one the switch disposes.
+   */
+  private selectAgentPreset(sessionId: SessionId, agentPreset: string): Promise<string> {
+    if (this.activeTurns.has(sessionId)) {
+      return Promise.reject(new EdgeSessionStoreError('PRESET_LOCKED', `Session ${sessionId} has already started; its agent preset is fixed.`))
+    }
+    if (this.presetSwitches.has(sessionId)) {
+      return Promise.reject(new EdgeSessionStoreError('BUSY', 'The session is already switching agent presets.'))
+    }
+    const switching = this.sessions.selectAgentPreset(sessionId, agentPreset, this.model)
+    const settled = switching.then(() => undefined, () => undefined)
+    this.presetSwitches.set(sessionId, settled)
+    void settled.then(() => { this.presetSwitches.delete(sessionId) })
+    return switching
+  }
+
   private async claimTurn(sessionId: SessionId): Promise<{
     sessionId: SessionId
     turn: ActiveTurn
@@ -1774,6 +1797,8 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     // Claim before opening the Agent so interleaved DO requests cannot own the same session.
     this.activeTurns.set(sessionId, turn)
     try {
+      // A preset switch that began before this claim recomposes the Agent; open it after.
+      await this.presetSwitches.get(sessionId)
       const handle = await this.sessions.getOrResumeAgent(sessionId, this.model)
       turn.agent = handle.agent
       return { sessionId, turn, handle }
