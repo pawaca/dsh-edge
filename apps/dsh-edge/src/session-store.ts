@@ -513,7 +513,9 @@ export class EdgeSessionStore {
         event.type === 'agent-preset/selected' ? event.data.agentPreset : state,
       wire: {
         viewSchema: agentPresetSchema,
-        view: (state: string | null) => state,
+        // State may hold the legacy default id (from a header, an old
+        // selection event, or a cached projection); the view reports `standard`.
+        view: (state: string | null) => state === null ? null : normalizeAgentPreset(state),
       },
       stateVersion: 1,
     } as never)
