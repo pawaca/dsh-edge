@@ -42,7 +42,7 @@ npx dsh-edge install
 安装器会询问你希望 agent 能做什么。每个选项都包含前面选项的能力：
 
 - **Research and write**（Workers Free）：联网搜索、读网页、写文档，并通过 MCP 连接你的工具。命令在实例内置的轻量 shell（just-bash，一个处理文件和文本的沙箱 shell，不是 Linux）里执行。
-- **+ Analyze data and split big jobs**（Workers Paid，$5/月起）：把这个 shell 放进隔离的 Worker 运行，并增加 `run_code`（编写调用其他工具的 TypeScript 程序）和 `workflow`（并行子 agent）。
+- **+ Analyze data and split big jobs**（Workers Paid，$5/月起）：把这个 shell 放进隔离的 Worker 运行，并增加 `workflow`（并行子 agent）；在以 PTC 模式 agent 预设开始的会话中还提供 `run_code`（编写调用其他工具的 TypeScript 程序）；与上游一样，该预设不提供 `workflow`。
 - **+ Work on code projects**（Workers Paid，外加容器运行时长）：再加一个真实的 Debian 容器，带 git、node、npm、python3。每条命令仍先在轻量 shell 里执行，只有需要 Linux 的命令（或 agent 标注了 `linux: true` 的命令）才进容器；容器按需启动，默认闲置 10 分钟后休眠（可在设置中调整），运行期间由 Cloudflare 按用量计费。
 
 所有选项共用相同的界面、对话、工作区、图片和子 agent。

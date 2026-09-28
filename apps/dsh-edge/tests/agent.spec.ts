@@ -11,7 +11,7 @@ import {
   type StreamChunk,
 } from '@deepseek-ai/dsh-llm'
 import LlmRuntime from '@deepseek-ai/dsh-llm'
-import SessionStore, { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId, SessionLogOffset, type SessionEvent } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { describe, expect, it, vi } from 'vitest'
@@ -33,7 +33,8 @@ import {
   resolveEdgeStreamIdleTimeoutMs,
 } from '../src/deepseek.ts'
 import { EdgeExecutionId } from '../src/protocol.ts'
-import { createDurablePromptAdmitter, disposeAgentHandle, EdgeAgentPresets } from '../src/session-store.ts'
+import { EdgeAgentPresets } from '../src/agent-presets.ts'
+import { createDurablePromptAdmitter, disposeAgentHandle } from '../src/session-store.ts'
 
 class ScriptedAdapter extends LlmAdapter {
   readonly requests: GenerateOptions[] = []
@@ -60,7 +61,11 @@ class ScriptedAdapter extends LlmAdapter {
   }
 }
 
-async function harness(replies: readonly (readonly StreamChunk[])[], shell: EdgeShell) {
+async function harness(
+  replies: readonly (readonly StreamChunk[])[],
+  shell: EdgeShell,
+  seed: readonly SessionEvent[] = [],
+) {
   const ctx = new Context()
   await ctx.plugin(LlmRuntime)
   await ctx.plugin(SessionStore)
@@ -78,7 +83,8 @@ async function harness(replies: readonly (readonly StreamChunk[])[], shell: Edge
   const sessionId = SessionId(crypto.randomUUID())
   const handle = await ctx.agents.create({
     sessionId,
-    meta: { cwd: '/workspace', agentPreset: 'dsh-edge' },
+    meta: { cwd: '/workspace', agentPreset: 'dsh-edge', isSeeded: seed.length > 0 },
+    ...seed.length === 0 ? {} : { seed, inheritedEventCount: SessionLogOffset(seed.length) },
     agentOptions: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
   })
   const { agent } = handle
@@ -331,6 +337,40 @@ describe('dsh-edge native agent runtime', () => {
   })
 })
 
+describe('dsh-edge native presentation of earlier run_code history', () => {
+  it('replays run_code calls from before the native default and keeps the session going', async () => {
+    const exec = vi.fn<EdgeShell['exec']>()
+    const codeCall = ToolCallId('call-run-code')
+    const earlier = await harness([
+      toolReply(codeCall, 'run_code', { code: 'return 1', description: 'Return one' }),
+      textReply('Done with code.', 9, 4),
+    ], { exec })
+    let history: SessionEvent[]
+    try {
+      await followup(earlier.agent, 'run some code')
+      history = [...earlier.agent.session.snapshotEvents()]
+    } finally {
+      earlier.releaseShell()
+      await earlier.ctx.fiber.dispose()
+    }
+    expect(history.some(event => event.type === 'tool/call' && event.data.name === 'run_code')).toBe(true)
+
+    const resumed = await harness([textReply('Still here.', 20, 3)], { exec }, history)
+    try {
+      await followup(resumed.agent, 'continue')
+      const replayed = resumed.adapter.requests[0]!.messages.filter(message => message.role !== 'system')
+      expect(replayed).toEqual(expect.arrayContaining([
+        expect.objectContaining({ role: 'assistant', content: [expect.objectContaining({ type: 'tool-call', id: codeCall })] }),
+      ]))
+      expect(resumed.adapter.requests[0]!.tools?.map(tool => tool.name)).toEqual(['bash'])
+      expect(resumed.events.at(-1)).toMatchObject({ type: 'turn/end', data: { reason: { kind: 'completed' } } })
+    } finally {
+      resumed.releaseShell()
+      await resumed.ctx.fiber.dispose()
+    }
+  })
+})
+
 describe('dsh-edge subagent delegation', () => {
   async function subagentHarness(replies: readonly (readonly StreamChunk[])[], shell: EdgeShell) {
     const ctx = new Context()
@@ -341,7 +381,7 @@ describe('dsh-edge subagent delegation', () => {
     await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentLoop, { agents: [] })
-    await ctx.plugin(EdgeAgentPresets)
+    await ctx.plugin(EdgeAgentPresets, { codeRuntime: false })
 
     const { default: SubagentRuntime } = await import('@deepseek-ai/dsh-subagent')
     await ctx.plugin(SubagentRuntime)
@@ -484,7 +524,7 @@ describe('dsh-edge background job registry', () => {
     await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentLoop, { agents: [] })
-    await ctx.plugin(EdgeAgentPresets)
+    await ctx.plugin(EdgeAgentPresets, { codeRuntime: false })
 
     const { default: LocalJobRegistry } = await import('@deepseek-ai/dsh-jobs-local')
     await ctx.plugin(LocalJobRegistry, { maxConcurrentJobsPerOwner: 3 })

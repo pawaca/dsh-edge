@@ -20,6 +20,7 @@ import type { SettingsNamespaceView } from '@deepseek-ai/dsh-settings/types'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import type {
   AgentPresetPayload,
+  AgentPresetSelectPayload,
   CredentialDescribePayload,
   CredentialSetPayload,
   CredentialUnsetPayload,
@@ -60,6 +61,7 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import { isUserInvocable } from '@deepseek-ai/dsh-skill'
 import { edgeSystemPrompt } from './agent.ts'
+import { PTC_AGENT_PRESET } from './agent-presets.ts'
 import type { EdgeDeploymentProfile } from './deployment.ts'
 import { EDGE_DO_ATTACHMENT_MAX_STORED_BYTES } from './edge-attachment-store.ts'
 import type { EdgeApiSessionSummary, EdgeSessionStore } from './session-store.ts'
@@ -145,6 +147,8 @@ export interface EdgeApiRuntime {
     beforeSessionId?: SessionId,
   ): Promise<WorkspaceView>
   archiveSession(sessionId: SessionId): Promise<SessionId[]>
+  /** Record a blank session's agent preset before any turn can open it. */
+  selectAgentPreset(sessionId: SessionId, agentPreset: string): Promise<string>
   sessionCreated(session: EdgeApiSessionSummary): void
   sessionAttached(session: EdgeApiSessionSummary, workspaceId: WorkspaceId): Promise<void>
   workspaceForSession(sessionId: SessionId): Promise<WorkspaceId | undefined>
@@ -213,18 +217,12 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
             details: { path: resolvedCwd },
           })
         }
-        if (agentPreset !== undefined && agentPreset !== 'dsh-edge') {
-          return fail(request, {
-            code: 'agent-preset-not-found',
-            message: `Agent preset "${agentPreset}" is not available in this Edge instance.`,
-            details: { agentPreset, available: ['dsh-edge'] },
-          })
-        }
         try {
           const created = await runtime.sessions.createBlankSession({
             model: runtime.model,
             ...sessionId === undefined ? {} : { sessionId },
             ...resolvedCwd === undefined ? {} : { cwd: resolvedCwd },
+            ...agentPreset === undefined ? {} : { agentPreset },
           })
           const summary = (await runtime.sessions.listApiSessions())
             .find(item => item.id === created.sessionId)
@@ -245,6 +243,10 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
             agentPreset: created.agentPreset,
           })
         } catch (error) {
+          if (agentPreset !== undefined && error instanceof EdgeSessionStoreError && error.code === 'PRESET_UNAVAILABLE') {
+            const available = (await runtime.sessions.agentPresetRows()).map(row => row.id)
+            return presetNotFound(request, agentPreset, available)
+          }
           return sessionFailure(request, error, sessionId)
         }
       },
@@ -661,34 +663,37 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
     },
 
     agentPresets: {
-      list: (request: RpcRequest<SessionListPayload>) => Promise.resolve(ok(request, {
-        presets: [{
-          id: 'dsh-edge',
-          trust: 'system' as const,
-          isDefault: true,
-          name: 'DSH Edge',
-          description: 'DeepSeek Harness running in a Cloudflare Durable Object.',
-        }],
-        authorable: false,
-        hasDocument: false,
-      })),
-      select(request: RpcRequest<AgentPresetPayload>) {
-        if (request.payload.agentPreset !== 'dsh-edge') {
-          return Promise.resolve(fail(request, {
-            code: 'agent-preset-not-found',
-            message: `Agent preset "${request.payload.agentPreset}" is not available.`,
-            details: { agentPreset: request.payload.agentPreset, available: ['dsh-edge'] },
-          }))
+      async list(request: RpcRequest<SessionListPayload>) {
+        return ok(request, {
+          presets: await runtime.sessions.agentPresetRows(),
+          authorable: false,
+          hasDocument: false,
+        })
+      },
+      async select(request: RpcRequest<AgentPresetSelectPayload>) {
+        const { agentId, agentPreset } = request.payload
+        try {
+          return ok(request, await runtime.selectAgentPreset(agentId, agentPreset))
+        } catch (error) {
+          if (error instanceof EdgeSessionStoreError && error.code === 'PRESET_UNAVAILABLE') {
+            const available = (await runtime.sessions.agentPresetRows()).map(row => row.id)
+            return presetNotFound(request, agentPreset, available)
+          }
+          if (error instanceof EdgeSessionStoreError && error.code === 'PRESET_LOCKED') {
+            return fail(request, {
+              code: 'agent-preset-locked',
+              message: error.message,
+              details: { sessionId: agentId, agentPreset },
+            })
+          }
+          return sessionFailure(request, error, agentId)
         }
-        return Promise.resolve(ok(request, { agentPreset: 'dsh-edge' }))
       },
       async read(request: RpcRequest<AgentPresetPayload>) {
-        if (request.payload.agentPreset !== 'dsh-edge') {
-          return fail(request, {
-            code: 'agent-preset-not-found',
-            message: `Agent preset "${request.payload.agentPreset}" is not available.`,
-            details: { agentPreset: request.payload.agentPreset, available: ['dsh-edge'] },
-          })
+        const presets = await runtime.sessions.agentPresetRows()
+        const preset = presets.find(row => row.id === request.payload.agentPreset)
+        if (preset === undefined) {
+          return presetNotFound(request, request.payload.agentPreset, presets.map(row => row.id))
         }
         try {
           const [catalog, settings, credential] = await Promise.all([
@@ -713,12 +718,13 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
             apiKeyPersisted: credential.source === 'do-storage',
           }
           return ok(request, {
-            agentPreset: 'dsh-edge',
-            trust: 'system' as const,
-            name: 'DSH Edge',
-            description: 'DeepSeek Harness running in a Cloudflare Durable Object.',
+            agentPreset: preset.id,
+            trust: preset.trust,
+            ...preset.name === undefined ? {} : { name: preset.name },
+            ...preset.description === undefined ? {} : { description: preset.description },
             content: edgeAgentPresetContent(
               runtime,
+              preset.id,
               liveProfile,
               catalog.groups.flatMap(group => group.models),
             ),
@@ -870,6 +876,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
 /** Render the programmatic Edge agent graph through the upstream composition viewer. */
 function edgeAgentPresetContent(
   runtime: EdgeApiRuntime,
+  presetId: string,
   deployment: EdgeDeploymentProfile,
   availableModels: readonly { id: string; name: string }[],
 ): string {
@@ -877,8 +884,9 @@ function edgeAgentPresetContent(
     '# Effective dsh-edge composition (read-only)',
     '# Projected from the programmatic Worker runtime; this is not an editable agent.cordis.yml.',
     'preset:',
-    '  id: dsh-edge',
+    `  id: ${presetId}`,
     '  trust: system',
+    `  toolPresentation: ${presetId === PTC_AGENT_PRESET ? 'ptc' : 'native'}`,
     'release:',
     `  version: ${yamlString(runtime.version)}`,
     `  deploymentId: ${yamlString(deployment.deploymentId)}`,
@@ -1114,6 +1122,18 @@ function sanitizeProjectedURL(raw: string): string {
   } catch {
     return raw
   }
+}
+
+function presetNotFound<P, T>(
+  request: RpcRequest<P>,
+  agentPreset: string,
+  available: readonly string[],
+): RpcResponse<T> {
+  return fail(request, {
+    code: 'agent-preset-not-found',
+    message: `Agent preset "${agentPreset}" is not available in this Edge instance.`,
+    details: { agentPreset, available: [...available] },
+  })
 }
 
 function sessionFailure<T>(

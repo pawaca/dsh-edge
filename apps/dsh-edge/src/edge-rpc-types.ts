@@ -105,6 +105,7 @@ export interface SessionAttachmentPayload { sessionId: SessionId; attachmentId: 
 export interface SessionUpdateQueuePayload { sessionId: SessionId; itemId: MessageId; action: QueueAction }
 export interface SessionCancelPayload { sessionId: SessionId }
 export interface AgentPresetPayload { agentPreset: string }
+export interface AgentPresetSelectPayload { agentId: SessionId; agentPreset: string }
 export interface WorkspaceCreatePayload { path: string }
 export interface WorkspaceRenamePayload { workspaceId: WorkspaceId; title: string }
 export interface WorkspaceDeletePayload { workspaceId: WorkspaceId }
