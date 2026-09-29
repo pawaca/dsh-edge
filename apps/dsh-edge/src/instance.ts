@@ -917,10 +917,9 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         let first = true
         source = { [Symbol.asyncIterator]: () => ({
           next: () => {
-            if (!first) return iterator.next()
+            if (!first) return this.withBorrowedWorkspaceMetadata(() => iterator.next())
             first = false
-            // Only the initial ready frame resolves the VFS root. Release the
-            // workspace before waiting for later metadata observations.
+            // The initial ready frame resolves the VFS root with the workspace held.
             return this.withWorkspaceFileScope(() => iterator.next())
           },
           return: () => iterator.return?.() ?? Promise.resolve({ done: true as const, value: undefined }),
@@ -1187,6 +1186,20 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     const fs = this.sessions.filesystem()
     if (fs === undefined) throw new Error('Workspace filesystem is unavailable.')
     return this.withWorkspaceFiles(files => fs.runInScope(files as never, '/workspace', run))
+  }
+
+  /**
+   * Scope a long-lived stream whose later steps read file metadata after
+   * waiting for a change. Each metadata read borrows the workspace for that
+   * read alone, so the wait between changes keeps nothing in use.
+   */
+  private async withBorrowedWorkspaceMetadata<T>(run: () => Promise<T>): Promise<T> {
+    const fs = this.sessions.filesystem()
+    if (fs === undefined) throw new Error('Workspace filesystem is unavailable.')
+    const borrow = <K extends 'stat' | 'lstat' | 'readdir'>(method: K) =>
+      (path: string) => this.withWorkspaceFiles(files => (files as unknown as Record<K, (path: string) => Promise<unknown>>)[method](path))
+    const metadata = { stat: borrow('stat'), lstat: borrow('lstat'), readdir: borrow('readdir') }
+    return fs.runInScope(metadata as never, '/workspace', run)
   }
 
   private async workspaceForSession(sessionId: SessionId): Promise<WorkspaceId | undefined> {
@@ -1815,8 +1828,10 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         onClosing: () => {
           turn.accepting = false
         },
+        // Record the run as it starts: a tab's follow stream can show this turn
+        // before its events are durable and published here.
+        onTurnStart: (seq) => { turn.turnStartSeq = seq },
         publish: async (event) => {
-          if (event.type === 'turn/start') turn.turnStartSeq = event.seq
           this.publishSessionEvent(sessionId, event)
           await input.publish?.(event)
         },
@@ -1850,6 +1865,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     publishQueue: (items: QueuedInboxItem[]) => void | Promise<void>
     onAdmitted?: (admit: EdgeAgentPromptAdmitter) => void
     onClosing?: () => void
+    onTurnStart?: (seq: number) => void
   }): Promise<void> {
     const workspace = await this.workspace()
     const edgeFs = this.sessions.filesystem()
@@ -1877,6 +1893,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       },
       ...input.onAdmitted === undefined ? {} : { onAdmitted: input.onAdmitted },
       ...input.onClosing === undefined ? {} : { onClosing: input.onClosing },
+      ...input.onTurnStart === undefined ? {} : { onTurnStart: input.onTurnStart },
       publish: input.publish,
       publishQueue: input.publishQueue,
     })

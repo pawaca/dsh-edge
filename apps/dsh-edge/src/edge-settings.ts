@@ -23,9 +23,12 @@ import {
   type SettingsNamespace,
   type SettingsPathOp,
 } from '@deepseek-ai/dsh-settings'
+import { isVolatile } from '@deepseek-ai/cosmokit'
 import { deepEqualJson, deepFreeze } from '@deepseek-ai/dsh-util-values'
 
 export const SETTINGS_DOCUMENT_KEY = 'dsh-edge:settings-document'
+/** Schemastery's parse modes (not exported by the package); volatile schemas parse to references. */
+type SchemaMode = 'plain' | 'defined' | 'volatile' | 'volatile-defined'
 const NAMESPACE_PATTERN = /^[a-z][a-z0-9-]*$/u
 
 /** Owner-facing handle for one registered namespace. */
@@ -86,8 +89,11 @@ export class EdgeSettings extends Service {
     this.document = isPlainObject(stored) ? stored : {}
   }
 
-  /** Register one Edge-owned namespace. A stored section that fails validation rejects registration. */
-  register<T>(name: string, schema: z<T>, options?: EdgeSettingsRegisterOptions<T>): EdgeSettingsScope<T> {
+  /**
+   * Register one Edge-owned namespace. A stored section that fails validation rejects registration.
+   * The scope serves the schema's input shape: live (volatile) fields resolve to their plain values.
+   */
+  register<T>(name: string, schema: z<T, unknown, SchemaMode>, options?: EdgeSettingsRegisterOptions<T>): EdgeSettingsScope<T> {
     const ns = parseNamespace(name)
     if (this.registrations.has(ns)) throw new Error(`settings namespace "${ns}" is already registered`)
     const validate = options?.validate as ((value: unknown) => void) | undefined
@@ -252,8 +258,18 @@ function parseNamespace(value: string): SettingsNamespace {
 }
 
 function resolve(schema: z<unknown>, base: unknown, section: Record<string, unknown> | undefined, validate?: (value: unknown) => void): unknown {
-  const value = schema(mergeLayers(base, section) as never)
+  const value = plainConfig(schema(mergeLayers(base, section) as never))
   validate?.(value)
+  return value
+}
+
+/** Live (volatile) fields parse into references; serve their plain values, as upstream SettingsForms does. */
+function plainConfig(value: unknown): unknown {
+  if (isVolatile(value)) return plainConfig(value.get())
+  if (Array.isArray(value)) return value.map(plainConfig)
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, plainConfig(child)]))
+  }
   return value
 }
 

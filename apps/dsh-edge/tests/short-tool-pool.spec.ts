@@ -79,7 +79,7 @@ describe('installShortToolPool middleware', () => {
     } finally { await ctx.fiber.dispose() }
   })
 
-  it.each(['subagent', 'workflow'])('%s tool skips the permit and the 60 s execution deadline', async name => {
+  it.each(['subagent', 'workflow', 'ask_user_question', 'exit_plan_mode'])('%s tool skips the permit and the 60 s execution deadline', async name => {
     vi.useFakeTimers()
     const { ctx, pool, dispatch, mockExec } = poolHarness()
     const gate = Promise.withResolvers<void>()

@@ -19,6 +19,7 @@
   "dependencies": {
     "@cloudflare/computer": "0.3.1",
     "@deepseek-ai/cordis": "4.0.4",
+    "@deepseek-ai/cosmokit": "1.8.5",
     "@deepseek-ai/dsh-agent": "0.2.0-rc.1",
     "@deepseek-ai/dsh-agent-loop": "0.2.0-rc.1",
     "@deepseek-ai/dsh-anonymous-user-id": "0.2.0-rc.1",

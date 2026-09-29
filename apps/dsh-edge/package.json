@@ -68,6 +68,7 @@
   },
   "dependencies": {
     "@clack/prompts": "1.7.0",
+    "@deepseek-ai/cosmokit": "1.8.5",
     "@deepseek-ai/dsh-api-job-controller": "0.2.0-rc.1",
     "@deepseek-ai/dsh-client-locale": "0.2.0-rc.1",
     "@deepseek-ai/dsh-client-ui-chat": "0.2.0-rc.1",

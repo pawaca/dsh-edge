@@ -109,6 +109,14 @@ describe('Edge agent presets', () => {
     expect(native.restrict).not.toHaveBeenCalled()
   })
 
+  it('scopes no services per preset, so the skill catalog reads the global registry', async () => {
+    // The upstream skill catalog asks `serviceFor(agent, 'skills')` and falls back on undefined.
+    const presets = await edgePresets(true)
+    const agent = agentScope()
+    presets.join(agent.ctx, PTC_AGENT_PRESET)
+    expect(presets.serviceFor(agent, 'skills')).toBeUndefined()
+  })
+
   it('runs a recorded PTC mode session natively once the code runtime is gone', async () => {
     const presets = await edgePresets(false)
     const agent = agentScope()

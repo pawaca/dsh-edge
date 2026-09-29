@@ -19,7 +19,9 @@ import { edgeSettings } from './edge-settings.ts'
 
 /** Shipped client packages whose host-half `Config` has live (volatile) fields, by upstream Web composition entry id. */
 export const CLIENT_SETTINGS = [
-  { package: '@deepseek-ai/dsh-client-ui-chat', namespace: 'ui-chat', schema: ChatConfig },
+  // Most sites refuse to render inside the in-app browser's frame, so chat
+  // links open in a new tab, as they did before 0.19; the owner can switch.
+  { package: '@deepseek-ai/dsh-client-ui-chat', namespace: 'ui-chat', schema: ChatConfig, base: { linkOpening: 'new-tab' } },
   { package: '@deepseek-ai/dsh-client-ui-conversation', namespace: 'ui-conversation', schema: ConversationConfig },
   { package: '@deepseek-ai/dsh-client-locale', namespace: 'locale', schema: LocaleConfig },
   { package: '@deepseek-ai/dsh-client-ui-theme', namespace: 'ui-theme', schema: ThemeConfig },
@@ -29,5 +31,7 @@ export const CLIENT_SETTINGS = [
 
 export function registerClientSettings(ctx: Context): void {
   const settings = edgeSettings(ctx)
-  for (const { namespace, schema } of CLIENT_SETTINGS) settings.register(namespace, schema as never, {})
+  for (const entry of CLIENT_SETTINGS) {
+    settings.register(entry.namespace, entry.schema as never, 'base' in entry ? { base: entry.base } : {})
+  }
 }

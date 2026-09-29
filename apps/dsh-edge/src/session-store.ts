@@ -97,8 +97,8 @@ import {
   createEdgeBashTool,
   type EdgeShell,
 } from './agent.ts'
-import * as dshLlmDeepseekApiKey from '@deepseek-ai/dsh-llm-deepseek-api-key'
 import { DeepSeekFileStore } from '@deepseek-ai/dsh-llm-deepseek'
+import { mountDeepSeekProvider } from './edge-llm-settings.ts'
 import { DurableObjectUploadIndex } from './do-upload-index.ts'
 import {
   EdgeDoAttachmentStore,
@@ -355,7 +355,7 @@ export class EdgeSessionStore {
     try {
       const doUploadIndex = new DurableObjectUploadIndex(storage)
       ;(this.context as never as Record<string, unknown>)['edgeFileStore'] = new DeepSeekFileStore({ index: doUploadIndex as never })
-      await this.context.plugin(dshLlmDeepseekApiKey, buildEdgeLlmPluginConfig(config) as never).await()
+      await mountDeepSeekProvider(this.context, buildEdgeLlmPluginConfig(config))
     } catch (error) {
       console.error('dsh-edge: LLM provider plugin failed to initialize; model operations will be unavailable.', error)
     }
@@ -2035,6 +2035,8 @@ export class EdgeSessionStore {
     shell: EdgeShell
     publish: (event: SessionEvent) => void | Promise<void>
     publishQueue?: (items: QueuedInboxItem[]) => void | Promise<void>
+    /** Runs as a turn starts, before its events are durable and published; follow streams can already observe it. */
+    onTurnStart?: (seq: number) => void
     afterFollowup?: () => void
     onAdmitted?: (admit: EdgeAgentPromptAdmitter) => void
     onClosing?: () => void
@@ -2073,6 +2075,7 @@ export class EdgeSessionStore {
     })
     const stopObserving = this.context.on('session/event', (subject, event) => {
       if (subject !== agent.session) return
+      if (event.type === 'turn/start') input.onTurnStart?.(event.seq)
       const queue = event.type === 'agent/inbox/spliced'
         ? queueItems(agent, event.data)
         : undefined

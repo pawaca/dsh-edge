@@ -137,6 +137,9 @@ function sqliteStats() {
   return counts
 }
 
+// A listed session's generated title: a top-level field before Harness 0.2.0, a projection since.
+const listedTitle = item => item.projections?.values?.title ?? item.title
+
 const passed = []
 const pass = (label) => { passed.push(label); console.log(`PASS ${label}`) }
 
@@ -193,6 +196,10 @@ try {
     method: 'PUT', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ servers: [{ serverName: 'fixture', url: 'https://mcp.example.com/mcp', auth: { type: 'none' }, toolPolicy: { mode: 'read_only' } }] }),
   })
+  // A Models page edit: renaming one model stores the whole list under `llm-deepseek`.
+  const llmSection = (await rpc('settings/describe', { args: {} })).namespaces.find(entry => entry.ns === 'llm-deepseek')
+  const editedModels = llmSection.value.models.map(model => model.id === 'deepseek-v4-pro' ? { ...model, name: 'Pro From Previous' } : model)
+  await rpc('settings/mutate', { args: { ns: 'llm-deepseek', ops: [{ op: 'set', path: ['models'], value: editedModels }], expectedRevision: llmSection.revision } })
   await json('/api/skills', {
     method: 'PUT', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ name: 'upgrade-skill', description: 'Upgrade fixture skill', content: 'Step 1: verify.', whenToUse: 'When upgrading' }),
@@ -201,10 +208,11 @@ try {
 
   const sessionIds = [long, tools, parent, ptc, image, reminders, dueSoon, fork, archived]
   const before = {
-    list: (await rpc('session.list', {})).items.map(item => ({ sessionId: item.sessionId, title: item.title, agentPreset: item.agentPreset })),
+    list: (await rpc('session.list', {})).items.map(item => ({ sessionId: item.sessionId, title: listedTitle(item), agentPreset: item.agentPreset })),
     transcripts: Object.fromEntries(await Promise.all(sessionIds.map(async id => [id, await transcript(id)]))),
     archived: (await rpc('workspace.list', {})).archivedSessionIds,
   }
+  assert.ok(before.list.some(item => typeof item.title === 'string' && item.title !== ''), `no titled session to compare: ${JSON.stringify(before.list)}`)
   const childIds = before.list.map(item => item.sessionId).filter(id => !sessionIds.includes(id))
   assert.equal(childIds.length, 1, `expected one subagent child, found ${JSON.stringify(childIds)}`)
   assert.ok(Date.now() < dueAt - 15_000, 'the due-soon reminder must still be pending when the previous release stops')
@@ -230,7 +238,7 @@ try {
   for (const item of before.list) {
     const after = listed.find(candidate => candidate.sessionId === item.sessionId)
     assert.ok(after, `session ${item.sessionId} disappeared`)
-    assert.equal(after.title, item.title, `title of ${item.sessionId}`)
+    assert.equal(listedTitle(after), item.title, `title of ${item.sessionId}`)
     assert.equal(after.agentPreset, item.agentPreset, `preset of ${item.sessionId}`)
   }
   pass(`${before.list.length} sessions keep ids, titles, and presets`)
@@ -276,6 +284,13 @@ try {
   assert.ok((await json('/api/mcp-servers')).servers.some(server => server.serverName === 'fixture'))
   assert.deepEqual((await json('/api/skills')).skills, ['upgrade-skill'])
   pass('archive set, workspace files, approval mode, MCP servers, and skills persist')
+
+  const catalog = (await rpc('llm.models', {})).groups.flatMap(group => group.models)
+  assert.deepEqual(catalog.map(model => model.id), editedModels.map(model => model.id))
+  assert.equal(catalog.find(model => model.id === 'deepseek-v4-pro')?.name, 'Pro From Previous')
+  const deepseek = (await rpc('settings/describe', { args: {} })).namespaces.find(entry => entry.ns === 'llm-deepseek')
+  assert.deepEqual(deepseek.user, { models: editedModels })
+  pass('Models page edits keep applying to the DeepSeek provider')
 
   await worker.stop()
   worker = undefined

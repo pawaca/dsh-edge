@@ -1082,6 +1082,17 @@ try {
   const filesReady = await fileChanges.next(frame => frame.type === 'item' && frame.streamId === 'file-changes')
   assert.equal(filesReady.value.kind, 'ready')
   fileChanges.send({ type: 'cancel', streamId: 'file-changes' })
+  // A later change re-reads the file's metadata after the workspace was released
+  // between changes: the open preview refreshes and its stream stays open.
+  const watchedSessionId = (await rpc('session.create', {})).body.result.value.sessionId
+  fileChanges.send({ type: 'open', streamId: 'file-preview', endpoint: 'workspaceFiles/changes', payload: { args: { workspaceFileScopeId: watchedSessionId, path: 'released.txt' } } })
+  assert.equal((await fileChanges.next(frame => frame.type === 'item' && frame.streamId === 'file-preview')).value.kind, 'ready')
+  await turn(watchedSessionId, 'read the file /workspace/released.txt')
+  const previewChange = await fileChanges.next(frame => frame.streamId === 'file-preview')
+  assert.equal(previewChange.type, 'item', JSON.stringify(previewChange))
+  assert.equal(previewChange.value.kind, 'change')
+  assert.equal(previewChange.value.change.absolutePath, '/workspace/released.txt')
+  fileChanges.send({ type: 'cancel', streamId: 'file-preview' })
   fileChanges.close()
 
   // Resolve the upstream file-reference controller for a cold blank Agent too.
@@ -1964,8 +1975,9 @@ try {
   // and its continuation; in the isolated build the workflow turn adds a
   // tool-call request, its five children, and its continuation, and the
   // run_code turn adds a tool-call request and its continuation; the fork's
-  // own date-context turn adds one request.
-  assert.equal(turnRequests().length, runtimeMode === 'isolated' ? 34 : 25)
+  // own date-context turn adds one request; the watched preview's read turn
+  // adds a tool-call request and its continuation.
+  assert.equal(turnRequests().length, runtimeMode === 'isolated' ? 36 : 27)
   await worker.stop()
   worker = undefined
   const { physicalRows, writeBatches } = sessionEventStorageStats(batchedSessionId)

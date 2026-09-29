@@ -64,6 +64,7 @@ import { edgeSystemPrompt } from './agent.ts'
 import { normalizeAgentPreset, PTC_AGENT_PRESET } from './agent-presets.ts'
 import type { EdgeDeploymentProfile } from './deployment.ts'
 import { EDGE_DO_ATTACHMENT_MAX_STORED_BYTES } from './edge-attachment-store.ts'
+import { DEEPSEEK_SETTINGS_NAMESPACE } from './edge-llm-settings.ts'
 import type { EdgeApiSessionSummary, EdgeSessionStore } from './session-store.ts'
 import { EdgeSessionCwdConflictError, EdgeSessionStoreError } from './session-store.ts'
 import {
@@ -689,7 +690,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
           ])
           const deployment = runtime.deploymentProfile()
           const llmSection = settings
-            .find(d => d.ns === 'llm-deepseek')
+            .find(d => d.ns === DEEPSEEK_SETTINGS_NAMESPACE)
             ?.value as Record<string, string | number | undefined> | undefined
           const liveBaseURL = llmSection?.['baseURL']
           const liveEffort = llmSection?.['reasoningEffort']

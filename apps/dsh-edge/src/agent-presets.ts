@@ -147,4 +147,9 @@ export class EdgeAgentPresets extends CordisService {
   composeFrom(childCtx: Context, parentCtx: Context): void {
     this.join(childCtx, this.composedPreset(parentCtx))
   }
+
+  /** No preset mounts its own services; callers fall back to the global one. */
+  serviceFor(_agent: { ctx: Context }, _name: string): undefined {
+    return undefined
+  }
 }

@@ -2,6 +2,9 @@
   - navigation "Session hierarchy": Browser snapshot (1)
   - text: Standard mode
   - button "Open right sidebar"
+  - tablist:
+    - tab "Chat" [selected]
+    - tab "Trajectory"
 - button "one-pixel.png, click to view original":
   - img "one-pixel.png"
 - text: snapshot the browser edge path {{clock}}
