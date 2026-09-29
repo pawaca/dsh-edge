@@ -12,6 +12,7 @@ import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { gunzipSync } from 'node:zlib'
+import ts from 'typescript'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const appRoot = join(repoRoot, 'apps/dsh-edge')
@@ -109,30 +110,43 @@ function sourceFiles(directory) {
 
 /**
  * Collect the upstream specifiers the Edge uses at runtime: value (not type-only) static imports
- * and dynamic imports in the Worker source, plus the reviewed browser boot graph.
+ * and dynamic imports in the Worker source, plus the reviewed browser boot graph. Parsed with the
+ * TypeScript compiler, so imports inside comments or strings never count.
  */
 export function collectEdgeUsage(sources, bootGraph) {
   const specifiers = new Set()
   for (const text of sources) {
-    const statics = /import\s+(type\s+)?([^;]*?)\s+from\s+'(@deepseek-ai\/[^']+)'/gsu
-    for (const [, typeOnly, clause, specifier] of text.matchAll(statics)) {
-      if (typeOnly || isTypeOnlyClause(clause)) continue
-      specifiers.add(specifier)
+    const file = ts.createSourceFile('source.ts', text, ts.ScriptTarget.Latest, false, ts.ScriptKind.TS)
+    const visit = node => {
+      if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier) && !isTypeOnlyImport(node)) {
+        addUpstream(specifiers, node.moduleSpecifier.text)
+      } else if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+        const [argument] = node.arguments
+        // `import('x' as string)` hides a specifier from the bundler's type resolution.
+        const literal = argument && ts.isAsExpression(argument) ? argument.expression : argument
+        if (literal && ts.isStringLiteral(literal)) addUpstream(specifiers, literal.text)
+      }
+      ts.forEachChild(node, visit)
     }
-    for (const [, specifier] of text.matchAll(/import\(\s*'(@deepseek-ai\/[^']+)'/gu)) {
-      specifiers.add(specifier)
-    }
+    visit(file)
   }
   for (const node of bootGraph) specifiers.add(node.id)
   const packages = new Set([...specifiers].map(packageOf))
   return { specifiers, packages }
 }
 
-function isTypeOnlyClause(clause) {
-  const named = /^\{([^}]*)\}$/su.exec(clause.trim())
-  if (!named) return false
-  const parts = named[1].split(',').map(part => part.trim()).filter(Boolean)
-  return parts.length > 0 && parts.every(part => part.startsWith('type '))
+function addUpstream(specifiers, specifier) {
+  if (specifier.startsWith(scope)) specifiers.add(specifier)
+}
+
+function isTypeOnlyImport(declaration) {
+  const clause = declaration.importClause
+  if (!clause) return false
+  if (clause.isTypeOnly) return true
+  if (clause.name) return false
+  const bindings = clause.namedBindings
+  return bindings !== undefined && ts.isNamedImports(bindings)
+    && bindings.elements.length > 0 && bindings.elements.every(element => element.isTypeOnly)
 }
 
 function packageOf(specifier) {
@@ -264,28 +278,45 @@ async function docsFile(version, path) {
   return (await fetchOk(`https://raw.githubusercontent.com/${upstreamRepo}/dsh-v${version}/${path}`)).text()
 }
 
-async function buildReference(version) {
+/**
+ * Build the reference snapshot from fetched upstream inputs. An input that parses to nothing fails
+ * loudly: a layout change the parsers miss must not silently erase part of the inventory.
+ */
+export function assembleReference({ version, compositions, toolCatalog, docsPaths }) {
   const sources = []
   for (const { package: name, files } of REFERENCE_SOURCES) {
-    const contents = await packageFiles(name, version)
-    const matched = [...contents.keys()].filter(path => files.test(path)).sort()
+    const matched = compositions.filter(file => file.package === name && files.test(file.path))
     if (matched.length === 0) throw new Error(`upstream-parity: ${scope}${name}@${version} has no reference composition; update REFERENCE_SOURCES`)
-    for (const path of matched) {
-      sources.push({ source: `${name}:${path}`, rows: parseComposition(contents.get(path)) })
+    for (const { path, text } of matched) {
+      const rows = parseComposition(text)
+      if (rows.length === 0) throw new Error(`upstream-parity: ${scope}${name}@${version} ${path} parsed to no plugins; update parseComposition`)
+      sources.push({ source: `${name}:${path}`, rows })
     }
   }
-  const tree = await docsTree(version)
-  const subsystems = [...tree.keys()]
+  const tools = parseToolCatalog(toolCatalog)
+  if (Object.keys(tools).length === 0) throw new Error(`upstream-parity: docs/tool-catalog.md at dsh-v${version} parsed to no packages; update parseToolCatalog`)
+  const subsystems = docsPaths
     .map(path => /^docs\/subsystems\/([a-z0-9-]+)\.md$/u.exec(path)?.[1])
     .filter(slug => slug !== undefined && slug !== 'README')
     .sort()
+  if (subsystems.length === 0) throw new Error(`upstream-parity: dsh-v${version} lists no docs/subsystems pages`)
   return {
     upstreamVersion: version,
     note: 'Generated by `pnpm run upstream-parity -- refresh`; do not edit by hand.',
     plugins: mergePlugins(sources),
-    tools: parseToolCatalog(await docsFile(version, 'docs/tool-catalog.md')),
+    tools,
     subsystems,
   }
+}
+
+async function buildReference(version) {
+  const compositions = []
+  for (const { package: name } of REFERENCE_SOURCES) {
+    const contents = await packageFiles(name, version)
+    for (const [path, text] of contents) compositions.push({ package: name, path, text })
+  }
+  const [tree, toolCatalog] = await Promise.all([docsTree(version), docsFile(version, 'docs/tool-catalog.md')])
+  return assembleReference({ version, compositions, toolCatalog, docsPaths: [...tree.keys()] })
 }
 
 // ---- CLI ----

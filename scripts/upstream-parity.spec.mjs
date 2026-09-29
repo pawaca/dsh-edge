@@ -1,6 +1,7 @@
 import { gzipSync } from 'node:zlib'
 import { describe, expect, it } from 'vitest'
 import {
+  assembleReference,
   checkWiki,
   classifyDocsDiff,
   collectEdgeUsage,
@@ -74,6 +75,26 @@ describe('upstream parity', () => {
     expect(plugins['@deepseek-ai/dsh-skill-badge'].disabled).toBe(true)
   })
 
+  it('refuses a reference input that parses to nothing', () => {
+    const compositions = [
+      { package: 'dsh-base', path: 'cordis.patch.yml', text: composition },
+      { package: 'dsh-web-app', path: 'cordis.patch.yml', text: composition },
+      { package: 'dsh-agent-presets', path: 'presets/standard/agent.cordis.yml', text: composition },
+    ]
+    const input = {
+      version: '1.0.0',
+      compositions,
+      toolCatalog: '| `@deepseek-ai/dsh-tool-todo` | `todo_write` | `ctx.tools` |',
+      docsPaths: ['docs/subsystems/todo.md', 'docs/subsystems/README.md'],
+    }
+    expect(assembleReference(input)).toMatchObject({ subsystems: ['todo'], tools: { '@deepseek-ai/dsh-tool-todo': ['todo_write'] } })
+    const reshaped = compositions.map((file, index) => index === 1 ? { ...file, text: 'plugins:\n  persona: {}\n' } : file)
+    expect(() => assembleReference({ ...input, compositions: reshaped })).toThrow(/dsh-web-app@1\.0\.0 cordis\.patch\.yml parsed to no plugins/u)
+    expect(() => assembleReference({ ...input, compositions: compositions.slice(0, 2) })).toThrow(/dsh-agent-presets@1\.0\.0 has no reference composition/u)
+    expect(() => assembleReference({ ...input, toolCatalog: '# renamed table' })).toThrow(/parsed to no packages/u)
+    expect(() => assembleReference({ ...input, docsPaths: [] })).toThrow(/lists no docs\/subsystems pages/u)
+  })
+
   it('maps tool-catalog packages to their tools', () => {
     const catalog = [
       '| Package | Tools | Needs |',
@@ -87,14 +108,19 @@ describe('upstream parity', () => {
     })
   })
 
-  it('counts runtime imports and the boot graph, not type-only imports', () => {
+  it('counts runtime imports and the boot graph, not type-only imports, comments, or strings', () => {
     const found = collectEdgeUsage([
       `import type { A } from '@deepseek-ai/dsh-types-only'`,
       `import { type B, type C } from '@deepseek-ai/dsh-named-types'`,
       `import * as Fs from '@deepseek-ai/dsh-tool-fs'`,
       `const { X } = await import('@deepseek-ai/dsh-lazy/sub')`,
+      `const { TYPERT } = await import('@deepseek-ai/dsh-cast/typert' as string)`,
+      `// import Removed from '@deepseek-ai/dsh-commented-out'`,
+      `const text = "import Nope from '@deepseek-ai/dsh-in-a-string'"`,
+      `/* await import('@deepseek-ai/dsh-block-comment') */`,
     ], [{ id: '@deepseek-ai/dsh-client-ui-chat' }])
     expect([...found.packages].sort()).toEqual([
+      '@deepseek-ai/dsh-cast',
       '@deepseek-ai/dsh-client-ui-chat',
       '@deepseek-ai/dsh-lazy',
       '@deepseek-ai/dsh-tool-fs',
