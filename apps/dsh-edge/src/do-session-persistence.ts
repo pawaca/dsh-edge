@@ -436,15 +436,31 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
     const prepared = this.prepareMigration(id, row, childFacts)
     if (prepared === undefined) return
     const commit = () => {
-      if (eventTable === 'dsh_session_events') {
-        this.storage.sql.exec('DELETE FROM dsh_session_events WHERE session_id = ?', id)
-      }
       this.storage.sql.exec(
         `UPDATE dsh_sessions SET version = ?, seed_length = ?, revision = revision + 1 WHERE id = ?`,
         prepared.version, prepared.seedLength, id,
       )
-      for (const record of prepared.packed) this.insertStorageRecord(id, record, eventTable)
-      if (eventTable === 'dsh_session_events') this.recomputeSummary(id)
+      if (eventTable === 'dsh_session_events_migrating') {
+        for (const record of prepared.packed) this.insertStorageRecord(id, record, eventTable)
+        return
+      }
+      if (prepared.removed.length > 0) {
+        this.storage.sql.exec(
+          'DELETE FROM dsh_session_events WHERE session_id = ? AND seq IN (SELECT value FROM json_each(?))',
+          id, JSON.stringify(prepared.removed),
+        )
+      }
+      for (const record of prepared.changed) {
+        const columns = storageColumns(record)
+        this.storage.sql.exec(
+          `UPDATE dsh_session_events SET type = ?, time = ?, data = ?, source_event_seqs = ?, surface_op = ?, ignorable = ?
+           WHERE session_id = ? AND seq = ?`,
+          columns.type, columns.time, columns.data, columns.source_event_seqs, columns.surface_op, columns.ignorable,
+          id, columns.seq,
+        )
+      }
+      for (const record of prepared.added) this.insertStorageRecord(id, record)
+      this.recomputeSummary(id)
     }
     if (inTransaction) commit()
     else this.storage.transactionSync(commit)
@@ -469,13 +485,31 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
       recovery: 'recoverable',
       validation: 'transformed',
     })
-    const physicalRows = this.decodeStoredRows(id, row, restore)
+    const stored = new Map<number, string>()
+    this.decodeStoredRows(id, row, restore, stored)
     const artifact = restore.finish()
+    const packed = packChunkRuns(artifact.events as SessionEvent[])
+    // Most rows read the same in the next format; only differing rows are written.
+    const changed: Record<string, unknown>[] = []
+    const added: Record<string, unknown>[] = []
+    const kept = new Set<number>()
+    for (const record of packed) {
+      const columns = storageColumns(record)
+      kept.add(columns.seq)
+      const before = stored.get(columns.seq)
+      if (before === undefined) added.push(record)
+      else if (before !== storedColumnsKey(columns)) changed.push(record)
+    }
+    const removed = [...stored.keys()].filter(seq => !kept.has(seq))
     return {
       version: artifact.header.version,
       seedLength: artifact.inheritedEventCount > 0 ? artifact.inheritedEventCount : null,
-      physicalRows,
-      packed: packChunkRuns(artifact.events as SessionEvent[]),
+      packed,
+      changed,
+      added,
+      removed,
+      // An UPDATE of payload columns writes the row; INSERT and DELETE also write the key index.
+      rewriteWrites: changed.length + 2 * added.length + removed.length,
     }
   }
 
@@ -520,8 +554,11 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
   }
 
   /** Feed one stored generation's rows to a restore, applying Edge-only legacy repairs. */
-  private decodeStoredRows(id: SessionId, row: HeaderRow, restore: SessionFormatRestore): number {
+  private decodeStoredRows(id: SessionId, row: HeaderRow, restore: SessionFormatRestore,
+    stored?: Map<number, string>): number {
     const eventRows = this.eventRows(id, 0)
+    // Stored columns by seq, captured before the in-memory v0 repair reorders seqs.
+    if (stored !== undefined) for (const eventRow of eventRows) stored.set(eventRow.seq, storedColumnsKey(eventRow))
     if (row.version === 0) reorderV0SurfaceEvents(eventRows)
     for (const eventRow of eventRows) {
       const isPacked = PACKED_ROW_TYPES.has(eventRow.type)
@@ -1053,9 +1090,14 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
       // The second decode runs synchronously in the same transaction/snapshot.
       // Child evidence is read from the pre-migration state once and reused by both passes.
       const childFacts = this.collectChildFactsFor(new Set(outdated.map(row => row.id)))
-      let legacy = 0
-      for (const row of outdated) legacy += this.prepareMigration(row.id as SessionId, row, childFacts.get(row.id)!)?.physicalRows ?? 0
-      const rebuild = this.isEventTableRebuildCheaper(legacy)
+      let rewriteWrites = 0
+      let migratedRows = 0
+      for (const row of outdated) {
+        const prepared = this.prepareMigration(row.id as SessionId, row, childFacts.get(row.id)!)
+        rewriteWrites += prepared?.rewriteWrites ?? 0
+        migratedRows += prepared?.packed.length ?? 0
+      }
+      const rebuild = this.isEventTableRebuildCheaper(rewriteWrites, migratedRows)
       const target: EventTable = rebuild ? 'dsh_session_events_migrating' : 'dsh_session_events'
       if (rebuild) {
         this.createEventTable(target)
@@ -1080,12 +1122,17 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
     )
   }
 
-  private isEventTableRebuildCheaper(legacy: number): boolean {
-    // INSERT includes the primary-key index; allow 32 catalog writes for a swap.
+  /**
+   * Rewriting in place costs the migration's own diff; a rebuild copies every
+   * current row and inserts every migrated row (INSERT includes the
+   * primary-key index), plus 32 catalog writes for the swap. It only wins when
+   * the next format drops many legacy rows, as packing v0 token deltas does.
+   */
+  private isEventTableRebuildCheaper(rewriteWrites: number, migratedRows: number): boolean {
     // One set-based probe caps event reads and SQL calls independently of the
     // number of current sessions. CROSS JOIN fixes headers as the outer loop,
     // so SQLite seeks the event primary key instead of scanning legacy events.
-    const allowance = Math.floor((legacy - 33) / 2)
+    const allowance = Math.floor((rewriteWrites - 2 * migratedRows - 33) / 2)
     if (allowance < 0) return false
     const count = this.storage.sql.exec<{ count: number }>(
       `SELECT COUNT(*) AS count FROM (
@@ -1326,27 +1373,43 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
 
   private insertStorageRecord(id: SessionId, record: Record<string, unknown>,
     eventTable: EventTable = 'dsh_session_events'): void {
-    const seq = (record.seq ?? record.seq0) as number
-    const time = (record.time ?? record.time0) as number
-    const type = record.type as string
+    const columns = storageColumns(record)
     this.storage.sql.exec(
       `INSERT INTO ${eventTable}
         (session_id, seq, type, time, data, source_event_seqs, surface_op, ignorable)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       id,
-      seq,
-      type,
-      time,
-      JSON.stringify(record.data),
-      record.sourceEventSeqs === undefined ? null : JSON.stringify(record.sourceEventSeqs),
-      record.surfaceOp === undefined ? null : JSON.stringify(record.surfaceOp),
-      record.ignorable === true ? 1 : null,
+      columns.seq,
+      columns.type,
+      columns.time,
+      columns.data,
+      columns.source_event_seqs,
+      columns.surface_op,
+      columns.ignorable,
     )
   }
 
 }
 
 type EventTable = 'dsh_session_events' | 'dsh_session_events_migrating'
+
+/** The stored columns of one storage record, as `insertStorageRecord` writes them. */
+function storageColumns(record: Record<string, unknown>): EventRow {
+  return {
+    seq: (record.seq ?? record.seq0) as number,
+    type: record.type as string,
+    time: (record.time ?? record.time0) as number,
+    data: JSON.stringify(record.data),
+    source_event_seqs: record.sourceEventSeqs === undefined ? null : JSON.stringify(record.sourceEventSeqs),
+    surface_op: record.surfaceOp === undefined ? null : JSON.stringify(record.surfaceOp),
+    ignorable: record.ignorable === true ? 1 : null,
+  }
+}
+
+/** Compare a stored row with a migrated one without its seq (the map key). */
+function storedColumnsKey(row: EventRow): string {
+  return JSON.stringify([row.type, row.time, row.data, row.source_event_seqs, row.surface_op, row.ignorable])
+}
 
 function revisionOf(storeIdentity: string, row: HeaderRow): PersistenceRevision {
   return SessionPersistenceRevision(

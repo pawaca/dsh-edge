@@ -133,6 +133,19 @@ function cursor<T extends TestRow>(
 }
 
 describe('legacy Edge cancellation migration', () => {
+  function insertLegacyDeltas(storage: TestDurableObjectStorage, count: number) {
+    storage.sql.exec("UPDATE dsh_session_events SET seq = seq + ? WHERE session_id = 'session-v0-1-3' AND seq >= 4", count + 2)
+    const chunks = [
+      { type: 'block-start', index: 0, blockType: 'text' },
+      ...Array.from({ length: count }, () => ({ type: 'text-delta', index: 0, text: 'x' })),
+      { type: 'block-end', index: 0, block: { type: 'text', text: 'x'.repeat(count) } },
+    ]
+    chunks.forEach((chunk, i) => storage.sql.exec(
+      'INSERT INTO dsh_session_events (session_id,seq,type,time,data) VALUES (?,?,?,?,?)',
+      'session-v0-1-3', i + 4, 'assistant/chunk', 1004 + i, JSON.stringify({ turn: 1, step: 1, chunk }),
+    ))
+  }
+
   function cancelledStorage(message: unknown, extra: Record<string, unknown> = {}) {
     const storage = new TestDurableObjectStorage()
     storage.loadFixture(readFileSync(new URL('./fixtures/dsh-edge-0.1.3-session.sql', import.meta.url), 'utf8'))
@@ -222,11 +235,8 @@ describe('legacy Edge cancellation migration', () => {
 
   it.each([0, 1, 100, 100000])('preserves current logs and chooses the cheaper migration with %i current rows', async count => {
     const storage = cancelledStorage('cancelled by the user')
-    for (let i = 6; i < 66; i++) storage.sql.exec(
-      'INSERT INTO dsh_session_events (session_id,seq,type,time,data) VALUES (?,?,?,?,?)',
-      'session-v0-1-3', i, 'session/title', 1000 + i,
-      JSON.stringify({ title: 'Legacy title', messageSeqs: [], source: { kind: 'user' } }),
-    )
+    // Token deltas the next format packs into one row: a rebuild avoids deleting each.
+    insertLegacyDeltas(storage, 200)
     storage.sql.exec(`INSERT INTO dsh_sessions SELECT 'current', ?, created_at,cwd,parent_session,
       seed_length,origin,delegation_depth,agent_preset,'current-incarnation',revision FROM dsh_sessions`, SESSION_FORMAT_VERSION)
     for (let i = 0; i < count; i++) storage.sql.exec(
@@ -257,11 +267,8 @@ describe('legacy Edge cancellation migration', () => {
 
   it('restores the original table if the compact table swap fails, then retries', async () => {
     const storage = cancelledStorage('cancelled by the user')
-    for (let i = 6; i < 66; i++) storage.sql.exec(
-      'INSERT INTO dsh_session_events (session_id,seq,type,time,data) VALUES (?,?,?,?,?)',
-      'session-v0-1-3', i, 'session/title', 1000 + i,
-      JSON.stringify({ title: 'Legacy title', messageSeqs: [], source: { kind: 'user' } }),
-    )
+    // Token deltas the next format packs into one row: a rebuild avoids deleting each.
+    insertLegacyDeltas(storage, 200)
     const before = storage.sql.exec('SELECT * FROM dsh_session_events ORDER BY seq').toArray()
     const exec = storage.sql.exec
     storage.sql.exec = (query, ...bindings) => {
@@ -283,6 +290,34 @@ describe('legacy Edge cancellation migration', () => {
         const persistence = new DurableObjectSessionPersistence(restarted, { storage: storage as never })
         expect((await readAll(persistence, SessionId('session-v0-1-3'))).meta.version).toBe(SESSION_FORMAT_VERSION)
       } finally { await restarted.fiber.dispose() }
+    } finally { await ctx.fiber.dispose(); storage.close() }
+  })
+
+  it('writes only the rows the next format changes', async () => {
+    // A V3 log whose rows the V4 transform leaves as they are, as most 0.18 rows are.
+    const storage = cancelledStorage('cancelled by the user')
+    storage.sql.exec(`INSERT INTO dsh_sessions SELECT 'v3-titles', 3, created_at, cwd, parent_session, NULL, origin,
+      delegation_depth, 'standard', 'v3-incarnation', revision FROM dsh_sessions WHERE id = 'session-v0-1-3'`)
+    storage.sql.exec("INSERT INTO dsh_session_events (session_id,seq,type,time,data) VALUES ('v3-titles',0,'session/end-seed',1000,'{}')")
+    for (let i = 1; i <= 200; i++) storage.sql.exec(
+      'INSERT INTO dsh_session_events (session_id,seq,type,time,data) VALUES (?,?,?,?,?)',
+      'v3-titles', i, 'session/title', 1000 + i,
+      JSON.stringify({ title: 'Legacy title', messageSeqs: [], source: { kind: 'user' } }),
+    )
+    const before = 201
+    storage.writtenRows = 0
+    storage.queries.length = 0
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    try {
+      const persistence = new DurableObjectSessionPersistence(ctx, { storage: storage as never })
+      // Identical rows stay in place: no whole-log delete, no rebuild, a handful of writes.
+      expect(storage.queries.some(q => q.trim().endsWith('DELETE FROM dsh_session_events WHERE session_id = ?'))).toBe(false)
+      expect(storage.queries.includes('DROP TABLE dsh_session_events')).toBe(false)
+      expect(storage.writtenRows).toBeLessThan(before / 10)
+      const restored = await readAll(persistence, SessionId('v3-titles'))
+      expect(restored.meta.version).toBe(SESSION_FORMAT_VERSION)
+      expect(restored.events.filter(event => event.type === 'session/title')).toHaveLength(200)
     } finally { await ctx.fiber.dispose(); storage.close() }
   })
 

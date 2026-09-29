@@ -29,7 +29,7 @@ const DSH_EDGE_HERO = String.raw` ____  ____  _   _       _____ ____   ____ ____
 |____/|____/|_| |_|     |_____|____/ \____|_____|`
 const KEPT_ON_UPDATE = 'conversations, files, access key, and DeepSeek key'
 const CONTAINER_ROLLOUT_NOTE = 'The first command after this can take a few minutes while the container image rolls out.'
-const SESSION_FORMAT_UPGRADE_NOTE = 'Stored sessions move to a new format when this release first starts, writing about two storage rows per stored row (on Workers Free, a large instance can exceed the daily write allowance). Rolling back to an earlier dsh-edge release afterwards is not supported.'
+const SESSION_FORMAT_UPGRADE_NOTE = 'Stored sessions move to a new format when this release first starts; only the stored rows that change are rewritten. Rolling back to an earlier dsh-edge release afterwards is not supported.'
 
 export class InstallInterruptedError extends InstallCancelledError {
   constructor(signal) {

@@ -178,7 +178,7 @@ describe('dsh-edge CLI', () => {
       `After: dsh-edge ${edgePackage.version} with the same capabilities`,
       'Kept:  conversations, files, access key, and DeepSeek key',
       'The first command after this can take a few minutes while the container image rolls out.',
-      'Stored sessions move to a new format when this release first starts, writing about two storage rows per stored row (on Workers Free, a large instance can exceed the daily write allowance). Rolling back to an earlier dsh-edge release afterwards is not supported.',
+      'Stored sessions move to a new format when this release first starts; only the stored rows that change are rewritten. Rolling back to an earlier dsh-edge release afterwards is not supported.',
     ].join('\n'), 'dsh-edge already exists')
     expect(select).toHaveBeenCalledWith(expect.objectContaining({
       message: 'Update dsh-edge?',
