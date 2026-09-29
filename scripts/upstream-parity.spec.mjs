@@ -9,6 +9,7 @@ import {
   parseComposition,
   parseToolCatalog,
   untar,
+  validateManifest,
   verifyParity,
 } from './upstream-parity.mjs'
 
@@ -169,10 +170,33 @@ describe('upstream parity', () => {
       expect.stringMatching(/describes 1\.0\.0, but the baseline is 2\.0\.0/u),
       expect.stringMatching(/dsh-used is used by the Edge/u),
       expect.stringMatching(/dsh-gap \(dsh-base\) is not used by the Edge and not classified/u),
-      expect.stringMatching(/dsh-tool-extra is tracked but names no issue/u),
       expect.stringMatching(/dsh-gone is not in the upstream reference/u),
+      expect.stringMatching(/dsh-tool-extra is tracked but names no issue/u),
       expect.stringMatching(/dsh-off has unknown status "maybe"/u),
       expect.stringMatching(/dsh-off needs a reason/u),
+    ])
+  })
+
+  it('validates every manifest field in one place', () => {
+    expect(validateManifest({
+      packages: {
+        '@deepseek-ai/ok-tracked': { status: 'tracked', reason: 'x', issue: 99 },
+        '@deepseek-ai/ok-gap': { status: 'gap', reason: 'x', priority: 'P1', issue: 234 },
+        '@deepseek-ai/zero': { status: 'tracked', reason: 'x', issue: 0 },
+        '@deepseek-ai/negative': { status: 'gap', reason: 'x', issue: -3 },
+        '@deepseek-ai/text-issue': { status: 'tracked', reason: 'x', issue: '99' },
+        '@deepseek-ai/bad-priority': { status: 'gap', reason: 'x', priority: 'high' },
+        '@deepseek-ai/priority-off-gap': { status: 'declined', reason: 'x', priority: 'P2' },
+        '@deepseek-ai/typo': { status: 'declined', reason: 'x', isue: 5 },
+      },
+      wikiOmit: { alpha: 'internal only' },
+    })).toEqual([
+      '@deepseek-ai/zero names an invalid issue 0.',
+      '@deepseek-ai/negative names an invalid issue -3.',
+      '@deepseek-ai/text-issue names an invalid issue "99".',
+      '@deepseek-ai/bad-priority has priority "high"; only gap entries take P1, P2, or P3.',
+      '@deepseek-ai/priority-off-gap has priority "P2"; only gap entries take P1, P2, or P3.',
+      '@deepseek-ai/typo has unknown field "isue".',
     ])
   })
 

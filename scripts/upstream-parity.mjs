@@ -199,16 +199,39 @@ export function verifyParity({ upstreamVersion, reference, manifest, usage }) {
     }
     counts[entry.status] = (counts[entry.status] ?? 0) + 1
   }
-  for (const [name, entry] of Object.entries(manifest.packages)) {
+  for (const name of Object.keys(manifest.packages)) {
     if (!known.has(name)) errors.push(`${name} is not in the upstream reference; remove its entry from upstream-parity.json.`)
-    if (!(entry.status in STATUSES)) errors.push(`${name} has unknown status "${entry.status}".`)
+  }
+  errors.push(...validateManifest(manifest))
+  return { errors, counts, required: required.size }
+}
+
+const ENTRY_KEYS = new Set(['status', 'reason', 'issue', 'priority'])
+const PRIORITIES = new Set(['P1', 'P2', 'P3'])
+
+/** The manifest's own shape: every field the check trusts is validated in one place. */
+export function validateManifest(manifest) {
+  const errors = []
+  for (const [name, entry] of Object.entries(manifest.packages ?? {})) {
+    for (const key of Object.keys(entry)) {
+      if (!ENTRY_KEYS.has(key)) errors.push(`${name} has unknown field "${key}".`)
+    }
+    if (!(entry.status in STATUSES)) errors.push(`${name} has unknown status "${String(entry.status)}".`)
     if (!hasReason(entry.reason)) errors.push(`${name} needs a reason.`)
-    if (entry.status === 'tracked' && !Number.isInteger(entry.issue)) errors.push(`${name} is tracked but names no issue.`)
+    if (entry.issue !== undefined && !isIssueNumber(entry.issue)) errors.push(`${name} names an invalid issue ${JSON.stringify(entry.issue)}.`)
+    if (entry.status === 'tracked' && entry.issue === undefined) errors.push(`${name} is tracked but names no issue.`)
+    if (entry.priority !== undefined && (entry.status !== 'gap' || !PRIORITIES.has(entry.priority))) {
+      errors.push(`${name} has priority ${JSON.stringify(entry.priority)}; only gap entries take P1, P2, or P3.`)
+    }
   }
   for (const [slug, reason] of Object.entries(manifest.wikiOmit ?? {})) {
     if (!hasReason(reason)) errors.push(`wikiOmit "${slug}" needs a reason.`)
   }
-  return { errors, counts, required: required.size }
+  return errors
+}
+
+function isIssueNumber(value) {
+  return Number.isSafeInteger(value) && value > 0
 }
 
 function hasReason(value) {
