@@ -222,7 +222,7 @@ export class EdgeSettings extends Service {
     const prev = registration.resolved
     if (deepEqualJson(next, prev)) return
     registration.resolved = next
-    for (const watcher of [...registration.watchers]) {
+    for (const watcher of registration.watchers) {
       const segment = watcher.tail
         .then(() => watcher.active && !this.stopped ? watcher.callback(next, prev) : undefined)
         .then(() => undefined, (error: unknown) => {
