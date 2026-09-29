@@ -154,7 +154,6 @@ try {
   assert.equal((await prompt(b, 'probe-b', 'B waits', 'b-first')).result.ok, true)
   assert.equal((await prompt(b, 'probe-b', 'B waits', 'b-first')).result.ok, true)
   await wait(() => b.evaluate(() => globalThis.probeFrames.some(f => f.type === 'session/queue' && f.sessionId === 'probe-b' && f.items.length === 1)), 'B queued once in second tab')
-  await wait(() => b.evaluate(() => globalThis.remoteFrames.some(f => f.streamId === 'control' && f.value?.type === 'queue' && f.value.sessionId === 'probe-b' && f.value.items.length === 1)), 'current browser Remote queue update')
   await new Promise(resolve => setTimeout(resolve, 200))
   assert.equal(requests.some(t => t === 'B waits'), false, 'B must not start while A owns slot')
   assert.equal((await prompt(b, 'probe-a', 'A followup from second tab', 'a-second')).result.ok, true)

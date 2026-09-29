@@ -351,7 +351,6 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
   private mainDriving = false
   private mainStreamCount = 0
   private readonly controlTarget = new AsyncLocalStorage<EdgeTurnId>()
-  private readonly runtimeQueueListeners = new Set<(sessionId: SessionId) => void>()
   private readonly liveQueues = new Map<SessionId, QueuedInboxItem[]>()
   private readonly mainStreams = new Map<number, Set<{ publish(event: SessionEvent): void; resolve(): void; reject(error: unknown): void }>>()
   private readonly activeTurns = new Map<SessionId, ActiveTurn>()
@@ -910,12 +909,6 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     payload: unknown,
     abort: AbortController,
   ): Promise<void> {
-    const control = endpoint === 'session/control'
-    const sendQueue = (sessionId: SessionId) => {
-      if (socket.readyState === WebSocket.OPEN && !abort.signal.aborted) socket.send(JSON.stringify({
-        type: 'item', streamId, value: { type: 'queue', sessionId, items: this.runtimeQueueItems(sessionId) },
-      }))
-    }
     try {
       // No mounted Remote endpoint declares client-to-host items; the operator's in-process peer owns the stream.
       let source = await gateway.wireStream.open(endpoint, payload, emptyUplink(), undefined, abort.signal)
@@ -933,21 +926,13 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
           return: () => iterator.return?.() ?? Promise.resolve({ done: true as const, value: undefined }),
         }) }
       }
+      // Upstream frames pass through unchanged: the 0.2.0 control stream carries
+      // only projection baselines and sequenced projection frames, and the
+      // client rejects any other frame. Queued inputs the Edge holds before
+      // admission reach this tab as the client's own submission echoes.
       for await (const value of source) {
         if (socket.readyState !== WebSocket.OPEN) break
-        let outgoing = value
-        if (control) {
-          const frame = value as { type: string; sessionId?: string; items?: unknown[]; value?: { queues: Record<string, unknown[]> } }
-          if (frame.type === 'baseline' && frame.value !== undefined) {
-            const queues = { ...frame.value.queues }
-            for (const id of new Set([...Object.keys(queues), ...this.mainQueue.sessions()])) queues[id] = this.runtimeQueueItems(SessionId(id), queues[id])
-            outgoing = { ...frame, value: { ...frame.value, queues } }
-            this.runtimeQueueListeners.add(sendQueue)
-          } else if (frame.type === 'queue' && frame.sessionId !== undefined) {
-            outgoing = { ...frame, items: this.runtimeQueueItems(SessionId(frame.sessionId), frame.items) }
-          }
-        }
-        socket.send(JSON.stringify({ type: 'item', streamId, value: outgoing }))
+        socket.send(JSON.stringify({ type: 'item', streamId, value }))
       }
       if (!abort.signal.aborted && socket.readyState === WebSocket.OPEN) {
         socket.send(JSON.stringify({ type: 'end', streamId }))
@@ -961,8 +946,6 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
           socket.close(1011, 'Remote stream failure could not be delivered')
         }
       }
-    } finally {
-      this.runtimeQueueListeners.delete(sendQueue)
     }
   }
 
@@ -1442,13 +1425,8 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     })
   }
 
-  private runtimeQueueItems(sessionId: SessionId, live?: readonly unknown[]): unknown[] {
-    return [...(live ?? this.liveQueues.get(sessionId) ?? []), ...this.mainQueue.pending(sessionId).map(input => ({ id: input.message.id, placement: 'queued', message: input.message }))]
-  }
-
   private publishSessionQueue(sessionId: SessionId, items?: QueuedInboxItem[]): void {
     if (items !== undefined) this.liveQueues.set(sessionId, items)
-    for (const listener of this.runtimeQueueListeners) listener(sessionId)
     this.broadcast('mux', { type: 'session/queue', sessionId, items: [...(this.liveQueues.get(sessionId) ?? []), ...this.mainQueue.pending(sessionId).map(input => ({ id: input.message.id, placement: 'queued' as const, message: input.message }))] })
   }
 

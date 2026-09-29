@@ -1,27 +1,13 @@
 - dialog "Settings":
   - navigation:
     - text: Settings
-    - button "General":
-      - img
-      - text: General
-    - button "Models":
-      - img
-      - text: Models
-    - button "Plugins":
-      - img
-      - text: Plugins
-    - button "Agent presets":
-      - img
-      - text: Agent presets
-    - button "MCP Connectors":
-      - img
-      - text: MCP Connectors
-    - button "DSH Edge":
-      - img
-      - text: DSH Edge
-  - button "Close":
-    - img
-    - text: Close
+    - button "General"
+    - button "Models"
+    - button "Built-in plugins"
+    - button "Agent presets"
+    - button "MCP Connectors"
+    - button "DSH Edge"
+  - button "Close"
   - banner:
     - heading "DSH Edge" [level=2]
     - paragraph: Deployment details and updates for this Cloudflare Worker.
@@ -35,7 +21,7 @@
     - term: Channel version
     - definition: {{channel-version}}
     - term: DeepSeek Harness base
-    - definition: 0.1.5-rc.2
+    - definition: 0.2.0-rc.1
     - paragraph: Update available
     - button "Upgrade command copied"
     - link "Release notes":
