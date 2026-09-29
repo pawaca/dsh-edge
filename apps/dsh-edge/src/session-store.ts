@@ -568,7 +568,14 @@ export class EdgeSessionStore {
     )
     this.context.typert.register(SETTINGS_CONTROLLER_TYPERT as never)
     const { SettingsController } = await import('@deepseek-ai/dsh-api-settings-controller')
-    await this.context.plugin(SettingsController)
+    // Upstream assumes a file-backed settings document the page can open on the
+    // desktop; the Edge document lives in Durable Object storage.
+    class EdgeSettingsController extends SettingsController {
+      override describe() {
+        return { ...super.describe(), hasDocument: false }
+      }
+    }
+    await this.context.plugin(EdgeSettingsController)
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
     const { TYPERT: WORKSPACE_CONTROLLER_TYPERT } = await import(
       '@deepseek-ai/dsh-api-workspace-controller/typert' as string
