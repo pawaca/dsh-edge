@@ -5,6 +5,7 @@ import {
   checkWiki,
   classifyDocsDiff,
   collectEdgeUsage,
+  mentionsUsedPackage,
   mergePlugins,
   parseComposition,
   parseToolCatalog,
@@ -64,6 +65,9 @@ describe('upstream parity', () => {
   it('fails when a row uses a YAML layout the parser does not read', () => {
     const flow = `${composition}- { id: extra, name: '@deepseek-ai/dsh-extra' }\n`
     expect(() => parseComposition(flow)).toThrow(/rows the parser did not read: @deepseek-ai\/dsh-extra/u)
+    // A second mount of an already-parsed package still has to be read itself.
+    const twice = `${composition}- { id: again, name: '@deepseek-ai/dsh-tool-subagent' }\n`
+    expect(() => parseComposition(twice)).toThrow(/rows the parser did not read: @deepseek-ai\/dsh-tool-subagent/u)
     // A commented-out row is not a row.
     expect(parseComposition(`${composition}# - id: old\n#   name: '@deepseek-ai/dsh-old'\n`)).toHaveLength(5)
   })
@@ -276,6 +280,13 @@ describe('upstream parity', () => {
       edgeSubsystems: ['docs/subsystems/shell.md'],
       other: ['docs/glossary.md', 'docs/subsystems/todo.md'],
     })
+  })
+
+  it('treats a subsystem page as Edge-relevant when either version names a used package', () => {
+    const before = 'Owned by `@deepseek-ai/dsh-used`.'
+    const after = 'Moved to a new package, `@deepseek-ai/dsh-renamed`.'
+    expect(mentionsUsedPackage([before, after], usage)).toBe(true)
+    expect(mentionsUsedPackage(['', after], usage)).toBe(false)
   })
 
   it('reads regular files from an npm tarball', () => {

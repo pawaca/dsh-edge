@@ -78,15 +78,19 @@ export function parseComposition(text) {
   const parsed = rows
     .filter(row => row.name?.startsWith(scope))
     .map(({ name, disabled }) => ({ name, disabled }))
-  const parsedNames = new Set(parsed.map(row => row.name))
-  const unread = new Set()
+  // Compare occurrences, not names: a package mounted twice needs both rows read.
+  const remaining = new Map()
+  for (const { name } of parsed) remaining.set(name, (remaining.get(name) ?? 0) + 1)
+  const unread = []
   for (const line of text.split('\n')) {
     const code = line.replace(/(^|\s)#.*$/u, '')
     for (const [, name] of code.matchAll(/\bname:\s*['"]?(@deepseek-ai\/[a-z0-9./-]+)/gu)) {
-      if (!parsedNames.has(name)) unread.add(name)
+      const left = remaining.get(name) ?? 0
+      if (left === 0) unread.push(name)
+      else remaining.set(name, left - 1)
     }
   }
-  if (unread.size > 0) throw new Error(`upstream-parity: composition rows the parser did not read: ${[...unread].join(', ')}; update parseComposition`)
+  if (unread.length > 0) throw new Error(`upstream-parity: composition rows the parser did not read: ${unread.join(', ')}; update parseComposition`)
   return parsed
 }
 
@@ -314,6 +318,11 @@ export function classifyDocsDiff({ fromTree, toTree, relevant }) {
   return buckets
 }
 
+/** Whether any of the page versions names a package the Edge uses. */
+export function mentionsUsedPackage(texts, usage) {
+  return texts.some(text => [...text.matchAll(/@deepseek-ai\/[a-z0-9-]+/gu)].some(([name]) => usage.packages.has(name)))
+}
+
 // ---- network helpers (refresh, docs-diff) ----
 
 async function fetchOk(url, init) {
@@ -458,8 +467,12 @@ async function main([command = 'verify', argument]) {
     const changed = [...toTree.keys()].filter(path => /^docs\/subsystems\/[a-z0-9-]+\.md$/u.test(path) && fromTree.get(path) !== toTree.get(path))
     const relevantPaths = new Set()
     for (const path of changed) {
-      const text = await docsFile(argument, path)
-      if ([...text.matchAll(/@deepseek-ai\/[a-z0-9-]+/gu)].some(([name]) => usage.packages.has(name))) relevantPaths.add(path)
+      // Both versions: a page that drops its last mention of a used package is still relevant.
+      const texts = await Promise.all([
+        fromTree.has(path) ? docsFile(from, path) : '',
+        docsFile(argument, path),
+      ])
+      if (mentionsUsedPackage(texts, usage)) relevantPaths.add(path)
     }
     const buckets = classifyDocsDiff({ fromTree, toTree, relevant: path => relevantPaths.has(path) })
     const compare = `https://github.com/${upstreamRepo}/compare/dsh-v${from}...dsh-v${argument}`
