@@ -160,8 +160,9 @@ describe('legacy reminder import', () => {
     const storage = new AlarmStorage()
     new MainSessionQueue(storage as never)
     const now = Date.now()
-    const legacy = { id: 'schedule-legacy', kind: 'after', prompt: 'Review the deploy\nthen report back', afterSeconds: 600, scheduledAt: new Date(now + 600_000).toISOString() }
-    const every = { id: 'schedule-every', kind: 'every', prompt: 'x'.repeat(300), everySeconds: 3600, scheduledAt: new Date(now + 3_600_000).toISOString() }
+    // Earlier releases numbered reminders per session: both sessions hold a schedule-1.
+    const legacy = { id: 'schedule-1', kind: 'after', prompt: 'Review the deploy\nthen report back', afterSeconds: 600, scheduledAt: new Date(now + 600_000).toISOString() }
+    const every = { id: 'schedule-1', kind: 'every', prompt: 'x'.repeat(300), everySeconds: 3600, scheduledAt: new Date(now + 3_600_000).toISOString() }
     storage.loadFixture(`CREATE TABLE dsh_schedule_active (session_id TEXT NOT NULL, schedule_id TEXT NOT NULL, record TEXT NOT NULL, due INTEGER NOT NULL, created_seq INTEGER NOT NULL, PRIMARY KEY(session_id,schedule_id));
       CREATE TABLE dsh_runtime_schedule_reservation (id INTEGER PRIMARY KEY CHECK(id = 1), bytes INTEGER NOT NULL);`)
     storage.sql.exec('INSERT INTO dsh_schedule_active VALUES (?,?,?,?,?)', 'alpha', legacy.id, JSON.stringify(legacy), Date.parse(legacy.scheduledAt), 3)
@@ -180,5 +181,11 @@ describe('legacy reminder import', () => {
     const [imported] = await schedule.list({ sessionId: SessionId('beta') })
     expect(imported!.title).toHaveLength(120)
     expect(nextSchedule(storage as never)).toEqual({ sessionId: 'alpha', due: Date.parse(legacy.scheduledAt) })
+    // Ending alpha's schedule-1 leaves beta's schedule-1 active.
+    expect(dispatchDueSchedules(storage as never, 'alpha', Date.parse(legacy.scheduledAt) + 1)).toBe(true)
+    expect(await schedule.list({ sessionId: ALPHA })).toEqual([])
+    expect(await schedule.list({ sessionId: SessionId('beta') })).toEqual([imported])
+    expect(await schedule.delete({ sessionId: SessionId('beta'), id: imported!.id })).toEqual({ id: 'schedule-1', deleted: true })
+    expect((await schedule.catalog()).map(entry => [entry.sessionId, entry.id, entry.status])).toEqual([['alpha', 'schedule-1', 'inactive']])
   })
 })

@@ -115,8 +115,8 @@ export class EdgeSchedule extends Service {
     if (row.active !== 1) return { id: request.id, updated: false, code: 'schedule_ended' }
     const result = resolveScheduleUpdate(recordOf(row), request, Date.now())
     if (!('record' in result) || !result.updated) return result
-    this.storage.sql.exec('UPDATE dsh_schedule_tasks SET record = ?, due = ? WHERE id = ?',
-      JSON.stringify(result.record), Date.parse(result.record.scheduledAt), request.id)
+    this.storage.sql.exec('UPDATE dsh_schedule_tasks SET record = ?, due = ? WHERE session_id = ? AND id = ?',
+      JSON.stringify(result.record), Date.parse(result.record.scheduledAt), request.sessionId, request.id)
     await armScheduleWake(this.storage)
     return result
   }
@@ -194,9 +194,11 @@ function legacyTitle(prompt: string): string {
 }
 
 export function initializeSchedules(storage: DurableObjectStorage): void {
+  // Earlier releases numbered reminders per session, so an id is unique only within its session.
   storage.sql.exec(`CREATE TABLE IF NOT EXISTS dsh_schedule_tasks (
-    id TEXT PRIMARY KEY, session_id TEXT NOT NULL, record TEXT NOT NULL,
-    active INTEGER NOT NULL, due INTEGER NOT NULL, created INTEGER NOT NULL)`)
+    session_id TEXT NOT NULL, id TEXT NOT NULL, record TEXT NOT NULL,
+    active INTEGER NOT NULL, due INTEGER NOT NULL, created INTEGER NOT NULL,
+    PRIMARY KEY(session_id, id))`)
   storage.sql.exec('CREATE INDEX IF NOT EXISTS dsh_schedule_tasks_due ON dsh_schedule_tasks(active,due,session_id,created)')
   storage.sql.exec('CREATE INDEX IF NOT EXISTS dsh_schedule_tasks_session ON dsh_schedule_tasks(session_id,active)')
   storage.sql.exec('CREATE TABLE IF NOT EXISTS dsh_schedule_retry (session_id TEXT PRIMARY KEY, retry_at INTEGER NOT NULL)')
@@ -280,15 +282,15 @@ export function dispatchDueSchedules(storage: DurableObjectStorage, sessionId: s
       if (error instanceof MainQueueFullError) return false
       throw error
     }
-    if (oneShot !== undefined) storage.sql.exec('UPDATE dsh_schedule_tasks SET active = 0 WHERE id = ?', oneShot.id)
+    if (oneShot !== undefined) storage.sql.exec('UPDATE dsh_schedule_tasks SET active = 0 WHERE session_id = ? AND id = ?', sessionId, oneShot.id)
     for (const { record, nextScheduledAt } of occurrences) {
-      if (nextScheduledAt === undefined) storage.sql.exec('UPDATE dsh_schedule_tasks SET active = 0 WHERE id = ?', record.id)
-      else storage.sql.exec('UPDATE dsh_schedule_tasks SET record = ?, due = ? WHERE id = ?',
-        JSON.stringify({ ...record, scheduledAt: nextScheduledAt }), Date.parse(nextScheduledAt), record.id)
+      if (nextScheduledAt === undefined) storage.sql.exec('UPDATE dsh_schedule_tasks SET active = 0 WHERE session_id = ? AND id = ?', sessionId, record.id)
+      else storage.sql.exec('UPDATE dsh_schedule_tasks SET record = ?, due = ? WHERE session_id = ? AND id = ?',
+        JSON.stringify({ ...record, scheduledAt: nextScheduledAt }), Date.parse(nextScheduledAt), sessionId, record.id)
     }
     // Ended tasks answer `schedule_ended` to updates; only the newest few are kept.
-    storage.sql.exec(`DELETE FROM dsh_schedule_tasks WHERE active = 0 AND id NOT IN
-      (SELECT id FROM dsh_schedule_tasks WHERE active = 0 ORDER BY due DESC LIMIT ?)`, MAX_ENDED_SCHEDULES)
+    storage.sql.exec(`DELETE FROM dsh_schedule_tasks WHERE active = 0 AND rowid NOT IN
+      (SELECT rowid FROM dsh_schedule_tasks WHERE active = 0 ORDER BY due DESC LIMIT ?)`, MAX_ENDED_SCHEDULES)
     pruneScheduleRetry(storage, sessionId)
     return true
   })

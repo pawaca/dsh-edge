@@ -2,15 +2,18 @@ import { createServer } from 'node:http'
 import { pathToFileURL } from 'node:url'
 
 /**
- * Deterministic DeepSeek Messages stand-in for edge integration tests.
- * `requests` records the exact Messages bodies; scenarios read them through
+ * Deterministic DeepSeek stand-in for edge integration tests. It serves the
+ * Messages wire the current release speaks and, for upgrade tests that run
+ * an earlier published release, the chat-completions wire it spoke.
+ * `requests` records the exact bodies; scenarios read them through
  * {@link chatMessages}, a role-per-message view in which tool results are
  * `tool` messages and loop notes are their own user prompts.
  */
-/** Loop-owned user-role notes that are not a prompt: model changes and runtime-context snapshots. */
+/** Loop-owned user-role notes that are not a prompt: model changes, runtime-context snapshots, and system reminders. */
 export function isLoopNote(message) {
   return message.role === 'user' && typeof message.content === 'string'
-    && (message.content.startsWith('[model changed: ') || message.content.startsWith('Current runtime context'))
+    && (message.content.startsWith('[model changed: ') || message.content.startsWith('Current runtime context')
+      || message.content.startsWith('<system-reminder>'))
 }
 
 /** The index of the latest user prompt in a chat request, skipping loop-owned notes. */
@@ -102,10 +105,11 @@ export async function startMockDeepSeek(port = 0) {
       })
       return
     }
-    if (request.method !== 'POST' || request.url !== '/v1/messages') {
+    if (request.method !== 'POST' || (request.url !== '/v1/messages' && request.url !== '/chat/completions')) {
       response.writeHead(404).end()
       return
     }
+    const legacyWire = request.url === '/chat/completions'
 
     let source = ''
     request.setEncoding('utf8')
@@ -113,7 +117,10 @@ export async function startMockDeepSeek(port = 0) {
     request.on('end', () => {
       const body = JSON.parse(source)
       requests.push(body)
-      const messages = chatMessages(body)
+      const messages = legacyWire ? body.messages : chatMessages(body)
+      response.legacyWire = legacyWire
+      const acceptsTitle = (body.tools ?? []).some(tool => (tool.function?.name ?? tool.name) === 'schedule_create'
+        && Object.hasOwn((tool.function?.parameters ?? tool.input_schema)?.properties ?? {}, 'title'))
       const latestUserIndex = latestUserPromptIndex(messages)
       const latestUser = messages[latestUserIndex]
       const rawContent = latestUser?.content
@@ -152,7 +159,38 @@ export async function startMockDeepSeek(port = 0) {
         sendEvents(response, [
           { choices: [{ delta: { role: 'assistant', content: null, reasoning_content: '' } }] },
           { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_schedule', type: 'function', function: {
-            name: 'schedule_create', arguments: JSON.stringify({ prompt: 'schedule-fixture-reminder', title: 'Fixture reminder', after_seconds: Number(prompt.slice('schedule once '.length)) }),
+            name: 'schedule_create', arguments: JSON.stringify({ prompt: 'schedule-fixture-reminder', ...acceptsTitle ? { title: 'Fixture reminder' } : {}, after_seconds: Number(prompt.slice('schedule once '.length)) }),
+          } }] } }] },
+          { choices: [{ delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 8, completion_tokens: 3 } },
+        ])
+        return
+      }
+
+      if (prompt.startsWith('schedule every ') && !hasToolResult) {
+        sendEvents(response, [
+          { choices: [{ delta: { role: 'assistant', content: null, reasoning_content: '' } }] },
+          { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_schedule_every', type: 'function', function: {
+            name: 'schedule_create', arguments: JSON.stringify({ prompt: 'schedule-fixture-periodic', ...acceptsTitle ? { title: 'Fixture periodic' } : {}, every_seconds: Number(prompt.slice('schedule every '.length)) }),
+          } }] } }] },
+          { choices: [{ delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 8, completion_tokens: 3 } },
+        ])
+        return
+      }
+
+      if (prompt === 'list reminders' && !hasToolResult) {
+        sendEvents(response, [
+          { choices: [{ delta: { role: 'assistant', content: null, reasoning_content: '' } }] },
+          { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_schedule_list', type: 'function', function: { name: 'schedule_list', arguments: '{}' } }] } }] },
+          { choices: [{ delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 8, completion_tokens: 3 } },
+        ])
+        return
+      }
+
+      if (prompt.startsWith('delegate to a subagent') && !hasToolResult) {
+        sendEvents(response, [
+          { choices: [{ delta: { role: 'assistant', content: null, reasoning_content: '' } }] },
+          { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_subagent', type: 'function', function: {
+            name: 'subagent', arguments: JSON.stringify({ description: 'Fixture child', prompt: 'child fixture task', run_in_background: false }),
           } }] } }] },
           { choices: [{ delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 8, completion_tokens: 3 } },
         ])
@@ -585,7 +623,9 @@ export function messagesEvents(chunks) {
 }
 
 function sendEvents(response, chunks, delayMs = 0, continueAfterFirstEvent) {
-  const groups = messagesEvents(chunks)
+  const groups = response.legacyWire
+    ? chunks.map(chunk => [chunk]).concat([['[DONE]']])
+    : messagesEvents(chunks)
   response.writeHead(200, { 'content-type': 'text/event-stream' })
   const write = (index) => {
     if (response.writableEnded || response.destroyed) return
@@ -594,7 +634,11 @@ function sendEvents(response, chunks, delayMs = 0, continueAfterFirstEvent) {
       response.end()
       return
     }
-    writeEvents(response, group)
+    if (response.legacyWire) {
+      for (const chunk of group) response.write(`data: ${chunk === '[DONE]' ? chunk : JSON.stringify(chunk)}\n\n`)
+    } else {
+      writeEvents(response, group)
+    }
     const writeNext = () => { setTimeout(() => { write(index + 1) }, delayMs) }
     if (index === 0 && continueAfterFirstEvent !== undefined) {
       void continueAfterFirstEvent.then(writeNext)

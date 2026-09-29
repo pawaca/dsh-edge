@@ -170,7 +170,7 @@ describe('dsh-edge CLI', () => {
     const note = vi.fn()
     const clack = { ...prompt, note, select } as unknown as typeof prompt
 
-    await expect(createInstallerUi(clack).existingWorker({ workerName: 'dsh-edge', mode: 'container' }))
+    await expect(createInstallerUi(clack).existingWorker({ workerName: 'dsh-edge', mode: 'container', sessionFormatUpgrade: true }))
       .resolves.toBe('update')
 
     expect(note).toHaveBeenCalledWith([
@@ -178,6 +178,7 @@ describe('dsh-edge CLI', () => {
       `After: dsh-edge ${edgePackage.version} with the same capabilities`,
       'Kept:  conversations, files, access key, and DeepSeek key',
       'The first command after this can take a few minutes while the container image rolls out.',
+      'Stored sessions move to a new format when this release first starts. Rolling back to an earlier dsh-edge release afterwards is not supported.',
     ].join('\n'), 'dsh-edge already exists')
     expect(select).toHaveBeenCalledWith(expect.objectContaining({
       message: 'Update dsh-edge?',

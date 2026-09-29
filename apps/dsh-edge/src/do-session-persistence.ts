@@ -1351,7 +1351,11 @@ function promiseFromSync<T>(operation: () => T): Promise<T> {
   }
 }
 
-/** The logical header JSON the format catalog reads, rebuilt from stored columns. */
+/**
+ * The physical header JSON the format catalog reads, rebuilt from stored
+ * columns. Released v0/v1 headers carry the inherited cut as `seedLength`;
+ * v2 and later carry only `isSeeded` and find the cut in their events.
+ */
 function storedHeaderJson(row: HeaderRow) {
   return {
     type: 'session',
@@ -1361,7 +1365,9 @@ function storedHeaderJson(row: HeaderRow) {
     delegationDepth: row.delegation_depth ?? 0,
     ...row.cwd === null ? {} : { cwd: row.cwd },
     ...row.parent_session === null ? {} : { parentSession: row.parent_session },
-    ...row.seed_length === null ? {} : { seedLength: row.seed_length },
+    ...row.version <= 1
+      ? row.seed_length === null ? {} : { seedLength: row.seed_length }
+      : { isSeeded: row.seed_length !== null },
     ...row.origin === null ? {} : { origin: row.origin },
     ...row.agent_preset === null ? {} : { agentPreset: row.agent_preset },
   }
