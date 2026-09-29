@@ -24,18 +24,16 @@ const upstreamRepo = 'deepseek-ai/deepseek-harness'
 const scope = '@deepseek-ai/'
 
 /**
- * Where the reference compositions live in the published packages of one baseline. `units`
- * names the files that each announce one composition (a preset's `preset.yml`); every unit must
- * have a matched composition beside it, so moving a single preset fails instead of dropping it.
+ * Where the reference compositions live in the published packages of one baseline: the base and
+ * Web patches, and one patch per agent preset beside the Web patch.
  */
 export const REFERENCE_SOURCES = [
   { package: 'dsh-base', files: /^cordis\.patch\.yml$/u },
-  { package: 'dsh-web-app', files: /^cordis\.patch\.yml$/u },
-  { package: 'dsh-agent-presets', files: /^presets\/[^/]+\/agent\.cordis\.yml$/u, units: /^presets\/[^/]+\/preset\.yml$/u },
+  { package: 'dsh-web-app', files: /^(?:cordis|presets\/[a-z0-9-]+)\.patch\.yml$/u },
 ]
 
-/** Any file that looks like a cordis composition; each one in a reference package must be matched. */
-const COMPOSITION_CANDIDATE = /(?:^|\/)[^/]*cordis[^/]*\.ya?ml$/u
+/** Any file that looks like a composition or patch; each one in a reference package must be matched. */
+const COMPOSITION_CANDIDATE = /(?:^|\/)(?:[^/]*cordis[^/]*|[^/]+\.patch)\.ya?ml$/u
 
 export const STATUSES = {
   substitute: 'Edge serves the same seam with its own implementation',
@@ -45,13 +43,18 @@ export const STATUSES = {
   gap: 'not ported yet',
 }
 
-/** The Edge runs on Linux-like Workers; evaluate the upstream platform gates the same way. */
+/**
+ * Evaluate upstream gates for the Edge's own runtime form: Linux-like Workers, no launcher
+ * profile (`profileContext` is absent), and not the desktop app.
+ */
 function disabledOnWorkers(value) {
   if (typeof value === 'boolean') return value
   const expression = value?.js?.trim()
   // Only the complete expressions: an extra condition must fail as unknown, not be ignored.
   if (/^process\.platform\s*===\s*'win32'$/u.test(expression)) return false
   if (/^process\.platform\s*!==\s*'win32'$/u.test(expression)) return true
+  if (/^!ctx\.get\('profileContext'\)$/u.test(expression)) return true
+  if (/^ctx\.get\('profileContext'\)\?\.name\s*!==\s*'desktop'$/u.test(expression)) return true
   throw new Error(`upstream-parity: unrecognized disabled expression: ${JSON.stringify(value)}`)
 }
 
@@ -348,7 +351,7 @@ async function docsFile(version, path) {
  */
 export function assembleReference({ version, compositions, toolCatalog, docsPaths }) {
   const sources = []
-  for (const { package: name, files, units } of REFERENCE_SOURCES) {
+  for (const { package: name, files } of REFERENCE_SOURCES) {
     const packageFiles = compositions.filter(file => file.package === name)
     const matched = packageFiles.filter(file => files.test(file.path))
     if (matched.length === 0) throw new Error(`upstream-parity: ${scope}${name}@${version} has no reference composition; update REFERENCE_SOURCES`)
@@ -356,9 +359,6 @@ export function assembleReference({ version, compositions, toolCatalog, docsPath
     for (const { path } of packageFiles) {
       if (COMPOSITION_CANDIDATE.test(path) && !files.test(path)) {
         throw new Error(`upstream-parity: ${scope}${name}@${version} ships ${path}, which REFERENCE_SOURCES does not read`)
-      }
-      if (units?.test(path) && !matched.some(file => dirname(file.path) === dirname(path))) {
-        throw new Error(`upstream-parity: ${scope}${name}@${version} ${path} has no matched composition beside it; update REFERENCE_SOURCES`)
       }
     }
     for (const { path, text } of matched) {
