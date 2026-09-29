@@ -60,9 +60,11 @@ describe('upstream parity', () => {
     ])
   })
 
-  it('rejects a disabled expression it cannot evaluate', () => {
-    expect(() => parseComposition(`- id: x\n  name: '@deepseek-ai/dsh-x'\n  disabled: !!js process.env.X\n`))
-      .toThrow(/unrecognized disabled expression/u)
+  it('rejects a disabled expression it cannot evaluate, including an extended platform gate', () => {
+    for (const gate of ['process.env.X', "process.platform !== 'win32' && process.env.FEATURE"]) {
+      expect(() => parseComposition(`- id: x\n  name: '@deepseek-ai/dsh-x'\n  disabled: !!js ${gate}\n`))
+        .toThrow(/unrecognized disabled expression/u)
+    }
   })
 
   it('keeps a plugin enabled when any composition enables it', () => {
@@ -78,8 +80,10 @@ describe('upstream parity', () => {
   it('refuses a reference input that parses to nothing', () => {
     const compositions = [
       { package: 'dsh-base', path: 'cordis.patch.yml', text: composition },
+      { package: 'dsh-base', path: 'README.i18n.yaml', text: 'not a composition' },
       { package: 'dsh-web-app', path: 'cordis.patch.yml', text: composition },
       { package: 'dsh-agent-presets', path: 'presets/standard/agent.cordis.yml', text: composition },
+      { package: 'dsh-agent-presets', path: 'presets/standard/preset.yml', text: 'name: Standard' },
     ]
     const input = {
       version: '1.0.0',
@@ -88,9 +92,16 @@ describe('upstream parity', () => {
       docsPaths: ['docs/subsystems/todo.md', 'docs/subsystems/README.md'],
     }
     expect(assembleReference(input)).toMatchObject({ subsystems: ['todo'], tools: { '@deepseek-ai/dsh-tool-todo': ['todo_write'] } })
-    const reshaped = compositions.map((file, index) => index === 1 ? { ...file, text: 'plugins:\n  persona: {}\n' } : file)
+    const reshaped = compositions.map((file, index) => index === 2 ? { ...file, text: 'plugins:\n  persona: {}\n' } : file)
     expect(() => assembleReference({ ...input, compositions: reshaped })).toThrow(/dsh-web-app@1\.0\.0 cordis\.patch\.yml parsed to no plugins/u)
-    expect(() => assembleReference({ ...input, compositions: compositions.slice(0, 2) })).toThrow(/dsh-agent-presets@1\.0\.0 has no reference composition/u)
+    expect(() => assembleReference({ ...input, compositions: compositions.slice(0, 3) })).toThrow(/dsh-agent-presets@1\.0\.0 has no reference composition/u)
+    // One preset moves while another stays: both the stray composition and the orphaned preset fail.
+    const moved = [...compositions,
+      { package: 'dsh-agent-presets', path: 'presets/ptc/composition/agent.cordis.yml', text: composition },
+      { package: 'dsh-agent-presets', path: 'presets/ptc/preset.yml', text: 'name: PTC' }]
+    expect(() => assembleReference({ ...input, compositions: moved })).toThrow(/ships presets\/ptc\/composition\/agent\.cordis\.yml, which REFERENCE_SOURCES does not read/u)
+    const orphaned = [...compositions, { package: 'dsh-agent-presets', path: 'presets/ptc/preset.yml', text: 'name: PTC' }]
+    expect(() => assembleReference({ ...input, compositions: orphaned })).toThrow(/presets\/ptc\/preset\.yml has no matched composition beside it/u)
     expect(() => assembleReference({ ...input, toolCatalog: '# renamed table' })).toThrow(/parsed to no packages/u)
     expect(() => assembleReference({ ...input, docsPaths: [] })).toThrow(/lists no docs\/subsystems pages/u)
   })
@@ -170,6 +181,12 @@ describe('upstream parity', () => {
     expect(checkWiki({ reference: reference(), manifest: { packages: {} }, pages })).toEqual({ missing: ['beta'], staleOmissions: [] })
     expect(checkWiki({ reference: reference(), manifest: { packages: {}, wikiOmit: { beta: 'internal', gamma: 'gone' } }, pages }))
       .toEqual({ missing: [], staleOmissions: ['gamma'] })
+    expect(checkWiki({ reference: reference(), manifest: { packages: {}, wikiOmit: { beta: ' ' } }, pages }).missing).toEqual(['beta'])
+    const { errors } = verifyParity({ upstreamVersion: '1.0.0', reference: reference(), usage, manifest: { packages: {
+      '@deepseek-ai/dsh-gap': { status: 'gap', reason: 'x' },
+      '@deepseek-ai/dsh-tool-extra': { status: 'declined', reason: 'x' },
+    }, wikiOmit: { beta: '' } } })
+    expect(errors).toEqual([expect.stringMatching(/wikiOmit "beta" needs a reason/u)])
   })
 
   it('sorts upstream docs changes into review buckets', () => {

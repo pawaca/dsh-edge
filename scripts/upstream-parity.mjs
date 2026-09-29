@@ -22,12 +22,19 @@ const bootGraphPath = join(appRoot, 'standalone/expected-boot-graph.json')
 const upstreamRepo = 'deepseek-ai/deepseek-harness'
 const scope = '@deepseek-ai/'
 
-/** Where the reference compositions live in the published packages of one baseline. */
+/**
+ * Where the reference compositions live in the published packages of one baseline. `units`
+ * names the files that each announce one composition (a preset's `preset.yml`); every unit must
+ * have a matched composition beside it, so moving a single preset fails instead of dropping it.
+ */
 export const REFERENCE_SOURCES = [
   { package: 'dsh-base', files: /^cordis\.patch\.yml$/u },
   { package: 'dsh-web-app', files: /^cordis\.patch\.yml$/u },
-  { package: 'dsh-agent-presets', files: /^presets\/[^/]+\/agent\.cordis\.yml$/u },
+  { package: 'dsh-agent-presets', files: /^presets\/[^/]+\/agent\.cordis\.yml$/u, units: /^presets\/[^/]+\/preset\.yml$/u },
 ]
+
+/** Any file that looks like a cordis composition; each one in a reference package must be matched. */
+const COMPOSITION_CANDIDATE = /(?:^|\/)[^/]*cordis[^/]*\.ya?ml$/u
 
 export const STATUSES = {
   substitute: 'Edge serves the same seam with its own implementation',
@@ -42,8 +49,9 @@ function disabledOnWorkers(raw) {
   const value = raw.trim()
   if (value === 'true') return true
   if (value === 'false') return false
-  if (/process\.platform\s*===\s*'win32'/u.test(value)) return false
-  if (/process\.platform\s*!==\s*'win32'/u.test(value)) return true
+  // Only the complete expressions: an extra condition must fail as unknown, not be ignored.
+  if (/^process\.platform\s*===\s*'win32'$/u.test(value)) return false
+  if (/^process\.platform\s*!==\s*'win32'$/u.test(value)) return true
   throw new Error(`upstream-parity: unrecognized disabled expression: ${value}`)
 }
 
@@ -194,10 +202,17 @@ export function verifyParity({ upstreamVersion, reference, manifest, usage }) {
   for (const [name, entry] of Object.entries(manifest.packages)) {
     if (!known.has(name)) errors.push(`${name} is not in the upstream reference; remove its entry from upstream-parity.json.`)
     if (!(entry.status in STATUSES)) errors.push(`${name} has unknown status "${entry.status}".`)
-    if (typeof entry.reason !== 'string' || entry.reason.trim() === '') errors.push(`${name} needs a reason.`)
+    if (!hasReason(entry.reason)) errors.push(`${name} needs a reason.`)
     if (entry.status === 'tracked' && !Number.isInteger(entry.issue)) errors.push(`${name} is tracked but names no issue.`)
   }
+  for (const [slug, reason] of Object.entries(manifest.wikiOmit ?? {})) {
+    if (!hasReason(reason)) errors.push(`wikiOmit "${slug}" needs a reason.`)
+  }
   return { errors, counts, required: required.size }
+}
+
+function hasReason(value) {
+  return typeof value === 'string' && value.trim() !== ''
 }
 
 /** Every upstream subsystem page needs a wiki page that links it, or an omission reason. */
@@ -207,7 +222,7 @@ export function checkWiki({ reference, manifest, pages }) {
     for (const [, slug] of text.matchAll(/subsystems\/([a-z0-9-]+)/gu)) linked.add(slug)
   }
   const omitted = manifest.wikiOmit ?? {}
-  const missing = reference.subsystems.filter(slug => !linked.has(slug) && !(slug in omitted))
+  const missing = reference.subsystems.filter(slug => !linked.has(slug) && !hasReason(omitted[slug]))
   const staleOmissions = Object.keys(omitted).filter(slug => !reference.subsystems.includes(slug))
   return { missing, staleOmissions }
 }
@@ -284,9 +299,19 @@ async function docsFile(version, path) {
  */
 export function assembleReference({ version, compositions, toolCatalog, docsPaths }) {
   const sources = []
-  for (const { package: name, files } of REFERENCE_SOURCES) {
-    const matched = compositions.filter(file => file.package === name && files.test(file.path))
+  for (const { package: name, files, units } of REFERENCE_SOURCES) {
+    const packageFiles = compositions.filter(file => file.package === name)
+    const matched = packageFiles.filter(file => files.test(file.path))
     if (matched.length === 0) throw new Error(`upstream-parity: ${scope}${name}@${version} has no reference composition; update REFERENCE_SOURCES`)
+    // Every composition the package ships is read: a moved or renamed file fails here.
+    for (const { path } of packageFiles) {
+      if (COMPOSITION_CANDIDATE.test(path) && !files.test(path)) {
+        throw new Error(`upstream-parity: ${scope}${name}@${version} ships ${path}, which REFERENCE_SOURCES does not read`)
+      }
+      if (units?.test(path) && !matched.some(file => dirname(file.path) === dirname(path))) {
+        throw new Error(`upstream-parity: ${scope}${name}@${version} ${path} has no matched composition beside it; update REFERENCE_SOURCES`)
+      }
+    }
     for (const { path, text } of matched) {
       const rows = parseComposition(text)
       if (rows.length === 0) throw new Error(`upstream-parity: ${scope}${name}@${version} ${path} parsed to no plugins; update parseComposition`)
