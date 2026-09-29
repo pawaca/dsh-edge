@@ -781,7 +781,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     }
   }
 
-  private async enqueueMain(sessionId: SessionId, content: ContentBlock[], rpcId?: RpcId, clientTimeZone?: string, contentDigest?: string, announce = true): Promise<MainInput> {
+  private async enqueueMain(sessionId: SessionId, content: readonly ContentBlock[], rpcId?: RpcId, clientTimeZone?: string, contentDigest?: string, announce = true): Promise<MainInput> {
     resolveEdgeDeploymentConfig(this.env)
     await this.sessions.getApiSessionSummary(sessionId)
     const identity = rpcId ?? RpcId(crypto.randomUUID())
@@ -1675,7 +1675,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
   private async startApiPrompt(input: {
     sessionId: SessionId
     mode: 'queue' | 'steer'
-    content: ContentBlock[]
+    content: readonly ContentBlock[]
     rpcId: RpcId
     clientTimeZone?: string
     contentDigest?: string
@@ -1818,7 +1818,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     message?: UserMessage
     claimed: { sessionId: SessionId; turn: ActiveTurn; handle: AgentHandle }
     commandTimeoutPolicy: EdgeCommandTimeoutPolicy
-    content: ContentBlock[]
+    content: readonly ContentBlock[]
     mode: 'queue' | 'steer'
     rpcId?: RpcId
     clientTimeZone?: string
@@ -1866,7 +1866,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     message?: UserMessage
     agent: Agent
     commandTimeoutPolicy: EdgeCommandTimeoutPolicy
-    content: ContentBlock[]
+    content: readonly ContentBlock[]
     mode: 'queue' | 'steer'
     turn: ActiveTurn
     rpcId?: RpcId

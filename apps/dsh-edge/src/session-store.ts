@@ -258,7 +258,7 @@ export interface EdgeMuxBaseline {
 export interface EdgeAgentPromptAdmission {
   message?: UserMessage
   mode: 'queue' | 'steer'
-  content: ContentBlock[]
+  content: readonly ContentBlock[]
   rpcId?: RpcId
   clientTimeZone?: string
 }
@@ -2027,7 +2027,7 @@ export class EdgeSessionStore {
     message?: UserMessage
     agent: Agent
     mode: 'queue' | 'steer'
-    content: ContentBlock[]
+    content: readonly ContentBlock[]
     rpcId?: RpcId
     clientTimeZone?: string
     shell: EdgeShell

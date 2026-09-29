@@ -260,18 +260,11 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
             maxMessages ?? DEFAULT_HISTORY_MESSAGES,
           )
           const entries: HistoryEntry[] = page.events.map(event => ({ event }))
-          let projectionValues: Record<string, unknown> | undefined
-          if (beforeSeq === undefined) {
-            projectionValues = (
-              runtime.sessions.projectionSnapshot(sessionId)
-              ?? runtime.sessions.projectionCachedSnapshot(page.summary)
-            )?.values
-          }
           return ok(request, {
             events: entries,
             hasMore: page.hasMore,
             ...beforeSeq === undefined
-              ? { projections: summaryProjections(page.summary, runtime.imageLimits, projectionValues) }
+              ? { projections: summaryProjections(page.summary, runtime.imageLimits, projectionSource(runtime, page.summary)) }
               : {},
           })
         } catch (error) {
@@ -967,8 +960,10 @@ function sessionSummary(
   runtime: EdgeApiRuntime,
   summary: EdgeApiSessionSummary,
 ): SessionSummary {
+  const source = projectionSource(runtime, summary)
   return {
     sessionId: summary.id,
+    agentAvailable: source.kind === 'sequenced' && source.snapshot !== undefined,
     updatedAt: summary.updatedAt,
     running: runtime.isRunning(summary.id),
     blank: summary.blank,
@@ -978,18 +973,36 @@ function sessionSummary(
     ...summary.origin === undefined ? {} : { origin: summary.origin },
     ...summary.cwd === undefined ? {} : { cwd: summary.cwd },
     ...summary.agentPreset === undefined ? {} : { agentPreset: normalizeAgentPreset(summary.agentPreset) },
-    projections: summaryProjections(summary, runtime.imageLimits,
-      (runtime.sessions.projectionSnapshot(summary.id) ?? runtime.sessions.projectionCachedSnapshot(summary))?.values),
+    projections: summaryProjections(summary, runtime.imageLimits, source),
   }
+}
+
+interface ProjectionSource {
+  kind: 'sequenced' | 'cached'
+  snapshot?: { asOfSeq: number; values: Record<string, unknown> }
+}
+
+/**
+ * The registry view of one session: live when its Agent is attached, else the
+ * persisted projection cache. A cached block carries its own watermark, which
+ * clients must not compare with a connected session's sequence.
+ */
+function projectionSource(runtime: EdgeApiRuntime, summary: EdgeApiSessionSummary): ProjectionSource {
+  const live = runtime.sessions.projectionSnapshot(summary.id)
+  if (live !== undefined) return { kind: 'sequenced', snapshot: live }
+  const cached = runtime.sessions.projectionCachedSnapshot(summary)
+  return cached === undefined ? { kind: 'sequenced' } : { kind: 'cached', snapshot: cached }
 }
 
 function summaryProjections(
   summary: EdgeApiSessionSummary,
   imageLimits: ImageAttachmentLimits | undefined,
-  registrySnapshot: Record<string, unknown> | undefined,
+  source: ProjectionSource,
 ): SessionProjectionHints {
+  const registrySnapshot = source.snapshot?.values
   return {
-    asOfSeq: summary.lastSeq,
+    kind: source.kind,
+    asOfSeq: source.kind === 'cached' ? source.snapshot!.asOfSeq : summary.lastSeq,
     values: {
       ...registrySnapshot,
       sessionListMetadata: {
