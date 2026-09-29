@@ -80,6 +80,30 @@ describe('upstream parity', () => {
     ])
   })
 
+  it('disables every row inside a disabled group, including platform-gated groups', () => {
+    const groups = [
+      '- id: off-group',
+      '  name: cordis:group',
+      '  disabled: true',
+      '  config:',
+      "    - { id: a, name: '@deepseek-ai/dsh-a' }",
+      '- id: windows-group',
+      '  name: cordis:group',
+      "  disabled: !!js process.platform !== 'win32'",
+      '  config:',
+      "    - { id: b, name: '@deepseek-ai/dsh-b', disabled: false }",
+      '- id: on-group',
+      '  name: cordis:group',
+      '  config:',
+      "    - { id: c, name: '@deepseek-ai/dsh-c' }",
+    ].join('\n')
+    expect(parseComposition(groups)).toEqual([
+      { name: '@deepseek-ai/dsh-a', disabled: true },
+      { name: '@deepseek-ai/dsh-b', disabled: true },
+      { name: '@deepseek-ai/dsh-c', disabled: false },
+    ])
+  })
+
   it('rejects a disabled expression it cannot evaluate, including an extended platform gate', () => {
     for (const gate of ['process.env.X', "process.platform !== 'win32' && process.env.FEATURE"]) {
       expect(() => parseComposition(`- id: x\n  name: '@deepseek-ai/dsh-x'\n  disabled: !!js ${gate}\n`))

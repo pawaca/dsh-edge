@@ -60,22 +60,22 @@ const JS_TAG = { tag: 'tag:yaml.org,2002:js', resolve: source => ({ js: source }
 
 /**
  * List the plugin rows of one cordis composition file: every mapping, at any depth, whose `name`
- * is a scoped package. Parsed as YAML, so any valid spelling of a row counts.
+ * is a scoped package. Parsed as YAML, so any valid spelling of a row counts. A row inside a
+ * disabled entry (such as a disabled `cordis:group`) is disabled too.
  */
 export function parseComposition(text) {
   const rows = []
-  const visit = node => {
+  const visit = (node, inheritedDisabled) => {
     if (Array.isArray(node)) {
-      for (const item of node) visit(item)
+      for (const item of node) visit(item, inheritedDisabled)
       return
     }
     if (node === null || typeof node !== 'object') return
-    if (typeof node.name === 'string' && node.name.startsWith(scope)) {
-      rows.push({ name: node.name, disabled: node.disabled === undefined ? false : disabledOnWorkers(node.disabled) })
-    }
-    for (const value of Object.values(node)) visit(value)
+    const disabled = inheritedDisabled || (node.disabled !== undefined && disabledOnWorkers(node.disabled))
+    if (typeof node.name === 'string' && node.name.startsWith(scope)) rows.push({ name: node.name, disabled })
+    for (const value of Object.values(node)) visit(value, disabled)
   }
-  visit(YAML.parse(text, { customTags: [JS_TAG] }))
+  visit(YAML.parse(text, { customTags: [JS_TAG] }), false)
   return rows
 }
 
