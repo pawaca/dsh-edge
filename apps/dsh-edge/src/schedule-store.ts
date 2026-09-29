@@ -113,17 +113,19 @@ export class EdgeSchedule extends Service {
 
   async update(request: ScheduleUpdateRequest, signal?: AbortSignal): Promise<ScheduleUpdateResult> {
     signal?.throwIfAborted()
-    const row = this.rows('WHERE id = ? AND session_id = ?', request.id, request.sessionId)[0]
-    if (row === undefined) return { id: request.id, updated: false, code: 'schedule_not_found' }
-    if (row.active !== 1) return { id: request.id, updated: false, code: 'schedule_ended' }
-    const result = resolveScheduleUpdate(recordOf(row), request, Date.now())
-    if (!('record' in result) || !result.updated) return result
-    await this.storage.transaction(async () => {
+    // Read, check `expected`, and write in one transaction, so an overlapping
+    // update or delete yields a conflict or not-found instead of a lost write.
+    return this.storage.transaction(async () => {
+      const row = this.rows('WHERE id = ? AND session_id = ?', request.id, request.sessionId)[0]
+      if (row === undefined) return { id: request.id, updated: false, code: 'schedule_not_found' } as const
+      if (row.active !== 1) return { id: request.id, updated: false, code: 'schedule_ended' } as const
+      const result = resolveScheduleUpdate(recordOf(row), request, Date.now())
+      if (!('record' in result) || !result.updated) return result
       this.storage.sql.exec('UPDATE dsh_schedule_tasks SET record = ?, due = ? WHERE session_id = ? AND id = ?',
         JSON.stringify(result.record), Date.parse(result.record.scheduledAt), request.sessionId, request.id)
       await armScheduleWake(this.storage)
+      return result
     })
-    return result
   }
 
   private rows(clause: string, ...bindings: SqlStorageValue[]): TaskRow[] {

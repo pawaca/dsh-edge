@@ -19,8 +19,16 @@ class AlarmStorage extends TestDurableObjectStorage {
     this.alarm = time
   }
 
-  /** Durable Object transactions roll back SQL and the alarm together. */
-  async transaction<T>(callback: () => Promise<T>): Promise<T> {
+  private transactions: Promise<unknown> = Promise.resolve()
+
+  /** Durable Object transactions run one at a time and roll back SQL and the alarm together. */
+  transaction<T>(callback: () => Promise<T>): Promise<T> {
+    const run = this.transactions.catch(() => undefined).then(() => this.runTransaction(callback))
+    this.transactions = run
+    return run
+  }
+
+  private async runTransaction<T>(callback: () => Promise<T>): Promise<T> {
     const alarm = this.alarm
     this.sql.exec('SAVEPOINT alarm_tx')
     try {
@@ -55,6 +63,26 @@ async function setup(withTools = false) {
 const ALPHA = SessionId('alpha')
 
 describe('Edge schedule service', () => {
+  it('reports a conflict instead of a lost write when updates or a delete overlap', async () => {
+    const { schedule } = await setup()
+    const record = await schedule.create(ALPHA, { prompt: 'stretch', title: 'Stretch', after_seconds: 600 })
+    // Both read the same `expected`; only the first may apply.
+    const [first, second] = await Promise.all([
+      schedule.update({ sessionId: ALPHA, id: record.id, expected: record, title: 'First' }),
+      schedule.update({ sessionId: ALPHA, id: record.id, expected: record, title: 'Second' }),
+    ])
+    expect(first).toMatchObject({ updated: true })
+    expect(second).toEqual({ id: record.id, updated: false, code: 'schedule_conflict' })
+    expect((await schedule.list({ sessionId: ALPHA }))[0]).toMatchObject({ title: 'First' })
+    const [current] = await schedule.list({ sessionId: ALPHA })
+    const [deleted, late] = await Promise.all([
+      schedule.delete({ sessionId: ALPHA, id: record.id }),
+      schedule.update({ sessionId: ALPHA, id: record.id, expected: current!, title: 'Late' }),
+    ])
+    expect(deleted).toEqual({ id: record.id, deleted: true })
+    expect(late).toEqual({ id: record.id, updated: false, code: 'schedule_not_found' })
+  })
+
   it('leaves no reminder or change behind when arming its wake fails', async () => {
     const { schedule, storage } = await setup()
     storage.failAlarm = true
