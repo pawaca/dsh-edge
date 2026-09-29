@@ -89,7 +89,7 @@ describe('upstream parity', () => {
     const input = {
       version: '1.0.0',
       compositions,
-      toolCatalog: '| `@deepseek-ai/dsh-tool-todo` | `todo_write` | `ctx.tools` |',
+      toolCatalog: '| `@deepseek-ai/dsh-tool-todo` | `todo_write` | `ctx.tools` |\n\n## `@deepseek-ai/dsh-tool-todo`\n',
       docsPaths: ['docs/subsystems/todo.md', 'docs/subsystems/README.md'],
     }
     expect(assembleReference(input)).toMatchObject({ subsystems: ['todo'], tools: { '@deepseek-ai/dsh-tool-todo': ['todo_write'] } })
@@ -107,17 +107,28 @@ describe('upstream parity', () => {
     expect(() => assembleReference({ ...input, docsPaths: [] })).toThrow(/lists no docs\/subsystems pages/u)
   })
 
-  it('maps tool-catalog packages to their tools', () => {
+  it('maps tool-catalog packages to their tools, cross-checked against their sections', () => {
     const catalog = [
       '| Package | Tools | Needs |',
       '| --- | --- | --- |',
       '| `@deepseek-ai/dsh-tool-todo` | `todo_write` | `ctx.tools` |',
       '| `@deepseek-ai/dsh-tool-fs-search` | `glob`, `grep` | `ctx.subprocess` |',
-    ].join('\n')
-    expect(parseToolCatalog(catalog)).toEqual({
+      '',
+      '## `@deepseek-ai/dsh-tool-todo`',
+      '## `@deepseek-ai/dsh-tool-fs-search`',
+    ]
+    expect(parseToolCatalog(catalog.join('\n'))).toEqual({
       '@deepseek-ai/dsh-tool-todo': ['todo_write'],
       '@deepseek-ai/dsh-tool-fs-search': ['glob', 'grep'],
     })
+    // One row reformatted while the other still parses.
+    const linked = catalog.map(line => line.replace('| `@deepseek-ai/dsh-tool-fs-search` |', '| [`@deepseek-ai/dsh-tool-fs-search`](x) |'))
+    expect(() => parseToolCatalog(linked.join('\n'))).toThrow(/unreadable tool-catalog rows/u)
+    // One row dropped, or one section without a row, or a row without a section.
+    expect(() => parseToolCatalog(catalog.filter(line => !line.startsWith('| `@deepseek-ai/dsh-tool-fs-search`')).join('\n')))
+      .toThrow(/no row: @deepseek-ai\/dsh-tool-fs-search; no section: none/u)
+    expect(() => parseToolCatalog(catalog.filter(line => line !== '## `@deepseek-ai/dsh-tool-todo`').join('\n')))
+      .toThrow(/no row: none; no section: @deepseek-ai\/dsh-tool-todo/u)
   })
 
   it('counts runtime imports and the boot graph, not type-only imports, comments, or strings', () => {

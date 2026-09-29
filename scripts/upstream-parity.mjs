@@ -84,13 +84,33 @@ function assignKey(row, key, raw) {
   if (key === 'disabled') row.disabled = disabledOnWorkers(value.replace(/^!!js\s+/u, ''))
 }
 
-/** Map each package in the tool catalog's summary table to the model-facing tools it registers. */
+/**
+ * Map each package in the tool catalog's summary table to the model-facing tools it registers.
+ * The catalog also gives every package its own `## \`package\`` section, so the two views are
+ * cross-checked: a row whose formatting the parser misses, or a row that disappears, fails
+ * instead of silently dropping that package from the inventory.
+ */
 export function parseToolCatalog(text) {
   const tools = {}
+  const sections = new Set()
+  const unreadable = []
   for (const line of text.split('\n')) {
+    const section = /^##\s.*?(@deepseek-ai\/[a-z0-9-]+)/u.exec(line)
+    if (section) sections.add(section[1])
+    if (!/^\|[^|]*@deepseek-ai\//u.test(line)) continue
     const row = /^\| `(@deepseek-ai\/[^`]+)` \| ([^|]*) \|/u.exec(line)
-    if (!row) continue
+    if (!row) {
+      unreadable.push(line)
+      continue
+    }
     tools[row[1]] = [...row[2].matchAll(/`([^`]+)`/gu)].map(match => match[1])
+  }
+  if (unreadable.length > 0) throw new Error(`upstream-parity: unreadable tool-catalog rows; update parseToolCatalog:\n  ${unreadable.join('\n  ')}`)
+  const rows = new Set(Object.keys(tools))
+  const missingRows = [...sections].filter(name => !rows.has(name))
+  const missingSections = [...rows].filter(name => !sections.has(name))
+  if (missingRows.length > 0 || missingSections.length > 0) {
+    throw new Error(`upstream-parity: the tool-catalog table and its sections disagree (no row: ${missingRows.join(', ') || 'none'}; no section: ${missingSections.join(', ') || 'none'}); update parseToolCatalog`)
   }
   return tools
 }
