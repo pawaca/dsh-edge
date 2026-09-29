@@ -13,6 +13,7 @@ import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { gunzipSync } from 'node:zlib'
 import ts from 'typescript'
+import YAML from 'yaml'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const appRoot = join(repoRoot, 'apps/dsh-edge')
@@ -45,59 +46,37 @@ export const STATUSES = {
 }
 
 /** The Edge runs on Linux-like Workers; evaluate the upstream platform gates the same way. */
-function disabledOnWorkers(raw) {
-  const value = raw.trim()
-  if (value === 'true') return true
-  if (value === 'false') return false
+function disabledOnWorkers(value) {
+  if (typeof value === 'boolean') return value
+  const expression = value?.js?.trim()
   // Only the complete expressions: an extra condition must fail as unknown, not be ignored.
-  if (/^process\.platform\s*===\s*'win32'$/u.test(value)) return false
-  if (/^process\.platform\s*!==\s*'win32'$/u.test(value)) return true
-  throw new Error(`upstream-parity: unrecognized disabled expression: ${value}`)
+  if (/^process\.platform\s*===\s*'win32'$/u.test(expression)) return false
+  if (/^process\.platform\s*!==\s*'win32'$/u.test(expression)) return true
+  throw new Error(`upstream-parity: unrecognized disabled expression: ${JSON.stringify(value)}`)
 }
 
+/** Upstream compositions evaluate `!!js` scalars at load time; keep the source text for review. */
+const JS_TAG = { tag: 'tag:yaml.org,2002:js', resolve: source => ({ js: source }) }
+
 /**
- * List the plugin rows of one cordis composition file. A row starts at a `- ` list item; its
- * `name` and `disabled` keys sit at the item's key indentation, so nested groups parse as rows too.
- * Every scoped `name:` anywhere in the text, whatever its YAML form, must come out as a row, so a
- * row written in a layout this parser does not read fails instead of disappearing.
+ * List the plugin rows of one cordis composition file: every mapping, at any depth, whose `name`
+ * is a scoped package. Parsed as YAML, so any valid spelling of a row counts.
  */
 export function parseComposition(text) {
   const rows = []
-  let current
-  for (const line of text.split('\n')) {
-    const item = /^(\s*)- (\w+):\s*(.*)$/u.exec(line)
-    if (item) {
-      current = { indent: item[1].length + 2, name: undefined, disabled: false }
-      rows.push(current)
-      assignKey(current, item[2], item[3])
-      continue
+  const visit = node => {
+    if (Array.isArray(node)) {
+      for (const item of node) visit(item)
+      return
     }
-    const key = /^(\s*)(\w+):\s*(.*)$/u.exec(line)
-    if (current && key && key[1].length === current.indent) assignKey(current, key[2], key[3])
-  }
-  const parsed = rows
-    .filter(row => row.name?.startsWith(scope))
-    .map(({ name, disabled }) => ({ name, disabled }))
-  // Compare occurrences, not names: a package mounted twice needs both rows read.
-  const remaining = new Map()
-  for (const { name } of parsed) remaining.set(name, (remaining.get(name) ?? 0) + 1)
-  const unread = []
-  for (const line of text.split('\n')) {
-    const code = line.replace(/(^|\s)#.*$/u, '')
-    for (const [, name] of code.matchAll(/\bname:\s*['"]?(@deepseek-ai\/[a-z0-9./-]+)/gu)) {
-      const left = remaining.get(name) ?? 0
-      if (left === 0) unread.push(name)
-      else remaining.set(name, left - 1)
+    if (node === null || typeof node !== 'object') return
+    if (typeof node.name === 'string' && node.name.startsWith(scope)) {
+      rows.push({ name: node.name, disabled: node.disabled === undefined ? false : disabledOnWorkers(node.disabled) })
     }
+    for (const value of Object.values(node)) visit(value)
   }
-  if (unread.length > 0) throw new Error(`upstream-parity: composition rows the parser did not read: ${unread.join(', ')}; update parseComposition`)
-  return parsed
-}
-
-function assignKey(row, key, raw) {
-  const value = raw.replace(/\s+#.*$/u, '').trim()
-  if (key === 'name') row.name = value.replace(/^['"]|['"]$/gu, '')
-  if (key === 'disabled') row.disabled = disabledOnWorkers(value.replace(/^!!js\s+/u, ''))
+  visit(YAML.parse(text, { customTags: [JS_TAG] }))
+  return rows
 }
 
 /**
@@ -283,11 +262,16 @@ function hasReason(value) {
   return typeof value === 'string' && value.trim() !== ''
 }
 
+/** A Markdown link to an upstream subsystem page on the docs site or in the upstream repository. */
+const UPSTREAM_SUBSYSTEM_LINK = /\]\(\s*https:\/\/(?:deepseek-harness\.github\.io\/deepseek-harness\/reference|github\.com\/deepseek-ai\/deepseek-harness\/blob\/[^/\s)]+\/docs)\/subsystems\/([a-z0-9-]+)(?:\.md)?\/?(?:#[^)\s]*)?\s*\)/gu
+
 /** Every upstream subsystem page needs a wiki page that links it, or an omission reason. */
 export function checkWiki({ reference, manifest, pages }) {
   const linked = new Set()
   for (const text of pages) {
-    for (const [, slug] of text.matchAll(/subsystems\/([a-z0-9-]+)/gu)) linked.add(slug)
+    // Only Markdown links to the upstream docs count; prose and code blocks do not.
+    const prose = text.replace(/^```[\s\S]*?^```/gmu, '')
+    for (const [, slug] of prose.matchAll(UPSTREAM_SUBSYSTEM_LINK)) linked.add(slug)
   }
   const omitted = manifest.wikiOmit ?? {}
   const missing = reference.subsystems.filter(slug => !linked.has(slug) && !hasReason(own(omitted, slug)))

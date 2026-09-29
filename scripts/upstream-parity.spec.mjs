@@ -62,14 +62,22 @@ describe('upstream parity', () => {
     ])
   })
 
-  it('fails when a row uses a YAML layout the parser does not read', () => {
-    const flow = `${composition}- { id: extra, name: '@deepseek-ai/dsh-extra' }\n`
-    expect(() => parseComposition(flow)).toThrow(/rows the parser did not read: @deepseek-ai\/dsh-extra/u)
-    // A second mount of an already-parsed package still has to be read itself.
-    const twice = `${composition}- { id: again, name: '@deepseek-ai/dsh-tool-subagent' }\n`
-    expect(() => parseComposition(twice)).toThrow(/rows the parser did not read: @deepseek-ai\/dsh-tool-subagent/u)
-    // A commented-out row is not a row.
-    expect(parseComposition(`${composition}# - id: old\n#   name: '@deepseek-ai/dsh-old'\n`)).toHaveLength(5)
+  it('reads every valid YAML spelling of a row', () => {
+    const spellings = [
+      "- { id: flow, name: '@deepseek-ai/dsh-flow' }",
+      "- id: spaced\n  name : '@deepseek-ai/dsh-spaced'",
+      '- id: quoted\n  "name": "@deepseek-ai/dsh-quoted"',
+      '- id: folded\n  name: >-\n    @deepseek-ai/dsh-folded',
+      "- id: twice\n  name: '@deepseek-ai/dsh-flow'\n  disabled: true",
+      "# - id: old\n#   name: '@deepseek-ai/dsh-old'",
+    ].join('\n')
+    expect(parseComposition(spellings)).toEqual([
+      { name: '@deepseek-ai/dsh-flow', disabled: false },
+      { name: '@deepseek-ai/dsh-spaced', disabled: false },
+      { name: '@deepseek-ai/dsh-quoted', disabled: false },
+      { name: '@deepseek-ai/dsh-folded', disabled: false },
+      { name: '@deepseek-ai/dsh-flow', disabled: true },
+    ])
   })
 
   it('rejects a disabled expression it cannot evaluate, including an extended platform gate', () => {
@@ -249,6 +257,15 @@ describe('upstream parity', () => {
     expect(checkWiki({ reference: reference(), manifest: { packages: {}, wikiOmit: { beta: 'internal', gamma: 'gone' } }, pages }))
       .toEqual({ missing: [], staleOmissions: ['gamma'] })
     expect(checkWiki({ reference: reference(), manifest: { packages: {}, wikiOmit: { beta: ' ' } }, pages }).missing).toEqual(['beta'])
+    // Mentions that are not links to the upstream page do not count.
+    const mentions = [
+      '- [ ] write a page for docs/subsystems/beta',
+      '```\n[Beta](https://deepseek-harness.github.io/deepseek-harness/reference/subsystems/beta)\n```',
+      '[Beta](https://example.com/subsystems/beta)',
+    ]
+    expect(checkWiki({ reference: reference(), manifest: { packages: {} }, pages: [...pages, ...mentions] }).missing).toEqual(['beta'])
+    const repoLink = '[Beta](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v1.0.0/docs/subsystems/beta.md)'
+    expect(checkWiki({ reference: reference(), manifest: { packages: {} }, pages: [...pages, repoLink] }).missing).toEqual([])
     const { errors } = verifyParity({ upstreamVersion: '1.0.0', reference: reference(), usage, manifest: { packages: {
       '@deepseek-ai/dsh-gap': { status: 'gap', reason: 'x' },
       '@deepseek-ai/dsh-tool-extra': { status: 'declined', reason: 'x' },
