@@ -32,6 +32,7 @@ The root and standalone lockfiles serve different purposes. The root lock instal
 ## Runtime and release invariants
 
 - Keep every `@deepseek-ai/dsh-*` standalone dependency on one exact upstream version. Upgrade it only in an explicit upstream-baseline PR.
+- `pnpm run upstream-parity` (part of `pnpm run check`) requires every enabled plugin in the upstream reference compositions (`dsh-base`, `dsh-web-app`, the agent presets) and every package in the upstream tool catalog to be used by the Edge or classified in `apps/dsh-edge/upstream-parity.json` (`substitute`, `not-applicable`, `tracked` with an issue, `declined`, or `gap`), each with a reason. `apps/dsh-edge/upstream-reference.json` is generated for the pinned baseline; never edit it by hand.
 - The Container image's computerd (`apps/dsh-edge/container/Dockerfile`) and the bundled `@cloudflare/computer` form one wire-protocol pair with no negotiation; upgrade them in the same PR.
 - Keep Direct and Dynamic Loader modes behaviorally aligned except for provider-gated runtime capabilities (the runtime providers in `apps/dsh-edge/src/runtime-provider.ts`, such as the command-execution backend) and each provider's Cloudflare plan requirement. A capability that only some providers offer must be absent, not broken, where its provider is unavailable.
 - Preserve Durable Object class names, bindings, session/event formats, workspace/VFS state, owner authentication, and public HTTP/WebSocket behavior.
@@ -42,6 +43,14 @@ The root and standalone lockfiles serve different purposes. The root lock instal
 - Every retained upstream patch needs a version-bound filename, a failing-without-the-patch check, a rationale, and a removal condition.
 - The npm package, tag, GitHub Release, Container image tag, deployment identity, and documentation must report the same dsh-edge version.
 - `apps/dsh-edge/package.json` is the only release-version source. Test assertions and snapshot expectations derive the version and npm dist-tag channel at runtime; a version bump requires no other file changes. Private workspace manifests omit `version` so they cannot imply a second product or upstream release identity.
+
+## Upstream baseline upgrades
+
+An upstream-baseline PR changes `dshEdge.upstreamVersion` and both lockfiles, and also:
+
+1. Runs `pnpm run upstream-parity -- docs-diff <new-version>` before changing code, and reviews every bucket of the report: added and removed subsystems, the changed catalogs (tools, configuration, persistence, session format), and subsystem pages for packages the Edge uses. Record the disposition of each behavior change in the PR description.
+2. Runs `pnpm run upstream-parity -- refresh` after the version bump (set `GITHUB_TOKEN` to avoid GitHub rate limits), then classifies every new reference entry until `pnpm run upstream-parity` passes. If upstream moves a reference composition, update `REFERENCE_SOURCES` in `scripts/upstream-parity.mjs`.
+3. Lists the wiki pages to add, update, or retire for the new subsystem set.
 
 ## Durable Object database budgets
 

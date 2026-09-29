@@ -1,0 +1,195 @@
+import { gzipSync } from 'node:zlib'
+import { describe, expect, it } from 'vitest'
+import {
+  checkWiki,
+  classifyDocsDiff,
+  collectEdgeUsage,
+  mergePlugins,
+  parseComposition,
+  parseToolCatalog,
+  untar,
+  verifyParity,
+} from './upstream-parity.mjs'
+
+const composition = `# a reference composition
+- id: persona
+  name: '@deepseek-ai/dsh-persona'
+  config:
+    prefix: You are helpful.
+- id: tool-bash
+  name: '@deepseek-ai/dsh-tool-bash'
+  disabled: !!js process.platform === 'win32'
+- id: tool-pwsh
+  name: '@deepseek-ai/dsh-tool-pwsh'
+  disabled: !!js process.platform !== 'win32'
+- id: delegation
+  name: cordis:group
+  config:
+    - id: tool-subagent-control
+      name: '@deepseek-ai/dsh-tool-subagent-control'
+    - id: tool-subagent-codex
+      name: '@deepseek-ai/dsh-tool-subagent'
+      disabled: true # opt in per deployment
+`
+
+function reference(overrides = {}) {
+  return {
+    upstreamVersion: '1.0.0',
+    plugins: {
+      '@deepseek-ai/dsh-used': { in: ['dsh-base'], disabled: false },
+      '@deepseek-ai/dsh-gap': { in: ['dsh-base'], disabled: false },
+      '@deepseek-ai/dsh-off': { in: ['dsh-base'], disabled: true },
+    },
+    tools: { '@deepseek-ai/dsh-tool-extra': ['extra'] },
+    subsystems: ['alpha', 'beta'],
+    ...overrides,
+  }
+}
+
+const usage = collectEdgeUsage([`import Used from '@deepseek-ai/dsh-used'`], [])
+
+describe('upstream parity', () => {
+  it('reads composition rows, nested groups, and Workers platform gates', () => {
+    expect(parseComposition(composition)).toEqual([
+      { name: '@deepseek-ai/dsh-persona', disabled: false },
+      { name: '@deepseek-ai/dsh-tool-bash', disabled: false },
+      { name: '@deepseek-ai/dsh-tool-pwsh', disabled: true },
+      { name: '@deepseek-ai/dsh-tool-subagent-control', disabled: false },
+      { name: '@deepseek-ai/dsh-tool-subagent', disabled: true },
+    ])
+  })
+
+  it('rejects a disabled expression it cannot evaluate', () => {
+    expect(() => parseComposition(`- id: x\n  name: '@deepseek-ai/dsh-x'\n  disabled: !!js process.env.X\n`))
+      .toThrow(/unrecognized disabled expression/u)
+  })
+
+  it('keeps a plugin enabled when any composition enables it', () => {
+    const plugins = mergePlugins([
+      { source: 'preset:standard', rows: [{ name: '@deepseek-ai/dsh-tool-subagent', disabled: false }] },
+      { source: 'preset:ptc', rows: [{ name: '@deepseek-ai/dsh-tool-subagent', disabled: true }] },
+      { source: 'dsh-base', rows: [{ name: '@deepseek-ai/dsh-skill-badge', disabled: true }] },
+    ])
+    expect(plugins['@deepseek-ai/dsh-tool-subagent']).toEqual({ in: ['preset:standard', 'preset:ptc'], disabled: false })
+    expect(plugins['@deepseek-ai/dsh-skill-badge'].disabled).toBe(true)
+  })
+
+  it('maps tool-catalog packages to their tools', () => {
+    const catalog = [
+      '| Package | Tools | Needs |',
+      '| --- | --- | --- |',
+      '| `@deepseek-ai/dsh-tool-todo` | `todo_write` | `ctx.tools` |',
+      '| `@deepseek-ai/dsh-tool-fs-search` | `glob`, `grep` | `ctx.subprocess` |',
+    ].join('\n')
+    expect(parseToolCatalog(catalog)).toEqual({
+      '@deepseek-ai/dsh-tool-todo': ['todo_write'],
+      '@deepseek-ai/dsh-tool-fs-search': ['glob', 'grep'],
+    })
+  })
+
+  it('counts runtime imports and the boot graph, not type-only imports', () => {
+    const found = collectEdgeUsage([
+      `import type { A } from '@deepseek-ai/dsh-types-only'`,
+      `import { type B, type C } from '@deepseek-ai/dsh-named-types'`,
+      `import * as Fs from '@deepseek-ai/dsh-tool-fs'`,
+      `const { X } = await import('@deepseek-ai/dsh-lazy/sub')`,
+    ], [{ id: '@deepseek-ai/dsh-client-ui-chat' }])
+    expect([...found.packages].sort()).toEqual([
+      '@deepseek-ai/dsh-client-ui-chat',
+      '@deepseek-ai/dsh-lazy',
+      '@deepseek-ai/dsh-tool-fs',
+    ])
+    expect(found.specifiers.has('@deepseek-ai/dsh-lazy/sub')).toBe(true)
+  })
+
+  it('passes when every required entry is used or classified', () => {
+    const result = verifyParity({
+      upstreamVersion: '1.0.0',
+      reference: reference(),
+      usage,
+      manifest: { packages: {
+        '@deepseek-ai/dsh-gap': { status: 'gap', reason: 'not ported yet' },
+        '@deepseek-ai/dsh-tool-extra': { status: 'tracked', reason: 'tracked', issue: 7 },
+      } },
+    })
+    expect(result.errors).toEqual([])
+    expect(result.counts).toEqual({ used: 1, gap: 1, tracked: 1 })
+  })
+
+  it('reports unclassified, stale, and malformed entries and a baseline mismatch', () => {
+    const { errors } = verifyParity({
+      upstreamVersion: '2.0.0',
+      reference: reference(),
+      usage,
+      manifest: { packages: {
+        '@deepseek-ai/dsh-used': { status: 'substitute', reason: 'stale' },
+        '@deepseek-ai/dsh-tool-extra': { status: 'tracked', reason: 'no issue' },
+        '@deepseek-ai/dsh-gone': { status: 'declined', reason: 'removed upstream' },
+        '@deepseek-ai/dsh-off': { status: 'maybe', reason: '' },
+      } },
+    })
+    expect(errors).toEqual([
+      expect.stringMatching(/describes 1\.0\.0, but the baseline is 2\.0\.0/u),
+      expect.stringMatching(/dsh-used is used by the Edge/u),
+      expect.stringMatching(/dsh-gap \(dsh-base\) is not used by the Edge and not classified/u),
+      expect.stringMatching(/dsh-tool-extra is tracked but names no issue/u),
+      expect.stringMatching(/dsh-gone is not in the upstream reference/u),
+      expect.stringMatching(/dsh-off has unknown status "maybe"/u),
+      expect.stringMatching(/dsh-off needs a reason/u),
+    ])
+  })
+
+  it('requires a wiki page or an omission reason per upstream subsystem', () => {
+    const pages = ['Upstream reference: [Alpha](https://deepseek-harness.github.io/deepseek-harness/reference/subsystems/alpha)']
+    expect(checkWiki({ reference: reference(), manifest: { packages: {} }, pages })).toEqual({ missing: ['beta'], staleOmissions: [] })
+    expect(checkWiki({ reference: reference(), manifest: { packages: {}, wikiOmit: { beta: 'internal', gamma: 'gone' } }, pages }))
+      .toEqual({ missing: [], staleOmissions: ['gamma'] })
+  })
+
+  it('sorts upstream docs changes into review buckets', () => {
+    const fromTree = new Map([
+      ['docs/subsystems/shell.md', 'a'],
+      ['docs/subsystems/code-runtime.md', 'b'],
+      ['docs/subsystems/todo.md', 'c'],
+      ['docs/tool-catalog.md', 'd'],
+      ['docs/glossary.md', 'e'],
+      ['docs/subsystems/todo.zh.md', 'f'],
+    ])
+    const toTree = new Map([
+      ['docs/subsystems/shell.md', 'a2'],
+      ['docs/subsystems/todo.md', 'c2'],
+      ['docs/subsystems/ptc-runtime.md', 'g'],
+      ['docs/tool-catalog.md', 'd2'],
+      ['docs/glossary.md', 'e2'],
+      ['docs/subsystems/todo.zh.md', 'f2'],
+    ])
+    expect(classifyDocsDiff({ fromTree, toTree, relevant: path => path.endsWith('/shell.md') })).toEqual({
+      subsystemsAdded: ['ptc-runtime'],
+      subsystemsRemoved: ['code-runtime'],
+      catalogs: ['docs/tool-catalog.md'],
+      edgeSubsystems: ['docs/subsystems/shell.md'],
+      other: ['docs/glossary.md', 'docs/subsystems/todo.md'],
+    })
+  })
+
+  it('reads regular files from an npm tarball', () => {
+    const entry = (name, body) => {
+      const header = Buffer.alloc(512)
+      header.write(name, 0)
+      header.write(`${body.length.toString(8).padStart(11, '0')}\0`, 124)
+      header.write('0', 156)
+      const data = Buffer.alloc(Math.ceil(body.length / 512) * 512)
+      data.write(body)
+      return Buffer.concat([header, data])
+    }
+    const tarball = gzipSync(Buffer.concat([
+      entry('package/cordis.patch.yml', '- id: a\n'),
+      entry('package/presets/standard/agent.cordis.yml', '- id: b\n'),
+      Buffer.alloc(1024),
+    ]))
+    expect(Object.fromEntries(untar(tarball))).toEqual({
+      'cordis.patch.yml': '- id: a\n',
+      'presets/standard/agent.cordis.yml': '- id: b\n',
+    })
+  })
+})
