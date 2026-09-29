@@ -104,11 +104,16 @@ export default class EdgeCodeRuntime extends PtcRuntime {
   }
 
   /**
-   * Complete a request into a run spec. Programs run against the workspace;
-   * the wall-clock ceiling is `maxWallMs`, so no per-call timeout is recorded.
+   * Complete a request into a run spec. Programs run against the workspace
+   * under the `maxWallMs` ceiling. This runtime declares no per-run `timeout`
+   * budget, so `run_code` offers no `timeoutMs`; a caller that passes one is
+   * refused rather than silently given the ceiling.
    */
   resolve(request: PtcRunRequest): PtcRunSpec {
-    return { ...request, cwd: request.cwd ?? '/workspace', timeoutMs: request.timeoutMs ?? null }
+    if (request.timeoutMs !== undefined && request.timeoutMs !== null) {
+      throw new Error('edge code-runtime: a per-run timeoutMs is not supported; every run has the deployment ceiling')
+    }
+    return { ...request, cwd: request.cwd ?? '/workspace', timeoutMs: this.config.maxWallMs }
   }
 
   /**

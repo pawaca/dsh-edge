@@ -113,6 +113,14 @@ const echo = tools({
 })
 
 describe('edge code runtime', () => {
+  it('declares no per-run timeout: runs get the deployment ceiling and an explicit budget is refused', async () => {
+    const { runtime } = await setup({ maxWallMs: 1234 })
+    // With no declared budget, upstream run_code neither offers nor forwards timeoutMs.
+    expect(runtime.timeout).toBeUndefined()
+    expect(runtime.resolve({ program: 'return 1', bindings: [] }).timeoutMs).toBe(1234)
+    expect(() => runtime.resolve({ program: 'return 1', bindings: [], timeoutMs: 10 })).toThrow(/not supported/u)
+  })
+
   it('runs a TypeScript program in a Dynamic Worker against the tools binding', async () => {
     const { runtime, loader } = await setup()
     const result = await runtime.run(runtime.resolve({

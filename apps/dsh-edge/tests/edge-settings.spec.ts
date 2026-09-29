@@ -73,6 +73,25 @@ describe('EdgeSettings', () => {
     await ctx.fiber.dispose()
   })
 
+  it('keeps concurrent saves to different namespaces', async () => {
+    const store = new Map<string, unknown>()
+    // A slow put lets a second save start while the first is still writing.
+    const storage = {
+      get: (key: string) => Promise.resolve(store.get(key)),
+      put: async (key: string, value: unknown) => { await new Promise(resolve => setTimeout(resolve, 5)); store.set(key, value) },
+    } as unknown as DurableObjectStorage
+    const ctx = new Context()
+    await ctx.plugin(EdgeSettings, { storage })
+    const settings = edgeSettings(ctx)
+    settings.register('first-fixture', z.object({ value: z.string().default('') }), {})
+    settings.register('second-fixture', z.object({ value: z.string().default('') }), {})
+    await Promise.all([
+      settings.update('first-fixture', { value: 'one' }),
+      settings.update('second-fixture', { value: 'two' }),
+    ])
+    expect(store.get(SETTINGS_DOCUMENT_KEY)).toEqual({ 'first-fixture': { value: 'one' }, 'second-fixture': { value: 'two' } })
+  })
+
   it('persists a namespace write and restores it in a fresh context', async () => {
     const storage = createMockStorage()
     const schema = Object.assign((v: unknown) => v ?? {}, { toJSON: () => ({ type: 'object' }) }) as never

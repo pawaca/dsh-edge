@@ -9,8 +9,9 @@
  * describe/update/replace/mutate surface the Settings page calls.
  *
  * Resolution layers schema defaults, the registrant's `base`, then the user
- * section. Writes to one namespace run in order; `expectedRevision` refuses a
- * stale write with the upstream `SettingsConflictError`.
+ * section. Writes to every namespace run in one order, since they share the
+ * stored document; `expectedRevision` refuses a stale write with the upstream
+ * `SettingsConflictError`.
  */
 
 import { Service, type Context } from '@deepseek-ai/cordis'
@@ -71,7 +72,8 @@ export class EdgeSettings extends Service {
   /** The Edge persists every write. */
   readonly writable = true
   private readonly registrations = new Map<SettingsNamespace, Registration>()
-  private readonly queues = new Map<SettingsNamespace, Promise<unknown>>()
+  /** Every namespace lives in one stored document, so all writes run in one order. */
+  private writes: Promise<unknown> = Promise.resolve()
   private readonly pending = new Set<Promise<void>>()
   private document: Record<string, unknown> = {}
   private stopped = false
@@ -83,7 +85,7 @@ export class EdgeSettings extends Service {
   async* [Service.init](): AsyncGenerator<() => Promise<void>, void, void> {
     yield async () => {
       this.stopped = true
-      await Promise.allSettled([...this.queues.values(), ...this.pending])
+      await Promise.allSettled([this.writes, ...this.pending])
     }
     const stored = await this.config.storage.get(SETTINGS_DOCUMENT_KEY)
     this.document = isPlainObject(stored) ? stored : {}
@@ -197,7 +199,7 @@ export class EdgeSettings extends Service {
     } catch (error) {
       return Promise.reject(error)
     }
-    const run = (this.queues.get(ns) ?? Promise.resolve()).catch(() => undefined).then(async () => {
+    const run = this.writes.catch(() => undefined).then(async () => {
       if (this.stopped || this.registrations.get(ns) !== registration) {
         throw new Error(`settings namespace "${ns}" was disposed before its queued write ran`)
       }
@@ -220,7 +222,7 @@ export class EdgeSettings extends Service {
       }
       this.commit(registration, next)
     })
-    this.queues.set(ns, run)
+    this.writes = run
     return run
   }
 
