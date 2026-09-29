@@ -9,7 +9,7 @@
  * user input.
  */
 import { Service, type Context } from '@deepseek-ai/cordis'
-import { createUserMessage, freezeMessage, MessageId, type ContextFormed } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, freezeMessage, MessageId } from '@deepseek-ai/dsh-llm'
 import {
   registerScheduleTools, createAfterScheduleRecord, createAtScheduleRecord, createEveryScheduleRecord,
   createDailyScheduleRecord, createWeeklyScheduleRecord, createCronScheduleRecord, decodeScheduleRecord,
@@ -22,13 +22,7 @@ import {
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { deepEqualJson } from '@deepseek-ai/dsh-util-values'
 import { insertMainInput, MainQueueFullError, MAIN_WAKE_MS } from './main-session-queue.ts'
-
-// Upstream declares this source beside its runtime, which the package root does not re-export.
-declare module '@deepseek-ai/dsh-llm' {
-  interface MessageSourceMap {
-    'schedule': { kind: 'schedule' } & ContextFormed
-  }
-}
+import type {} from './upstream-message-sources.ts'
 
 const MAX_ACTIVE_SCHEDULES = 128
 const MAX_ENDED_SCHEDULES = 128

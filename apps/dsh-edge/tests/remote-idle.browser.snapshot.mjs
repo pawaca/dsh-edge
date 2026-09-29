@@ -6,7 +6,7 @@ import { chromium } from 'playwright'
 import { expect, it } from 'vitest'
 import { unstable_dev } from 'wrangler'
 import { workerArtifactPath, writePrebuiltModeWranglerConfig } from '../scripts/wrangler-config.mjs'
-import { startMockDeepSeek } from './fixtures/mock-deepseek.mjs'
+import { chatMessages, startMockDeepSeek } from './fixtures/mock-deepseek.mjs'
 
 // Skip: SDK @1.30 bundle increases DO cold-start time past the 150s idle
 // eviction + wake cycle on slow CI runners. Works locally. See #189.
@@ -47,7 +47,7 @@ it.skip('restores live browser subscriptions after an idle DO wakes for a prompt
     await page.getByRole('button', { name: 'Send message', exact: true }).click()
     await page.getByRole('paragraph').filter({ hasText: 'remembered-alpha' }).waitFor({ timeout: 60_000 })
     expect(carrierCloses).toBeGreaterThan(beforeIdle)
-    expect(mock.requests.some(request => request.messages.some(message => message.content === 'hello after idle'))).toBe(true)
+    expect(mock.requests.some(request => chatMessages(request).some(message => message.content === 'hello after idle'))).toBe(true)
   } finally {
     mock.releaseSlowResponses()
     await browser?.close()

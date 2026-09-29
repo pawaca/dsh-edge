@@ -6,13 +6,13 @@ import { join } from 'node:path'
 import { chromium } from 'playwright'
 import { unstable_dev } from 'wrangler'
 import { workerArtifactPath, writePrebuiltModeWranglerConfig } from '../scripts/wrangler-config.mjs'
-import { latestUserPromptIndex, startMockDeepSeek } from './fixtures/mock-deepseek.mjs'
+import { chatMessages, latestUserPromptIndex, startMockDeepSeek } from './fixtures/mock-deepseek.mjs'
 const mode = process.env.DSH_EDGE_TEST_RUNTIME_MODE ?? 'direct'
 const state = mkdtempSync(join(tmpdir(), 'dsh-schedule-probe-'))
 const mock = await startMockDeepSeek()
 const ownerKey = 'schedule-probe-owner-key-32-bytes'
 let worker, browser
-const latest = request => request.messages[latestUserPromptIndex(request.messages)]?.content
+const latest = request => { const messages = chatMessages(request); return messages[latestUserPromptIndex(messages)]?.content }
 const reminders = () => mock.requests.filter(request => typeof latest(request) === 'string' && latest(request).startsWith('[SCHEDULE REMINDER'))
 const wait = async (predicate, label, timeout = 30_000) => {
   const until = Date.now() + timeout

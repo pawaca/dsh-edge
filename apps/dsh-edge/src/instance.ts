@@ -26,6 +26,7 @@ import {
   type ServerRequest,
 } from './edge-rpc-types.ts'
 import { callEdgeApi, dispatchEdgeApi } from './edge-api-dispatch.ts'
+import { typertRpcResponse } from './edge-typert-connection.ts'
 import { createUserMessage, freezeMessage, MessageId, type UserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
@@ -1339,8 +1340,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       if (interceptor === undefined || !interceptor.claims(endpoint)) {
         return new Response('not found', { status: 404 })
       }
-      const result = await interceptor.dispatch(endpoint, payload, request.signal)
-      return Response.json({ type: 'server-response', rpcId, result })
+      return typertRpcResponse(rpcId, await interceptor.dispatch(endpoint, payload, request.signal))
     }
     // The Edge owns the turn lifecycle: agents open per turn and dispose when
     // it ends, matching Durable Object eviction, while the upstream controller
@@ -1356,25 +1356,26 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       }
       return edgeDispatch()
     }
-    const gateway = this.sessions.typertGateway()
-    if (gateway === undefined) return edgeDispatch()
+    const interceptor = this.sessions.typertRpcInterceptor()
+    if (interceptor === undefined) return edgeDispatch()
     try {
-      const invoke = () => gateway.invoke({ namespace: ns, method, args, signal: AbortSignal.timeout(30_000) })
+      // The gateway's own RPC path encodes results (byte values included) for the Connection wire.
+      const invoke = () => interceptor.dispatch(`${ns}/${method}`, payload ?? { args }, AbortSignal.timeout(30_000))
       // Agent-scoped commands (including /plan) use the same residency budget.
       // Their upstream lookup may otherwise leave a cold Agent permanently live.
-      const value = ns === 'workspaceFiles'
+      const result = ns === 'workspaceFiles'
         ? await this.withWorkspaceFileScope(invoke)
         : typeof args.agentId === 'string'
           ? await this.withAgentControl(SessionId(args.agentId), invoke)
           : await invoke()
-      return Response.json({ type: 'server-response', rpcId, result: { ok: true, value } })
-    } catch (error) {
       // Only endpoints no registered controller serves fall back to the Edge
       // API; validation and business failures surface as the gateway reported
       // them so protocol regressions stay visible.
-      if (isUnservedEndpointError(error)) {
+      if (!result.ok && isUnservedEndpointError(result.error)) {
         try { return await edgeDispatch() } catch {}
       }
+      return typertRpcResponse(rpcId, result)
+    } catch (error) {
       return Response.json({ type: 'server-response', rpcId, result: {
         ok: false,
         error: remoteFailureOf(error),

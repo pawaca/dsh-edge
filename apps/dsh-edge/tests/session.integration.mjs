@@ -14,7 +14,7 @@ import {
   workerArtifactPath,
   writePrebuiltModeWranglerConfig,
 } from '../scripts/wrangler-config.mjs'
-import { latestUserPromptIndex, startMockDeepSeek } from './fixtures/mock-deepseek.mjs'
+import { chatMessages, latestUserPromptIndex, startMockDeepSeek } from './fixtures/mock-deepseek.mjs'
 
 const ACCESS_KEY = 'integration-owner-access-key-32-bytes'
 const RELEASED_SESSION_ID = 'session-v0-1-3'
@@ -100,11 +100,9 @@ try {
   const releasedBlank = await jsonRequest(`/api/sessions/${RELEASED_ARCHIVED_SESSION_ID}`)
   assert.equal(releasedBlank.response.status, 200)
   assert.equal(releasedBlank.body.session.title, null)
-  const releasedBlankContinuation = await turn(
-    RELEASED_ARCHIVED_SESSION_ID,
-    'continue released blank',
-  )
-  assert.equal(assistantText(releasedBlankContinuation), 'remembered-alpha')
+  // Upstream's archive gate refuses model steps for an archived Session until it is restored.
+  const archivedAttempt = await turn(RELEASED_ARCHIVED_SESSION_ID, 'continue released blank')
+  assert.deepEqual(archivedAttempt.findLast(e => e.type === 'turn/end')?.data.reason, { kind: 'blocked' })
 
   const releasedWorkspace = await rpc('workspace.list', {})
   assert.equal(releasedWorkspace.body.result.ok, true)
@@ -125,6 +123,16 @@ try {
     'epoch-0 createdAt should be repaired')
   assert.ok(migratedWorkspace.createdAt <= migratedWorkspace.updatedAt,
     'repaired createdAt must not be later than updatedAt')
+  // Restoring the migrated archived Session lets it run again.
+  const unarchived = await typertRpc('workspace', 'unarchiveSession', { request: { sessionId: RELEASED_ARCHIVED_SESSION_ID } })
+  assert.deepEqual(unarchived.body.result, { ok: true, value: { archivedSessionIds: [] } })
+  const releasedBlankContinuation = await turn(
+    RELEASED_ARCHIVED_SESSION_ID,
+    'continue released blank',
+  )
+  assert.equal(assistantText(releasedBlankContinuation), 'remembered-alpha')
+  const rearchived = await typertRpc('workspace', 'archiveSession', { request: { sessionId: RELEASED_ARCHIVED_SESSION_ID } })
+  assert.deepEqual(rearchived.body.result, { ok: true, value: { archivedSessionIds: [RELEASED_ARCHIVED_SESSION_ID] } })
   const upgradedReleasedWorkspace = await rpc('workspace.rename', {
     workspaceId: 'edge-workspace',
     title: 'Upgraded 0.1.3 workspace',
@@ -491,7 +499,7 @@ try {
   assert.equal(fetchEvents.find(event => event.type === 'tool/call')?.data.name, 'web_fetch')
   const fetchResult = fetchEvents.find(event => event.type === 'tool/result')
   assert.equal(fetchResult?.data.error.code, 'WEB_BLOCKED_URL')
-  assert.equal(fetchResult?.data.message.content[0].isError, true)
+  assert.equal(fetchResult?.data.message.isError, true)
   assert.match(toolResultText(fetchResult), /fetch blocked|private or local target/u)
 
   const replay = await request(
@@ -561,10 +569,10 @@ try {
     referenceSessionId,
     `compare with @[Released](dsh-session:${sessionReferencePayload(RELEASED_SESSION_ID)})`,
   )
-  // The loop's runtime-context snapshot (the current date) is a plugin
-  // message of its own; the reference messages are the rest.
+  // The loop's runtime-context snapshot (the current date) is a message of
+  // its own; the reference messages are the rest.
   const runtimeContexts = referenceEvents.filter(event => event.type === 'user/message'
-    && event.data.source.kind === 'plugin' && event.data.source.plugin === '@deepseek-ai/dsh-system-prompt')
+    && event.data.source.kind === 'runtime-context')
   assert.equal(runtimeContexts.length, 1)
   assert.match(runtimeContexts[0].data.content[0].text, /Current date: \w+, \d{4}-\d{2}-\d{2} \(UTC\)\./u)
   const referenceMessages = referenceEvents
@@ -576,7 +584,7 @@ try {
   assert.equal(referenceMessages[1].source.kind, 'session-reference')
   assert.equal(referenceMessages[1].source.references[0].sessionId, RELEASED_SESSION_ID)
   const referenceRequest = mock.requests[referenceRequestCount]
-  const referenceContext = referenceRequest.messages
+  const referenceContext = chatMessages(referenceRequest)
     .filter(message => message.role === 'user')
     .map(message => messageTextOf(message))
     .find(content => content.includes('<referenced-sessions>'))
@@ -645,14 +653,14 @@ try {
   assert.equal(nativePick.body.result.error.code, 'directory-picker/unavailable')
   // Conversation file links: the upstream Session Remote would hand the path to
   // a native desktop opener. The Edge composes the controller through its
-  // internals seam so the probe answers false and an open attempt carries a
-  // reason the browser can show; the Edge Web client downloads the file instead.
+  // internals seam so the probe answers false and no desktop command runs; the
+  // path has no Host mapping, so an open attempt is refused before any opener,
+  // and the Edge Web client downloads the file instead.
   const canOpen = await typertRpc('session', 'canOpenWorkspacePath', {})
   assert.deepEqual(canOpen.body.result, { ok: true, value: false })
   const nativeOpen = await typertRpc('session', 'openWorkspacePath', { request: { path: '/workspace/picked' } })
   assert.equal(nativeOpen.body.result.ok, false)
-  assert.equal(nativeOpen.body.result.error.code, 'gateway/internal')
-  assert.match(nativeOpen.body.result.error.message, /not available on Cloudflare Workers/u)
+  assert.equal(nativeOpen.body.result.error.code, 'gateway/bad-request')
   assert.doesNotMatch(nativeOpen.body.result.error.message, /child_process/u)
   const pickedWorkspace = await rpc('workspace.create', { path: '/workspace/picked' })
   assert.equal(pickedWorkspace.body.result.ok, true, JSON.stringify(pickedWorkspace.body))
@@ -739,8 +747,8 @@ try {
   assert.equal(turnRequestsSnapshot.length, 15)
   assert.ok(turnRequestsSnapshot.every(request => request.max_tokens === 16_384))
   assert.ok(turnRequestsSnapshot.every(request => request.model === 'deepseek-v4-pro'))
-  assert.ok(turnRequestsSnapshot.every(request => request.reasoning_effort === 'high'))
-  assert.ok(mock.requests.some(request => request.messages.some(message =>
+  assert.ok(turnRequestsSnapshot.every(request => request.output_config?.effort === 'high'))
+  assert.ok(mock.requests.some(request => chatMessages(request).some(message =>
     message.role === 'assistant' && message.content === 'remembered-alpha')))
 
   const secondCreated = await jsonRequest('/api/sessions', {
@@ -853,6 +861,7 @@ try {
   // plan mode from the next accepted step.
   const planCommands = await rpc('commands/list', { args: { agentId: sessionId } })
   assert.deepEqual(planCommands.body.result.value, [{
+    definitionId: '@deepseek-ai/dsh-plan-mode',
     name: 'plan',
     description: 'Enter or leave plan mode',
     input: { hint: '[off|message]', attachments: true },
@@ -866,6 +875,8 @@ try {
     text: 'Plan mode on. Use /plan off to leave.',
   })
   const planningTurn = turn(sessionId, 'plan the deployment')
+  // Awaited below; an earlier failure must report itself, not this stream's teardown.
+  planningTurn.catch(() => {})
   const reviewFrame = await remoteMux.next(frame => frame.type === 'item' && frame.streamId === 'events-1'
     && frame.value.type === 'waterfall' && frame.value.event === 'user-questions/request')
   assert.equal(reviewFrame.value.agentId, sessionId)
@@ -873,7 +884,7 @@ try {
   assert.equal(review.id, 'plan-review')
   assert.equal(review.header, 'Plan review')
   assert.equal(review.detail, '# Deploy plan\n\n1. Build.\n2. Ship.')
-  assert.deepEqual(review.intent, { kind: 'plan-review', approve: 'Approve' })
+  assert.deepEqual(review.intent, { kind: 'plan-review', approve: 'Approve', callId: 'call_mock_plan' })
   assert.deepEqual(review.options.map(option => option.label), ['Approve', 'Keep planning'])
   const reviewAnswer = await jsonRequest('/api/$events/result', {
     method: 'POST',
@@ -898,9 +909,8 @@ try {
   )
   assert.equal(assistantText(planEvents), `plan-finished:${approvedText}`)
   const [planningRequest, approvedRequest] = turnRequests().slice(-2)
-  assert.equal(planningRequest.messages[0].role, 'system')
-  assert.match(planningRequest.messages[0].content, /You are in plan mode\./u)
-  assert.doesNotMatch(approvedRequest.messages[0].content, /You are in plan mode\./u)
+  assert.match(planningRequest.system, /You are in plan mode\./u)
+  assert.doesNotMatch(approvedRequest.system, /You are in plan mode\./u)
   const planOff = await rpc('commands/execute', {
     args: { agentId: sessionId, line: '/plan off', submittedAttachments: [] },
   })
@@ -1006,8 +1016,9 @@ try {
   )
   assert.match(preset.body.result.value.content, /defaultId: "deepseek-v4-pro"/u)
   assert.match(preset.body.result.value.content, /selectionScope: session/u)
-  assert.match(preset.body.result.value.content, /id: "deepseek-v4-flash"/u)
-  assert.match(preset.body.result.value.content, /id: "deepseek-v4-flash-vision-exp"/u)
+  // The upstream 0.2.0 catalog: V4.1 Flash (with image input) and V4 Pro.
+  assert.match(preset.body.result.value.content, /id: "deepseek-flash"/u)
+  assert.match(preset.body.result.value.content, /id: "deepseek-v4-pro"/u)
   assert.match(preset.body.result.value.content, /configured: true/u)
   assert.match(preset.body.result.value.content, /id: web_search/u)
   assert.match(preset.body.result.value.content, /id: ask_user_question/u)
@@ -1053,18 +1064,18 @@ try {
   assert.equal(preview.body.result.ok, true, JSON.stringify(preview.body))
   assert.equal(preview.body.result.value.text, 'dsh-edge-0.1.3-vfs')
   assert.equal(preview.body.result.value.absolutePath, '/workspace/released.txt')
-  const bytePreview = await typertRpc('workspaceFiles', 'readBytes', { ...fileScope, range: { offset: 4, length: 4 } })
+  const bytePreview = await typertRpc('workspaceFiles', 'readBytes', { ...fileScope, options: { range: { offset: 4, length: 4 } } })
   assert.equal(bytePreview.body.result.ok, true, JSON.stringify(bytePreview.body))
-  assert.equal(Buffer.from(bytePreview.body.result.value.data, 'base64').toString(), 'edge')
+  assert.equal(Buffer.from(bytePreview.body.result.value.data).toString(), 'edge')
   assert.equal(bytePreview.body.result.value.eof, false)
-  const fullPreview = await typertRpc('workspaceFiles', 'readAll', fileScope)
+  const fullPreview = await typertRpc('workspaceFiles', 'readBytes', { ...fileScope, options: {} })
   assert.equal(fullPreview.body.result.ok, true, JSON.stringify(fullPreview.body))
-  assert.equal(Buffer.from(fullPreview.body.result.value.data, 'base64').toString(), 'dsh-edge-0.1.3-vfs')
+  assert.equal(Buffer.from(fullPreview.body.result.value.data).toString(), 'dsh-edge-0.1.3-vfs')
   const previewListing = await typertRpc('workspaceFiles', 'list', { ...fileScope, path: '.' })
   assert.equal(previewListing.body.result.ok, true, JSON.stringify(previewListing.body))
   assert.ok(previewListing.body.result.value.entries.some(entry => entry.name === 'released.txt'))
   const fileChanges = await openDownlink('/api/remote.mux')
-  fileChanges.send({ type: 'open', streamId: 'file-changes', endpoint: 'workspaceFiles/changes', payload: { args: { workspaceFileScopeId: protocolSessionId } } })
+  fileChanges.send({ type: 'open', streamId: 'file-changes', endpoint: 'workspaceFiles/changes', payload: { args: { workspaceFileScopeId: protocolSessionId, path: '.' } } })
   const filesReady = await fileChanges.next(frame => frame.type === 'item' && frame.streamId === 'file-changes')
   assert.equal(filesReady.value.kind, 'ready')
   fileChanges.send({ type: 'cancel', streamId: 'file-changes' })
@@ -1110,7 +1121,7 @@ try {
   assert.equal(globalModels.body.result.ok, true)
   assert.deepEqual(
     globalModels.body.result.value.groups.flatMap(group => group.models.map(model => model.id)),
-    ['deepseek-flash', 'deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-v4-flash-vision-exp'],
+    ['deepseek-flash', 'deepseek-v4-pro'],
   )
   const initialSessionModels = await rpc('session.models', { sessionId: protocolSessionId })
   assert.equal(initialSessionModels.body.result.ok, true)
@@ -1121,12 +1132,12 @@ try {
   const selectedVision = await rpc('session.selectModel', {
     sessionId: protocolSessionId,
     provider: 'deepseek-official',
-    model: 'deepseek-v4-flash-vision-exp',
+    model: 'deepseek-flash',
   })
   assert.equal(selectedVision.body.result.ok, true)
   assert.deepEqual(selectedVision.body.result.value.selected, {
     provider: 'deepseek-official',
-    model: 'deepseek-v4-flash-vision-exp',
+    model: 'deepseek-flash',
     reasoningEffort: 'high',
   })
   // As upstream, the latest pick is where the next new session starts.
@@ -1172,7 +1183,7 @@ try {
   const restoredSessionModels = await rpc('session.models', { sessionId: protocolSessionId })
   assert.deepEqual(restoredSessionModels.body.result.value.current, {
     provider: 'deepseek-official',
-    model: 'deepseek-v4-flash-vision-exp',
+    model: 'deepseek-flash',
     reasoningEffort: 'high',
   })
   const restoredDefaultModel = await rpc('session.selectModel', {
@@ -1244,8 +1255,7 @@ try {
     .find(entry => entry.event.type === 'user/message')
   assert.equal(protocolUser.event.data.source.rpcId, protocolRequestId)
   // The date context uses the owner's zone from their latest prompt.
-  const isDateContext = event => event.type === 'user/message' && event.data.source.kind === 'plugin'
-    && event.data.source.plugin === '@deepseek-ai/dsh-system-prompt'
+  const isDateContext = event => event.type === 'user/message' && event.data.source.kind === 'runtime-context'
   assert.match(protocolHistory.body.result.value.events.map(entry => entry.event).find(isDateContext)
     ?.data.content[0].text ?? '', /Current date: \w+, \d{4}-\d{2}-\d{2} \(Asia\/Shanghai\)\./u)
   const protocolPromptProjection = await mux.next(message =>
@@ -1527,7 +1537,7 @@ try {
   const activeVision = await rpc('session.selectModel', {
     sessionId: protocolSessionId,
     provider: 'deepseek-official',
-    model: 'deepseek-v4-flash-vision-exp',
+    model: 'deepseek-flash',
   })
   assert.equal(activeVision.body.result.ok, true)
   const imageBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4XmP4z8DwHwAFAAH/NQZ7kgAAAABJRU5ErkJggg=='
@@ -1762,7 +1772,7 @@ try {
   const imageModel = await rpc('session.selectModel', {
     sessionId: imageSessionId,
     provider: 'deepseek-official',
-    model: 'deepseek-v4-flash-vision-exp',
+    model: 'deepseek-flash',
   })
   assert.equal(imageModel.body.result.ok, true)
   const imagePrompt = await rpc('session.prompt', {
@@ -1778,12 +1788,13 @@ try {
     && message.payload.sessionId === imageSessionId
     && message.payload.event.type === 'turn/end')
   const imageApiRequest = mock.requests.find(req =>
-    req.messages.some(msg => Array.isArray(msg.content) && msg.content.some(part =>
-      part.type === 'image_url')))
-  assert.ok(imageApiRequest, 'expected at least one API request with an image_url part')
-  const imageRequestContent = imageApiRequest.messages[latestUserPromptIndex(imageApiRequest.messages)].content
+    chatMessages(req).some(msg => Array.isArray(msg.content) && msg.content.some(part =>
+      part.type === 'image')))
+  assert.ok(imageApiRequest, 'expected at least one API request with an image block')
+  const imageMessages = chatMessages(imageApiRequest)
+  const imageRequestContent = imageMessages[latestUserPromptIndex(imageMessages)].content
   assert.ok(Array.isArray(imageRequestContent) && imageRequestContent.some(part =>
-    part.type === 'image_url' && typeof part.image_url?.url === 'string'))
+    part.type === 'image' && typeof part.source?.type === 'string'))
   const imageHistory = await rpc('session.history', { sessionId: imageSessionId })
   const imageUser = imageHistory.body.result.value.events
     .find(entry => entry.event.type === 'user/message')
@@ -1846,7 +1857,7 @@ try {
   const preTurnModel = await rpc('session.selectModel', {
     sessionId: batchedSessionId,
     provider: 'deepseek-official',
-    model: 'deepseek-v4-flash',
+    model: 'deepseek-flash',
   })
   assert.equal(preTurnModel.body.result.ok, true)
   const baselineMux = await openDownlink('/api/events.mux')
@@ -1890,6 +1901,13 @@ try {
   mux.close()
   host.close()
 
+  // Model selection needs a provider; the invalid base URL below leaves none registered.
+  const textModelAfterRemovedImage = await rpc('session.selectModel', {
+    sessionId: protocolSessionId,
+    provider: 'deepseek-official',
+    model: 'deepseek-v4-pro',
+  })
+  assert.equal(textModelAfterRemovedImage.body.result.ok, true)
   await worker.stop()
   worker = await startWorker({
     DEEPSEEK_BASE_URL: 'http://[',
@@ -1908,12 +1926,6 @@ try {
   })
   assert.equal(restoredImage.body.result.ok, true)
   assert.equal(restoredImage.body.result.value.data, imageBase64)
-  const textModelAfterRemovedImage = await rpc('session.selectModel', {
-    sessionId: protocolSessionId,
-    provider: 'deepseek-official',
-    model: 'deepseek-v4-pro',
-  })
-  assert.equal(textModelAfterRemovedImage.body.result.ok, true)
   const timedOut = await jsonRequest('/api/workspace/exec', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -2152,7 +2164,7 @@ async function startWorker(overrides = {}) {
       DSH_EDGE_ACCESS_KEY: ACCESS_KEY,
       ...overrides,
     },
-    logLevel: 'error',
+    logLevel: process.env.DSH_EDGE_TEST_WORKER_LOG ?? 'error',
     experimental: {
       disableExperimentalWarning: true,
       showInteractiveDevSession: false,
@@ -2173,7 +2185,7 @@ async function turn(sessionId, message) {
 }
 
 async function jsonRequest(path, init) {
-  const response = await request(path, init)
+  const response = init?.replay ?? await request(path, init)
   const source = await response.text()
   assert.ok(source.length > 0, `Empty HTTP ${response.status} response at ${path}`)
   let body
@@ -2233,7 +2245,7 @@ async function rpc(method, payload) {
 
 async function typertRpc(namespace, method, args) {
   const rpcId = crypto.randomUUID()
-  const result = await jsonRequest(`/api/${namespace}/${method}`, {
+  const init = {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
@@ -2241,9 +2253,31 @@ async function typertRpc(namespace, method, args) {
       rpcId,
       payload: { args },
     }),
-  })
+  }
+  const path = `/api/${namespace}/${method}`
+  const response = await request(path, init)
+  // Results with byte values arrive as multipart: a JSON envelope plus one part per value.
+  const result = response.headers.get('content-type')?.startsWith('multipart/form-data')
+    ? { response, body: await multipartRpcBody(response) }
+    : await jsonRequest(path, { ...init, replay: response })
   assert.equal(result.body.rpcId, rpcId)
   return { ...result, rpcId }
+}
+
+async function multipartRpcBody(response) {
+  const form = await response.formData()
+  const body = JSON.parse(form.get('metadata'))
+  for (const attachment of body.attachments) {
+    const bytes = new Uint8Array(await form.get(attachment.part).arrayBuffer())
+    let parent = body.result
+    let key = 'value'
+    for (const segment of attachment.path) {
+      parent = parent[key]
+      key = segment
+    }
+    parent[key] = bytes
+  }
+  return body
 }
 
 async function openDownlink(path, cookie = ownerCookie) {
@@ -2379,7 +2413,6 @@ function assistantText(events) {
 
 function toolResultText(event) {
   return event?.data.message.content
-    .find(block => block.type === 'tool-result')?.content
     .filter(block => block.type === 'text')
     .map(block => block.text)
     .join('')

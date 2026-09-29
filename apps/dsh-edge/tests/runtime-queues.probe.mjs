@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { chromium } from 'playwright'
 import { unstable_dev } from 'wrangler'
 import { workerArtifactPath, writePrebuiltModeWranglerConfig } from '../scripts/wrangler-config.mjs'
-import { latestUserPromptIndex } from './fixtures/mock-deepseek.mjs'
+import { chatMessages, latestUserPromptIndex, messagesEvents, writeEvents } from './fixtures/mock-deepseek.mjs'
 const mode = process.env.DSH_EDGE_TEST_RUNTIME_MODE ?? 'direct'
 const state = mkdtempSync(join(tmpdir(), 'dsh-runtime-probe-'))
 const requests = []
@@ -28,23 +28,29 @@ const mock = createServer(async (req, res) => {
     res.on('close', () => held.delete(path))
     return
   }
-  const last = body.messages[latestUserPromptIndex(body.messages)]
+  const messages = chatMessages(body)
+  const last = messages[latestUserPromptIndex(messages)]
   const text = typeof last?.content === 'string' ? last.content : JSON.stringify(last?.content)
   requests.push(text)
-  const afterUser = body.messages.slice(body.messages.lastIndexOf(last) + 1)
+  const afterUser = messages.slice(messages.lastIndexOf(last) + 1)
   const hasResults = afterUser.some(m => m.role === 'tool')
+  const chunks = text.includes('pool-probe') && !hasResults
+    ? [
+        { choices: [{ delta: { role: 'assistant' } }] },
+        { choices: [{ delta: { tool_calls: [1, 2, 3].map(n => ({ index: n - 1, id: `pool_${n}`, type: 'function', function: { name: 'web_search', arguments: JSON.stringify({ queries: [`pool-${n}`] }) } })) } }] },
+        { choices: [{ delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 5, completion_tokens: 5 } },
+      ]
+    : [
+        { choices: [{ delta: { role: 'assistant' } }] },
+        { choices: [{ delta: { content: 'probe-complete' } }] },
+        { choices: [{ delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 5, completion_tokens: 2 } },
+      ]
+  const [opening, ...rest] = messagesEvents(chunks)
   res.writeHead(200, { 'content-type': 'text/event-stream' })
-  const emit = delta => res.write(`data: ${JSON.stringify({ choices: [{ delta }] })}\n\n`)
-  emit({ role: 'assistant' })
+  writeEvents(res, opening)
   if (text.includes('hold-A')) await new Promise(resolve => delays.push(resolve))
-  if (text.includes('pool-probe') && !hasResults) {
-    emit({ tool_calls: [1, 2, 3].map(n => ({ index: n - 1, id: `pool_${n}`, type: 'function', function: { name: 'web_search', arguments: JSON.stringify({ queries: [`pool-${n}`] }) } })) })
-    res.write(`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 5, completion_tokens: 5 } })}\n\n`)
-  } else {
-    emit({ content: 'probe-complete' })
-    res.write(`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 5, completion_tokens: 2 } })}\n\n`)
-  }
-  res.end('data: [DONE]\n\n')
+  for (const events of rest) writeEvents(res, events)
+  res.end()
 })
 await new Promise(resolve => mock.listen(0, '127.0.0.1', resolve))
 mockOrigin = `http://127.0.0.1:${mock.address().port}`

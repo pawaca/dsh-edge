@@ -43,6 +43,9 @@ importers:
       '@deepseek-ai/dsh-api-job-controller':
         specifier: 0.2.0-rc.1
         version: 0.2.0-rc.1(@deepseek-ai/cordis@4.0.4)
+      '@deepseek-ai/dsh-session-format-v3-to-v4':
+        specifier: 0.2.0-rc.1
+        version: 0.2.0-rc.1(@deepseek-ai/cordis@4.0.4)
       compare-versions:
         specifier: 6.1.1
         version: 6.1.1

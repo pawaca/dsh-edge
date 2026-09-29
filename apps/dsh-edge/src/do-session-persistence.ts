@@ -38,7 +38,13 @@ import {
   type SessionPersistenceStatOptions,
   type SessionStorageMetadata,
 } from '@deepseek-ai/dsh-session-persistence'
-import { sessionFormatCatalog } from '@deepseek-ai/dsh-session-format-catalog'
+import {
+  createSessionFormatCatalogWithChildren,
+  historicalSessionFormatCatalog,
+  sessionFormatCatalog,
+} from '@deepseek-ai/dsh-session-format-catalog'
+import type { SessionFormatJsonObject, SessionFormatRestore } from '@deepseek-ai/dsh-session-format'
+import { historicalChildCatalogSource } from '@deepseek-ai/dsh-session-format-v3-to-v4'
 import {
   SessionTitleProviderId,
   type SessionTitleEventData,
@@ -426,8 +432,8 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
   }
 
   private migrateSession(id: SessionId, row: HeaderRow, inTransaction = false,
-    eventTable: EventTable = 'dsh_session_events'): void {
-    const prepared = this.prepareMigration(id, row)
+    eventTable: EventTable = 'dsh_session_events', childFacts = this.collectChildFacts(id)): void {
+    const prepared = this.prepareMigration(id, row, childFacts)
     if (prepared === undefined) return
     const commit = () => {
       if (eventTable === 'dsh_session_events') {
@@ -444,21 +450,14 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
     else this.storage.transactionSync(commit)
   }
 
-  /** Decode without writes so a bad later log cannot repeatedly burn earlier writes. */
-  private prepareMigration(id: SessionId, row: HeaderRow) {
-    const headerJson = {
-      type: 'session',
-      version: row.version,
-      id: row.id,
-      createdAt: row.created_at,
-      delegationDepth: row.delegation_depth ?? 0,
-      ...row.cwd === null ? {} : { cwd: row.cwd },
-      ...row.parent_session === null ? {} : { parentSession: row.parent_session },
-      ...row.seed_length === null ? {} : { seedLength: row.seed_length },
-      ...row.origin === null ? {} : { origin: row.origin },
-      ...row.agent_preset === null ? {} : { agentPreset: row.agent_preset },
-    }
-    const classification = sessionFormatCatalog.readHeader(headerJson)
+  /**
+   * Decode without writes so a bad later log cannot repeatedly burn earlier writes.
+   * The V3→V4 edge completes the parent's subagent catalog from its children's evidence.
+   */
+  private prepareMigration(id: SessionId, row: HeaderRow, childFacts: readonly SessionFormatJsonObject[]) {
+    const headerJson = storedHeaderJson(row)
+    const catalog = createSessionFormatCatalogWithChildren(childFacts)
+    const classification = catalog.readHeader(headerJson)
     if (classification.status === 'current') return
     if (classification.status === 'unsupported') {
       throw new SessionFormatUnsupportedError(classification.reason)
@@ -466,10 +465,48 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
     if (classification.status === 'malformed') {
       throw new Error(`session ${id} has a malformed header: ${classification.reason}`)
     }
-    const restore = sessionFormatCatalog.createRestore(headerJson, {
+    const restore = catalog.createRestore(headerJson, {
       recovery: 'recoverable',
       validation: 'transformed',
     })
+    const physicalRows = this.decodeStoredRows(id, row, restore)
+    const artifact = restore.finish()
+    return {
+      version: artifact.header.version,
+      seedLength: artifact.inheritedEventCount > 0 ? artifact.inheritedEventCount : null,
+      physicalRows,
+      packed: packChunkRuns(artifact.events as SessionEvent[]),
+    }
+  }
+
+  /**
+   * Collect each direct subagent child's catalog evidence from its stored
+   * generation, before any migration write. As in upstream JSONL persistence,
+   * an unreadable child is recorded with unknown mode instead of blocking its
+   * parent.
+   */
+  private collectChildFacts(parentId: SessionId): SessionFormatJsonObject[] {
+    const children = this.storage.sql.exec<HeaderRow>(
+      `SELECT id, version, created_at, cwd, parent_session, seed_length, origin,
+              delegation_depth, agent_preset, incarnation, revision
+       FROM dsh_sessions WHERE parent_session = ? AND origin = 'subagent' ORDER BY created_at, id`,
+      parentId,
+    ).toArray()
+    return children.map((child) => {
+      try {
+        const catalog = child.version <= 3 ? historicalSessionFormatCatalog : sessionFormatCatalog
+        const restore = catalog.createRestore(storedHeaderJson(child), { recovery: 'recoverable', validation: 'current' })
+        this.decodeStoredRows(child.id as SessionId, child, restore)
+        return historicalChildCatalogSource(restore.finish())
+      } catch (error) {
+        console.warn(`dsh-edge: subagent session ${child.id} is unreadable; its parent catalog records it with unknown mode.`, error)
+        return { childId: child.id, childCreatedAt: child.created_at, descriptorCount: 0, descriptor: null }
+      }
+    })
+  }
+
+  /** Feed one stored generation's rows to a restore, applying Edge-only legacy repairs. */
+  private decodeStoredRows(id: SessionId, row: HeaderRow, restore: SessionFormatRestore): number {
     const eventRows = this.eventRows(id, 0)
     if (row.version === 0) reorderV0SurfaceEvents(eventRows)
     for (const eventRow of eventRows) {
@@ -493,13 +530,7 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
       }
       restore.decodeRow(record)
     }
-    const artifact = restore.finish()
-    return {
-      version: artifact.header.version,
-      seedLength: artifact.inheritedEventCount > 0 ? artifact.inheritedEventCount : null,
-      physicalRows: eventRows.length,
-      packed: packChunkRuns(artifact.events as SessionEvent[]),
-    }
+    return eventRows.length
   }
 
   async stat(
@@ -1006,8 +1037,10 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
       // Validate every old log before the first migration write. Discard each
       // artifact after preflight to avoid retaining all decoded histories at once.
       // The second decode runs synchronously in the same transaction/snapshot.
+      // Child evidence is read from the pre-migration state once and reused by both passes.
+      const childFacts = new Map(outdated.map(row => [row.id, this.collectChildFacts(row.id as SessionId)]))
       let legacy = 0
-      for (const row of outdated) legacy += this.prepareMigration(row.id as SessionId, row)?.physicalRows ?? 0
+      for (const row of outdated) legacy += this.prepareMigration(row.id as SessionId, row, childFacts.get(row.id)!)?.physicalRows ?? 0
       const rebuild = this.isEventTableRebuildCheaper(legacy)
       const target: EventTable = rebuild ? 'dsh_session_events_migrating' : 'dsh_session_events'
       if (rebuild) {
@@ -1019,7 +1052,7 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
         )
       }
       for (const row of outdated) {
-        this.migrateSession(row.id as SessionId, row, true, target)
+        this.migrateSession(row.id as SessionId, row, true, target, childFacts.get(row.id)!)
       }
       if (rebuild) {
         this.storage.sql.exec('DROP TABLE dsh_session_events')
@@ -1315,6 +1348,22 @@ function promiseFromSync<T>(operation: () => T): Promise<T> {
     const deferred = Promise.withResolvers<T>()
     deferred.reject(error)
     return deferred.promise
+  }
+}
+
+/** The logical header JSON the format catalog reads, rebuilt from stored columns. */
+function storedHeaderJson(row: HeaderRow) {
+  return {
+    type: 'session',
+    version: row.version,
+    id: row.id,
+    createdAt: row.created_at,
+    delegationDepth: row.delegation_depth ?? 0,
+    ...row.cwd === null ? {} : { cwd: row.cwd },
+    ...row.parent_session === null ? {} : { parentSession: row.parent_session },
+    ...row.seed_length === null ? {} : { seedLength: row.seed_length },
+    ...row.origin === null ? {} : { origin: row.origin },
+    ...row.agent_preset === null ? {} : { agentPreset: row.agent_preset },
   }
 }
 

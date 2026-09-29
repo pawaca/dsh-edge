@@ -69,6 +69,7 @@
   "dependencies": {
     "@clack/prompts": "1.7.0",
     "@deepseek-ai/dsh-api-job-controller": "0.2.0-rc.1",
+    "@deepseek-ai/dsh-session-format-v3-to-v4": "0.2.0-rc.1",
     "compare-versions": "6.1.1",
     "execa": "^10.0.1",
     "jsonc-parser": "^3.3.1",

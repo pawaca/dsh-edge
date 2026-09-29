@@ -141,3 +141,34 @@ describe('bounded VFS preview reads', () => {
     })
   })
 })
+
+describe('provider watching', () => {
+  it('invalidates a file or a directory from observed writes until closed', async () => {
+    const ctx = new Context()
+    await ctx.plugin(EdgeFileSystem)
+    const fs = ctx.fs as EdgeFileSystem
+    try {
+      await fs.runInScope({} as never, '/workspace', async () => {
+        const file = await fs.resolve('notes/a.txt')
+        const directory = await fs.resolve('notes')
+        const onFile = vi.fn()
+        const onDirectory = vi.fn()
+        const closeFile = await fs.watch(file, onFile, new AbortController().signal)
+        const closeDirectory = await fs.watch(directory, onDirectory, new AbortController().signal)
+        const observe = async (path: string) => ctx.emit('fs/observed', await fs.resolve(path), { kind: 'present', version: 'v' } as never, undefined)
+        await observe('notes/a.txt')
+        await observe('notes/b.txt')
+        await observe('notes/deep/c.txt')
+        expect(onFile).toHaveBeenCalledOnce()
+        expect(onDirectory).toHaveBeenCalledTimes(2)
+        await closeFile()
+        await closeDirectory()
+        await observe('notes/a.txt')
+        expect(onFile).toHaveBeenCalledOnce()
+        const aborted = new AbortController()
+        aborted.abort()
+        await expect(fs.watch(file, onFile, aborted.signal)).rejects.toMatchObject({ code: 'FS_ABORTED' })
+      })
+    } finally { await ctx.fiber.dispose() }
+  })
+})

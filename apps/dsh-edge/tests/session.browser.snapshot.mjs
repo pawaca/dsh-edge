@@ -287,7 +287,7 @@ describe('dsh-edge assembled browser snapshot', () => {
       const selectVision = await edgeRpc(worker, ownerCookieHeader, 'session.selectModel', {
         sessionId: initialSessionId,
         provider: 'deepseek-official',
-        model: 'deepseek-v4-flash-vision-exp',
+        model: 'deepseek-flash',
       })
       expect(selectVision.result.ok).toBe(true)
 

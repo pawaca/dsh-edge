@@ -6,7 +6,7 @@ import { chromium } from 'playwright'
 import { expect, it } from 'vitest'
 import { unstable_dev } from 'wrangler'
 import { workerArtifactPath, writePrebuiltModeWranglerConfig } from '../scripts/wrangler-config.mjs'
-import { startMockDeepSeek } from './fixtures/mock-deepseek.mjs'
+import { chatMessages, startMockDeepSeek } from './fixtures/mock-deepseek.mjs'
 
 it('wakes a cold session for a durable reminder without a browser connection', async () => {
   const state = mkdtempSync(join(tmpdir(), 'dsh-schedule-browser-'))
@@ -43,10 +43,10 @@ it('wakes a cold session for a durable reminder without a browser connection', a
     }, { timeout: 15_000 }).toBe(true)
     await send.click()
     await page.getByText('tool-finished', { exact: true }).first().waitFor({ timeout: 30_000 })
-    expect(mock.requests.some(request => request.messages.some(message => message.role === 'tool' && message.content?.includes('scheduledAt')))).toBe(true)
+    expect(mock.requests.some(request => chatMessages(request).some(message => message.role === 'tool' && message.content?.includes('scheduledAt')))).toBe(true)
     await page.close()
     // Poll the provider fixture only: no browser/HTTP request may wake the DO.
-    await expect.poll(() => mock.requests.filter(request => request.messages.some(message => message.role === 'user' && typeof message.content === 'string' && message.content.startsWith('[SCHEDULE REMINDER]'))).length, { timeout: (delay + 30) * 1000 }).toBe(1)
+    await expect.poll(() => mock.requests.filter(request => chatMessages(request).some(message => message.role === 'user' && typeof message.content === 'string' && message.content.startsWith('[SCHEDULE REMINDER]'))).length, { timeout: (delay + 30) * 1000 }).toBe(1)
     const restored = await context.newPage()
     await restored.goto(origin)
     await restored.getByText('schedule-delivered', { exact: true }).first().waitFor({ timeout: 15_000 })
