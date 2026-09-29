@@ -9,7 +9,7 @@ import {
   normalizeAgentPreset,
   sessionAgentPreset,
 } from '../src/agent-presets.ts'
-import { DurableObjectSettingsProvider } from '../src/do-settings-provider.ts'
+import { EdgeSettings } from '../src/edge-settings.ts'
 
 const header: SessionHeader = {
   id: SessionId('session-preset'),
@@ -31,7 +31,7 @@ function memoryStorage(): DurableObjectStorage {
 
 async function edgePresets(codeRuntime: boolean, storage = memoryStorage()): Promise<EdgeAgentPresets> {
   const root = new Context()
-  await root.plugin(DurableObjectSettingsProvider, { storage })
+  await root.plugin(EdgeSettings, { storage })
   await root.plugin(EdgeAgentPresets, { codeRuntime })
   return root.get('agentPresets') as EdgeAgentPresets
 }
@@ -60,7 +60,7 @@ describe('Edge agent presets', () => {
   it('starts new sessions on the default the Settings page writes, as upstream', async () => {
     const root = new Context()
     const storage = memoryStorage()
-    await root.plugin(DurableObjectSettingsProvider, { storage })
+    await root.plugin(EdgeSettings, { storage })
     await root.plugin(EdgeAgentPresets, { codeRuntime: true })
     const presets = root.get('agentPresets') as EdgeAgentPresets
     await root.settings.update(AGENT_PRESET_SETTINGS_NAMESPACE, { default: PTC_AGENT_PRESET })

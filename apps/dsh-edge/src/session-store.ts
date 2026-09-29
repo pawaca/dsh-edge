@@ -110,7 +110,7 @@ import {
   type SettingsDescriptor,
   type SettingsPathOp,
 } from '@deepseek-ai/dsh-settings'
-import DurableObjectSettingsProvider from './do-settings-provider.ts'
+import { EdgeSettings, edgeSettings, type EdgeSettingsScope } from './edge-settings.ts'
 import type { WorkflowLoader } from './edge-workflow-engine.ts'
 import EdgeCredentialProvider from './edge-credentials.ts'
 import DurableObjectSessionPersistence, {
@@ -129,7 +129,6 @@ import {
 } from './agent-presets.ts'
 import { installEdgeApprovalPolicy, type EdgeApprovalMode, type EdgeApprovalSettings } from './approval-policy.ts'
 import { installEdgeRuntimeSettings, type EdgeRuntimeSettings } from './runtime-settings.ts'
-import type { SettingsScope } from '@deepseek-ai/dsh-settings'
 import { installEdgeWebSearch } from './web-search.ts'
 import { DurableEventDeliveryQueue } from './durable-event-delivery.ts'
 
@@ -306,8 +305,8 @@ export class EdgeSessionStore {
   private readonly baselineOwnedSessions = new WeakSet<Session>()
   private readonly publishesLateEvents: boolean
   private readonly residentAgents = new Map<SessionId, AgentHandle>()
-  private approvalScope?: SettingsScope<EdgeApprovalSettings>
-  private runtimeScope?: SettingsScope<EdgeRuntimeSettings>
+  private approvalScope?: EdgeSettingsScope<EdgeApprovalSettings>
+  private runtimeScope?: EdgeSettingsScope<EdgeRuntimeSettings>
   private mcpToolManager?: McpToolManager
   private readonly doStorage: DurableObjectStorage
   private readonly ready: Promise<void>
@@ -339,7 +338,7 @@ export class EdgeSessionStore {
       storage,
       readDeepSeekApiKey: () => config.readDeepSeekApiKey(),
     })
-    await this.context.plugin(DurableObjectSettingsProvider, { storage })
+    await this.context.plugin(EdgeSettings, { storage })
     await DurableObjectStorageBackend.migrateWorkspaceKeys(storage)
     await DurableObjectStorageBackend.repairEpoch0Timestamps(storage)
     const storageBackend = new DurableObjectStorageBackend(storage)
@@ -354,7 +353,7 @@ export class EdgeSessionStore {
       (value: unknown) => value ?? {},
       { toJSON: () => ({ type: 'object' }) },
     ) as never
-    this.context.settings.register('ui-onboarding', onboardingSchema, {})
+    edgeSettings(this.context).register('ui-onboarding', onboardingSchema, {})
     await this.context.plugin(LlmRuntime)
     try {
       const doUploadIndex = new DurableObjectUploadIndex(storage)
@@ -925,13 +924,13 @@ export class EdgeSessionStore {
   /** Whether the mounted settings provider accepts runtime writes. */
   async settingsWritable(): Promise<boolean> {
     await this.ready
-    return this.context.settings?.writable ?? false
+    return edgeSettings(this.context)?.writable ?? false
   }
 
   /** Whether the mounted settings provider owns a user-editable file. */
   async settingsHasDocument(): Promise<boolean> {
     await this.ready
-    return this.context.settings?.documentPath !== undefined
+    return false
   }
 
   async syncMcpServer(serverName: string): Promise<{ toolCount: number }> {
@@ -1214,7 +1213,7 @@ export class EdgeSessionStore {
   /** Describe all registered settings namespaces with redacted secrets. */
   async describeSettings(): Promise<SettingsDescriptor[]> {
     await this.ready
-    return this.context.settings?.describe({ redactSecrets: true }) ?? []
+    return edgeSettings(this.context)?.describe({ redactSecrets: true }) ?? []
   }
 
   /** Merge a patch into one namespace's user section. */
@@ -1224,8 +1223,8 @@ export class EdgeSessionStore {
     expectedRevision?: number,
   ): Promise<SettingsDescriptor | undefined> {
     await this.ready
-    await this.context.settings.update(ns, patch, expectedRevision)
-    return this.context.settings.describe({ redactSecrets: true })
+    await edgeSettings(this.context).update(ns, patch, expectedRevision)
+    return edgeSettings(this.context).describe({ redactSecrets: true })
       .find(d => (d.ns as string) === ns)
   }
 
@@ -1236,8 +1235,8 @@ export class EdgeSessionStore {
     expectedRevision?: number,
   ): Promise<SettingsDescriptor | undefined> {
     await this.ready
-    await this.context.settings.replace(ns, section, expectedRevision)
-    return this.context.settings.describe({ redactSecrets: true })
+    await edgeSettings(this.context).replace(ns, section, expectedRevision)
+    return edgeSettings(this.context).describe({ redactSecrets: true })
       .find(d => (d.ns as string) === ns)
   }
 
@@ -1248,8 +1247,8 @@ export class EdgeSessionStore {
     expectedRevision?: number,
   ): Promise<SettingsDescriptor | undefined> {
     await this.ready
-    await this.context.settings.mutate(ns, ops, expectedRevision)
-    return this.context.settings.describe({ redactSecrets: true })
+    await edgeSettings(this.context).mutate(ns, ops, expectedRevision)
+    return edgeSettings(this.context).describe({ redactSecrets: true })
       .find(d => (d.ns as string) === ns)
   }
 
