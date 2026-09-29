@@ -80,6 +80,9 @@ try {
   const releasedSession = await jsonRequest(`/api/sessions/${RELEASED_SESSION_ID}`)
   assert.equal(releasedSession.response.status, 200)
   assert.equal(releasedSession.body.session.title, 'DSH Edge 0.1.3 fixture')
+  // The browser's slash route falls back to Edge-owned endpoints no upstream controller serves.
+  const slashHistory = await typertRpc('session', 'history', { request: { sessionId: RELEASED_SESSION_ID } })
+  assert.equal(slashHistory.body.result.ok, true, JSON.stringify(slashHistory.body))
   const releasedHistory = await request(`/api/sessions/${RELEASED_SESSION_ID}/events`)
   assert.equal(releasedHistory.status, 200)
   const releasedEvents = parseEvents(await releasedHistory.text())

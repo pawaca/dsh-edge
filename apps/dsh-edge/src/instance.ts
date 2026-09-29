@@ -153,12 +153,12 @@ interface DownlinkAttachment {
 }
 
 /** Whether the Typert gateway reported that no active service exports the endpoint. */
-function isUnservedEndpointError(error: unknown): boolean {
-  const code = (error as { code?: unknown }).code
-  if (code === 'gateway/definition-unavailable'
-    || code === 'gateway/method-unavailable'
-    || code === 'gateway/service-unavailable') return true
-  return error instanceof Error && error.message.includes('no active Remote method')
+function isUnservedEndpointError(error: { readonly code: string; readonly message: string }): boolean {
+  if (error.code === 'gateway/definition-unavailable'
+    || error.code === 'gateway/method-unavailable'
+    || error.code === 'gateway/service-unavailable'
+    || error.code === 'gateway/invocation-unavailable') return true
+  return error.message.includes('no active Remote method')
 }
 
 /** Project a gateway failure onto the RPC wire without inventing a new code. */

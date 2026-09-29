@@ -46,7 +46,7 @@ try {
     })
     assert.ok(result.ok, JSON.stringify(result))
   }
-  const history = async id => (await rpc(a, 'session.history', { sessionId: id })).value.events.map(entry => entry.event)
+  const history = async id => { const result = await rpc(a, 'session.history', { sessionId: id }); if (result.value === undefined) throw new Error(JSON.stringify(result)); return result.value.events.map(entry => entry.event) }
   const ended = async (id, count) => (await history(id)).filter(event => event.type === 'turn/end').length >= count
   for (const id of ['schedule-a', 'busy-b', 'deleted', 'restart']) assert.ok((await rpc(a, 'session.create', { sessionId: id })).ok)
   await prompt(a, 'schedule-a', 'schedule once 5')
@@ -85,7 +85,7 @@ try {
   assert.equal(reminders().length, 2)
   // The restarted object reloads the owner's stored zone rather than falling
   // back to UTC for the reminder's date context.
-  const restartContexts = reminders()[1].messages
+  const restartContexts = chatMessages(reminders()[1])
     .filter(message => typeof message.content === 'string' && message.content.startsWith('Current runtime context'))
   assert.match(restartContexts.at(-1)?.content ?? '', /\(Asia\/Tokyo\)\./u)
   console.log(`PASS ${mode}: persisted alarm wakes original session after Worker restart; no duplicate delivery`)
