@@ -111,6 +111,7 @@ import {
   type SettingsPathOp,
 } from '@deepseek-ai/dsh-settings'
 import { EdgeSettings, edgeSettings, type EdgeSettingsScope } from './edge-settings.ts'
+import { registerClientSettings } from './edge-client-settings.ts'
 import type { WorkflowLoader } from './edge-workflow-engine.ts'
 import EdgeCredentialProvider from './edge-credentials.ts'
 import DurableObjectSessionPersistence, {
@@ -349,11 +350,7 @@ export class EdgeSessionStore {
       return () => { dispose(); this.context.provide('storage.backend.durable-object', undefined as never) }
     }, 'dsh-edge: storage backend')
     await this.context.plugin(StorageDomain, { backend: 'durable-object' })
-    const onboardingSchema = Object.assign(
-      (value: unknown) => value ?? {},
-      { toJSON: () => ({ type: 'object' }) },
-    ) as never
-    edgeSettings(this.context).register('ui-onboarding', onboardingSchema, {})
+    registerClientSettings(this.context)
     await this.context.plugin(LlmRuntime)
     try {
       const doUploadIndex = new DurableObjectUploadIndex(storage)

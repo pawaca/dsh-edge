@@ -59,6 +59,10 @@ const edgeExcludedPackages = new Set([
   '@deepseek-ai/dsh-client-ui-settings-agent-loop',
   '@deepseek-ai/dsh-client-ui-settings-subagent',
   '@deepseek-ai/dsh-client-ui-settings-web-search',
+  // Browser halves of host features the Edge declines: the session-log upload
+  // preference and the permission-preset picker, which would only render errors.
+  '@deepseek-ai/dsh-client-ui-settings-session-log',
+  '@deepseek-ai/dsh-client-ui-permission-presets',
 ])
 const shellStaticPackages = new Set(['@deepseek-ai/dsh-client-ui-primitives'])
 const assetSecurityHeaders = `/*

@@ -21,10 +21,8 @@ function fakeContext(session: object | undefined) {
     component: unknown
   }> = []
   const registerLocale = vi.fn()
-  const mirror = { persistence: 'memory', load: vi.fn() }
   const disposers: Array<() => void> = []
   const ctx = {
-    settingsScope: { describe: () => mirror },
     get: (key: string) => key === 'remote.session' ? session : undefined,
     inject: (_deps: string[], callback: (injected: unknown) => unknown) => callback(ctx),
     effect: (callback: () => unknown) => {
@@ -48,7 +46,7 @@ function fakeContext(session: object | undefined) {
       },
     },
   }
-  return { ctx, entries, registerLocale, mirror, disposers }
+  return { ctx, entries, registerLocale, disposers }
 }
 
 describe('ui-edge apply', () => {
@@ -58,11 +56,9 @@ describe('ui-edge apply', () => {
   })
 
   it('registers the settings section and leaves the directory flow to the upstream browse picker', () => {
-    expect(inject).toEqual(['slots', 'locale', 'settingsScope'])
-    const { ctx, entries, registerLocale, mirror } = fakeContext(undefined)
+    expect(inject).toEqual(['slots', 'locale'])
+    const { ctx, entries, registerLocale } = fakeContext(undefined)
     apply(ctx as never)
-    expect(mirror.persistence).toBe('host')
-    expect(mirror.load).toHaveBeenCalledOnce()
     expect(registerLocale).toHaveBeenCalledOnce()
 
     const settingsEntry = entries.find(e => e.component === EdgeSettingsSection)

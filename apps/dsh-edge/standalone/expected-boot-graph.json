@@ -445,18 +445,6 @@
     ]
   },
   {
-    "id": "@deepseek-ai/dsh-client-ui-permission-presets",
-    "inject": [
-      "@deepseek-ai/dsh-api-session-controller",
-      "@deepseek-ai/dsh-client-connection",
-      "@deepseek-ai/dsh-client-locale",
-      "@deepseek-ai/dsh-client-ui-commands",
-      "@deepseek-ai/dsh-client-ui-conversation",
-      "@deepseek-ai/dsh-api-remotes",
-      "@deepseek-ai/dsh-client-ui-settings"
-    ]
-  },
-  {
     "id": "@deepseek-ai/dsh-client-ui-agent-preset",
     "inject": [
       "@deepseek-ai/dsh-api-session-controller",
@@ -467,14 +455,6 @@
       "@deepseek-ai/dsh-client-ui-settings",
       "@deepseek-ai/dsh-client-ui-workspace",
       "@deepseek-ai/dsh-api-remotes"
-    ]
-  },
-  {
-    "id": "@deepseek-ai/dsh-client-ui-settings-session-log",
-    "inject": [
-      "@deepseek-ai/dsh-client-locale",
-      "@deepseek-ai/dsh-client-ui-settings",
-      "@deepseek-ai/dsh-client-ui-layout"
     ]
   },
   {
