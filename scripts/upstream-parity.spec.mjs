@@ -188,7 +188,8 @@ describe('upstream parity', () => {
       expect.stringMatching(/describes 1\.0\.0, but the baseline is 2\.0\.0/u),
       expect.stringMatching(/dsh-used is used by the Edge/u),
       expect.stringMatching(/dsh-gap \(dsh-base\) is not used by the Edge and not classified/u),
-      expect.stringMatching(/dsh-gone is not in the upstream reference/u),
+      expect.stringMatching(/dsh-gone is not required by the upstream reference/u),
+      expect.stringMatching(/dsh-off is not required by the upstream reference/u),
       expect.stringMatching(/dsh-tool-extra is tracked but names no issue/u),
       expect.stringMatching(/dsh-off has unknown status "maybe"/u),
       expect.stringMatching(/dsh-off needs a reason/u),
@@ -216,6 +217,15 @@ describe('upstream parity', () => {
       '@deepseek-ai/priority-off-gap has priority "P2"; only gap entries take P1, P2, or P3.',
       '@deepseek-ai/typo has unknown field "isue".',
     ])
+  })
+
+  it('expires the classification of a plugin upstream now disables everywhere', () => {
+    const { errors } = verifyParity({ upstreamVersion: '1.0.0', reference: reference(), usage, manifest: { packages: {
+      '@deepseek-ai/dsh-gap': { status: 'gap', reason: 'x' },
+      '@deepseek-ai/dsh-tool-extra': { status: 'declined', reason: 'x' },
+      '@deepseek-ai/dsh-off': { status: 'declined', reason: 'was enabled in an older baseline' },
+    } } })
+    expect(errors).toEqual([expect.stringMatching(/^@deepseek-ai\/dsh-off is not required by the upstream reference/u)])
   })
 
   it('never takes an Object.prototype name for a status, entry, or reason', () => {

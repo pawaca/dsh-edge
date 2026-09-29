@@ -216,7 +216,6 @@ export function verifyParity({ upstreamVersion, reference, manifest, usage }) {
     errors.push(`upstream-reference.json describes ${reference.upstreamVersion}, but the baseline is ${upstreamVersion}; run \`pnpm run upstream-parity -- refresh\`.`)
   }
   const required = requiredEntries(reference)
-  const known = new Set([...Object.keys(reference.plugins), ...Object.keys(reference.tools)])
   const counts = { used: 0 }
   for (const [name, sources] of required) {
     const entry = own(manifest.packages, name)
@@ -232,7 +231,9 @@ export function verifyParity({ upstreamVersion, reference, manifest, usage }) {
     counts[entry.status] = (counts[entry.status] ?? 0) + 1
   }
   for (const name of Object.keys(manifest.packages)) {
-    if (!known.has(name)) errors.push(`${name} is not in the upstream reference; remove its entry from upstream-parity.json.`)
+    // Stale unless still required: a plugin upstream now disables everywhere drops its
+    // classification, so re-enabling it later forces a fresh review.
+    if (!required.has(name)) errors.push(`${name} is not required by the upstream reference; remove its entry from upstream-parity.json.`)
   }
   errors.push(...validateManifest(manifest))
   return { errors, counts, required: required.size }
