@@ -956,7 +956,7 @@ try {
   }
   // Tools are presented natively: the default session offers workflow on the
   // isolated build but never run_code.
-  const defaultTools = (turnRequests().at(-1).tools ?? []).map(tool => tool.function?.name)
+  const defaultTools = (turnRequests().at(-1).tools ?? []).map(tool => tool.name)
   assert.equal(defaultTools.includes('workflow'), runtimeMode === 'isolated')
   assert.equal(defaultTools.includes('run_code'), false)
   // run_code is opt-in through the PTC mode preset, which only the isolated
@@ -985,7 +985,7 @@ try {
     assert.match(codeResultText, /ran bash/u)
     assert.doesNotMatch(codeResultText, /only available during an active turn/u)
     assert.equal(codeEvents.filter(event => event.type === 'tool/ptc-dispatch').length, 2)
-    const ptcTools = (turnRequests().at(-1).tools ?? []).map(tool => tool.function?.name)
+    const ptcTools = (turnRequests().at(-1).tools ?? []).map(tool => tool.name)
     assert.deepEqual(ptcTools, ['run_code'])
     const locked = await rpc('agentPreset.select', { agentId: ptcSessionId, agentPreset: 'standard' })
     assert.equal(locked.body.result.error.code, 'agent-preset-locked')
