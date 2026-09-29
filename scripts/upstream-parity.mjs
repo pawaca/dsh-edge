@@ -132,22 +132,24 @@ function sourceFiles(directory) {
 }
 
 /**
- * Collect the upstream specifiers the Edge uses at runtime: value (not type-only) static imports
- * and dynamic imports in the Worker source, plus the reviewed browser boot graph. Parsed with the
- * TypeScript compiler, so imports inside comments or strings never count.
+ * Collect the upstream specifiers the Edge uses at runtime, plus the reviewed browser boot graph.
+ * Each source is first transpiled the way the build does, so imports whose bindings are only
+ * used as types are erased exactly as they are in the bundle; the emitted module is then walked
+ * for static and dynamic imports, so comments and strings never count.
  */
 export function collectEdgeUsage(sources, bootGraph) {
   const specifiers = new Set()
   for (const text of sources) {
-    const file = ts.createSourceFile('source.ts', text, ts.ScriptTarget.Latest, false, ts.ScriptKind.TS)
+    const emitted = ts.transpileModule(text, {
+      compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ESNext, verbatimModuleSyntax: false },
+    }).outputText
+    const file = ts.createSourceFile('emitted.js', emitted, ts.ScriptTarget.Latest, false, ts.ScriptKind.JS)
     const visit = node => {
-      if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier) && !isTypeOnlyImport(node)) {
+      if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
         addUpstream(specifiers, node.moduleSpecifier.text)
       } else if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
         const [argument] = node.arguments
-        // `import('x' as string)` hides a specifier from the bundler's type resolution.
-        const literal = argument && ts.isAsExpression(argument) ? argument.expression : argument
-        if (literal && ts.isStringLiteral(literal)) addUpstream(specifiers, literal.text)
+        if (argument && ts.isStringLiteral(argument)) addUpstream(specifiers, argument.text)
       }
       ts.forEachChild(node, visit)
     }
@@ -160,16 +162,6 @@ export function collectEdgeUsage(sources, bootGraph) {
 
 function addUpstream(specifiers, specifier) {
   if (specifier.startsWith(scope)) specifiers.add(specifier)
-}
-
-function isTypeOnlyImport(declaration) {
-  const clause = declaration.importClause
-  if (!clause) return false
-  if (clause.isTypeOnly) return true
-  if (clause.name) return false
-  const bindings = clause.namedBindings
-  return bindings !== undefined && ts.isNamedImports(bindings)
-    && bindings.elements.length > 0 && bindings.elements.every(element => element.isTypeOnly)
 }
 
 function packageOf(specifier) {

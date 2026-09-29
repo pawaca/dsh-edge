@@ -49,7 +49,7 @@ function reference(overrides = {}) {
   }
 }
 
-const usage = collectEdgeUsage([`import Used from '@deepseek-ai/dsh-used'`], [])
+const usage = collectEdgeUsage([`import Used from '@deepseek-ai/dsh-used'\nexport const used = Used`], [])
 
 describe('upstream parity', () => {
   it('reads composition rows, nested groups, and Workers platform gates', () => {
@@ -174,20 +174,23 @@ describe('upstream parity', () => {
       .toThrow(/no row: none; no section: @deepseek-ai\/dsh-tool-todo/u)
   })
 
-  it('counts runtime imports and the boot graph, not type-only imports, comments, or strings', () => {
+  it('counts imports that survive compilation and the boot graph, not type-only uses, comments, or strings', () => {
     const found = collectEdgeUsage([
       `import type { A } from '@deepseek-ai/dsh-types-only'`,
       `import { type B, type C } from '@deepseek-ai/dsh-named-types'`,
-      `import * as Fs from '@deepseek-ai/dsh-tool-fs'`,
-      `const { X } = await import('@deepseek-ai/dsh-lazy/sub')`,
-      `const { TYPERT } = await import('@deepseek-ai/dsh-cast/typert' as string)`,
+      `import * as Fs from '@deepseek-ai/dsh-tool-fs'\nexport const fs = Fs`,
+      `export const { X } = await import('@deepseek-ai/dsh-lazy/sub')`,
+      `export const { TYPERT } = await import('@deepseek-ai/dsh-cast/typert' as string)`,
       `// import Removed from '@deepseek-ai/dsh-commented-out'`,
       `const text = "import Nope from '@deepseek-ai/dsh-in-a-string'"`,
       `/* await import('@deepseek-ai/dsh-block-comment') */`,
+      `import { Shape } from '@deepseek-ai/dsh-erased'\nexport function f(value: Shape): Shape { return value }`,
+      `import { Kept } from '@deepseek-ai/dsh-kept'\nexport const k = Kept`,
     ], [{ id: '@deepseek-ai/dsh-client-ui-chat' }])
     expect([...found.packages].sort()).toEqual([
       '@deepseek-ai/dsh-cast',
       '@deepseek-ai/dsh-client-ui-chat',
+      '@deepseek-ai/dsh-kept',
       '@deepseek-ai/dsh-lazy',
       '@deepseek-ai/dsh-tool-fs',
     ])
