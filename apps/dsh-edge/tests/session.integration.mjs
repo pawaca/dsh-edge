@@ -1616,10 +1616,7 @@ try {
     itemId: queuedImageItem.id,
     action: {
       kind: 'edit',
-      content: [
-        { type: 'text', text: 'edited queued image caption' },
-        queuedImageBlock,
-      ],
+      content: [{ type: 'text', text: 'edited queued image caption' }],
     },
   })
   assert.equal(editedImageQueue.body.result.ok, true)
@@ -1627,7 +1624,7 @@ try {
     && message.payload.sessionId === protocolSessionId
     && message.payload.items.some(item => item.id === queuedImageItem.id
       && item.message.content[0]?.text === 'edited queued image caption'
-      && item.message.content[1]?.type === 'image'))
+      && item.message.content.length === 1))
   const injectedImageQueue = await rpc('session.updateQueue', {
     sessionId: protocolSessionId,
     itemId: queuedImageItem.id,
@@ -1645,7 +1642,7 @@ try {
   assert.equal(injectedImageQueue.body.result.ok, false)
   assert.equal(
     injectedImageQueue.body.result.error.details.reason,
-    'QUEUE_EDIT_ATTACHMENT_INVALID',
+    'QUEUE_EDIT_NON_TEXT',
   )
   const removedImageQueue = await rpc('session.updateQueue', {
     sessionId: protocolSessionId,

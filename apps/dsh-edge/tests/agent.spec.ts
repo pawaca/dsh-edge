@@ -24,10 +24,8 @@ import {
   createEdgeBashTool,
   type EdgeShell,
 } from '../src/agent.ts'
-import {
-  DeepSeekAdapter,
-  resolveAdapterOptions,
-} from '@deepseek-ai/dsh-llm-deepseek'
+import { DeepSeekAdapter, catalogModelInfo } from '@deepseek-ai/dsh-llm-deepseek'
+import { resolveAdapterOptions } from '@deepseek-ai/dsh-llm-deepseek-api-key'
 import {
   resolveEdgeBaseURL,
   resolveEdgeMaxOutputTokens,
@@ -218,25 +216,23 @@ describe('dsh-edge native agent runtime', () => {
     expect(EDGE_PLAN_MODE_SECTION).not.toContain('todo_write')
   })
 
-  it('reuses the upstream DeepSeek catalog including the experimental vision model', async () => {
+  it('reuses the upstream DeepSeek catalog with image input on the default model', async () => {
     const adapter = new DeepSeekAdapter({
       options: () => resolveAdapterOptions({}),
-      resolveApiKey: async (_connection) => 'test-key',
+      resolveAuth: async () => ({ headers: { 'x-api-key': 'test-key' } }),
+      // The same provider-owned discovery the mounted API-key package registers.
+      discoverModels: async provider => resolveAdapterOptions({}).models.map(model => catalogModelInfo(provider, model)),
       resolveUserId: () => 'test-user' as never,
       prepareExtensions: async () => ({}) as never,
     })
     const models = await adapter.listModels('deepseek-official')
 
-    expect(models.map(model => model.id)).toEqual([
-      'deepseek-flash',
-      'deepseek-v4-flash',
-      'deepseek-v4-pro',
-      'deepseek-v4-flash-vision-exp',
-    ])
-    await expect(adapter.resolveModel(
-      'deepseek-official',
-      'deepseek-v4-flash-vision-exp',
-    )).resolves.toMatchObject({ inputModalities: ['text', 'image'] })
+    expect(models.map(model => model.id)).toEqual(['deepseek-flash', 'deepseek-v4-pro'])
+    await expect(adapter.resolveModel('deepseek-official', 'deepseek-flash'))
+      .resolves.toMatchObject({ inputModalities: ['text', 'image'] })
+    // A model id an owner saved from an earlier catalog still resolves with defaults.
+    await expect(adapter.resolveModel('deepseek-official', 'deepseek-v4-flash'))
+      .resolves.toMatchObject({ id: 'deepseek-v4-flash' })
   })
 
   it('validates the deployment stream idle timeout', () => {
@@ -256,12 +252,12 @@ describe('dsh-edge native agent runtime', () => {
   })
 
   it('validates the deployment model and reasoning policy', () => {
-    expect(resolveEdgeBaseURL()).toBe('https://api.deepseek.com')
+    expect(resolveEdgeBaseURL()).toBe('https://api.deepseek.com/anthropic')
     expect(resolveEdgeBaseURL('http://127.0.0.1:9797/v1')).toBe('http://127.0.0.1:9797/v1')
     expect(() => resolveEdgeBaseURL('http://[')).toThrow(/valid HTTP\(S\) URL/)
     expect(() => resolveEdgeBaseURL('file:///tmp/api')).toThrow(/valid HTTP\(S\) URL/)
     expect(() => resolveEdgeBaseURL('https://key@example.com')).toThrow(/without credentials/)
-    expect(resolveEdgeModel()).toBe('deepseek-v4-flash')
+    expect(resolveEdgeModel()).toBe('deepseek-flash')
     expect(resolveEdgeModel('deepseek-v4-pro')).toBe('deepseek-v4-pro')
     expect(() => resolveEdgeModel('bad model')).toThrow(/valid model id/)
     expect(() => resolveEdgeModel('x'.repeat(129))).toThrow(/valid model id/)
@@ -366,7 +362,7 @@ describe('dsh-edge native agent runtime', () => {
       expect(nonSystemMessages).toMatchObject([
         { role: 'user' },
         { role: 'assistant', content: [{ type: 'tool-call', id: callId }] },
-        { role: 'user', content: [{ type: 'tool-result', toolCallId: callId, isError: false }] },
+        { role: 'tool', toolCallId: callId, content: [{ type: 'text' }] },
       ])
       expect(runtime.events.filter(event => event.type === 'tool/call')).toHaveLength(1)
       expect(runtime.events.filter(event => event.type === 'tool/result')).toHaveLength(1)
@@ -508,10 +504,7 @@ describe('dsh-edge subagent delegation', () => {
           && ((e.data as { message?: { source?: { callId?: string } } }).message?.source?.callId === callId),
       )
       expect(toolResult).toBeDefined()
-      const resultContent = (toolResult!.data as {
-        message: { content: { isError: boolean }[] }
-      }).message.content[0]!
-      expect(resultContent.isError).toBe(false)
+      expect((toolResult!.data as { message: { isError?: boolean } }).message.isError).not.toBe(true)
       expect(runtime.childHeaders.length).toBeGreaterThanOrEqual(1)
       expect(runtime.childHeaders[0]).toMatchObject({
         parentSession: runtime.agent.session.header.id,
@@ -656,8 +649,8 @@ describe('dsh-edge background job registry', () => {
       )
       expect(subagentResult).toBeDefined()
       const resultText = (subagentResult!.data as {
-        message: { content: { content: { type: string; text: string }[] }[] }
-      }).message.content[0]!.content[0]!.text
+        message: { content: { type: string; text: string }[] }
+      }).message.content[0]!.text
       expect(resultText).toMatch(/^started background subagent job subagent-/)
       expect(runtime.adapter.requests.length).toBeGreaterThanOrEqual(2)
       const childRequest = runtime.adapter.requests.find(r => r.sessionId !== runtime.agent.id)

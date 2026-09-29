@@ -798,7 +798,7 @@ export class EdgeSessionStore {
   typertGateway(): {
     invoke(request: { namespace: string; method: string; args: Record<string, unknown>; signal?: AbortSignal }): Promise<unknown>
     wireStream: {
-      open(endpoint: string, payload: unknown, signal: AbortSignal): Promise<AsyncIterable<unknown>>
+      open(endpoint: string, payload: unknown, uplink: AsyncIterable<unknown>, peer: undefined, signal: AbortSignal): Promise<AsyncIterable<unknown>>
       failure(error: unknown): { code: string; message: string; details: object }
     }
   } | undefined {

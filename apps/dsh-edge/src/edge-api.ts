@@ -131,7 +131,7 @@ export interface EdgeApiRuntime {
     sessionId: SessionId,
     itemId: MessageId,
     action: QueueAction,
-  ): 'accepted' | 'queue-item-not-found' | 'steer-unavailable' | 'queue-edit-attachment-invalid' | Promise<'accepted' | 'queue-item-not-found' | 'steer-unavailable' | 'queue-edit-attachment-invalid'>
+  ): 'accepted' | 'queue-item-not-found' | 'steer-unavailable' | Promise<'accepted' | 'queue-item-not-found' | 'steer-unavailable'>
   cancel(sessionId: SessionId): boolean
   workspaceList(): Promise<{
     items: WorkspaceView[]
@@ -488,17 +488,17 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
       },
       async updateQueue(request: RpcRequest<SessionUpdateQueuePayload>) {
         const { sessionId, itemId, action } = request.payload
-        if (action.kind === 'edit'
-          && action.content.some(block => block.type !== 'text' && block.type !== 'image')) {
+        // Upstream queue edits replace the pending content with text only.
+        if (action.kind === 'edit' && action.content.some(block => block.type !== 'text')) {
           return Promise.resolve(fail(request, {
             code: 'attachment-error',
-            message: 'Queue edits accept text and previously admitted images only.',
+            message: 'Queue edits accept text content only.',
             details: { reason: 'QUEUE_EDIT_NON_TEXT' },
           }))
         }
         if (action.kind === 'edit'
           && messageTextByteLength(
-            action.content.filter((b): b is Extract<PromptContentPart, { type: 'text' }> => b.type === 'text'),
+            action.content,
           ) > MAX_MESSAGE_TEXT_BYTES) {
           return Promise.resolve(fail(request, {
             code: 'attachment-error',
@@ -524,13 +524,6 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
             code: 'steer-unavailable',
             message: 'The current turn no longer accepts steering.',
             details: { itemId },
-          }))
-        }
-        if (outcome === 'queue-edit-attachment-invalid') {
-          return Promise.resolve(fail(request, {
-            code: 'attachment-error',
-            message: 'Queue edits may only preserve images already admitted for this pending item.',
-            details: { reason: 'QUEUE_EDIT_ATTACHMENT_INVALID' },
           }))
         }
         return Promise.resolve(ok(request, { accepted: true as const }))

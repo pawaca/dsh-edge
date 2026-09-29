@@ -15,7 +15,6 @@ import {
 } from '@cloudflare/computer/backends/container'
 import type { WorkerShellLoader } from '@cloudflare/computer/backends/worker-shell'
 import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
-import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { SessionListMetadata, QueueAction } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/types'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
@@ -904,7 +903,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
 
   private async pumpRemoteStream(
     socket: WebSocket,
-    gateway: { wireStream: { open(endpoint: string, payload: unknown, signal: AbortSignal): Promise<AsyncIterable<unknown>>; failure(error: unknown): { code: string; message: string; details: object } } },
+    gateway: { wireStream: { open(endpoint: string, payload: unknown, uplink: AsyncIterable<unknown>, peer: undefined, signal: AbortSignal): Promise<AsyncIterable<unknown>>; failure(error: unknown): { code: string; message: string; details: object } } },
     streamId: string,
     endpoint: string,
     payload: unknown,
@@ -917,7 +916,8 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       }))
     }
     try {
-      let source = await gateway.wireStream.open(endpoint, payload, abort.signal)
+      // No mounted Remote endpoint declares client-to-host items; the operator's in-process peer owns the stream.
+      let source = await gateway.wireStream.open(endpoint, payload, emptyUplink(), undefined, abort.signal)
       if (endpoint === 'workspaceFiles/changes') {
         const iterator = source[Symbol.asyncIterator]()
         let first = true
@@ -1712,7 +1712,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     sessionId: SessionId,
     itemId: MessageId,
     action: QueueAction,
-  ): Promise<'accepted' | 'queue-item-not-found' | 'steer-unavailable' | 'queue-edit-attachment-invalid'> {
+  ): Promise<'accepted' | 'queue-item-not-found' | 'steer-unavailable'> {
     const pending = this.mainQueue.pending(sessionId).find(input => input.message.id === itemId)
     if (pending !== undefined) {
       if (action.kind === 'steer') {
@@ -1724,7 +1724,6 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         return 'accepted'
       }
       if (action.kind === 'edit') {
-        if (!preservesAdmittedQueueImages(pending.message.content, action.content)) return 'queue-edit-attachment-invalid'
         this.mainQueue.edit(sessionId, itemId, { ...pending.message, content: [...action.content] })
       } else {
         this.mainQueue.remove(sessionId, itemId)
@@ -1750,9 +1749,6 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       return 'steer-unavailable'
     }
     if (action.kind === 'edit') {
-      if (!preservesAdmittedQueueImages(message.content, action.content)) {
-        return 'queue-edit-attachment-invalid'
-      }
       agent.inbox.replace(itemId, freezeMessage({ ...message, content: [...action.content] } as UserMessage))
     } else {
       agent.inbox.remove(itemId)
@@ -1948,30 +1944,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
   }
 }
 
-/** Keep queue edits inside the exact attachment authority of one pending message. */
-function preservesAdmittedQueueImages(
-  original: readonly ContentBlock[],
-  edited: readonly ContentBlock[],
-): boolean {
-  const available = original.flatMap(block => block.type === 'image' ? [block.attachment] : [])
-  for (const block of edited) {
-    if (block.type === 'text') continue
-    if (block.type !== 'image') return false
-    const index = available.findIndex(candidate => sameImageRef(candidate, block.attachment))
-    if (index < 0) return false
-    available.splice(index, 1)
-  }
-  return true
-}
-
-function sameImageRef(left: ImageAttachmentRef, right: ImageAttachmentRef): boolean {
-  return left.attachmentId === right.attachmentId
-    && left.mediaType === right.mediaType
-    && left.bytes === right.bytes
-    && left.width === right.width
-    && left.height === right.height
-    && left.name === right.name
-}
+async function* emptyUplink(): AsyncIterable<unknown> {}
 
 function requireOwnerSessionExpiry(request: Request): number {
   const source = request.headers.get(OWNER_SESSION_EXPIRY_HEADER)

@@ -47,11 +47,11 @@ async function harness() {
   const interceptor = (ctx.get('connection') as EdgeTypertConnection).current()
   if (interceptor === undefined) throw new Error('gateway did not register its interceptor')
   const gateway = ctx.get('typertGateway') as {
-    wireStream: { open(endpoint: string, payload: unknown, signal: AbortSignal): Promise<AsyncIterable<unknown>> }
+    wireStream: { open(endpoint: string, payload: unknown, uplink: AsyncIterable<unknown>, peer: undefined, signal: AbortSignal): Promise<AsyncIterable<unknown>> }
   }
   const openEvents = async (): Promise<EventStream> => {
     const abort = new AbortController()
-    const stream = await gateway.wireStream.open('$events', { args: {} }, abort.signal)
+    const stream = await gateway.wireStream.open('$events', { args: {} }, (async function* () {})(), undefined, abort.signal)
     const iterator = stream[Symbol.asyncIterator]()
     const ready = (await iterator.next()).value as { type: string; clientId: string; host: { home: string } }
     expect(ready.type).toBe('ready')
