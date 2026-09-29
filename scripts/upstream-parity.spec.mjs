@@ -61,6 +61,13 @@ describe('upstream parity', () => {
     ])
   })
 
+  it('fails when a row uses a YAML layout the parser does not read', () => {
+    const flow = `${composition}- { id: extra, name: '@deepseek-ai/dsh-extra' }\n`
+    expect(() => parseComposition(flow)).toThrow(/rows the parser did not read: @deepseek-ai\/dsh-extra/u)
+    // A commented-out row is not a row.
+    expect(parseComposition(`${composition}# - id: old\n#   name: '@deepseek-ai/dsh-old'\n`)).toHaveLength(5)
+  })
+
   it('rejects a disabled expression it cannot evaluate, including an extended platform gate', () => {
     for (const gate of ['process.env.X', "process.platform !== 'win32' && process.env.FEATURE"]) {
       expect(() => parseComposition(`- id: x\n  name: '@deepseek-ai/dsh-x'\n  disabled: !!js ${gate}\n`))

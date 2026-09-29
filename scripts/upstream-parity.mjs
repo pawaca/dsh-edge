@@ -58,6 +58,8 @@ function disabledOnWorkers(raw) {
 /**
  * List the plugin rows of one cordis composition file. A row starts at a `- ` list item; its
  * `name` and `disabled` keys sit at the item's key indentation, so nested groups parse as rows too.
+ * Every scoped `name:` anywhere in the text, whatever its YAML form, must come out as a row, so a
+ * row written in a layout this parser does not read fails instead of disappearing.
  */
 export function parseComposition(text) {
   const rows = []
@@ -73,9 +75,19 @@ export function parseComposition(text) {
     const key = /^(\s*)(\w+):\s*(.*)$/u.exec(line)
     if (current && key && key[1].length === current.indent) assignKey(current, key[2], key[3])
   }
-  return rows
+  const parsed = rows
     .filter(row => row.name?.startsWith(scope))
     .map(({ name, disabled }) => ({ name, disabled }))
+  const parsedNames = new Set(parsed.map(row => row.name))
+  const unread = new Set()
+  for (const line of text.split('\n')) {
+    const code = line.replace(/(^|\s)#.*$/u, '')
+    for (const [, name] of code.matchAll(/\bname:\s*['"]?(@deepseek-ai\/[a-z0-9./-]+)/gu)) {
+      if (!parsedNames.has(name)) unread.add(name)
+    }
+  }
+  if (unread.size > 0) throw new Error(`upstream-parity: composition rows the parser did not read: ${[...unread].join(', ')}; update parseComposition`)
+  return parsed
 }
 
 function assignKey(row, key, raw) {
