@@ -115,7 +115,7 @@ export async function runKeylessInstall() {
       'TERMINAL',
       normalizeTerminal(result.stdout),
       'BOUNDARY EVENTS',
-      ...events.map(event => JSON.stringify(event)),
+      ...events.map(event => JSON.stringify(event).replaceAll(edgeVersion, '{{version}}')),
       '',
     ].join('\n')
   } finally {

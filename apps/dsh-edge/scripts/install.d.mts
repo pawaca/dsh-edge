@@ -27,6 +27,8 @@ export interface InstallerUi {
   existingWorker(existing: {
     workerName: string
     mode: RuntimeMode
+    /** The running release predates the 0.19 session format; updating migrates stored sessions. */
+    sessionFormatUpgrade: boolean
   }): Promise<'update' | 'change' | 'rename' | 'cancel'>
   /** The Worker name belongs to something other than dsh-edge; it is never updated. */
   nameTaken(workerName: string): Promise<'rename' | 'cancel'>
@@ -193,4 +195,5 @@ export function executeWrangler(args: string[], options?: {
 export function inspectExistingDeployment(options: ExistingDeploymentOptions): Promise<{
   mode: RuntimeMode
   attachmentStorage: AttachmentStorage
+  sessionFormatUpgrade: boolean
 } | null>

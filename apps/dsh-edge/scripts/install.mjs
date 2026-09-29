@@ -17,6 +17,9 @@ export const LOGIN_PROFILE = 'dsh-edge-install'
 const appDirectory = fileURLToPath(new URL('..', import.meta.url))
 const require = createRequire(import.meta.url)
 const WRANGLER_CLI = require.resolve('wrangler')
+const EDGE_VERSION = require('../package.json').version
+/** Worker version tag naming the dsh-edge release that deployed it. */
+const RELEASE_TAG = `v${EDGE_VERSION}`
 const AUTH_ENV_KEYS = Object.freeze([
   'CLOUDFLARE_ACCOUNT_ID',
   'CLOUDFLARE_API_KEY',
@@ -340,6 +343,8 @@ export function wranglerDeployArgs({
     workerName,
     '--config',
     configFile,
+    '--tag',
+    RELEASE_TAG,
   ]
   if (secretsFile !== undefined) args.push('--secrets-file', secretsFile)
   if (temporary) args.push('--temporary')
@@ -416,8 +421,10 @@ async function staleContainerCleanupCommand({ runWrangler, environment, profile,
 /**
  * Inspect the active Worker versions once for what an update must preserve:
  * the runtime mode (so the owner is not asked again) and the attachment
- * backend. `--name` alone selects the Worker, whatever mode deployed it.
- * Returns null for a Worker that is not dsh-edge, which must never be updated.
+ * backend, and whether stored sessions still use the pre-0.19 format (no
+ * active version carries a 0.19+ release tag). `--name` alone selects the
+ * Worker, whatever mode deployed it. Returns null for a Worker that is not
+ * dsh-edge, which must never be updated.
  */
 export async function inspectExistingDeployment({
   workerName,
@@ -435,12 +442,14 @@ export async function inspectExistingDeployment({
   const versionIds = deploymentVersionIds(status.stdout)
   const modes = new Set()
   const backends = new Set()
+  let sessionFormatUpgrade = false
   for (const versionId of versionIds) {
     const version = await runWrangler([
       'versions', 'view', versionId, ...args,
     ], { environment, signal })
     requireSuccess(version, `Could not inspect existing Worker version ${versionId}`)
-    const bindings = versionBindings(version.stdout)
+    const { bindings, tag } = versionDetails(version.stdout)
+    if (!releasedFromSessionFormatV4(tag)) sessionFormatUpgrade = true
     if (!bindings.some(binding => binding.name === 'DSH_EDGE_INSTANCE'
       && binding.type === 'durable_object_namespace')) return null
     modes.add(bindingsRuntimeMode(bindings))
@@ -455,7 +464,14 @@ export async function inspectExistingDeployment({
   return {
     mode: modes.values().next().value,
     attachmentStorage: backends.values().next().value,
+    sessionFormatUpgrade,
   }
+}
+
+/** 0.19 is the first release that stores sessions in format v4 and tags its versions. */
+function releasedFromSessionFormatV4(tag) {
+  const match = /^v(\d+)\.(\d+)\./u.exec(tag ?? '')
+  return match !== null && (Number(match[1]) > 0 || Number(match[2]) >= 19)
 }
 
 // The same bindings the Worker's runtime providers probe decide its mode.
@@ -488,7 +504,7 @@ function deploymentVersionIds(source) {
   return [...new Set(ids)]
 }
 
-function versionBindings(source) {
+function versionDetails(source) {
   let version
   try {
     version = JSON.parse(source)
@@ -501,7 +517,8 @@ function versionBindings(source) {
   if (!Array.isArray(bindings) || bindings.some(binding => !isRecord(binding))) {
     throw new Error('Wrangler returned unexpected Worker version details.')
   }
-  return bindings
+  const tag = isRecord(version.annotations) ? version.annotations['workers/tag'] : undefined
+  return { bindings, tag: typeof tag === 'string' ? tag : undefined }
 }
 
 function bindingsAttachmentStorage(bindings) {
@@ -638,7 +655,7 @@ export async function installEdge({
       }
       updateAction = existing === null
         ? await ui.nameTaken(workerName)
-        : await ui.existingWorker({ workerName, mode: existing.mode })
+        : await ui.existingWorker({ workerName, mode: existing.mode, sessionFormatUpgrade: existing.sessionFormatUpgrade })
       if (updateAction === 'cancel') throw new InstallCancelledError()
       if (updateAction !== 'rename') break
       existing = undefined
