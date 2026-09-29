@@ -28,7 +28,7 @@ npx dsh-edge install
 
 - **Agent 能力** — GoalBar UI 的 goal 跟踪、文件工具（read、write、edit、read_image）、长对话自动上下文压缩、自动生成 session 标题。
 - **工作区** — 多持久工作区，支持创建、重命名、归档和排序；基于 Durable Object SQLite 的 `/workspace` 文件系统；可配置超时的 bash 工具。
-- **模型** — 通过上游选择器使用 DeepSeek V4 Flash、V4 Pro 和 Vision Exp；运行时可配置设置（模型、API key、推理强度），无需重新部署；Web Search 与 PNG/JPEG 图片输入。
+- **模型** — 通过上游选择器使用 DeepSeek V4.1 Flash（支持图片输入）和 V4 Pro；运行时可配置设置（模型、API key、推理强度），无需重新部署；Web Search 与 PNG/JPEG 图片输入。
 - **对话** — session fork 分支对话、queue/steer 消息编辑、任意浏览器的持久历史记录。
 - **部署** — 属于你自己的 Cloudflare Worker、凭据和数据；无需绑定仓库或构建流水线即可原地升级。
 
@@ -59,7 +59,7 @@ npx dsh-edge upgrade
 
 - dsh-edge 面向单一 owner，不提供注册、多用户、角色或租户路由。
 - DeepSeek key 在部署时以 Worker secret 保存，或通过运行时设置 UI 配置时存入 Durable Object storage。部署的持久数据留在你的 Cloudflare 账户内。
-- 部分上游能力（子进程、PTY）需要 Cloudflare Containers，尚未适配。MCP 的 Streamable HTTP 传输在免费 plan 上可行但尚未安装。Vision Exp 是实验模型，是否可用取决于 DeepSeek 账户。详细状态见[兼容矩阵](apps/dsh-edge/README.zh.md#cloudflare-兼容矩阵)和 [wiki](https://github.com/pawaca/dsh-edge/wiki)。
+- 部分上游能力（子进程、PTY）需要 Cloudflare Containers，尚未适配。MCP 的 Streamable HTTP 传输在免费 plan 上可行但尚未安装。详细状态见[兼容矩阵](apps/dsh-edge/README.zh.md#cloudflare-兼容矩阵)和 [wiki](https://github.com/pawaca/dsh-edge/wiki)。
 
 ## 基于 DeepSeek Harness
 
