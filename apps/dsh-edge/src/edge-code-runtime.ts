@@ -23,19 +23,20 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { parse } from 'acorn'
 import { RpcTarget } from 'cloudflare:workers'
-import CodeRuntime, {
+import PtcRuntime, {
   DUNDER_MEMBER,
   PORTABLE_RESERVED_WORDS,
   RESERVED_BINDING_GLOBALS,
   RESERVED_ERROR_MEMBERS,
-} from '@deepseek-ai/dsh-code-runtime'
+} from '@deepseek-ai/dsh-ptc-runtime'
 import type {
-  CodeBindingNamespace,
-  CodeJsonValue,
-  CodeRunFailure,
-  CodeRunRequest,
-  CodeRunResult,
-} from '@deepseek-ai/dsh-code-runtime'
+  PtcBindingNamespace,
+  PtcJsonValue,
+  PtcRunFailure,
+  PtcRunRequest,
+  PtcRunResult,
+  PtcRunSpec,
+} from '@deepseek-ai/dsh-ptc-runtime'
 import { snapshotJsonValue } from '@deepseek-ai/dsh-util-values'
 import { transform } from 'sucrase'
 import {
@@ -72,14 +73,14 @@ export interface EdgeCodeRuntimeConfig {
 
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/u
 
-type BridgeReply = { ok: true, value: CodeJsonValue } | { ok: false, message: string }
+type BridgeReply = { ok: true, value: PtcJsonValue } | { ok: false, message: string }
 
 interface IsolateOutcome {
   value?: unknown
   error?: { kind?: unknown, message?: unknown }
 }
 
-export default class EdgeCodeRuntime extends CodeRuntime {
+export default class EdgeCodeRuntime extends PtcRuntime {
   static Config: z<EdgeCodeRuntimeConfig> = z.object({
     loader: z.any().required() as z<WorkflowLoader>,
     cpuMs: z.natural().min(1).default(30_000),
@@ -103,11 +104,19 @@ export default class EdgeCodeRuntime extends CodeRuntime {
   }
 
   /**
+   * Complete a request into a run spec. Programs run against the workspace;
+   * the wall-clock ceiling is `maxWallMs`, so no per-call timeout is recorded.
+   */
+  resolve(request: PtcRunRequest): PtcRunSpec {
+    return { ...request, cwd: request.cwd ?? '/workspace', timeoutMs: request.timeoutMs ?? null }
+  }
+
+  /**
    * Run one program in a fresh isolate. Program outcomes, including a
    * type-strip or parse failure, resolve with `result.error`; only seam
    * misuse (a disposed runtime, an invalid binding namespace) rejects.
    */
-  async run(request: CodeRunRequest): Promise<CodeRunResult> {
+  async run(request: PtcRunSpec): Promise<PtcRunResult> {
     if (this.disposed) throw new Error('edge code-runtime: run() after disposal')
     const bindings = validateBindings(request.bindings)
     const ledger = new OutputLedger(this.config.maxOutputBytes)
@@ -138,8 +147,8 @@ export default class EdgeCodeRuntime extends CodeRuntime {
 }
 
 /** Reject malformed binding globals or error classes as seam misuse, mirroring the worker-thread runtime. */
-function validateBindings(namespaces: readonly CodeBindingNamespace[]): Map<string, CodeBindingNamespace> {
-  const bindings = new Map<string, CodeBindingNamespace>()
+function validateBindings(namespaces: readonly PtcBindingNamespace[]): Map<string, PtcBindingNamespace> {
+  const bindings = new Map<string, PtcBindingNamespace>()
   for (const namespace of namespaces) {
     const global = namespace.global
     if (!IDENTIFIER.test(global) || PORTABLE_RESERVED_WORDS.has(global)) {
@@ -176,7 +185,7 @@ function validateBindings(namespaces: readonly CodeBindingNamespace[]): Map<stri
  * Sucrase keeps line numbers and turns non-erasable syntax such as `enum`
  * into JavaScript (the worker-thread runtime rejects it instead).
  */
-export function buildProgramModule(program: string, bindings: Map<string, CodeBindingNamespace>, maxSourceChars: number): string {
+export function buildProgramModule(program: string, bindings: Map<string, PtcBindingNamespace>, maxSourceChars: number): string {
   if (program.length > maxSourceChars) {
     throw new Error(`program is ${program.length} characters, over the ${maxSourceChars}-character limit`)
   }
@@ -217,8 +226,8 @@ class CodeRunBridge extends RpcTarget {
 
 /** One run: owns its isolate, logs, ledger, and settlement. `result` never rejects. */
 class CodeRun {
-  readonly result: Promise<CodeRunResult>
-  private resolveResult!: (result: CodeRunResult) => void
+  readonly result: Promise<PtcRunResult>
+  private resolveResult!: (result: PtcRunResult) => void
   private settled = false
   private calls = 0
   private readonly logs: string[] = []
@@ -236,7 +245,7 @@ class CodeRun {
   constructor(
     private readonly ctx: Context,
     private readonly config: EdgeCodeRuntimeConfig,
-    private readonly bindings: Map<string, CodeBindingNamespace>,
+    private readonly bindings: Map<string, PtcBindingNamespace>,
     source: string,
     private readonly signal: AbortSignal | undefined,
     private readonly ledger: OutputLedger,
@@ -323,9 +332,9 @@ class CodeRun {
     } catch (error) {
       return { ok: false, message: clip(messageOf(error), 16 * 1024) }
     }
-    let value: CodeJsonValue | undefined
+    let value: PtcJsonValue | undefined
     try {
-      value = snapshotJsonValue(resolved) as CodeJsonValue | undefined
+      value = snapshotJsonValue(resolved) as PtcJsonValue | undefined
     } catch {
       value = undefined
     }
@@ -344,7 +353,7 @@ class CodeRun {
   }
 
   /** Settle as a failure (abort, timeout, disposal, isolate death). */
-  settle(failure: CodeRunFailure): void {
+  settle(failure: PtcRunFailure): void {
     this.finish(this.ledger.failure(this.logs, failure))
   }
 
@@ -364,7 +373,7 @@ class CodeRun {
       this.finish(this.ledger.success(this.logs))
       return
     }
-    const value = snapshotJsonValue(outcome.value) as CodeJsonValue | undefined
+    const value = snapshotJsonValue(outcome.value) as PtcJsonValue | undefined
     if (value === undefined) {
       this.settle({ kind: 'invalid-output', message: 'program completion must be lossless JSON' })
       return
@@ -372,7 +381,7 @@ class CodeRun {
     this.finish(this.ledger.success(this.logs, value))
   }
 
-  private finish(result: CodeRunResult): void {
+  private finish(result: PtcRunResult): void {
     if (this.settled) return
     this.settled = true
     clearTimeout(this.wallTimer)
@@ -414,18 +423,18 @@ export class OutputLedger {
     return true
   }
 
-  success(logs: string[], value?: CodeJsonValue): CodeRunResult {
+  success(logs: string[], value?: PtcJsonValue): PtcRunResult {
     if (value !== undefined && this.bytes + jsonBytes(value) > this.maxBytes) return this.limit(logs)
     return { logs: [...logs], ...value !== undefined ? { value } : {} }
   }
 
-  failure(logs: string[], error: CodeRunFailure): CodeRunResult {
+  failure(logs: string[], error: PtcRunFailure): PtcRunResult {
     if (this.bytes + jsonBytes(error.message) > this.maxBytes) return this.limit(logs)
     return { logs: [...logs], error }
   }
 
   /** The explicit output-limit failure, keeping the logs that fit beside its message. */
-  limit(logs: string[]): CodeRunResult {
+  limit(logs: string[]): PtcRunResult {
     const message = `outer output exceeded ${this.maxBytes} bytes`
     const budget = this.maxBytes - jsonBytes(message)
     const kept: string[] = []

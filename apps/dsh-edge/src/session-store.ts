@@ -97,7 +97,7 @@ import {
   createEdgeBashTool,
   type EdgeShell,
 } from './agent.ts'
-import * as dshLlmDeepseek from '@deepseek-ai/dsh-llm-deepseek'
+import * as dshLlmDeepseekApiKey from '@deepseek-ai/dsh-llm-deepseek-api-key'
 import { DeepSeekFileStore } from '@deepseek-ai/dsh-llm-deepseek'
 import { DurableObjectUploadIndex } from './do-upload-index.ts'
 import {
@@ -182,7 +182,7 @@ const MAX_SEARCH_EVENTS_PER_SESSION = 512
 const MAX_SEARCH_STORED_BYTES_PER_SESSION = 256 * 1_024
 const EDGE_PROVIDER = 'deepseek-official'
 const EDGE_CURRENT_DATE_CONTEXT = 'edge:current-date'
-const DEFAULT_EDGE_MODEL = 'deepseek-v4-flash'
+const DEFAULT_EDGE_MODEL = 'deepseek-flash'
 const AGENT_DEFAULT_MODEL_KEY = 'dsh-edge:agent-default-model'
 const MESSAGE_TYPES = new Set<SessionEvent['type']>(['user/message', 'assistant/message'])
 
@@ -358,7 +358,7 @@ export class EdgeSessionStore {
     try {
       const doUploadIndex = new DurableObjectUploadIndex(storage)
       ;(this.context as never as Record<string, unknown>)['edgeFileStore'] = new DeepSeekFileStore({ index: doUploadIndex as never })
-      await this.context.plugin(dshLlmDeepseek, buildEdgeLlmPluginConfig(config)).await()
+      await this.context.plugin(dshLlmDeepseekApiKey, buildEdgeLlmPluginConfig(config) as never).await()
     } catch (error) {
       console.error('dsh-edge: LLM provider plugin failed to initialize; model operations will be unavailable.', error)
     }
@@ -620,7 +620,8 @@ export class EdgeSessionStore {
     this.context.typert.register(GOAL_TYPERT as never)
     await this.context.plugin(ToolGoal)
     await this.context.plugin(GoalRoundDriver)
-    await this.context.plugin(SpillPolicy, { maxInlineBytes: 32_768 })
+    // Upstream estimates 4 bytes per token (50,000 bytes became 12,500 tokens); keep the Edge's 32 KiB budget.
+    await this.context.plugin(SpillPolicy, { maxInlineTokens: 8_192 })
     await installEdgeWebSearch(this.context, config.searchBaseURL)
     await this.context.plugin(AgentLoop, { agents: [] })
     installShortToolPool(this.context)
@@ -826,8 +827,7 @@ export class EdgeSessionStore {
     if (cache === undefined) return undefined
     const session = this.context.sessions.get(summary.id)
     const header = session?.header ?? { id: summary.id, createdAt: summary.createdAt, ...summary.cwd === undefined ? {} : { cwd: summary.cwd } }
-    const inheritedEventCount = session?.inheritedEventCount ?? SessionLogOffset(0)
-    return cache.cachedSnapshot(header as never, inheritedEventCount)
+    return cache.cachedSnapshot(header as never)
   }
 
 
