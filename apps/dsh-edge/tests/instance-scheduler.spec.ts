@@ -22,7 +22,7 @@ it('drains healthy inputs on repeated alarms despite reminder preparation failur
   let retryAt = 0
   const retry = vi.spyOn(scheduleStore, 'setScheduleRetry').mockImplementation((_storage, _id, at) => { retryAt = at })
   const next = vi.spyOn(scheduleStore, 'nextSchedule').mockImplementation(() => ({ sessionId: 'broken', due: retryAt }))
-  const dispatch = vi.fn().mockRejectedValue(new Error('corrupt reminder session'))
+  const dispatch = vi.spyOn(scheduleStore, 'dispatchDueSchedules').mockImplementation(() => { throw new Error('corrupt reminder') })
   const claim = vi.fn(() => ({ input: { seq: 1, sessionId: 'healthy', message: { content: [] } }, epoch: 1, deadline: Date.now() + 60_000 }))
   const finish = vi.fn()
   const run = vi.fn().mockResolvedValue(undefined)
@@ -30,7 +30,6 @@ it('drains healthy inputs on repeated alarms despite reminder preparation failur
     mainDriving: false, model: 'deepseek-chat', env: {},
     activeTurns: new Map(), mainStreams: new Map(), liveQueues: new Map(),
     ctx: { storage: { sql: { exec: () => ({ toArray: () => [{ session_id: 'broken', due: 0 }] }) } } },
-    sessions: { dispatchDueSchedules: dispatch },
     mainQueue: { current: () => undefined, claim, finish },
     scheduleMainWake: vi.fn().mockResolvedValue(undefined),
     claimTurn: vi.fn().mockResolvedValue({ turn: {}, handle: {} }),
@@ -53,7 +52,7 @@ it('drains healthy inputs on repeated alarms despite reminder preparation failur
     expect(finish).toHaveBeenCalledTimes(3)
     expect(retryAt).toBe(160_000)
     expect(runtime.mainDriving).toBe(false)
-  } finally { log.mockRestore(); retry.mockRestore(); next.mockRestore(); vi.useRealTimers() }
+  } finally { log.mockRestore(); retry.mockRestore(); next.mockRestore(); dispatch.mockRestore(); vi.useRealTimers() }
 })
 
 it('recomputes the wake schedule after sleep now stops the container', async () => {

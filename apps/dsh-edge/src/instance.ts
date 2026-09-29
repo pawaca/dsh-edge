@@ -1,6 +1,6 @@
 /** Workspace Durable Object with persistent sessions and streamed agent turns. */
 
-import { initializeSchedules, nextSchedule, scheduleWakeTime, setScheduleRetry } from './schedule-store.ts'
+import { initializeSchedules, nextSchedule, scheduleWakeTime, setScheduleRetry, dispatchDueSchedules } from './schedule-store.ts'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import type { EdgeMcpServerConfig } from './edge-mcp-manager.ts'
 
@@ -720,7 +720,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
           // No progress (including a preparation error) must not create a hot alarm loop.
           setScheduleRetry(this.ctx.storage, due.sessionId, Date.now() + MAIN_WAKE_MS)
           try {
-            if (await this.sessions.dispatchDueSchedules(SessionId(due.sessionId), this.model, this.ctx.storage)) setScheduleRetry(this.ctx.storage, due.sessionId, 0)
+            if (dispatchDueSchedules(this.ctx.storage, due.sessionId, Date.now())) setScheduleRetry(this.ctx.storage, due.sessionId, 0)
           } catch (error) {
             // A broken reminder must not prevent healthy queued sessions from claiming the slot.
             console.error('dsh-edge reminder preparation failed; retry is deferred.', error)

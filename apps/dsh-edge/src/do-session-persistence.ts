@@ -1,6 +1,6 @@
 /** Upstream SessionPersistence implemented over Cloudflare Durable Object SQL. */
 
-import { initializeSchedules, persistScheduleChanges, armScheduleWake, assertScheduleTailRepairable, rebuildSchedules } from './schedule-store.ts'
+import { initializeSchedules } from './schedule-store.ts'
 import { initializeMainQueue, acknowledgeMainInputs } from './main-session-queue.ts'
 import { Context } from '@deepseek-ai/cordis'
 import { decodeStorageRecord, packChunkRuns } from './chunk-rows.ts'
@@ -722,19 +722,12 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
         this.storage.sql.exec('UPDATE dsh_sessions SET agent_preset = ? WHERE id = ?', selected.data.agentPreset, storage.meta.id)
       }
       acknowledgeMainInputs(this.storage, storage.meta.id, events)
-      persistScheduleChanges(this.storage, storage.meta.id, events, storage.inheritedEventCount)
     }
-    if (!events.some(event => event.type === 'schedule/change')) {
-      return promiseFromSync(() => this.storage.transactionSync(write))
-    }
-    return this.storage.transaction(async () => {
-      write()
-      await armScheduleWake(this.storage)
-    })
+    return promiseFromSync(() => this.storage.transactionSync(write))
   }
 
   /** Repair only under write ownership, before the upstream loop appends resume closers. */
-  async repairTornTail(id: SessionId, inheritedEventCount: SessionLogOffset): Promise<SessionEvent[]> {
+  async repairTornTail(id: SessionId, _inheritedEventCount: SessionLogOffset): Promise<SessionEvent[]> {
     return this.storage.transaction(async () => {
       const rows = this.eventRowsFrom(id, 0)
       const { preserved, tornFrom } = scanRows(rows)
@@ -745,14 +738,11 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
       if (tail.some(row => row.type === 'agent/inbox/spliced')) {
         throw new Error('Cannot automatically repair a torn inbox event; input receipt state may already be committed.')
       }
-      assertScheduleTailRepairable(tail)
       this.storage.sql.exec('DELETE FROM dsh_session_events WHERE session_id = ? AND seq >= ?', id, tornFrom)
-      rebuildSchedules(this.storage, id, preserved, inheritedEventCount)
       this.storage.sql.exec('UPDATE dsh_sessions SET revision = revision + 1 WHERE id = ?', id)
       const header = this.rowFor(id)
       if (header === undefined) throw new Error(`session ${id} disappeared during repair`)
       this.updateSummaryFromBatch(id, preserved, header)
-      await armScheduleWake(this.storage)
       return preserved
     })
   }

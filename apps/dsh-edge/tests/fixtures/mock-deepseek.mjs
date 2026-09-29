@@ -133,7 +133,10 @@ export async function startMockDeepSeek(port = 0) {
         sendEvents(response, [
           { choices: [{ delta: { role: 'assistant', content: null, reasoning_content: '' } }] },
           { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_delete_schedule', type: 'function', function: {
-            name: 'schedule_delete', arguments: JSON.stringify({ id: prompt.slice('schedule delete '.length) }),
+            // `latest` names the most recent reminder id a tool result returned in this conversation.
+            name: 'schedule_delete', arguments: JSON.stringify({ id: prompt === 'schedule delete latest'
+              ? [...JSON.stringify(body.messages).matchAll(/schedule-[0-9a-f-]{36}/gu)].at(-1)?.[0]
+              : prompt.slice('schedule delete '.length) }),
           } }] } }] },
           { choices: [{ delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 8, completion_tokens: 3 } },
         ])
@@ -144,7 +147,7 @@ export async function startMockDeepSeek(port = 0) {
         sendEvents(response, [
           { choices: [{ delta: { role: 'assistant', content: null, reasoning_content: '' } }] },
           { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_schedule', type: 'function', function: {
-            name: 'schedule_create', arguments: JSON.stringify({ prompt: 'schedule-fixture-reminder', after_seconds: Number(prompt.slice('schedule once '.length)) }),
+            name: 'schedule_create', arguments: JSON.stringify({ prompt: 'schedule-fixture-reminder', title: 'Fixture reminder', after_seconds: Number(prompt.slice('schedule once '.length)) }),
           } }] } }] },
           { choices: [{ delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 8, completion_tokens: 3 } },
         ])
