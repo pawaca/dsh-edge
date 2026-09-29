@@ -11,14 +11,15 @@
   "packageManager": "pnpm@11.7.0",
   "scripts": {
     "build": "pnpm --filter dsh-edge run bundle:workers",
-    "check": "pnpm run dependency-sync && pnpm run doc-sync && pnpm run lint && pnpm run test && pnpm run typecheck",
+    "check": "pnpm run dependency-sync && pnpm run upstream-parity && pnpm run doc-sync && pnpm run lint && pnpm run test && pnpm run typecheck",
     "dependency-sync": "node scripts/verify-root-harness-lock.mjs",
     "doc-pairs": "node scripts/verify-doc-pairs.mjs",
     "doc-sync": "node scripts/verify-doc-pairs.mjs && node apps/dsh-edge/scripts/legal-files.mjs verify",
     "hooks:install": "lefthook install",
     "lint": "oxlint --type-aware apps/dsh-edge packages/client/ui-edge scripts",
     "test": "vitest run",
-    "typecheck": "pnpm --filter dsh-edge run typecheck && pnpm --filter dsh-edge-client-ui run typecheck"
+    "typecheck": "pnpm --filter dsh-edge run typecheck && pnpm --filter dsh-edge-client-ui run typecheck",
+    "upstream-parity": "node scripts/upstream-parity.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.20.0",
@@ -27,6 +28,7 @@
     "oxlint": "1.81.0",
     "oxlint-tsgolint": "7.0.2001",
     "typescript": "6.0.3",
-    "vitest": "4.1.8"
+    "vitest": "4.1.8",
+    "yaml": "2.9.0"
   }
 }

@@ -1,0 +1,312 @@
+{
+  "note": "Every enabled upstream reference plugin and tool-catalog package the Edge does not use is classified here. Checked by `pnpm run upstream-parity`.",
+  "packages": {
+    "@deepseek-ai/cordis-plugin-timer": {
+      "status": "not-applicable",
+      "reason": "No upstream package the Edge mounts injects the timer service."
+    },
+    "@deepseek-ai/dsh-agent-default-model": {
+      "status": "substitute",
+      "reason": "EdgeAgentDefaultModel in session-store.ts, kept in Durable Object KV."
+    },
+    "@deepseek-ai/dsh-agent-instructions": {
+      "status": "gap",
+      "reason": "AGENTS.md / CLAUDE.md instruction loading; upstream reads the host disk, so the Edge needs a VFS adapter.",
+      "priority": "P2",
+      "issue": 234
+    },
+    "@deepseek-ai/dsh-agent-presets": {
+      "status": "substitute",
+      "reason": "EdgeAgentPresets in agent-presets.ts serves the standard and ptc presets."
+    },
+    "@deepseek-ai/dsh-agent-tool-presentation": {
+      "status": "substitute",
+      "reason": "EdgeAgentPresets.join calls tools.presentAs(\"ptc\") directly."
+    },
+    "@deepseek-ai/dsh-attachment-local": {
+      "status": "substitute",
+      "reason": "EdgeR2AttachmentStore and EdgeDoAttachmentStore in edge-attachment-store.ts."
+    },
+    "@deepseek-ai/dsh-bash-sandbox": {
+      "status": "not-applicable",
+      "reason": "Host-OS process sandboxing, subprocesses, and shell environment."
+    },
+    "@deepseek-ai/dsh-client-hmr": {
+      "status": "not-applicable",
+      "reason": "Development-only hot reload."
+    },
+    "@deepseek-ai/dsh-client-ui-cordis": {
+      "status": "not-applicable",
+      "reason": "Runtime plugin loading (Creator mode); Workers cannot import packages at runtime."
+    },
+    "@deepseek-ai/dsh-code-runtime-worker-thread": {
+      "status": "substitute",
+      "reason": "edge-code-runtime.ts runs each program in its own Dynamic Worker (Isolated only)."
+    },
+    "@deepseek-ai/dsh-command-compact": {
+      "status": "gap",
+      "reason": "/compact command; the compaction engine and tool-result pruner are already mounted.",
+      "priority": "P2"
+    },
+    "@deepseek-ai/dsh-command-feedback": {
+      "status": "gap",
+      "reason": "/feedback and the sessionFeedback Remote behind the Web session feedback dialog; the Edge only has message feedback.",
+      "priority": "P2"
+    },
+    "@deepseek-ai/dsh-command-goal": {
+      "status": "gap",
+      "reason": "/goal command; goal tools and the goal round driver are already mounted.",
+      "priority": "P2"
+    },
+    "@deepseek-ai/dsh-cordis-client-runner": {
+      "status": "not-applicable",
+      "reason": "Runtime plugin loading (Creator mode); Workers cannot import packages at runtime."
+    },
+    "@deepseek-ai/dsh-cordis-host-runner": {
+      "status": "not-applicable",
+      "reason": "Runtime plugin loading (Creator mode); Workers cannot import packages at runtime."
+    },
+    "@deepseek-ai/dsh-credentials-local": {
+      "status": "substitute",
+      "reason": "edge-credentials.ts over Worker secrets and Durable Object storage."
+    },
+    "@deepseek-ai/dsh-deepseek-llm-api-extensions": {
+      "status": "declined",
+      "reason": "Attach session logs or the plugin inventory to official DeepSeek API requests; opt-in upstream and a privacy decision."
+    },
+    "@deepseek-ai/dsh-experimental-tool-agent-team": {
+      "status": "declined",
+      "reason": "Experimental Agent Teams."
+    },
+    "@deepseek-ai/dsh-file-reference-local": {
+      "status": "substitute",
+      "reason": "EdgeFileReferenceService in edge-file-reference.ts over the Computer VFS."
+    },
+    "@deepseek-ai/dsh-fs-observation-policy": {
+      "status": "gap",
+      "reason": "Read-before-write and changed-since-read guards for the file tools; matters more now that container commands also change /workspace.",
+      "priority": "P1"
+    },
+    "@deepseek-ai/dsh-fs-sandbox": {
+      "status": "not-applicable",
+      "reason": "Host-OS process sandboxing, subprocesses, and shell environment."
+    },
+    "@deepseek-ai/dsh-host-directory-picker-auto": {
+      "status": "substitute",
+      "reason": "EdgeDirectoryPicker in edge-directory-picker.ts with a VFS browse backend."
+    },
+    "@deepseek-ai/dsh-host-open-in-app": {
+      "status": "not-applicable",
+      "reason": "Opens files in a desktop application; a Worker has no desktop."
+    },
+    "@deepseek-ai/dsh-host-webserver": {
+      "status": "substitute",
+      "reason": "The Worker fetch entry and edge-api-dispatch.ts."
+    },
+    "@deepseek-ai/dsh-llm-pi-ai": {
+      "status": "not-applicable",
+      "reason": "Upstream design-verification adapter; the Edge uses dsh-llm-deepseek."
+    },
+    "@deepseek-ai/dsh-llm-retry": {
+      "status": "gap",
+      "reason": "Retries failed model requests at durable step boundaries; without it a transient network error or rate limit fails the turn.",
+      "priority": "P1"
+    },
+    "@deepseek-ai/dsh-permission-presets": {
+      "status": "declined",
+      "reason": "Sandbox mode and approval-level presets; not needed for the single-owner deployment."
+    },
+    "@deepseek-ai/dsh-persona": {
+      "status": "substitute",
+      "reason": "SystemPrompt personaPrefix and personaSuffix configuration in session-store.ts."
+    },
+    "@deepseek-ai/dsh-plugin-package-inventory-deepseek": {
+      "status": "declined",
+      "reason": "Attach session logs or the plugin inventory to official DeepSeek API requests; opt-in upstream and a privacy decision."
+    },
+    "@deepseek-ai/dsh-repeat-tool-reminder": {
+      "status": "gap",
+      "reason": "Advisory reminders when the model repeats an identical tool call (3, 5, 8 times); on by default upstream.",
+      "priority": "P1"
+    },
+    "@deepseek-ai/dsh-sandbox-local": {
+      "status": "not-applicable",
+      "reason": "Host-OS process sandboxing, subprocesses, and shell environment."
+    },
+    "@deepseek-ai/dsh-sandbox-policy": {
+      "status": "not-applicable",
+      "reason": "Host-OS process sandboxing, subprocesses, and shell environment."
+    },
+    "@deepseek-ai/dsh-session-checkpoint-policy": {
+      "status": "gap",
+      "reason": "Durable checkpoints before model requests and side-effecting tools. Evaluate first: the Edge drains events on session/flush, and it is not confirmed that this always precedes tool side effects.",
+      "priority": "P1"
+    },
+    "@deepseek-ai/dsh-session-log-deepseek": {
+      "status": "declined",
+      "reason": "Attach session logs or the plugin inventory to official DeepSeek API requests; opt-in upstream and a privacy decision."
+    },
+    "@deepseek-ai/dsh-session-log-export": {
+      "status": "gap",
+      "reason": "Session-log export; the Edge sessionLog endpoint currently answers that export is unavailable.",
+      "priority": "P2"
+    },
+    "@deepseek-ai/dsh-session-persistence-jsonl": {
+      "status": "substitute",
+      "reason": "DurableObjectSessionPersistence in do-session-persistence.ts over Durable Object SQLite."
+    },
+    "@deepseek-ai/dsh-session-query-sqlite": {
+      "status": "tracked",
+      "reason": "FTS5 search; the Edge scans a bounded window instead.",
+      "issue": 92
+    },
+    "@deepseek-ai/dsh-session-stats": {
+      "status": "gap",
+      "reason": "sessionStats projection; dsh-client-ui-chat already reads it.",
+      "priority": "P2"
+    },
+    "@deepseek-ai/dsh-session-telemetry-otel": {
+      "status": "tracked",
+      "reason": "OpenTelemetry session telemetry.",
+      "issue": 94
+    },
+    "@deepseek-ai/dsh-session-turn-outline": {
+      "status": "gap",
+      "reason": "turnOutline projection; dsh-client-ui-chat already reads it.",
+      "priority": "P2"
+    },
+    "@deepseek-ai/dsh-settings-file": {
+      "status": "substitute",
+      "reason": "DurableObjectSettingsProvider in do-settings-provider.ts."
+    },
+    "@deepseek-ai/dsh-shell-env": {
+      "status": "not-applicable",
+      "reason": "Host-OS process sandboxing, subprocesses, and shell environment."
+    },
+    "@deepseek-ai/dsh-skill-filesystem": {
+      "status": "substitute",
+      "reason": "EdgeSkillProvider in edge-skill-provider.ts over Durable Object KV."
+    },
+    "@deepseek-ai/dsh-spill-local": {
+      "status": "substitute",
+      "reason": "EdgeSpillStore in edge-spill-store.ts over the Computer VFS."
+    },
+    "@deepseek-ai/dsh-storage-json": {
+      "status": "substitute",
+      "reason": "DurableObjectStorageBackend in do-storage-backend.ts."
+    },
+    "@deepseek-ai/dsh-subagent-fork-in-process": {
+      "status": "gap",
+      "reason": "Fork subagent backend behind the upstream subagent_fork tool; the Edge only has spawn.",
+      "priority": "P2"
+    },
+    "@deepseek-ai/dsh-subprocess-local": {
+      "status": "not-applicable",
+      "reason": "Host-OS process sandboxing, subprocesses, and shell environment."
+    },
+    "@deepseek-ai/dsh-terminal": {
+      "status": "tracked",
+      "reason": "Persistent PTY sessions (the minimal preset needs them).",
+      "issue": 99
+    },
+    "@deepseek-ai/dsh-terminal-bash": {
+      "status": "tracked",
+      "reason": "Persistent PTY sessions (the minimal preset needs them).",
+      "issue": 99
+    },
+    "@deepseek-ai/dsh-tool-bash": {
+      "status": "substitute",
+      "reason": "createEdgeBashTool in agent.ts: just-bash with container routing."
+    },
+    "@deepseek-ai/dsh-tool-bash-persistent": {
+      "status": "tracked",
+      "reason": "Persistent PTY sessions (the minimal preset needs them).",
+      "issue": 99
+    },
+    "@deepseek-ai/dsh-tool-cordis": {
+      "status": "not-applicable",
+      "reason": "Runtime plugin loading (Creator mode); Workers cannot import packages at runtime."
+    },
+    "@deepseek-ai/dsh-tool-fs-search": {
+      "status": "gap",
+      "reason": "glob and grep tools; upstream needs ripgrep through ctx.subprocess and node:fs, so the Edge needs a VFS implementation.",
+      "priority": "P2",
+      "issue": 234
+    },
+    "@deepseek-ai/dsh-tool-lsp": {
+      "status": "tracked",
+      "reason": "LSP navigation.",
+      "issue": 101
+    },
+    "@deepseek-ai/dsh-tool-present": {
+      "status": "gap",
+      "reason": "present tool for final deliverables; the Web deliverables panel is already in the client bundle.",
+      "priority": "P2"
+    },
+    "@deepseek-ai/dsh-tool-pwsh": {
+      "status": "not-applicable",
+      "reason": "PowerShell; upstream also disables it off Windows."
+    },
+    "@deepseek-ai/dsh-tool-pwsh-persistent": {
+      "status": "not-applicable",
+      "reason": "PowerShell; upstream also disables it off Windows."
+    },
+    "@deepseek-ai/dsh-tool-ralph": {
+      "status": "gap",
+      "reason": "ralph fresh-agent loop; upstream reserves it for explicit user requests.",
+      "priority": "P3"
+    },
+    "@deepseek-ai/dsh-tool-session-query": {
+      "status": "gap",
+      "reason": "Opt-in upstream: five read-only session search and trace tools over ctx.sessionQuery, which the Edge already serves.",
+      "priority": "P3"
+    },
+    "@deepseek-ai/dsh-tool-str-replace-editor": {
+      "status": "declined",
+      "reason": "Alternative editor tool; the Edge offers the dsh-tool-fs file tools."
+    },
+    "@deepseek-ai/dsh-tool-subagent-control": {
+      "status": "gap",
+      "reason": "send_message, interrupt_agent, and list_agents for running children; on in the upstream standard preset.",
+      "priority": "P2"
+    },
+    "@deepseek-ai/dsh-tool-subagent-control/list-agents": {
+      "status": "gap",
+      "reason": "send_message, interrupt_agent, and list_agents for running children; on in the upstream standard preset.",
+      "priority": "P2"
+    },
+    "@deepseek-ai/dsh-tool-subagent/model-selection-settings": {
+      "status": "gap",
+      "reason": "Opt-in setting that lets subagents pick other models (list_subagent_models).",
+      "priority": "P3"
+    },
+    "@deepseek-ai/dsh-tool-terminal": {
+      "status": "tracked",
+      "reason": "Persistent PTY sessions (the minimal preset needs them).",
+      "issue": 99
+    },
+    "@deepseek-ai/dsh-tool-todo": {
+      "status": "gap",
+      "reason": "todo_write task list; the Web todos UI is already in the client bundle.",
+      "priority": "P2",
+      "issue": 234
+    },
+    "@deepseek-ai/dsh-typert-loader": {
+      "status": "substitute",
+      "reason": "Node-only upstream; session-store.ts registers Typert reflections explicitly."
+    },
+    "@deepseek-ai/dsh-web-app": {
+      "status": "substitute",
+      "reason": "The Web client is assembled statically at build time (standalone/scripts)."
+    },
+    "@deepseek-ai/dsh-web-app/startup": {
+      "status": "substitute",
+      "reason": "The Web client is assembled statically at build time (standalone/scripts)."
+    },
+    "@deepseek-ai/dsh-workflow-worker-thread": {
+      "status": "substitute",
+      "reason": "edge-workflow-engine.ts runs each workflow in its own Dynamic Worker (Isolated only)."
+    }
+  },
+  "wikiOmit": {}
+}

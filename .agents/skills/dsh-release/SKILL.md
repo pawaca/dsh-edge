@@ -27,6 +27,7 @@ version="$(node -p "require('./apps/dsh-edge/package.json').version")"
 - The npm version is unpublished: `npm view "dsh-edge@$version" version` fails with E404.
 - The image tag is unpublished; exactly HTTP 404 is required, and anything else means stop and investigate:
   `curl -s -o /dev/null -w '%{http_code}\n' "https://hub.docker.com/v2/repositories/pawaca/dsh-edge-computer/tags/$version"`.
+- The wiki covers the upstream subsystems of the pinned baseline: clone `https://github.com/pawaca/dsh-edge.wiki.git` and run `pnpm run upstream-parity -- wiki <clone>`. Report any missing page to the user. A stable release needs it passing or the user's explicit waiver; a prerelease only reports it.
 - Both image secrets exist: `gh secret list --repo pawaca/dsh-edge` shows `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN`.
   (Their values cannot be read; the `publish-image` login step is the real check, and it fails before anything is published.)
 
