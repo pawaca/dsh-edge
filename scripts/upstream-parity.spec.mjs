@@ -200,6 +200,17 @@ describe('upstream parity', () => {
     ])
   })
 
+  it('never takes an Object.prototype name for a status, entry, or reason', () => {
+    const inherited = ['constructor', 'toString', '__proto__', 'hasOwnProperty']
+    expect(validateManifest({ packages: Object.fromEntries(inherited.map(status =>
+      [`@deepseek-ai/${status}`, { status, reason: 'x' }])) })).toEqual(inherited.map(status =>
+      `@deepseek-ai/${status} has unknown status "${status}".`))
+    const prototypeSlugs = reference({ subsystems: ['constructor', 'toString'] })
+    expect(checkWiki({ reference: prototypeSlugs, manifest: { packages: {} }, pages: [] }).missing).toEqual(['constructor', 'toString'])
+    const { errors } = verifyParity({ upstreamVersion: '1.0.0', reference: reference({ plugins: {}, tools: { constructor: ['x'] } }), usage, manifest: { packages: {} } })
+    expect(errors).toEqual([expect.stringMatching(/^constructor \(tool-catalog\) is not used by the Edge and not classified/u)])
+  })
+
   it('requires a wiki page or an omission reason per upstream subsystem', () => {
     const pages = ['Upstream reference: [Alpha](https://deepseek-harness.github.io/deepseek-harness/reference/subsystems/alpha)']
     expect(checkWiki({ reference: reference(), manifest: { packages: {} }, pages })).toEqual({ missing: ['beta'], staleOmissions: [] })

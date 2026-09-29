@@ -100,7 +100,7 @@ export function mergePlugins(sources) {
   const plugins = {}
   for (const { source, rows } of sources) {
     for (const { name, disabled } of rows) {
-      const entry = plugins[name] ??= { in: [], disabled: true }
+      const entry = own(plugins, name) ?? (plugins[name] = { in: [], disabled: true })
       if (!entry.in.includes(source)) entry.in.push(source)
       entry.disabled &&= disabled
     }
@@ -187,7 +187,7 @@ export function verifyParity({ upstreamVersion, reference, manifest, usage }) {
   const known = new Set([...Object.keys(reference.plugins), ...Object.keys(reference.tools)])
   const counts = { used: 0 }
   for (const [name, sources] of required) {
-    const entry = manifest.packages[name]
+    const entry = own(manifest.packages, name)
     if (isUsed(name, usage)) {
       counts.used += 1
       if (entry) errors.push(`${name} is used by the Edge; remove its "${entry.status}" entry from upstream-parity.json.`)
@@ -216,7 +216,7 @@ export function validateManifest(manifest) {
     for (const key of Object.keys(entry)) {
       if (!ENTRY_KEYS.has(key)) errors.push(`${name} has unknown field "${key}".`)
     }
-    if (!(entry.status in STATUSES)) errors.push(`${name} has unknown status "${String(entry.status)}".`)
+    if (own(STATUSES, entry.status) === undefined) errors.push(`${name} has unknown status "${String(entry.status)}".`)
     if (!hasReason(entry.reason)) errors.push(`${name} needs a reason.`)
     if (entry.issue !== undefined && !isIssueNumber(entry.issue)) errors.push(`${name} names an invalid issue ${JSON.stringify(entry.issue)}.`)
     if (entry.status === 'tracked' && entry.issue === undefined) errors.push(`${name} is tracked but names no issue.`)
@@ -234,6 +234,14 @@ function isIssueNumber(value) {
   return Number.isSafeInteger(value) && value > 0
 }
 
+/**
+ * Read an own property only. Manifest and table lookups never consult Object.prototype, so a
+ * value such as "constructor" or "__proto__" cannot pass for a status, entry, or reason.
+ */
+function own(object, key) {
+  return typeof key === 'string' && Object.hasOwn(object, key) ? object[key] : undefined
+}
+
 function hasReason(value) {
   return typeof value === 'string' && value.trim() !== ''
 }
@@ -245,7 +253,7 @@ export function checkWiki({ reference, manifest, pages }) {
     for (const [, slug] of text.matchAll(/subsystems\/([a-z0-9-]+)/gu)) linked.add(slug)
   }
   const omitted = manifest.wikiOmit ?? {}
-  const missing = reference.subsystems.filter(slug => !linked.has(slug) && !hasReason(omitted[slug]))
+  const missing = reference.subsystems.filter(slug => !linked.has(slug) && !hasReason(own(omitted, slug)))
   const staleOmissions = Object.keys(omitted).filter(slug => !reference.subsystems.includes(slug))
   return { missing, staleOmissions }
 }
