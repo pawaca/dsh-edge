@@ -509,7 +509,7 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
       added,
       removed,
       // An UPDATE of payload columns writes the row; INSERT and DELETE also write the key index.
-      rewriteWrites: changed.length + 2 * added.length + removed.length,
+      rewriteWrites: changed.length + 2 * (added.length + removed.length),
     }
   }
 

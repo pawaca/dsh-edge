@@ -233,7 +233,9 @@ describe('legacy Edge cancellation migration', () => {
     } finally { await ctx.fiber.dispose(); storage.close() }
   })
 
-  it.each([0, 1, 100, 100000])('preserves current logs and chooses the cheaper migration with %i current rows', async count => {
+  // Removing ~200 packed delta rows costs ~400 writes in place (row + key index each);
+  // copying up to ~100 current rows into a rebuilt table costs less.
+  it.each([0, 1, 100, 1000, 100000])('preserves current logs and chooses the cheaper migration with %i current rows', async count => {
     const storage = cancelledStorage('cancelled by the user')
     // Token deltas the next format packs into one row: a rebuild avoids deleting each.
     insertLegacyDeltas(storage, 200)
@@ -256,7 +258,7 @@ describe('legacy Edge cancellation migration', () => {
     await ctx.plugin(SessionStore)
     try {
       const persistence = new DurableObjectSessionPersistence(ctx, { storage: storage as never })
-      expect(storage.queries.includes('DROP TABLE dsh_session_events')).toBe(count <= 1)
+      expect(storage.queries.includes('DROP TABLE dsh_session_events')).toBe(count <= 100)
       expect(storage.queries.some(q => q.includes('GROUP BY s.version'))).toBe(false)
       expect(storage.queries.filter(q => q.includes('SELECT COUNT(*) AS count FROM ('))).toHaveLength(1)
       expect(storage.sql.exec("SELECT * FROM dsh_session_events WHERE session_id = 'current' ORDER BY seq").toArray()).toEqual(before)
