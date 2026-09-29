@@ -140,3 +140,4 @@ minimumReleaseAgeExclude:
   - '@deepseek-ai/dsh-util-workspace-path@0.2.0-rc.1'
   - '@deepseek-ai/dsh-web-fetch-http@0.2.0-rc.1'
   - '@deepseek-ai/dsh-workflow@0.2.0-rc.1'
+  - '@deepseek-ai/dsh-api-job-controller@0.2.0-rc.1'

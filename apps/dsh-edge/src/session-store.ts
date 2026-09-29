@@ -542,17 +542,23 @@ export class EdgeSessionStore {
     )
     this.context.typert.register(SESSION_CONTROLLER_TYPERT as never)
     const { SessionController } = await import('@deepseek-ai/dsh-api-session-controller')
-    // Upstream hands `session/openWorkspacePath` to a native desktop opener
-    // (child_process.execFile). Workers have no desktop, so the Edge composes
-    // the controller through its `internals` seam: the native probe answers
-    // false and an open attempt fails with a message the browser can show,
-    // while the Edge Web client downloads the file through /api/workspace/file.
+    // Upstream hands `session/openWorkspacePath` and its reveal/open-with
+    // variants to native desktop commands (child_process.execFile). Workers
+    // have no desktop, so the Edge composes the controller through its
+    // `internals` seam: the native probe answers false, no applications are
+    // listed, and every open attempt fails with a message the browser can
+    // show, while the Edge Web client downloads the file through
+    // /api/workspace/file.
     class EdgeSessionController extends SessionController {
       constructor(ctx: Context, config: ConstructorParameters<typeof SessionController>[1]) {
+        const unavailable = () => Promise.reject(new Error(EDGE_NATIVE_OPEN_UNAVAILABLE))
         // activateOnFollow is added by the Edge patch to dsh-api-session-controller
         const internals = {
           activateOnFollow: false,
-          openPath: () => Promise.reject(new Error(EDGE_NATIVE_OPEN_UNAVAILABLE)),
+          openPath: unavailable,
+          revealPath: unavailable,
+          openFileApplication: unavailable,
+          fileApplications: () => Promise.resolve([]),
           canOpenPath: () => false,
         }
         super(ctx, config, internals as never)
@@ -631,6 +637,14 @@ export class EdgeSessionStore {
         '@deepseek-ai/dsh-jobs-local' as string
       )
       await this.context.plugin(LocalJobRegistry, { maxConcurrentJobsPerOwner: 3 })
+      // The Web jobs panel reads background jobs through the `job` Remote namespace.
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+      const { TYPERT: JOB_CONTROLLER_TYPERT } = await import(
+        '@deepseek-ai/dsh-api-job-controller/typert' as string
+      )
+      this.context.typert.register(JOB_CONTROLLER_TYPERT as never)
+      const { default: JobController } = await import('@deepseek-ai/dsh-api-job-controller')
+      await this.context.plugin(JobController)
     }
     {
       // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment

@@ -23,6 +23,7 @@
     "@deepseek-ai/dsh-agent-loop": "0.2.0-rc.1",
     "@deepseek-ai/dsh-anonymous-user-id": "0.2.0-rc.1",
     "@deepseek-ai/dsh-api-gateway": "0.2.0-rc.1",
+    "@deepseek-ai/dsh-api-job-controller": "0.2.0-rc.1",
     "@deepseek-ai/dsh-api-remotes": "0.2.0-rc.1",
     "@deepseek-ai/dsh-api-session-controller": "0.2.0-rc.1",
     "@deepseek-ai/dsh-api-settings-controller": "0.2.0-rc.1",
