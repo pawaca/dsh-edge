@@ -286,6 +286,32 @@ describe('legacy Edge cancellation migration', () => {
     } finally { await ctx.fiber.dispose(); storage.close() }
   })
 
+  it('reads subagent children for every outdated session in one scan', async () => {
+    const storage = cancelledStorage('cancelled by the user')
+    const clone = (id: string, parent: string | null) => {
+      storage.sql.exec(`INSERT INTO dsh_sessions
+        SELECT ?, version, created_at, cwd, ?, seed_length, ?, ?, agent_preset, ?, revision
+        FROM dsh_sessions WHERE id = 'session-v0-1-3'`,
+      id, parent, parent === null ? null : 'subagent', parent === null ? null : 1, `${id}-incarnation`)
+      storage.sql.exec(`INSERT INTO dsh_session_events
+        SELECT ?, seq, type, time, data, source_event_seqs, surface_op, ignorable
+        FROM dsh_session_events WHERE session_id = 'session-v0-1-3'`, id)
+    }
+    for (let n = 0; n < 40; n++) clone(`outdated-${String(n)}`, null)
+    clone('outdated-child', 'session-v0-1-3')
+    storage.queries.length = 0
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    try {
+      const persistence = new DurableObjectSessionPersistence(ctx, { storage: storage as never })
+      // No per-parent lookup: parent_session has no index, so each would scan the table.
+      expect(storage.queries.filter(query => /parent_session = \?/u.test(query))).toHaveLength(0)
+      expect(storage.queries.filter(query => /origin = 'subagent' AND parent_session IS NOT NULL/u.test(query))).toHaveLength(1)
+      expect(storage.sql.exec('SELECT DISTINCT version FROM dsh_sessions').toArray()).toEqual([{ version: SESSION_FORMAT_VERSION }])
+      expect((await readAll(persistence, SessionId('outdated-child'))).meta).toMatchObject({ parentSession: 'session-v0-1-3' })
+    } finally { await ctx.fiber.dispose(); storage.close() }
+  })
+
   it('preflights all sessions without repeated migration writes when a later session is incompatible', async () => {
     const storage = cancelledStorage('cancelled by the user')
     storage.sql.exec(`INSERT INTO dsh_sessions

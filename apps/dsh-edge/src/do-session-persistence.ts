@@ -486,12 +486,26 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
    * parent.
    */
   private collectChildFacts(parentId: SessionId): SessionFormatJsonObject[] {
-    const children = this.storage.sql.exec<HeaderRow>(
+    return this.childFactsOf(this.storage.sql.exec<HeaderRow>(
       `SELECT id, version, created_at, cwd, parent_session, seed_length, origin,
               delegation_depth, agent_preset, incarnation, revision
        FROM dsh_sessions WHERE parent_session = ? AND origin = 'subagent' ORDER BY created_at, id`,
       parentId,
-    ).toArray()
+    ).toArray())
+  }
+
+  /** Child evidence for many parents from one scan of the session table (no parent index). */
+  private collectChildFactsFor(parentIds: ReadonlySet<string>): Map<string, SessionFormatJsonObject[]> {
+    const byParent = new Map<string, HeaderRow[]>([...parentIds].map(id => [id, []]))
+    for (const child of this.storage.sql.exec<HeaderRow>(
+      `SELECT id, version, created_at, cwd, parent_session, seed_length, origin,
+              delegation_depth, agent_preset, incarnation, revision
+       FROM dsh_sessions WHERE origin = 'subagent' AND parent_session IS NOT NULL ORDER BY created_at, id`,
+    )) byParent.get(child.parent_session!)?.push(child)
+    return new Map([...byParent].map(([id, children]) => [id, this.childFactsOf(children)]))
+  }
+
+  private childFactsOf(children: readonly HeaderRow[]): SessionFormatJsonObject[] {
     return children.map((child) => {
       try {
         const catalog = child.version <= 3 ? historicalSessionFormatCatalog : sessionFormatCatalog
@@ -1038,7 +1052,7 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
       // artifact after preflight to avoid retaining all decoded histories at once.
       // The second decode runs synchronously in the same transaction/snapshot.
       // Child evidence is read from the pre-migration state once and reused by both passes.
-      const childFacts = new Map(outdated.map(row => [row.id, this.collectChildFacts(row.id as SessionId)]))
+      const childFacts = this.collectChildFactsFor(new Set(outdated.map(row => row.id)))
       let legacy = 0
       for (const row of outdated) legacy += this.prepareMigration(row.id as SessionId, row, childFacts.get(row.id)!)?.physicalRows ?? 0
       const rebuild = this.isEventTableRebuildCheaper(legacy)

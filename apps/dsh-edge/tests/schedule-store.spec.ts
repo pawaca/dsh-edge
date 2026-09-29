@@ -12,8 +12,28 @@ import { TestDurableObjectStorage } from './main-session-queue.spec.ts'
 
 class AlarmStorage extends TestDurableObjectStorage {
   alarm: number | null = null
+  failAlarm = false
   async getAlarm() { return this.alarm }
-  async setAlarm(time: number) { this.alarm = time }
+  async setAlarm(time: number) {
+    if (this.failAlarm) throw new Error('alarm write failed')
+    this.alarm = time
+  }
+
+  /** Durable Object transactions roll back SQL and the alarm together. */
+  async transaction<T>(callback: () => Promise<T>): Promise<T> {
+    const alarm = this.alarm
+    this.sql.exec('SAVEPOINT alarm_tx')
+    try {
+      const result = await callback()
+      this.sql.exec('RELEASE alarm_tx')
+      return result
+    } catch (error) {
+      this.sql.exec('ROLLBACK TO alarm_tx')
+      this.sql.exec('RELEASE alarm_tx')
+      this.alarm = alarm
+      throw error
+    }
+  }
 }
 
 const cleanup: Array<() => Promise<void>> = []
@@ -35,6 +55,19 @@ async function setup(withTools = false) {
 const ALPHA = SessionId('alpha')
 
 describe('Edge schedule service', () => {
+  it('leaves no reminder or change behind when arming its wake fails', async () => {
+    const { schedule, storage } = await setup()
+    storage.failAlarm = true
+    await expect(schedule.create(ALPHA, { prompt: 'stretch', title: 'Stretch', after_seconds: 60 })).rejects.toThrow('alarm write failed')
+    expect(await schedule.list({ sessionId: ALPHA })).toEqual([])
+    storage.failAlarm = false
+    const record = await schedule.create(ALPHA, { prompt: 'stretch', title: 'Stretch', after_seconds: 600 })
+    storage.alarm = null
+    storage.failAlarm = true
+    await expect(schedule.update({ sessionId: ALPHA, id: record.id, expected: record, title: 'Stretch again' })).rejects.toThrow('alarm write failed')
+    expect(await schedule.list({ sessionId: ALPHA })).toEqual([record])
+  })
+
   it('creates, lists, and deletes tasks in the owning session only', async () => {
     const { schedule, storage } = await setup()
     const record = await schedule.create(ALPHA, { prompt: 'stretch', title: 'Stretch', after_seconds: 60 })

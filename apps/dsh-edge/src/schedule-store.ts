@@ -80,13 +80,16 @@ export class EdgeSchedule extends Service {
             : request.weekly !== undefined ? createWeeklyScheduleRecord(id, request.prompt, request.weekly, now, title)
               : createCronScheduleRecord(id, request.prompt, request.cron!, now, title)
     signal?.throwIfAborted()
-    const active = this.storage.sql.exec<{ count: number }>('SELECT count(*) AS count FROM dsh_schedule_tasks WHERE active = 1').toArray()[0]!.count
-    if (active >= MAX_ACTIVE_SCHEDULES) {
-      throw new ScheduleInputError('invalid_rule', `This owner already has ${MAX_ACTIVE_SCHEDULES} active reminders; delete one before creating another.`)
-    }
-    this.storage.sql.exec('INSERT INTO dsh_schedule_tasks (id,session_id,record,active,due,created) VALUES (?,?,?,1,?,?)',
-      id, sessionId, JSON.stringify(record), Date.parse(record.scheduledAt), now)
-    await armScheduleWake(this.storage)
+    // The task and its wake commit together: a failed arm leaves no reminder behind.
+    await this.storage.transaction(async () => {
+      const active = this.storage.sql.exec<{ count: number }>('SELECT count(*) AS count FROM dsh_schedule_tasks WHERE active = 1').toArray()[0]!.count
+      if (active >= MAX_ACTIVE_SCHEDULES) {
+        throw new ScheduleInputError('invalid_rule', `This owner already has ${MAX_ACTIVE_SCHEDULES} active reminders; delete one before creating another.`)
+      }
+      this.storage.sql.exec('INSERT INTO dsh_schedule_tasks (id,session_id,record,active,due,created) VALUES (?,?,?,1,?,?)',
+        id, sessionId, JSON.stringify(record), Date.parse(record.scheduledAt), now)
+      await armScheduleWake(this.storage)
+    })
     return record
   }
 
@@ -115,9 +118,11 @@ export class EdgeSchedule extends Service {
     if (row.active !== 1) return { id: request.id, updated: false, code: 'schedule_ended' }
     const result = resolveScheduleUpdate(recordOf(row), request, Date.now())
     if (!('record' in result) || !result.updated) return result
-    this.storage.sql.exec('UPDATE dsh_schedule_tasks SET record = ?, due = ? WHERE session_id = ? AND id = ?',
-      JSON.stringify(result.record), Date.parse(result.record.scheduledAt), request.sessionId, request.id)
-    await armScheduleWake(this.storage)
+    await this.storage.transaction(async () => {
+      this.storage.sql.exec('UPDATE dsh_schedule_tasks SET record = ?, due = ? WHERE session_id = ? AND id = ?',
+        JSON.stringify(result.record), Date.parse(result.record.scheduledAt), request.sessionId, request.id)
+      await armScheduleWake(this.storage)
+    })
     return result
   }
 
