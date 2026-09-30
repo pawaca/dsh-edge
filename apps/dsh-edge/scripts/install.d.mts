@@ -147,6 +147,8 @@ export function createOutputForwarder(
 export function createTerminalSanitizer(): {
   push(chunk: string): string
 }
+/** Whether any process of the group still exists; an exited but unreaped group still counts. */
+export function processGroupExists(pid: number): boolean
 export function resolveWranglerClose(options: {
   outputFailure?: InstallerOutputError
   processError?: unknown
