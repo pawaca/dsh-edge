@@ -14,7 +14,8 @@ describe('short tool pool', () => {
       await new Promise<void>(resolve => signal.addEventListener('abort', () => resolve(), { once: true }))
       await cleanup.promise
     })
-    const firstFailure = expect(first).rejects.toThrow()
+    // A caller abort keeps the settled result; the upstream runtime turns it into its cancellation result.
+    const firstSettled = expect(first).resolves.toBeUndefined()
     await tick()
     const second = pool.run(new AbortController().signal, async () => { started.push('second') })
     controller.abort(new Error('cancelled'))
@@ -22,11 +23,23 @@ describe('short tool pool', () => {
     expect(pool.snapshot).toEqual({ active: 1, waiting: 1, capacity: 1 })
     expect(started).toEqual(['first'])
     cleanup.resolve()
-    await firstFailure
+    await firstSettled
     await second
     expect(started).toEqual(['first', 'second'])
     expect(pool.snapshot.active).toBe(0)
   })
+  it('turns a plain-object cancellation reason into a readable error', async () => {
+    const pool = new ShortToolPool(1)
+    const controller = new AbortController()
+    // Agent cancellation aborts with `{ kind: 'user' }`, not an Error.
+    controller.abort({ kind: 'user' })
+    const failure = await pool.run(controller.signal, async () => 'unreached').catch((error: unknown) => error)
+    expect(failure).toBeInstanceOf(Error)
+    expect((failure as Error).message).toBe('tool call aborted')
+    expect((failure as Error).cause).toEqual({ kind: 'user' })
+    expect(String(failure)).not.toContain('[object Object]')
+  })
+
   it('removes cancelled and expired waiters without leaking permits', async () => {
     const pool = new ShortToolPool(1, 2, 15, 1000)
     const hold = Promise.withResolvers<void>()

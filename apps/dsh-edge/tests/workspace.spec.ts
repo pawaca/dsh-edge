@@ -4,6 +4,7 @@ import {
   EDGE_SHELL_OUTPUT_LIMIT_BYTES,
 } from '../src/direct-shell-protocol.ts'
 import {
+  CANCELLED_COMMAND_GRACE_MS,
   executeWorkspaceCommand,
   MAX_TEXT_FILE_BYTES,
   readBoundedWorkspaceFile,
@@ -105,6 +106,62 @@ describe('dsh-edge workspace command execution', () => {
     expect(result.timedOut).toBe(false)
     expect(result.exitCode).toBe(0)
     expect(runtime.kill).toHaveBeenCalledWith('SIGINT')
+  })
+
+  it('stops waiting for a cancelled command the shell does not stop', async () => {
+    vi.useFakeTimers()
+    try {
+      // A Worker shell kill can reach a different isolate: the command keeps running.
+      let cancelled = false
+      const stream = new ReadableStream({
+        start(controller) { controller.enqueue({ id: 'exec-1', seq: 0, name: 'stdout', value: new TextEncoder().encode('partial\n') }) },
+        cancel() { cancelled = true },
+      })
+      const kill = vi.fn(async () => undefined)
+      const execution = { id: 'exec-1', backend: 'worker-shell', getReader: () => stream.getReader(), kill, result: vi.fn(), [Symbol.dispose]: vi.fn() }
+      const workspace = {
+        fs: { mkdir: vi.fn(async () => undefined) },
+        runtime: { exec: vi.fn(async () => execution) },
+      } as unknown as EdgeWorkspace
+      const abort = new AbortController()
+      const pending = executeWorkspaceCommand(workspace, 'sleep 40', '/workspace', resolveEdgeCommandTimeoutPolicy(), undefined, abort.signal)
+      await vi.advanceTimersByTimeAsync(10)
+      abort.abort({ kind: 'user' })
+      await vi.advanceTimersByTimeAsync(CANCELLED_COMMAND_GRACE_MS - 1)
+      expect(cancelled).toBe(false)
+      await vi.advanceTimersByTimeAsync(1)
+      const result = await pending
+      expect(kill).toHaveBeenCalledWith('SIGINT')
+      expect(result).toMatchObject({ status: 'cancelled', detached: true, stdout: 'partial\n' })
+      expect(cancelled).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('stops waiting when the shell answers exec only after the command ends', async () => {
+    vi.useFakeTimers()
+    try {
+      // A Worker shell resolves `exec` once the command has finished running.
+      const answered = Promise.withResolvers<unknown>()
+      const dispose = vi.fn()
+      const workspace = {
+        fs: { mkdir: vi.fn(async () => undefined) },
+        runtime: { exec: vi.fn(() => answered.promise) },
+      } as unknown as EdgeWorkspace
+      const abort = new AbortController()
+      const pending = executeWorkspaceCommand(workspace, 'sleep 40', '/workspace', resolveEdgeCommandTimeoutPolicy(), undefined, abort.signal)
+      await vi.advanceTimersByTimeAsync(10)
+      abort.abort({ kind: 'user' })
+      await vi.advanceTimersByTimeAsync(CANCELLED_COMMAND_GRACE_MS)
+      expect(await pending).toMatchObject({ status: 'cancelled', detached: true, stdout: '' })
+      // The late execution is released when it finally answers.
+      answered.resolve({ id: 'late', getReader: vi.fn(), kill: vi.fn(), [Symbol.dispose]: dispose })
+      await vi.advanceTimersByTimeAsync(0)
+      expect(dispose).toHaveBeenCalledOnce()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('rejects a caller timeout above the deployment ceiling before execution', async () => {

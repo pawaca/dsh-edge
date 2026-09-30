@@ -105,6 +105,8 @@ export interface EdgeShellResult {
   retriedFromLight?: boolean
   /** The lightweight shell could not run it but changed the workspace, so it was not rerun. */
   lightShellMiss?: boolean
+  /** Cancelled, but the shell had not stopped it; it may still finish in the background. */
+  detached?: boolean
 }
 
 export interface EdgeShell {
@@ -208,6 +210,7 @@ export function createEdgeBashTool(
           queuedMs: { type: 'number' },
           retriedFromLight: { type: 'boolean' },
           lightShellMiss: { type: 'boolean' },
+          detached: { type: 'boolean' },
         },
       },
       render: (_args, result) => [{ type: 'text', text: formatExecution(result) }],
@@ -244,5 +247,8 @@ function formatExecution(result: Omit<EdgeShellResult, 'executionId'>): string {
       ? '\n[the lightweight shell could not run part of this after it had changed files; '
         + 'check the workspace, then rerun with linux: true to use the Linux container]'
       : ''
-  return output + truncated + timedOut + suffix + where || '(no output)'
+  const detached = result.detached === true
+    ? '\n[cancelled; the shell had not stopped the command yet, so it may still finish in the background]'
+    : ''
+  return output + truncated + timedOut + suffix + where + detached || '(no output)'
 }
