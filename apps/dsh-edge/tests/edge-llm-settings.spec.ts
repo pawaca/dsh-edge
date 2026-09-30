@@ -84,7 +84,9 @@ describe('DeepSeek provider settings', () => {
     const [notFound] = await collect([finish({ message: 'DeepSeek Messages request failed (404)', code: 'HTTP_404', status: 404 })])
     const failure = (notFound as unknown as { reason: { kind: string, failure: { message: string, code: string, status: number } } }).reason
     expect(failure.kind).toBe('error')
-    expect(failure.failure.message).toContain('The configured DeepSeek endpoint does not serve the Messages API')
+    // The provider's own failure stays first; the hint is conditional, since a gateway may 404 for a resource.
+    expect(failure.failure.message.startsWith('DeepSeek Messages request failed (404). If this began after upgrading from dsh-edge 0.18')).toBe(true)
+    expect(failure.failure.message).toContain('may not serve the Messages API')
     // A gateway may carry its credential in any URL component; the persisted message names none of them.
     expect(failure.failure.message).not.toContain('gateway.example.com')
     expect(failure.failure.message).toContain('https://api.deepseek.com/anthropic')

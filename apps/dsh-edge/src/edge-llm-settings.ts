@@ -65,22 +65,24 @@ export function commitVolatile(fiber: Pick<Fiber, 'config'>, candidate: unknown)
 }
 
 /**
- * A 404 from the DeepSeek route means its endpoint does not serve the
- * Messages API (an OpenAI-compatible root or gateway); say so and how to fix
- * it instead of a bare status.
+ * A 404 from the DeepSeek route most often means its endpoint does not serve
+ * the Messages API (an OpenAI-compatible root or gateway); add how to fix
+ * that to the provider's own failure text.
  */
 function explainMissingMessagesEndpoint(ctx: Context): void {
   ctx.on('llm/stream', (options, next) => options.provider === DEEPSEEK_PROVIDER ? explained(next()) : next(), { global: true })
 }
 
 /**
- * Names no part of the endpoint: a gateway may carry a credential in any
- * component of its URL, and this message is persisted with the turn. The
- * owner configures a single DeepSeek endpoint, in one of the two places named.
+ * Appended to the provider's own 404 text. A 404 usually means the endpoint
+ * does not route Messages (0.18's OpenAI-compatible root, or such a gateway),
+ * but a gateway may also answer 404 for a resource, so the hint is
+ * conditional. It names no part of the endpoint: a gateway may carry a
+ * credential in any URL component, and this message is persisted with the turn.
  */
-const ENDPOINT_NOT_FOUND_MESSAGE = 'The configured DeepSeek endpoint does not serve the Messages API (404). DeepSeek now needs '
-  + 'an Anthropic-compatible endpoint such as https://api.deepseek.com/anthropic; change the Base URL on the Models '
-  + 'settings page or the DEEPSEEK_BASE_URL Worker variable.'
+const ENDPOINT_NOT_FOUND_HINT = 'If this began after upgrading from dsh-edge 0.18, the configured endpoint may not serve '
+  + 'the Messages API: DeepSeek now needs an Anthropic-compatible endpoint such as https://api.deepseek.com/anthropic '
+  + '(the Base URL on the Models settings page or the DEEPSEEK_BASE_URL Worker variable).'
 
 /**
  * @internal Exported for tests. The runtime reports an adapter failure as the
@@ -98,7 +100,7 @@ export async function* explained(source: AsyncIterable<StreamChunk>): AsyncItera
         ...chunk.reason,
         failure: {
           ...chunk.reason.failure,
-          message: ENDPOINT_NOT_FOUND_MESSAGE,
+          message: `${chunk.reason.failure.message}${/[.!?]$/u.test(chunk.reason.failure.message) ? '' : '.'} ${ENDPOINT_NOT_FOUND_HINT}`,
         },
       },
     }
