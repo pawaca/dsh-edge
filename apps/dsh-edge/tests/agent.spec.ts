@@ -287,6 +287,9 @@ describe('dsh-edge native agent runtime', () => {
     expect(() => resolveEdgeBaseURL('http://[')).toThrow(/valid HTTP\(S\) URL/)
     expect(() => resolveEdgeBaseURL('file:///tmp/api')).toThrow(/valid HTTP\(S\) URL/)
     expect(() => resolveEdgeBaseURL('https://key@example.com')).toThrow(/without credentials/)
+    // A credential-bearing legacy root is still rejected, not silently replaced.
+    expect(() => resolveEdgeBaseURL('https://token@api.deepseek.com')).toThrow(/without credentials/)
+    expect(() => resolveEdgeBaseURL('https://user:secret@api.deepseek.com/v1')).toThrow(/without credentials/)
     expect(resolveEdgeModel()).toBe('deepseek-flash')
     expect(resolveEdgeModel('deepseek-v4-pro')).toBe('deepseek-v4-pro')
     expect(() => resolveEdgeModel('bad model')).toThrow(/valid model id/)

@@ -22,7 +22,9 @@ export function upgradeLegacyDeepSeekBaseURL(value: string): string {
     return value
   }
   const path = parsed.pathname.replace(/\/+$/u, '')
+  // Userinfo is left in place so the existing no-credentials validation still rejects it.
   const legacyRoot = parsed.protocol === 'https:' && parsed.hostname === 'api.deepseek.com' && parsed.port === ''
+    && parsed.username === '' && parsed.password === ''
     && parsed.search === '' && parsed.hash === '' && (path === '' || path === '/v1' || path === '/beta')
   return legacyRoot ? DEFAULT_BASE_URL : value
 }
