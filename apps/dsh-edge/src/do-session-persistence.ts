@@ -1,6 +1,6 @@
 /** Upstream SessionPersistence implemented over Cloudflare Durable Object SQL. */
 
-import { initializeSchedules, persistScheduleChanges, armScheduleWake, assertScheduleTailRepairable, rebuildSchedules } from './schedule-store.ts'
+import { initializeSchedules } from './schedule-store.ts'
 import { initializeMainQueue, acknowledgeMainInputs } from './main-session-queue.ts'
 import { Context } from '@deepseek-ai/cordis'
 import { decodeStorageRecord, packChunkRuns } from './chunk-rows.ts'
@@ -38,7 +38,13 @@ import {
   type SessionPersistenceStatOptions,
   type SessionStorageMetadata,
 } from '@deepseek-ai/dsh-session-persistence'
-import { sessionFormatCatalog } from '@deepseek-ai/dsh-session-format-catalog'
+import {
+  createSessionFormatCatalogWithChildren,
+  historicalSessionFormatCatalog,
+  sessionFormatCatalog,
+} from '@deepseek-ai/dsh-session-format-catalog'
+import type { SessionFormatJsonObject, SessionFormatRestore } from '@deepseek-ai/dsh-session-format'
+import { historicalChildCatalogSource } from '@deepseek-ai/dsh-session-format-v3-to-v4'
 import {
   SessionTitleProviderId,
   type SessionTitleEventData,
@@ -426,39 +432,48 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
   }
 
   private migrateSession(id: SessionId, row: HeaderRow, inTransaction = false,
-    eventTable: EventTable = 'dsh_session_events'): void {
-    const prepared = this.prepareMigration(id, row)
+    eventTable: EventTable = 'dsh_session_events', childFacts = this.collectChildFacts(id)): void {
+    const prepared = this.prepareMigration(id, row, childFacts)
     if (prepared === undefined) return
     const commit = () => {
-      if (eventTable === 'dsh_session_events') {
-        this.storage.sql.exec('DELETE FROM dsh_session_events WHERE session_id = ?', id)
-      }
       this.storage.sql.exec(
         `UPDATE dsh_sessions SET version = ?, seed_length = ?, revision = revision + 1 WHERE id = ?`,
         prepared.version, prepared.seedLength, id,
       )
-      for (const record of prepared.packed) this.insertStorageRecord(id, record, eventTable)
-      if (eventTable === 'dsh_session_events') this.recomputeSummary(id)
+      if (eventTable === 'dsh_session_events_migrating') {
+        for (const record of prepared.packed) this.insertStorageRecord(id, record, eventTable)
+        return
+      }
+      if (prepared.removed.length > 0) {
+        this.storage.sql.exec(
+          'DELETE FROM dsh_session_events WHERE session_id = ? AND seq IN (SELECT value FROM json_each(?))',
+          id, JSON.stringify(prepared.removed),
+        )
+      }
+      for (const record of prepared.changed) {
+        const columns = storageColumns(record)
+        this.storage.sql.exec(
+          `UPDATE dsh_session_events SET type = ?, time = ?, data = ?, source_event_seqs = ?, surface_op = ?, ignorable = ?
+           WHERE session_id = ? AND seq = ?`,
+          columns.type, columns.time, columns.data, columns.source_event_seqs, columns.surface_op, columns.ignorable,
+          id, columns.seq,
+        )
+      }
+      for (const record of prepared.added) this.insertStorageRecord(id, record)
+      this.recomputeSummary(id)
     }
     if (inTransaction) commit()
     else this.storage.transactionSync(commit)
   }
 
-  /** Decode without writes so a bad later log cannot repeatedly burn earlier writes. */
-  private prepareMigration(id: SessionId, row: HeaderRow) {
-    const headerJson = {
-      type: 'session',
-      version: row.version,
-      id: row.id,
-      createdAt: row.created_at,
-      delegationDepth: row.delegation_depth ?? 0,
-      ...row.cwd === null ? {} : { cwd: row.cwd },
-      ...row.parent_session === null ? {} : { parentSession: row.parent_session },
-      ...row.seed_length === null ? {} : { seedLength: row.seed_length },
-      ...row.origin === null ? {} : { origin: row.origin },
-      ...row.agent_preset === null ? {} : { agentPreset: row.agent_preset },
-    }
-    const classification = sessionFormatCatalog.readHeader(headerJson)
+  /**
+   * Decode without writes so a bad later log cannot repeatedly burn earlier writes.
+   * The V3→V4 edge completes the parent's subagent catalog from its children's evidence.
+   */
+  private prepareMigration(id: SessionId, row: HeaderRow, childFacts: readonly SessionFormatJsonObject[]) {
+    const headerJson = storedHeaderJson(row)
+    const catalog = createSessionFormatCatalogWithChildren(childFacts)
+    const classification = catalog.readHeader(headerJson)
     if (classification.status === 'current') return
     if (classification.status === 'unsupported') {
       throw new SessionFormatUnsupportedError(classification.reason)
@@ -466,11 +481,84 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
     if (classification.status === 'malformed') {
       throw new Error(`session ${id} has a malformed header: ${classification.reason}`)
     }
-    const restore = sessionFormatCatalog.createRestore(headerJson, {
+    const restore = catalog.createRestore(headerJson, {
       recovery: 'recoverable',
       validation: 'transformed',
     })
+    const stored = new Map<number, string>()
+    this.decodeStoredRows(id, row, restore, stored)
+    const artifact = restore.finish()
+    const packed = packChunkRuns(artifact.events as SessionEvent[])
+    // Most rows read the same in the next format; only differing rows are written.
+    const changed: Record<string, unknown>[] = []
+    const added: Record<string, unknown>[] = []
+    const kept = new Set<number>()
+    for (const record of packed) {
+      const columns = storageColumns(record)
+      kept.add(columns.seq)
+      const before = stored.get(columns.seq)
+      if (before === undefined) added.push(record)
+      else if (before !== storedColumnsKey(columns)) changed.push(record)
+    }
+    const removed = [...stored.keys()].filter(seq => !kept.has(seq))
+    return {
+      version: artifact.header.version,
+      seedLength: artifact.inheritedEventCount > 0 ? artifact.inheritedEventCount : null,
+      packed,
+      changed,
+      added,
+      removed,
+      // An UPDATE of payload columns writes the row; INSERT and DELETE also write the key index.
+      rewriteWrites: changed.length + 2 * (added.length + removed.length),
+    }
+  }
+
+  /**
+   * Collect each direct subagent child's catalog evidence from its stored
+   * generation, before any migration write. As in upstream JSONL persistence,
+   * an unreadable child is recorded with unknown mode instead of blocking its
+   * parent.
+   */
+  private collectChildFacts(parentId: SessionId): SessionFormatJsonObject[] {
+    return this.childFactsOf(this.storage.sql.exec<HeaderRow>(
+      `SELECT id, version, created_at, cwd, parent_session, seed_length, origin,
+              delegation_depth, agent_preset, incarnation, revision
+       FROM dsh_sessions WHERE parent_session = ? AND origin = 'subagent' ORDER BY created_at, id`,
+      parentId,
+    ).toArray())
+  }
+
+  /** Child evidence for many parents from one scan of the session table (no parent index). */
+  private collectChildFactsFor(parentIds: ReadonlySet<string>): Map<string, SessionFormatJsonObject[]> {
+    const byParent = new Map<string, HeaderRow[]>([...parentIds].map(id => [id, []]))
+    for (const child of this.storage.sql.exec<HeaderRow>(
+      `SELECT id, version, created_at, cwd, parent_session, seed_length, origin,
+              delegation_depth, agent_preset, incarnation, revision
+       FROM dsh_sessions WHERE origin = 'subagent' AND parent_session IS NOT NULL ORDER BY created_at, id`,
+    )) byParent.get(child.parent_session!)?.push(child)
+    return new Map([...byParent].map(([id, children]) => [id, this.childFactsOf(children)]))
+  }
+
+  private childFactsOf(children: readonly HeaderRow[]): SessionFormatJsonObject[] {
+    return children.map((child) => {
+      try {
+        const catalog = child.version <= 3 ? historicalSessionFormatCatalog : sessionFormatCatalog
+        const restore = catalog.createRestore(storedHeaderJson(child), { recovery: 'recoverable', validation: 'current' })
+        this.decodeStoredRows(child.id as SessionId, child, restore)
+        return historicalChildCatalogSource(restore.finish())
+      } catch (error) {
+        console.warn(`dsh-edge: subagent session ${child.id} is unreadable; its parent catalog records it with unknown mode.`, error)
+        return { childId: child.id, childCreatedAt: child.created_at, descriptorCount: 0, descriptor: null }
+      }
+    })
+  }
+
+  /** Feed one stored generation's rows to a restore, applying Edge-only legacy repairs. */
+  private decodeStoredRows(id: SessionId, row: HeaderRow, restore: SessionFormatRestore,
+    stored?: Map<number, string>): number {
     const eventRows = this.eventRows(id, 0)
+    // Stored columns by seq, captured before the in-memory v0 repair reorders seqs.
+    if (stored !== undefined) for (const eventRow of eventRows) stored.set(eventRow.seq, storedColumnsKey(eventRow))
     if (row.version === 0) reorderV0SurfaceEvents(eventRows)
     for (const eventRow of eventRows) {
       const isPacked = PACKED_ROW_TYPES.has(eventRow.type)
@@ -493,13 +581,7 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
       }
       restore.decodeRow(record)
     }
-    const artifact = restore.finish()
-    return {
-      version: artifact.header.version,
-      seedLength: artifact.inheritedEventCount > 0 ? artifact.inheritedEventCount : null,
-      physicalRows: eventRows.length,
-      packed: packChunkRuns(artifact.events as SessionEvent[]),
-    }
+    return eventRows.length
   }
 
   async stat(
@@ -722,19 +804,12 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
         this.storage.sql.exec('UPDATE dsh_sessions SET agent_preset = ? WHERE id = ?', selected.data.agentPreset, storage.meta.id)
       }
       acknowledgeMainInputs(this.storage, storage.meta.id, events)
-      persistScheduleChanges(this.storage, storage.meta.id, events, storage.inheritedEventCount)
     }
-    if (!events.some(event => event.type === 'schedule/change')) {
-      return promiseFromSync(() => this.storage.transactionSync(write))
-    }
-    return this.storage.transaction(async () => {
-      write()
-      await armScheduleWake(this.storage)
-    })
+    return promiseFromSync(() => this.storage.transactionSync(write))
   }
 
   /** Repair only under write ownership, before the upstream loop appends resume closers. */
-  async repairTornTail(id: SessionId, inheritedEventCount: SessionLogOffset): Promise<SessionEvent[]> {
+  async repairTornTail(id: SessionId, _inheritedEventCount: SessionLogOffset): Promise<SessionEvent[]> {
     return this.storage.transaction(async () => {
       const rows = this.eventRowsFrom(id, 0)
       const { preserved, tornFrom } = scanRows(rows)
@@ -745,14 +820,11 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
       if (tail.some(row => row.type === 'agent/inbox/spliced')) {
         throw new Error('Cannot automatically repair a torn inbox event; input receipt state may already be committed.')
       }
-      assertScheduleTailRepairable(tail)
       this.storage.sql.exec('DELETE FROM dsh_session_events WHERE session_id = ? AND seq >= ?', id, tornFrom)
-      rebuildSchedules(this.storage, id, preserved, inheritedEventCount)
       this.storage.sql.exec('UPDATE dsh_sessions SET revision = revision + 1 WHERE id = ?', id)
       const header = this.rowFor(id)
       if (header === undefined) throw new Error(`session ${id} disappeared during repair`)
       this.updateSummaryFromBatch(id, preserved, header)
-      await armScheduleWake(this.storage)
       return preserved
     })
   }
@@ -1016,9 +1088,16 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
       // Validate every old log before the first migration write. Discard each
       // artifact after preflight to avoid retaining all decoded histories at once.
       // The second decode runs synchronously in the same transaction/snapshot.
-      let legacy = 0
-      for (const row of outdated) legacy += this.prepareMigration(row.id as SessionId, row)?.physicalRows ?? 0
-      const rebuild = this.isEventTableRebuildCheaper(legacy)
+      // Child evidence is read from the pre-migration state once and reused by both passes.
+      const childFacts = this.collectChildFactsFor(new Set(outdated.map(row => row.id)))
+      let rewriteWrites = 0
+      let migratedRows = 0
+      for (const row of outdated) {
+        const prepared = this.prepareMigration(row.id as SessionId, row, childFacts.get(row.id)!)
+        rewriteWrites += prepared?.rewriteWrites ?? 0
+        migratedRows += prepared?.packed.length ?? 0
+      }
+      const rebuild = this.isEventTableRebuildCheaper(rewriteWrites, migratedRows)
       const target: EventTable = rebuild ? 'dsh_session_events_migrating' : 'dsh_session_events'
       if (rebuild) {
         this.createEventTable(target)
@@ -1029,7 +1108,7 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
         )
       }
       for (const row of outdated) {
-        this.migrateSession(row.id as SessionId, row, true, target)
+        this.migrateSession(row.id as SessionId, row, true, target, childFacts.get(row.id)!)
       }
       if (rebuild) {
         this.storage.sql.exec('DROP TABLE dsh_session_events')
@@ -1043,12 +1122,17 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
     )
   }
 
-  private isEventTableRebuildCheaper(legacy: number): boolean {
-    // INSERT includes the primary-key index; allow 32 catalog writes for a swap.
+  /**
+   * Rewriting in place costs the migration's own diff; a rebuild copies every
+   * current row and inserts every migrated row (INSERT includes the
+   * primary-key index), plus 32 catalog writes for the swap. It only wins when
+   * the next format drops many legacy rows, as packing v0 token deltas does.
+   */
+  private isEventTableRebuildCheaper(rewriteWrites: number, migratedRows: number): boolean {
     // One set-based probe caps event reads and SQL calls independently of the
     // number of current sessions. CROSS JOIN fixes headers as the outer loop,
     // so SQLite seeks the event primary key instead of scanning legacy events.
-    const allowance = Math.floor((legacy - 33) / 2)
+    const allowance = Math.floor((rewriteWrites - 2 * migratedRows - 33) / 2)
     if (allowance < 0) return false
     const count = this.storage.sql.exec<{ count: number }>(
       `SELECT COUNT(*) AS count FROM (
@@ -1289,27 +1373,43 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
 
   private insertStorageRecord(id: SessionId, record: Record<string, unknown>,
     eventTable: EventTable = 'dsh_session_events'): void {
-    const seq = (record.seq ?? record.seq0) as number
-    const time = (record.time ?? record.time0) as number
-    const type = record.type as string
+    const columns = storageColumns(record)
     this.storage.sql.exec(
       `INSERT INTO ${eventTable}
         (session_id, seq, type, time, data, source_event_seqs, surface_op, ignorable)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       id,
-      seq,
-      type,
-      time,
-      JSON.stringify(record.data),
-      record.sourceEventSeqs === undefined ? null : JSON.stringify(record.sourceEventSeqs),
-      record.surfaceOp === undefined ? null : JSON.stringify(record.surfaceOp),
-      record.ignorable === true ? 1 : null,
+      columns.seq,
+      columns.type,
+      columns.time,
+      columns.data,
+      columns.source_event_seqs,
+      columns.surface_op,
+      columns.ignorable,
     )
   }
 
 }
 
 type EventTable = 'dsh_session_events' | 'dsh_session_events_migrating'
+
+/** The stored columns of one storage record, as `insertStorageRecord` writes them. */
+function storageColumns(record: Record<string, unknown>): EventRow {
+  return {
+    seq: (record.seq ?? record.seq0) as number,
+    type: record.type as string,
+    time: (record.time ?? record.time0) as number,
+    data: JSON.stringify(record.data),
+    source_event_seqs: record.sourceEventSeqs === undefined ? null : JSON.stringify(record.sourceEventSeqs),
+    surface_op: record.surfaceOp === undefined ? null : JSON.stringify(record.surfaceOp),
+    ignorable: record.ignorable === true ? 1 : null,
+  }
+}
+
+/** Compare a stored row with a migrated one without its seq (the map key). */
+function storedColumnsKey(row: EventRow): string {
+  return JSON.stringify([row.type, row.time, row.data, row.source_event_seqs, row.surface_op, row.ignorable])
+}
 
 function revisionOf(storeIdentity: string, row: HeaderRow): PersistenceRevision {
   return SessionPersistenceRevision(
@@ -1325,6 +1425,28 @@ function promiseFromSync<T>(operation: () => T): Promise<T> {
     const deferred = Promise.withResolvers<T>()
     deferred.reject(error)
     return deferred.promise
+  }
+}
+
+/**
+ * The physical header JSON the format catalog reads, rebuilt from stored
+ * columns. Released v0/v1 headers carry the inherited cut as `seedLength`;
+ * v2 and later carry only `isSeeded` and find the cut in their events.
+ */
+function storedHeaderJson(row: HeaderRow) {
+  return {
+    type: 'session',
+    version: row.version,
+    id: row.id,
+    createdAt: row.created_at,
+    delegationDepth: row.delegation_depth ?? 0,
+    ...row.cwd === null ? {} : { cwd: row.cwd },
+    ...row.parent_session === null ? {} : { parentSession: row.parent_session },
+    ...row.version <= 1
+      ? row.seed_length === null ? {} : { seedLength: row.seed_length }
+      : { isSeeded: row.seed_length !== null },
+    ...row.origin === null ? {} : { origin: row.origin },
+    ...row.agent_preset === null ? {} : { agentPreset: row.agent_preset },
   }
 }
 

@@ -1,11 +1,19 @@
 import { createServer } from 'node:http'
 import { pathToFileURL } from 'node:url'
 
-/** Start a deterministic chat-completions SSE stand-in for edge integration tests. */
-/** Loop-owned user-role notes that are not a prompt: model changes and runtime-context snapshots. */
+/**
+ * Deterministic DeepSeek stand-in for edge integration tests. It serves the
+ * Messages wire the current release speaks and, for upgrade tests that run
+ * an earlier published release, the chat-completions wire it spoke.
+ * `requests` records the exact bodies; scenarios read them through
+ * {@link chatMessages}, a role-per-message view in which tool results are
+ * `tool` messages and loop notes are their own user prompts.
+ */
+/** Loop-owned user-role notes that are not a prompt: model changes, runtime-context snapshots, and system reminders. */
 export function isLoopNote(message) {
   return message.role === 'user' && typeof message.content === 'string'
-    && (message.content.startsWith('[model changed: ') || message.content.startsWith('Current runtime context'))
+    && (message.content.startsWith('[model changed: ') || message.content.startsWith('Current runtime context')
+      || message.content.startsWith('<system-reminder>'))
 }
 
 /** The index of the latest user prompt in a chat request, skipping loop-owned notes. */
@@ -97,10 +105,11 @@ export async function startMockDeepSeek(port = 0) {
       })
       return
     }
-    if (request.method !== 'POST' || request.url !== '/chat/completions') {
+    if (request.method !== 'POST' || (request.url !== '/v1/messages' && request.url !== '/chat/completions')) {
       response.writeHead(404).end()
       return
     }
+    const legacyWire = request.url === '/chat/completions'
 
     let source = ''
     request.setEncoding('utf8')
@@ -108,7 +117,10 @@ export async function startMockDeepSeek(port = 0) {
     request.on('end', () => {
       const body = JSON.parse(source)
       requests.push(body)
-      const messages = Array.isArray(body.messages) ? body.messages : []
+      const messages = legacyWire ? body.messages : chatMessages(body)
+      response.legacyWire = legacyWire
+      const acceptsTitle = (body.tools ?? []).some(tool => (tool.function?.name ?? tool.name) === 'schedule_create'
+        && Object.hasOwn((tool.function?.parameters ?? tool.input_schema)?.properties ?? {}, 'title'))
       const latestUserIndex = latestUserPromptIndex(messages)
       const latestUser = messages[latestUserIndex]
       const rawContent = latestUser?.content
@@ -133,7 +145,10 @@ export async function startMockDeepSeek(port = 0) {
         sendEvents(response, [
           { choices: [{ delta: { role: 'assistant', content: null, reasoning_content: '' } }] },
           { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_delete_schedule', type: 'function', function: {
-            name: 'schedule_delete', arguments: JSON.stringify({ id: prompt.slice('schedule delete '.length) }),
+            // `latest` names the most recent reminder id a tool result returned in this conversation.
+            name: 'schedule_delete', arguments: JSON.stringify({ id: prompt === 'schedule delete latest'
+              ? [...JSON.stringify(messages).matchAll(/schedule-[0-9a-f-]{36}/gu)].at(-1)?.[0]
+              : prompt.slice('schedule delete '.length) }),
           } }] } }] },
           { choices: [{ delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 8, completion_tokens: 3 } },
         ])
@@ -144,7 +159,38 @@ export async function startMockDeepSeek(port = 0) {
         sendEvents(response, [
           { choices: [{ delta: { role: 'assistant', content: null, reasoning_content: '' } }] },
           { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_schedule', type: 'function', function: {
-            name: 'schedule_create', arguments: JSON.stringify({ prompt: 'schedule-fixture-reminder', after_seconds: Number(prompt.slice('schedule once '.length)) }),
+            name: 'schedule_create', arguments: JSON.stringify({ prompt: 'schedule-fixture-reminder', ...acceptsTitle ? { title: 'Fixture reminder' } : {}, after_seconds: Number(prompt.slice('schedule once '.length)) }),
+          } }] } }] },
+          { choices: [{ delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 8, completion_tokens: 3 } },
+        ])
+        return
+      }
+
+      if (prompt.startsWith('schedule every ') && !hasToolResult) {
+        sendEvents(response, [
+          { choices: [{ delta: { role: 'assistant', content: null, reasoning_content: '' } }] },
+          { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_schedule_every', type: 'function', function: {
+            name: 'schedule_create', arguments: JSON.stringify({ prompt: 'schedule-fixture-periodic', ...acceptsTitle ? { title: 'Fixture periodic' } : {}, every_seconds: Number(prompt.slice('schedule every '.length)) }),
+          } }] } }] },
+          { choices: [{ delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 8, completion_tokens: 3 } },
+        ])
+        return
+      }
+
+      if (prompt === 'list reminders' && !hasToolResult) {
+        sendEvents(response, [
+          { choices: [{ delta: { role: 'assistant', content: null, reasoning_content: '' } }] },
+          { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_schedule_list', type: 'function', function: { name: 'schedule_list', arguments: '{}' } }] } }] },
+          { choices: [{ delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 8, completion_tokens: 3 } },
+        ])
+        return
+      }
+
+      if (prompt.startsWith('delegate to a subagent') && !hasToolResult) {
+        sendEvents(response, [
+          { choices: [{ delta: { role: 'assistant', content: null, reasoning_content: '' } }] },
+          { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_subagent', type: 'function', function: {
+            name: 'subagent', arguments: JSON.stringify({ description: 'Fixture child', prompt: 'child fixture task', run_in_background: false }),
           } }] } }] },
           { choices: [{ delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 8, completion_tokens: 3 } },
         ])
@@ -487,16 +533,112 @@ function messageText(message) {
     .join('')
 }
 
-function sendEvents(response, events, delayMs = 0, continueAfterFirstEvent) {
+/** One Messages request as role-per-message chat entries. */
+export function chatMessages(body) {
+  const messages = []
+  if (body.system !== undefined) {
+    messages.push({ role: 'system', content: typeof body.system === 'string' ? body.system : blockText(body.system) })
+  }
+  for (const message of body.messages ?? []) {
+    const blocks = typeof message.content === 'string' ? [{ type: 'text', text: message.content }] : message.content
+    if (message.role === 'assistant') {
+      const calls = blocks.filter(block => block.type === 'tool_use')
+      messages.push({
+        role: 'assistant',
+        content: blockText(blocks),
+        ...calls.length === 0 ? {} : { tool_calls: calls.map(call => ({ id: call.id, type: 'function', function: { name: call.name, arguments: JSON.stringify(call.input) } })) },
+      })
+      continue
+    }
+    for (const block of blocks.filter(block => block.type === 'tool_result')) {
+      messages.push({ role: 'tool', tool_call_id: block.tool_use_id, content: typeof block.content === 'string' ? block.content : blockText(block.content ?? []) })
+    }
+    // A Messages user turn merges consecutive user messages (loop notes, an
+    // unanswered prompt, the next prompt); each text block is its own entry,
+    // and an image stays with the text before it.
+    let parts = []
+    const flush = () => {
+      if (parts.length === 0) return
+      messages.push({ role: 'user', content: parts.length === 1 && parts[0].type === 'text' ? parts[0].text : parts })
+      parts = []
+    }
+    for (const block of blocks.filter(block => block.type !== 'tool_result')) {
+      if (block.type === 'text') flush()
+      parts.push(block)
+    }
+    flush()
+  }
+  return messages
+}
+
+function blockText(blocks) {
+  return blocks.filter(block => block?.type === 'text' && typeof block.text === 'string').map(block => block.text).join('')
+}
+
+/** Write Messages stream events as server-sent events. */
+export function writeEvents(response, events) {
+  for (const event of events) response.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`)
+}
+
+const STOP_REASONS = { stop: 'end_turn', tool_calls: 'tool_use', length: 'max_tokens' }
+
+/** Translate one scenario's chat-style chunks into Messages stream events, grouped per chunk. */
+export function messagesEvents(chunks) {
+  const usage = chunks.findLast(chunk => chunk.usage !== undefined)?.usage ?? {}
+  let index = -1
+  let open
+  const close = events => {
+    if (open === undefined) return
+    events.push({ type: 'content_block_stop', index })
+    open = undefined
+  }
+  const start = (events, block) => {
+    close(events)
+    index += 1
+    open = block.type
+    events.push({ type: 'content_block_start', index, content_block: block })
+  }
+  const groups = chunks.map((chunk, position) => {
+    const events = position === 0
+      ? [{ type: 'message_start', message: { id: 'msg_mock', type: 'message', role: 'assistant', model: 'mock', content: [], stop_reason: null, usage: { input_tokens: usage.prompt_tokens ?? 0, output_tokens: 0 } } }]
+      : []
+    const choice = chunk.choices?.[0] ?? {}
+    const delta = choice.delta ?? {}
+    if (typeof delta.content === 'string' && delta.content !== '') {
+      if (open !== 'text') start(events, { type: 'text', text: '' })
+      events.push({ type: 'content_block_delta', index, delta: { type: 'text_delta', text: delta.content } })
+    }
+    for (const call of delta.tool_calls ?? []) {
+      start(events, { type: 'tool_use', id: call.id, name: call.function.name, input: {} })
+      events.push({ type: 'content_block_delta', index, delta: { type: 'input_json_delta', partial_json: call.function.arguments } })
+    }
+    if (choice.finish_reason !== undefined) {
+      close(events)
+      events.push({ type: 'message_delta', delta: { stop_reason: STOP_REASONS[choice.finish_reason] ?? 'end_turn', stop_sequence: null }, usage: { output_tokens: usage.completion_tokens ?? 0 } })
+      events.push({ type: 'message_stop' })
+    }
+    return events
+  })
+  return groups
+}
+
+function sendEvents(response, chunks, delayMs = 0, continueAfterFirstEvent) {
+  const groups = response.legacyWire
+    ? chunks.map(chunk => [chunk]).concat([['[DONE]']])
+    : messagesEvents(chunks)
   response.writeHead(200, { 'content-type': 'text/event-stream' })
   const write = (index) => {
     if (response.writableEnded || response.destroyed) return
-    const event = events[index]
-    if (event === undefined) {
-      response.end('data: [DONE]\n\n')
+    const group = groups[index]
+    if (group === undefined) {
+      response.end()
       return
     }
-    response.write(`data: ${JSON.stringify(event)}\n\n`)
+    if (response.legacyWire) {
+      for (const chunk of group) response.write(`data: ${chunk === '[DONE]' ? chunk : JSON.stringify(chunk)}\n\n`)
+    } else {
+      writeEvents(response, group)
+    }
     const writeNext = () => { setTimeout(() => { write(index + 1) }, delayMs) }
     if (index === 0 && continueAfterFirstEvent !== undefined) {
       void continueAfterFirstEvent.then(writeNext)

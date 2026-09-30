@@ -127,6 +127,22 @@ export class EdgeFileSystem extends FileSystem {
     return `file://${this.processPath(target)}`
   }
 
+  /**
+   * Observe a file, or a directory's direct entries, through this provider's
+   * own `fs/observed` writes: the same invalidations the workspace file
+   * stream followed before providers owned watching. Shell writes that bypass
+   * the provider remain unobserved, as before.
+   */
+  override async watch(target: FsTarget, changed: (error?: Error) => void, signal: AbortSignal): Promise<() => Promise<void>> {
+    if (signal.aborted) throw new FsError('watch aborted', 'FS_ABORTED')
+    const watched = this.processPath(target)
+    const dispose = this.ctx.on('fs/observed', (observed) => {
+      const path = this.processPath(observed)
+      if (path === watched || (path.slice(0, path.lastIndexOf('/')) || '/') === watched) changed()
+    })
+    return async () => { dispose() }
+  }
+
   contains(parent: FsTarget, child: FsTarget): boolean {
     const parentPath = this.processPath(parent)
     const childPath = this.processPath(child)

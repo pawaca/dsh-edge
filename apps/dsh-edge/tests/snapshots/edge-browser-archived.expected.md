@@ -1,8 +1,4 @@
 - tree "Sessions":
-  - treeitem "picked" [expanded]:
-    - img
-    - text: picked
+  - treeitem "picked" [expanded]
   - treeitem "Browser snapshot now"
-  - treeitem "Edge browser" [expanded]:
-    - img
-    - text: Edge browser
+  - treeitem "Edge browser" [expanded]

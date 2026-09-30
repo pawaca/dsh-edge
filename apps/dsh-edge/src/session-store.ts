@@ -1,6 +1,6 @@
 /** Canonical DSH sessions backed by the upstream persistence service. */
 
-import { installScheduleTools, dueScheduleChanges, reserveScheduleAdmission } from './schedule-store.ts'
+import { EdgeSchedule } from './schedule-store.ts'
 import { Context, Service as CordisService } from '@deepseek-ai/cordis'
 import { installShortToolPool } from './short-tool-pool.ts'
 import Storage from '@deepseek-ai/dsh-storage'
@@ -97,8 +97,8 @@ import {
   createEdgeBashTool,
   type EdgeShell,
 } from './agent.ts'
-import * as dshLlmDeepseek from '@deepseek-ai/dsh-llm-deepseek'
 import { DeepSeekFileStore } from '@deepseek-ai/dsh-llm-deepseek'
+import { mountDeepSeekProvider } from './edge-llm-settings.ts'
 import { DurableObjectUploadIndex } from './do-upload-index.ts'
 import {
   EdgeDoAttachmentStore,
@@ -110,7 +110,8 @@ import {
   type SettingsDescriptor,
   type SettingsPathOp,
 } from '@deepseek-ai/dsh-settings'
-import DurableObjectSettingsProvider from './do-settings-provider.ts'
+import { EdgeSettings, edgeSettings, type EdgeSettingsScope } from './edge-settings.ts'
+import { registerClientSettings } from './edge-client-settings.ts'
 import type { WorkflowLoader } from './edge-workflow-engine.ts'
 import EdgeCredentialProvider from './edge-credentials.ts'
 import DurableObjectSessionPersistence, {
@@ -129,7 +130,6 @@ import {
 } from './agent-presets.ts'
 import { installEdgeApprovalPolicy, type EdgeApprovalMode, type EdgeApprovalSettings } from './approval-policy.ts'
 import { installEdgeRuntimeSettings, type EdgeRuntimeSettings } from './runtime-settings.ts'
-import type { SettingsScope } from '@deepseek-ai/dsh-settings'
 import { installEdgeWebSearch } from './web-search.ts'
 import { DurableEventDeliveryQueue } from './durable-event-delivery.ts'
 
@@ -183,7 +183,7 @@ const MAX_SEARCH_EVENTS_PER_SESSION = 512
 const MAX_SEARCH_STORED_BYTES_PER_SESSION = 256 * 1_024
 const EDGE_PROVIDER = 'deepseek-official'
 const EDGE_CURRENT_DATE_CONTEXT = 'edge:current-date'
-const DEFAULT_EDGE_MODEL = 'deepseek-v4-flash'
+const DEFAULT_EDGE_MODEL = 'deepseek-flash'
 const AGENT_DEFAULT_MODEL_KEY = 'dsh-edge:agent-default-model'
 const MESSAGE_TYPES = new Set<SessionEvent['type']>(['user/message', 'assistant/message'])
 
@@ -259,7 +259,7 @@ export interface EdgeMuxBaseline {
 export interface EdgeAgentPromptAdmission {
   message?: UserMessage
   mode: 'queue' | 'steer'
-  content: ContentBlock[]
+  content: readonly ContentBlock[]
   rpcId?: RpcId
   clientTimeZone?: string
 }
@@ -306,8 +306,8 @@ export class EdgeSessionStore {
   private readonly baselineOwnedSessions = new WeakSet<Session>()
   private readonly publishesLateEvents: boolean
   private readonly residentAgents = new Map<SessionId, AgentHandle>()
-  private approvalScope?: SettingsScope<EdgeApprovalSettings>
-  private runtimeScope?: SettingsScope<EdgeRuntimeSettings>
+  private approvalScope?: EdgeSettingsScope<EdgeApprovalSettings>
+  private runtimeScope?: EdgeSettingsScope<EdgeRuntimeSettings>
   private mcpToolManager?: McpToolManager
   private readonly doStorage: DurableObjectStorage
   private readonly ready: Promise<void>
@@ -339,7 +339,7 @@ export class EdgeSessionStore {
       storage,
       readDeepSeekApiKey: () => config.readDeepSeekApiKey(),
     })
-    await this.context.plugin(DurableObjectSettingsProvider, { storage })
+    await this.context.plugin(EdgeSettings, { storage })
     await DurableObjectStorageBackend.migrateWorkspaceKeys(storage)
     await DurableObjectStorageBackend.repairEpoch0Timestamps(storage)
     const storageBackend = new DurableObjectStorageBackend(storage)
@@ -350,16 +350,12 @@ export class EdgeSessionStore {
       return () => { dispose(); this.context.provide('storage.backend.durable-object', undefined as never) }
     }, 'dsh-edge: storage backend')
     await this.context.plugin(StorageDomain, { backend: 'durable-object' })
-    const onboardingSchema = Object.assign(
-      (value: unknown) => value ?? {},
-      { toJSON: () => ({ type: 'object' }) },
-    ) as never
-    this.context.settings.register('ui-onboarding', onboardingSchema, {})
+    registerClientSettings(this.context)
     await this.context.plugin(LlmRuntime)
     try {
       const doUploadIndex = new DurableObjectUploadIndex(storage)
       ;(this.context as never as Record<string, unknown>)['edgeFileStore'] = new DeepSeekFileStore({ index: doUploadIndex as never })
-      await this.context.plugin(dshLlmDeepseek, buildEdgeLlmPluginConfig(config)).await()
+      await mountDeepSeekProvider(this.context, buildEdgeLlmPluginConfig(config))
     } catch (error) {
       console.error('dsh-edge: LLM provider plugin failed to initialize; model operations will be unavailable.', error)
     }
@@ -543,17 +539,23 @@ export class EdgeSessionStore {
     )
     this.context.typert.register(SESSION_CONTROLLER_TYPERT as never)
     const { SessionController } = await import('@deepseek-ai/dsh-api-session-controller')
-    // Upstream hands `session/openWorkspacePath` to a native desktop opener
-    // (child_process.execFile). Workers have no desktop, so the Edge composes
-    // the controller through its `internals` seam: the native probe answers
-    // false and an open attempt fails with a message the browser can show,
-    // while the Edge Web client downloads the file through /api/workspace/file.
+    // Upstream hands `session/openWorkspacePath` and its reveal/open-with
+    // variants to native desktop commands (child_process.execFile). Workers
+    // have no desktop, so the Edge composes the controller through its
+    // `internals` seam: the native probe answers false, no applications are
+    // listed, and every open attempt fails with a message the browser can
+    // show, while the Edge Web client downloads the file through
+    // /api/workspace/file.
     class EdgeSessionController extends SessionController {
       constructor(ctx: Context, config: ConstructorParameters<typeof SessionController>[1]) {
+        const unavailable = () => Promise.reject(new Error(EDGE_NATIVE_OPEN_UNAVAILABLE))
         // activateOnFollow is added by the Edge patch to dsh-api-session-controller
         const internals = {
           activateOnFollow: false,
-          openPath: () => Promise.reject(new Error(EDGE_NATIVE_OPEN_UNAVAILABLE)),
+          openPath: unavailable,
+          revealPath: unavailable,
+          openFileApplication: unavailable,
+          fileApplications: () => Promise.resolve([]),
           canOpenPath: () => false,
         }
         super(ctx, config, internals as never)
@@ -566,7 +568,14 @@ export class EdgeSessionStore {
     )
     this.context.typert.register(SETTINGS_CONTROLLER_TYPERT as never)
     const { SettingsController } = await import('@deepseek-ai/dsh-api-settings-controller')
-    await this.context.plugin(SettingsController)
+    // Upstream assumes a file-backed settings document the page can open on the
+    // desktop; the Edge document lives in Durable Object storage.
+    class EdgeSettingsController extends SettingsController {
+      override describe() {
+        return { ...super.describe(), hasDocument: false }
+      }
+    }
+    await this.context.plugin(EdgeSettingsController)
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
     const { TYPERT: WORKSPACE_CONTROLLER_TYPERT } = await import(
       '@deepseek-ai/dsh-api-workspace-controller/typert' as string
@@ -621,7 +630,8 @@ export class EdgeSessionStore {
     this.context.typert.register(GOAL_TYPERT as never)
     await this.context.plugin(ToolGoal)
     await this.context.plugin(GoalRoundDriver)
-    await this.context.plugin(SpillPolicy, { maxInlineBytes: 32_768 })
+    // Upstream estimates 4 bytes per token (50,000 bytes became 12,500 tokens); keep the Edge's 32 KiB budget.
+    await this.context.plugin(SpillPolicy, { maxInlineTokens: 8_192 })
     await installEdgeWebSearch(this.context, config.searchBaseURL)
     await this.context.plugin(AgentLoop, { agents: [] })
     installShortToolPool(this.context)
@@ -631,6 +641,14 @@ export class EdgeSessionStore {
         '@deepseek-ai/dsh-jobs-local' as string
       )
       await this.context.plugin(LocalJobRegistry, { maxConcurrentJobsPerOwner: 3 })
+      // The Web jobs panel reads background jobs through the `job` Remote namespace.
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+      const { TYPERT: JOB_CONTROLLER_TYPERT } = await import(
+        '@deepseek-ai/dsh-api-job-controller/typert' as string
+      )
+      this.context.typert.register(JOB_CONTROLLER_TYPERT as never)
+      const { default: JobController } = await import('@deepseek-ai/dsh-api-job-controller')
+      await this.context.plugin(JobController)
     }
     {
       // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
@@ -683,11 +701,9 @@ export class EdgeSessionStore {
       )
       await this.context.plugin(ToolWorkflow)
     }
+    await this.context.plugin(EdgeSchedule, { storage })
     this.context.on('agent/created', ({ agent }) => {
-      if (this.context.agents.roots().includes(agent)) {
-        agent.ctx.effect(() => installScheduleTools(this.context, agent, storage), 'dsh-edge: schedule tools')
-        return
-      }
+      if (this.context.agents.roots().includes(agent)) return
       const parentId = agent.session.header.parentSession
       if (parentId === undefined) return
       const parentShell = this.shells.get(parentId)
@@ -800,7 +816,7 @@ export class EdgeSessionStore {
   typertGateway(): {
     invoke(request: { namespace: string; method: string; args: Record<string, unknown>; signal?: AbortSignal }): Promise<unknown>
     wireStream: {
-      open(endpoint: string, payload: unknown, signal: AbortSignal): Promise<AsyncIterable<unknown>>
+      open(endpoint: string, payload: unknown, uplink: AsyncIterable<unknown>, peer: undefined, signal: AbortSignal): Promise<AsyncIterable<unknown>>
       failure(error: unknown): { code: string; message: string; details: object }
     }
   } | undefined {
@@ -827,8 +843,7 @@ export class EdgeSessionStore {
     if (cache === undefined) return undefined
     const session = this.context.sessions.get(summary.id)
     const header = session?.header ?? { id: summary.id, createdAt: summary.createdAt, ...summary.cwd === undefined ? {} : { cwd: summary.cwd } }
-    const inheritedEventCount = session?.inheritedEventCount ?? SessionLogOffset(0)
-    return cache.cachedSnapshot(header as never, inheritedEventCount)
+    return cache.cachedSnapshot(header as never)
   }
 
 
@@ -925,13 +940,13 @@ export class EdgeSessionStore {
   /** Whether the mounted settings provider accepts runtime writes. */
   async settingsWritable(): Promise<boolean> {
     await this.ready
-    return this.context.settings?.writable ?? false
+    return edgeSettings(this.context)?.writable ?? false
   }
 
   /** Whether the mounted settings provider owns a user-editable file. */
   async settingsHasDocument(): Promise<boolean> {
     await this.ready
-    return this.context.settings?.documentPath !== undefined
+    return false
   }
 
   async syncMcpServer(serverName: string): Promise<{ toolCount: number }> {
@@ -1214,7 +1229,7 @@ export class EdgeSessionStore {
   /** Describe all registered settings namespaces with redacted secrets. */
   async describeSettings(): Promise<SettingsDescriptor[]> {
     await this.ready
-    return this.context.settings?.describe({ redactSecrets: true }) ?? []
+    return edgeSettings(this.context)?.describe({ redactSecrets: true }) ?? []
   }
 
   /** Merge a patch into one namespace's user section. */
@@ -1224,8 +1239,8 @@ export class EdgeSessionStore {
     expectedRevision?: number,
   ): Promise<SettingsDescriptor | undefined> {
     await this.ready
-    await this.context.settings.update(ns, patch, expectedRevision)
-    return this.context.settings.describe({ redactSecrets: true })
+    await edgeSettings(this.context).update(ns, patch, expectedRevision)
+    return edgeSettings(this.context).describe({ redactSecrets: true })
       .find(d => (d.ns as string) === ns)
   }
 
@@ -1236,8 +1251,8 @@ export class EdgeSessionStore {
     expectedRevision?: number,
   ): Promise<SettingsDescriptor | undefined> {
     await this.ready
-    await this.context.settings.replace(ns, section, expectedRevision)
-    return this.context.settings.describe({ redactSecrets: true })
+    await edgeSettings(this.context).replace(ns, section, expectedRevision)
+    return edgeSettings(this.context).describe({ redactSecrets: true })
       .find(d => (d.ns as string) === ns)
   }
 
@@ -1248,8 +1263,8 @@ export class EdgeSessionStore {
     expectedRevision?: number,
   ): Promise<SettingsDescriptor | undefined> {
     await this.ready
-    await this.context.settings.mutate(ns, ops, expectedRevision)
-    return this.context.settings.describe({ redactSecrets: true })
+    await edgeSettings(this.context).mutate(ns, ops, expectedRevision)
+    return edgeSettings(this.context).describe({ redactSecrets: true })
       .find(d => (d.ns as string) === ns)
   }
 
@@ -1850,20 +1865,6 @@ export class EdgeSessionStore {
     return agents.list().length
   }
 
-  /** The caller owns the main slot while preparing and durably admitting due reminders. */
-  async dispatchDueSchedules(id: SessionId, model: string, storage: DurableObjectStorage): Promise<boolean> {
-    const handle = await this.getOrResumeAgent(id, model)
-    try {
-      const changes = dueScheduleChanges(storage, id, Date.now())
-      if (changes.length === 0 || !reserveScheduleAdmission(storage, id, changes)) return false
-      for (const change of changes) handle.agent.session.append('schedule/change', change)
-      await this.context.sessions.flush(handle.agent.session)
-      return true
-    } finally {
-      storage.sql.exec('DELETE FROM dsh_runtime_schedule_reservation WHERE id = 1')
-    }
-  }
-
   /**
    * Return a resident agent for the session, resuming from persistence on
    * first access within this DO activation. The agent stays alive across
@@ -2028,12 +2029,14 @@ export class EdgeSessionStore {
     message?: UserMessage
     agent: Agent
     mode: 'queue' | 'steer'
-    content: ContentBlock[]
+    content: readonly ContentBlock[]
     rpcId?: RpcId
     clientTimeZone?: string
     shell: EdgeShell
     publish: (event: SessionEvent) => void | Promise<void>
     publishQueue?: (items: QueuedInboxItem[]) => void | Promise<void>
+    /** Runs as a turn starts, before its events are durable and published; follow streams can already observe it. */
+    onTurnStart?: (seq: number) => void
     afterFollowup?: () => void
     onAdmitted?: (admit: EdgeAgentPromptAdmitter) => void
     onClosing?: () => void
@@ -2072,6 +2075,7 @@ export class EdgeSessionStore {
     })
     const stopObserving = this.context.on('session/event', (subject, event) => {
       if (subject !== agent.session) return
+      if (event.type === 'turn/start') input.onTurnStart?.(event.seq)
       const queue = event.type === 'agent/inbox/spliced'
         ? queueItems(agent, event.data)
         : undefined

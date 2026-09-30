@@ -23,6 +23,18 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.`
 
+const ISC_TERMS = `Permission to use, copy, modify, and/or distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.`
+
 const edgeLicense = `MIT License
 
 Copyright (c) 2026 pawaca
@@ -134,6 +146,9 @@ function missingLicenseFallback(component, apacheTerms) {
   ].join(' ')
   if (component.license === 'MIT' || component.license === 'MIT OR Apache-2.0') {
     return `${provenance}\n\nThe MIT branch is reproduced for this distribution:\n\nMIT License\n\nPublished package author: ${author}\n\n${MIT_TERMS}`
+  }
+  if (component.license === 'ISC') {
+    return `${provenance}\n\nISC License\n\nPublished package author: ${author}\n\n${ISC_TERMS}`
   }
   if (component.license === 'Apache-2.0' && apacheTerms !== undefined) {
     return `${provenance}\n\n${apacheTerms}`

@@ -15,17 +15,34 @@
       "priority": "P2",
       "issue": 234
     },
-    "@deepseek-ai/dsh-agent-presets": {
+    "@deepseek-ai/dsh-agent-preset": {
       "status": "substitute",
-      "reason": "EdgeAgentPresets in agent-presets.ts serves the standard and ptc presets."
+      "reason": "EdgeAgentPresets in agent-presets.ts declares the standard and ptc presets in code."
+    },
+    "@deepseek-ai/dsh-agent-preset-registry": {
+      "status": "substitute",
+      "reason": "EdgeAgentPresets in agent-presets.ts serves preset listing, selection, and composition."
     },
     "@deepseek-ai/dsh-agent-tool-presentation": {
       "status": "substitute",
       "reason": "EdgeAgentPresets.join calls tools.presentAs(\"ptc\") directly."
     },
+    "@deepseek-ai/dsh-api-account-controller": {
+      "status": "declined",
+      "reason": "DeepSeek account sign-in; the Edge authenticates with the deployment API key."
+    },
+    "@deepseek-ai/dsh-api-terminal-controller": {
+      "status": "tracked",
+      "issue": 99,
+      "reason": "Persistent PTY sessions (the minimal preset needs them)."
+    },
     "@deepseek-ai/dsh-attachment-local": {
       "status": "substitute",
       "reason": "EdgeR2AttachmentStore and EdgeDoAttachmentStore in edge-attachment-store.ts."
+    },
+    "@deepseek-ai/dsh-authorization": {
+      "status": "declined",
+      "reason": "Human-in-the-loop credential flows; in the reference only DeepSeek account sign-in uses them."
     },
     "@deepseek-ai/dsh-bash-sandbox": {
       "status": "not-applicable",
@@ -39,9 +56,46 @@
       "status": "not-applicable",
       "reason": "Runtime plugin loading (Creator mode); Workers cannot import packages at runtime."
     },
-    "@deepseek-ai/dsh-code-runtime-worker-thread": {
-      "status": "substitute",
-      "reason": "edge-code-runtime.ts runs each program in its own Dynamic Worker (Isolated only)."
+    "@deepseek-ai/dsh-client-ui-permission-presets": {
+      "status": "declined",
+      "reason": "Sandbox mode and approval-level presets; not needed for the single-owner deployment."
+    },
+    "@deepseek-ai/dsh-client-ui-plugin-manager": {
+      "status": "not-applicable",
+      "reason": "Runtime plugin loading (Creator mode); Workers cannot import packages at runtime."
+    },
+    "@deepseek-ai/dsh-client-ui-settings-account": {
+      "status": "declined",
+      "reason": "DeepSeek account sign-in; the Edge authenticates with the deployment API key."
+    },
+    "@deepseek-ai/dsh-client-ui-settings-agent-loop": {
+      "status": "gap",
+      "priority": "P2",
+      "reason": "Replaces the 0.18 Plugin configuration card for this plugin; the page mounts inside the plugin manager, so the Edge needs its own mount point first."
+    },
+    "@deepseek-ai/dsh-client-ui-settings-session-log": {
+      "status": "declined",
+      "reason": "Attach session logs or the plugin inventory to official DeepSeek API requests; opt-in upstream and a privacy decision."
+    },
+    "@deepseek-ai/dsh-client-ui-settings-shell": {
+      "status": "gap",
+      "priority": "P3",
+      "reason": "Settings pages that mount inside the plugin manager and edit upstream plugin configuration the Edge composes in code; they need an Edge mount point first."
+    },
+    "@deepseek-ai/dsh-client-ui-settings-subagent": {
+      "status": "gap",
+      "priority": "P3",
+      "reason": "Settings pages that mount inside the plugin manager and edit upstream plugin configuration the Edge composes in code; they need an Edge mount point first."
+    },
+    "@deepseek-ai/dsh-client-ui-settings-web-search": {
+      "status": "gap",
+      "priority": "P2",
+      "reason": "Replaces the 0.18 Plugin configuration card for this plugin; the page mounts inside the plugin manager, so the Edge needs its own mount point first."
+    },
+    "@deepseek-ai/dsh-client-ui-sidebar-terminal": {
+      "status": "tracked",
+      "issue": 99,
+      "reason": "Persistent PTY sessions (the minimal preset needs them)."
     },
     "@deepseek-ai/dsh-command-compact": {
       "status": "gap",
@@ -58,6 +112,11 @@
       "reason": "/goal command; goal tools and the goal round driver are already mounted.",
       "priority": "P2"
     },
+    "@deepseek-ai/dsh-compaction-image-offload": {
+      "status": "gap",
+      "priority": "P2",
+      "reason": "Offloads images when an image-capable route rejects a request as over its image budget; the default model now accepts images."
+    },
     "@deepseek-ai/dsh-cordis-client-runner": {
       "status": "not-applicable",
       "reason": "Runtime plugin loading (Creator mode); Workers cannot import packages at runtime."
@@ -70,9 +129,17 @@
       "status": "substitute",
       "reason": "edge-credentials.ts over Worker secrets and Durable Object storage."
     },
+    "@deepseek-ai/dsh-deepseek-account-platform": {
+      "status": "declined",
+      "reason": "DeepSeek account sign-in; the Edge authenticates with the deployment API key."
+    },
     "@deepseek-ai/dsh-deepseek-llm-api-extensions": {
       "status": "declined",
       "reason": "Attach session logs or the plugin inventory to official DeepSeek API requests; opt-in upstream and a privacy decision."
+    },
+    "@deepseek-ai/dsh-experimental-browser-use-stagehand-native": {
+      "status": "not-applicable",
+      "reason": "Drives a local Chromium process."
     },
     "@deepseek-ai/dsh-experimental-tool-agent-team": {
       "status": "declined",
@@ -103,6 +170,10 @@
       "status": "substitute",
       "reason": "The Worker fetch entry and edge-api-dispatch.ts."
     },
+    "@deepseek-ai/dsh-llm-deepseek-account": {
+      "status": "declined",
+      "reason": "DeepSeek account sign-in; the Edge authenticates with the deployment API key."
+    },
     "@deepseek-ai/dsh-llm-pi-ai": {
       "status": "not-applicable",
       "reason": "Upstream design-verification adapter; the Edge uses dsh-llm-deepseek."
@@ -112,6 +183,20 @@
       "reason": "Retries failed model requests at durable step boundaries; without it a transient network error or rate limit fails the turn.",
       "priority": "P1"
     },
+    "@deepseek-ai/dsh-mcp-resources": {
+      "status": "gap",
+      "priority": "P2",
+      "reason": "MCP resource discovery and reads; the Edge MCP manager serves tools only."
+    },
+    "@deepseek-ai/dsh-office-to-pdf": {
+      "status": "not-applicable",
+      "reason": "Office conversion through a native LibreOffice build on the host."
+    },
+    "@deepseek-ai/dsh-otel": {
+      "status": "tracked",
+      "issue": 94,
+      "reason": "Shared OTLP reporting channels behind OpenTelemetry session telemetry."
+    },
     "@deepseek-ai/dsh-permission-presets": {
       "status": "declined",
       "reason": "Sandbox mode and approval-level presets; not needed for the single-owner deployment."
@@ -120,9 +205,17 @@
       "status": "substitute",
       "reason": "SystemPrompt personaPrefix and personaSuffix configuration in session-store.ts."
     },
+    "@deepseek-ai/dsh-plugin-manager": {
+      "status": "not-applicable",
+      "reason": "Runtime plugin loading (Creator mode); Workers cannot import packages at runtime."
+    },
     "@deepseek-ai/dsh-plugin-package-inventory-deepseek": {
       "status": "declined",
       "reason": "Attach session logs or the plugin inventory to official DeepSeek API requests; opt-in upstream and a privacy decision."
+    },
+    "@deepseek-ai/dsh-ptc-runtime-node": {
+      "status": "substitute",
+      "reason": "edge-code-runtime.ts runs each program in its own Dynamic Worker (Isolated only)."
     },
     "@deepseek-ai/dsh-repeat-tool-reminder": {
       "status": "gap",
@@ -175,10 +268,6 @@
       "reason": "turnOutline projection; dsh-client-ui-chat already reads it.",
       "priority": "P2"
     },
-    "@deepseek-ai/dsh-settings-file": {
-      "status": "substitute",
-      "reason": "DurableObjectSettingsProvider in do-settings-provider.ts."
-    },
     "@deepseek-ai/dsh-shell-env": {
       "status": "not-applicable",
       "reason": "Host-OS process sandboxing, subprocesses, and shell environment."
@@ -224,6 +313,10 @@
       "issue": 99
     },
     "@deepseek-ai/dsh-tool-cordis": {
+      "status": "not-applicable",
+      "reason": "Runtime plugin loading (Creator mode); Workers cannot import packages at runtime."
+    },
+    "@deepseek-ai/dsh-tool-cordis/host": {
       "status": "not-applicable",
       "reason": "Runtime plugin loading (Creator mode); Workers cannot import packages at runtime."
     },
@@ -291,6 +384,10 @@
       "priority": "P2",
       "issue": 234
     },
+    "@deepseek-ai/dsh-tool-workspace-dependencies": {
+      "status": "not-applicable",
+      "reason": "Bundled Python, Node.js, and pnpm payloads for host processes."
+    },
     "@deepseek-ai/dsh-typert-loader": {
       "status": "substitute",
       "reason": "Node-only upstream; session-store.ts registers Typert reflections explicitly."
@@ -303,9 +400,14 @@
       "status": "substitute",
       "reason": "The Web client is assembled statically at build time (standalone/scripts)."
     },
-    "@deepseek-ai/dsh-workflow-worker-thread": {
+    "@deepseek-ai/dsh-workflow-ptc": {
       "status": "substitute",
       "reason": "edge-workflow-engine.ts runs each workflow in its own Dynamic Worker (Isolated only)."
+    },
+    "@deepseek-ai/dsh-workspace-changes": {
+      "status": "gap",
+      "priority": "P2",
+      "reason": "Per-turn changed-file summaries and diffs; upstream captures git working-tree snapshots and file-tool edits."
     }
   },
   "wikiOmit": {}

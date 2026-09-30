@@ -115,17 +115,18 @@ describe('dsh-edge assembled browser snapshot', () => {
       const edgeSettingsSnapshot = await stableAria(page, '[role="dialog"]')
       await expect(normalize(edgeSettingsSnapshot))
         .toMatchFileSnapshot('./snapshots/edge-settings.expected.md')
+      // 0.2.0 lists every shipped plugin under one collapsible "Global plugins" group.
+      const inventoryResponse = page.waitForResponse(response =>
+        rpcResponseIs(response, 'pluginInventory.list'))
       await settings.getByRole('navigation')
-        .getByRole('button', { name: 'Plugins', exact: true })
+        .getByRole('button', { name: 'Built-in plugins', exact: true })
         .click()
-      await settings.getByRole('tab', { name: 'Plugin list', exact: true }).waitFor()
+      const inventoryWire = await (await inventoryResponse).json()
+      const globalPlugins = settings.getByRole('button', { name: 'Global plugins', exact: true })
+      await globalPlugins.waitFor()
       const pluginsSnapshot = await stableAria(page, '[role="dialog"]')
       await expect(normalize(pluginsSnapshot))
         .toMatchFileSnapshot('./snapshots/edge-plugins.expected.md')
-      const inventoryResponse = page.waitForResponse(response =>
-        rpcResponseIs(response, 'pluginInventory.list'))
-      await settings.getByRole('tab', { name: 'Plugin list', exact: true }).click()
-      const inventoryWire = await (await inventoryResponse).json()
       expect(inventoryWire.result.ok).toBe(true)
       const inventoryIds = inventoryWire.result.value.entries.map(entry => entry.entryId)
       expect(inventoryIds).toContain('web:@deepseek-ai/dsh-client-ui-settings-plugin-inventory')
@@ -136,6 +137,7 @@ describe('dsh-edge assembled browser snapshot', () => {
         .filter(entry => entry.entryId.startsWith('web:'))
         .every(entry => entry.enabled === true && entry.fiberPhase === 'active')).toBe(true)
       expect(inventoryWire.result.value.agentPresets).toEqual([])
+      await globalPlugins.click()
       await expect.poll(
         () => settings.locator('[data-plugin-entry]').count(),
         { timeout: 15_000 },
@@ -194,18 +196,20 @@ describe('dsh-edge assembled browser snapshot', () => {
             || await remoteContinue.waitFor({ timeout: 5_000 }).then(() => true, () => false)) {
             await remoteContinue.click()
           }
+          // A process-local page keeps settings in memory; the host-owning
+          // declaration writes them to the Host from a non-loopback origin too.
           await remotePage.locator('button[aria-haspopup="dialog"]').last().click()
           const remoteSettings = remotePage.getByRole('dialog', { name: 'Settings', exact: true })
-          await remoteSettings.getByRole('navigation')
-            .getByRole('button', { name: 'Plugins', exact: true })
-            .click()
-          await remoteSettings.getByRole('tab', { name: 'Plugin configuration', exact: true }).waitFor()
-          for (const card of ['Agent loop', 'Web search']) {
-            await expect.poll(
-              () => remoteSettings.getByRole('button', { name: `Show settings: ${card}`, exact: true }).count(),
-              { timeout: 15_000 },
-            ).toBe(1)
-          }
+          await remoteSettings.getByRole('button', { name: 'Dark', exact: true }).click()
+          await expect.poll(() => remotePage.evaluate(async () => {
+            const response = await fetch('/api/settings/describe', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ type: 'client-request', rpcId: crypto.randomUUID(), payload: { args: {} } }),
+            })
+            const body = await response.json()
+            return body.result?.value?.namespaces?.find(row => row.ns === 'ui-theme')?.user
+          }), { timeout: 15_000 }).toMatchObject({ preference: 'dark' })
         } finally {
           await remoteBrowser?.close()
           await remoteWorker?.stop()
@@ -215,16 +219,16 @@ describe('dsh-edge assembled browser snapshot', () => {
       await settings.getByRole('button', { name: 'Agent presets', exact: true }).click()
       const presetReadResponse = page.waitForResponse(response =>
         rpcResponseIs(response, 'agentPreset.read'))
-      await settings.getByRole('button', { name: 'View: Standard mode', exact: true }).click()
+      await settings.getByRole('button', { name: 'View configuration: Standard mode', exact: true }).click()
       const presetWire = await (await presetReadResponse).json()
       expect(presetWire.result.ok).toBe(true)
       expect(presetWire.result.value.content).not.toContain(ACCESS_KEY)
-      const presetViewer = page.getByRole('dialog', { name: 'View · Standard mode', exact: true })
+      const presetViewer = page.getByRole('dialog', { name: 'View configuration · Standard mode', exact: true })
       await presetViewer.waitFor()
       await expect.poll(
         () => settings.getByText('This capability is not available in the Edge runtime.').count(),
       ).toBe(0)
-      const presetSnapshot = await stableAria(page, '[role="dialog"][aria-label="View · Standard mode"]')
+      const presetSnapshot = await stableAria(page, '[role="dialog"][aria-label="View configuration · Standard mode"]')
       await expect(normalize(presetSnapshot))
         .toMatchFileSnapshot('./snapshots/edge-agent-preset.expected.md')
       await presetViewer.getByRole('button', { name: 'Close', exact: true }).last().click()
@@ -287,7 +291,7 @@ describe('dsh-edge assembled browser snapshot', () => {
       const selectVision = await edgeRpc(worker, ownerCookieHeader, 'session.selectModel', {
         sessionId: initialSessionId,
         provider: 'deepseek-official',
-        model: 'deepseek-v4-flash-vision-exp',
+        model: 'deepseek-flash',
       })
       expect(selectVision.result.ok).toBe(true)
 
@@ -350,7 +354,7 @@ describe('dsh-edge assembled browser snapshot', () => {
 
       const searchButton = page.getByRole('button', { name: 'Search sessions' })
       if (await searchButton.getAttribute('aria-expanded') !== 'true') await searchButton.click()
-      const search = page.getByRole('textbox', { name: 'Search sessions...', exact: true })
+      const search = page.getByRole('textbox', { name: 'Search session names', exact: true })
       const searchResponse = page.waitForResponse(response => rpcResponseIs(response, 'session.search'))
       await search.fill('remembered-alpha')
       const searchWire = await (await searchResponse).json()
@@ -404,7 +408,7 @@ describe('dsh-edge assembled browser snapshot', () => {
       await expect.poll(() => page.getByRole('tooltip').count()).toBe(0)
       await expect.poll(
         () => page.getByRole('button', {
-          name: 'Select model, current DeepSeek-V4-Flash-Vision-Exp, reasoning effort High',
+          name: 'Select model, current DeepSeek-V41-Flash, reasoning effort High',
           exact: true,
         }).count(),
         { timeout: 15_000 },
@@ -469,8 +473,9 @@ describe('dsh-edge assembled browser snapshot', () => {
         () => page.getByText('read-finished', { exact: true }).count(),
         { timeout: 30_000 },
       ).toBeGreaterThanOrEqual(1)
-      // The tool rows sit behind the turn's collapsed process disclosure.
-      await page.getByRole('button', { name: /^1 tool call/u }).last().click()
+      // The tool rows sit behind the turn's collapsed process disclosure and its read group.
+      await page.getByRole('button', { name: /^Took /u }).last().click()
+      await page.getByRole('button', { name: 'Read files', exact: true }).last().click()
       const fileLink = page.getByRole('button', { name: /download-probe\.txt$/u }).last()
       await fileLink.waitFor({ timeout: 15_000 })
       const fileResponse = page.waitForResponse(response =>

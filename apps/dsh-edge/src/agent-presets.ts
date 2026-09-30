@@ -19,7 +19,7 @@
 
 import { Service as CordisService, type Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
-import type { SettingsScope } from '@deepseek-ai/dsh-settings'
+import { edgeSettings, type EdgeSettingsScope } from './edge-settings.ts'
 import type { SessionHeader } from '@deepseek-ai/dsh-session'
 
 // The upstream event the preset host records; declared here because the Edge
@@ -77,11 +77,11 @@ export class EdgeAgentPresets extends CordisService {
   static inject = ['settings']
 
   private readonly composed = new WeakMap<Context, string>()
-  private readonly settings: SettingsScope<AgentPresetSettings>
+  private readonly settings: EdgeSettingsScope<AgentPresetSettings>
 
   constructor(ctx: Context, private readonly config: { codeRuntime: boolean }) {
     super(ctx, 'agentPresets')
-    this.settings = ctx.settings.register(AGENT_PRESET_SETTINGS_NAMESPACE, AgentPresetSettingsSchema, {
+    this.settings = edgeSettings(ctx).register(AGENT_PRESET_SETTINGS_NAMESPACE, AgentPresetSettingsSchema, {
       // Checked against every Edge preset rather than this deployment's offer:
       // a stored `ptc` must not fail registration after the Loader is removed.
       validate: ({ default: id }) => {
@@ -146,5 +146,10 @@ export class EdgeAgentPresets extends CordisService {
 
   composeFrom(childCtx: Context, parentCtx: Context): void {
     this.join(childCtx, this.composedPreset(parentCtx))
+  }
+
+  /** No preset mounts its own services; callers fall back to the global one. */
+  serviceFor(_agent: { ctx: Context }, _name: string): undefined {
+    return undefined
   }
 }

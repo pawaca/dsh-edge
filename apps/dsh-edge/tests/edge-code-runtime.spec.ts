@@ -1,5 +1,5 @@
 import { Context } from '@deepseek-ai/cordis'
-import type { CodeBindingNamespace, CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
+import type { PtcBindingNamespace, PtcRunResult } from '@deepseek-ai/dsh-ptc-runtime'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { createContext, runInContext } from 'node:vm'
 import { describe, expect, it, vi } from 'vitest'
@@ -96,11 +96,11 @@ async function setup(config: Record<string, unknown> = {}) {
   const ctx = new Context()
   const loader = new FakeLoader()
   await ctx.plugin(EdgeCodeRuntime, { loader, ...config } as never)
-  const runtime = ctx.get('codeRuntime') as InstanceType<typeof EdgeCodeRuntime>
+  const runtime = ctx.get('ptcRuntime') as InstanceType<typeof EdgeCodeRuntime>
   return { ctx, runtime, loader }
 }
 
-function tools(functions: CodeBindingNamespace['functions']): CodeBindingNamespace {
+function tools(functions: PtcBindingNamespace['functions']): PtcBindingNamespace {
   return { global: 'tools', functions, errorClass: { name: 'ToolCallError', memberNameProperty: 'toolName' } }
 }
 
@@ -113,9 +113,17 @@ const echo = tools({
 })
 
 describe('edge code runtime', () => {
+  it('declares no per-run timeout: runs get the deployment ceiling and an explicit budget is refused', async () => {
+    const { runtime } = await setup({ maxWallMs: 1234 })
+    // With no declared budget, upstream run_code neither offers nor forwards timeoutMs.
+    expect(runtime.timeout).toBeUndefined()
+    expect(runtime.resolve({ program: 'return 1', bindings: [] }).timeoutMs).toBe(1234)
+    expect(() => runtime.resolve({ program: 'return 1', bindings: [], timeoutMs: 10 })).toThrow(/not supported/u)
+  })
+
   it('runs a TypeScript program in a Dynamic Worker against the tools binding', async () => {
     const { runtime, loader } = await setup()
-    const result = await runtime.run({
+    const result = await runtime.run(runtime.resolve({
       program: `
         interface Row { n: number }
         const rows: Row[] = [{ n: 1 }, { n: 2 }]
@@ -124,7 +132,7 @@ describe('edge code runtime', () => {
         return { first, total: rows.reduce((sum: number, row: Row) => sum + row.n, 0) }
       `,
       bindings: [echo],
-    })
+    }))
     expect(result).toEqual({ logs: ['rows 2'], value: { first: { echoed: { path: 'a.txt' } }, total: 3 } })
     expect(runtime.language).toBe('typescript')
     expect(runtime.isolation).toBe('dynamic-worker')
@@ -141,17 +149,17 @@ describe('edge code runtime', () => {
     const turn = new AsyncLocalStorage<string>()
     loader.escape = fn => turn.exit(fn)
     const seen: (string | undefined)[] = []
-    const result = await turn.run('turn-1', () => runtime.run({
+    const result = await turn.run('turn-1', () => runtime.run(runtime.resolve({
       program: `return await tools.where({})`,
       bindings: [tools({ where: async () => { seen.push(turn.getStore()); return turn.getStore() ?? null } })],
-    }))
+    })))
     expect(result.value).toBe('turn-1')
     expect(seen).toEqual(['turn-1'])
   })
 
   it('rejects failed binding calls with the namespace error class', async () => {
     const { runtime } = await setup()
-    const result = await runtime.run({
+    const result = await runtime.run(runtime.resolve({
       program: `
         try {
           await tools.fail({})
@@ -160,23 +168,23 @@ describe('edge code runtime', () => {
         }
       `,
       bindings: [echo],
-    })
+    }))
     expect(result.value).toEqual([true, 'ToolCallError', 'fail', 'tool refused'])
   })
 
   it('treats __proto__ and constructor as ordinary binding names', async () => {
     const { runtime } = await setup()
-    const result = await runtime.run({
+    const result = await runtime.run(runtime.resolve({
       program: `return [await tools['__proto__']({}), await tools['constructor']({}), Object.getPrototypeOf(tools)]`,
       bindings: [echo],
-    })
+    }))
     expect(result.value).toEqual(['proto member', 'constructor member', null])
   })
 
   it('refuses unknown members and oversized or lossy arguments on the host', async () => {
     const { runtime, loader } = await setup({ maxBindingArgBytes: 64 })
     const held = Promise.withResolvers<void>()
-    const pending = runtime.run({ program: `await tools.hold({}); return 1`, bindings: [tools({ hold: async () => { await held.promise; return null } })] })
+    const pending = runtime.run(runtime.resolve({ program: `await tools.hold({}); return 1`, bindings: [tools({ hold: async () => { await held.promise; return null } })] }))
     await new Promise(resolve => setTimeout(resolve, 5))
     const bridge = loader.bridges[0]!
     await expect(bridge.call('tools', 'missing', {})).resolves.toMatchObject({ ok: false, message: 'unknown binding "tools.missing"' })
@@ -189,13 +197,13 @@ describe('edge code runtime', () => {
   it('caps binding calls in the isolate and on the host', async () => {
     const { runtime, loader } = await setup({ maxBindingCalls: 3 })
     let invoked = 0
-    const result = await runtime.run({
+    const result = await runtime.run(runtime.resolve({
       program: `
         const settled = await Promise.allSettled(Array.from({ length: 10 }, (_, i) => tools.count({ i })))
         return settled.filter(outcome => outcome.status === 'rejected').length
       `,
       bindings: [tools({ count: async () => { invoked += 1; return invoked } })],
-    })
+    }))
     expect(result.value).toBe(7)
     expect(invoked).toBe(3)
     expect(loader.calls).toBe(3)
@@ -203,7 +211,7 @@ describe('edge code runtime', () => {
 
   it('caps binding replies and rejects lossy resolutions', async () => {
     const { runtime } = await setup({ maxBindingReplyBytes: 64 })
-    const result = await runtime.run({
+    const result = await runtime.run(runtime.resolve({
       program: `
         const out = []
         for (const name of ['big', 'lossy']) {
@@ -212,7 +220,7 @@ describe('edge code runtime', () => {
         return out
       `,
       bindings: [tools({ big: async () => 'y'.repeat(200), lossy: async () => ({ when: new Date(0) }) as never })],
-    })
+    }))
     expect(result.value).toEqual([
       expect.stringContaining('over the 64-byte limit'),
       'binding resolution must be lossless JSON',
@@ -221,43 +229,43 @@ describe('edge code runtime', () => {
 
   it('classifies program failures', async () => {
     const roomy = await setup()
-    await expect(roomy.runtime.run({ program: `throw new Error('boom')`, bindings: [] }))
+    await expect(roomy.runtime.run(roomy.runtime.resolve({ program: `throw new Error('boom')`, bindings: [] })))
       .resolves.toMatchObject({ error: { kind: 'exception', message: expect.stringContaining('boom') as string } })
     const { runtime } = await setup({ maxOutputBytes: 256 })
-    await expect(runtime.run({ program: `return new Date(0)`, bindings: [] }))
+    await expect(runtime.run(runtime.resolve({ program: `return new Date(0)`, bindings: [] })))
       .resolves.toMatchObject({ error: { kind: 'invalid-output' } })
-    await expect(runtime.run({ program: `return 'z'.repeat(1000)`, bindings: [] }))
+    await expect(runtime.run(runtime.resolve({ program: `return 'z'.repeat(1000)`, bindings: [] })))
       .resolves.toMatchObject({ error: { kind: 'output-limit' } })
-    const empty: CodeRunResult = await runtime.run({ program: `const x = 1`, bindings: [] })
+    const empty: PtcRunResult = await runtime.run(runtime.resolve({ program: `const x = 1`, bindings: [] }))
     expect(empty).toEqual({ logs: [] })
   })
 
   it('measures completion bytes the way JSON encodes them', async () => {
     const { runtime } = await setup({ maxOutputBytes: 4096 })
     // Raw length 1000 fits; JSON escaping (\\u0000 is 6 bytes each) does not.
-    await expect(runtime.run({ program: `return '\\u0000'.repeat(1000)`, bindings: [] }))
+    await expect(runtime.run(runtime.resolve({ program: `return '\\u0000'.repeat(1000)`, bindings: [] })))
       .resolves.toMatchObject({ error: { kind: 'output-limit', message: 'program completion exceeded 4096 bytes' } })
-    const escaped = await runtime.run({ program: `return 'quote " backslash \\\\ lone \\ud800 pair 😀'`, bindings: [] })
+    const escaped = await runtime.run(runtime.resolve({ program: `return 'quote " backslash \\\\ lone \\ud800 pair 😀'`, bindings: [] }))
     expect(escaped.value).toBe('quote " backslash \\ lone \ud800 pair 😀')
   })
 
   it('reports type-strip and wrapper failures as exceptions without loading an isolate', async () => {
     const { runtime, loader } = await setup()
-    await expect(runtime.run({ program: `return (`, bindings: [] }))
+    await expect(runtime.run(runtime.resolve({ program: `return (`, bindings: [] })))
       .resolves.toMatchObject({ error: { kind: 'exception' } })
-    await expect(runtime.run({ program: `}\nexport const escaped = 1\nfunction rest() {`, bindings: [] }))
+    await expect(runtime.run(runtime.resolve({ program: `}\nexport const escaped = 1\nfunction rest() {`, bindings: [] })))
       .resolves.toMatchObject({ error: { kind: 'exception' } })
     expect(loader.loads).toHaveLength(0)
-    const enumRun = await runtime.run({ program: `enum Color { Red, Green }\nreturn Color.Green`, bindings: [] })
+    const enumRun = await runtime.run(runtime.resolve({ program: `enum Color { Red, Green }\nreturn Color.Green`, bindings: [] }))
     expect(enumRun.value).toBe(1)
   })
 
   it('bounds console output with the outer-output ledger', async () => {
     const { runtime } = await setup({ maxOutputBytes: 100 })
-    const result = await runtime.run({
+    const result = await runtime.run(runtime.resolve({
       program: `for (let i = 0; i < 20; i++) { console.log('line ' + i); await null }\nreturn 1`,
       bindings: [],
-    })
+    }))
     expect(result.error).toMatchObject({ kind: 'output-limit' })
     expect(result.logs.length).toBeGreaterThan(0)
     expect(JSON.stringify(result).length).toBeLessThan(200)
@@ -266,30 +274,30 @@ describe('edge code runtime', () => {
   it('delivers logs sent just before the program returns', async () => {
     const { runtime, loader } = await setup()
     loader.logDelayMs = 10
-    const result = await runtime.run({ program: `console.log('first'); console.warn('last'); return 1`, bindings: [] })
+    const result = await runtime.run(runtime.resolve({ program: `console.log('first'); console.warn('last'); return 1`, bindings: [] }))
     expect(result).toEqual({ logs: ['first', 'last'], value: 1 })
   })
 
   it('keeps at most a fixed number of log RPCs in flight', async () => {
     const { runtime } = await setup()
-    const result = await runtime.run({ program: `for (let i = 0; i < 1000; i++) console.log('x'); return 1`, bindings: [] })
+    const result = await runtime.run(runtime.resolve({ program: `for (let i = 0; i < 1000; i++) console.log('x'); return 1`, bindings: [] }))
     expect(result.logs).toHaveLength(MAX_LOGS_IN_FLIGHT)
   })
 
   it('times out, aborts, and disposes the isolate', async () => {
     const wall = await setup({ maxWallMs: 20 })
-    await expect(wall.runtime.run({ program: `await new Promise(() => {})`, bindings: [] }))
+    await expect(wall.runtime.run(wall.runtime.resolve({ program: `await new Promise(() => {})`, bindings: [] })))
       .resolves.toMatchObject({ error: { kind: 'timeout' } })
     expect(wall.loader.disposed).toBeGreaterThan(0)
     const controller = new AbortController()
-    const running = wall.runtime.run({ program: `await new Promise(() => {})`, bindings: [], signal: controller.signal })
+    const running = wall.runtime.run(wall.runtime.resolve({ program: `await new Promise(() => {})`, bindings: [], signal: controller.signal }))
     await new Promise(resolve => setTimeout(resolve, 5))
     controller.abort('stop')
     await expect(running).resolves.toMatchObject({ error: { kind: 'abort', message: 'stop' } })
     const aborted = new AbortController()
     aborted.abort('early')
     const loads = wall.loader.loads.length
-    await expect(wall.runtime.run({ program: `return 1`, bindings: [], signal: aborted.signal }))
+    await expect(wall.runtime.run(wall.runtime.resolve({ program: `return 1`, bindings: [], signal: aborted.signal })))
       .resolves.toMatchObject({ error: { kind: 'abort' } })
     expect(wall.loader.loads).toHaveLength(loads)
   })
@@ -297,23 +305,23 @@ describe('edge code runtime', () => {
   it('reports an isolate that fails to start as worker-exit and disposes it', async () => {
     const { runtime, loader } = await setup()
     loader.entrypointError = new Error('worker failed to initialize')
-    await expect(runtime.run({ program: `return 1`, bindings: [] }))
+    await expect(runtime.run(runtime.resolve({ program: `return 1`, bindings: [] })))
       .resolves.toMatchObject({ error: { kind: 'worker-exit' } })
     expect(loader.disposed).toBe(1)
   })
 
   it('settles live runs on disposal and refuses runs afterwards', async () => {
     const { ctx, runtime } = await setup()
-    const running = runtime.run({ program: `await new Promise(() => {})`, bindings: [] })
+    const running = runtime.run(runtime.resolve({ program: `await new Promise(() => {})`, bindings: [] }))
     await new Promise(resolve => setTimeout(resolve, 5))
     await ctx.fiber.dispose()
     await expect(running).resolves.toMatchObject({ error: { kind: 'abort', message: 'runtime disposed' } })
-    await expect(runtime.run({ program: `return 1`, bindings: [] })).rejects.toThrow(/after disposal/u)
+    await expect(runtime.run(runtime.resolve({ program: `return 1`, bindings: [] }))).rejects.toThrow(/after disposal/u)
   })
 
   it('rejects invalid binding namespaces as seam misuse', async () => {
     const { runtime } = await setup()
-    const invalid: CodeBindingNamespace[][] = [
+    const invalid: PtcBindingNamespace[][] = [
       [{ global: 'console', functions: {} }],
       [{ global: '$tools', functions: {} }],
       [{ global: 'class', functions: {} }],
@@ -322,7 +330,7 @@ describe('edge code runtime', () => {
       [{ global: 'tools', functions: {}, errorClass: { name: 'tools', memberNameProperty: 'toolName' } }],
     ]
     for (const bindings of invalid) {
-      await expect(runtime.run({ program: 'return 1', bindings }), JSON.stringify(bindings)).rejects.toThrow(/edge code-runtime/u)
+      await expect(runtime.run(runtime.resolve({ program: 'return 1', bindings })), JSON.stringify(bindings)).rejects.toThrow(/edge code-runtime/u)
     }
   })
 })

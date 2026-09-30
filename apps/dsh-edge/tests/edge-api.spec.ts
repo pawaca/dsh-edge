@@ -648,39 +648,22 @@ describe('Edge upstream API invariants', () => {
     expect(updateQueue).not.toHaveBeenCalled()
   })
 
-  it('lets the runtime authorize already-admitted images in queue edits', async () => {
-    const updateQueue = vi.fn()
-      .mockReturnValueOnce('accepted')
-      .mockReturnValueOnce('queue-edit-attachment-invalid')
+  it('accepts text-only queue edits and rejects image blocks like upstream', async () => {
+    const updateQueue = vi.fn().mockReturnValue('accepted')
     const api = createEdgeApi(runtime({}, { updateQueue }))
-    const action = {
-      kind: 'edit' as const,
-      content: [
-        { type: 'text' as const, text: 'edited caption' },
-        { type: 'image' as const, attachment: imageRef },
-      ],
-    }
+    const action = { kind: 'edit' as const, content: [{ type: 'text' as const, text: 'edited caption' }] }
 
-    const accepted = await api.sessions.updateQueue(request({
-      sessionId: parentId,
-      itemId: 'message-image' as MessageId,
-      action,
-    }))
+    const accepted = await api.sessions.updateQueue(request({ sessionId: parentId, itemId: 'message-image' as MessageId, action }))
     expect(accepted.result).toMatchObject({ ok: true, value: { accepted: true } })
-    expect(updateQueue).toHaveBeenNthCalledWith(1, parentId, 'message-image', action)
+    expect(updateQueue).toHaveBeenCalledWith(parentId, 'message-image', action)
 
     const rejected = await api.sessions.updateQueue(request({
       sessionId: parentId,
       itemId: 'message-image' as MessageId,
-      action,
+      action: { kind: 'edit', content: [{ type: 'image', attachment: imageRef }] } as never,
     }))
-    expect(rejected.result).toMatchObject({
-      ok: false,
-      error: {
-        code: 'attachment-error',
-        details: { reason: 'QUEUE_EDIT_ATTACHMENT_INVALID' },
-      },
-    })
+    expect(rejected.result).toMatchObject({ ok: false, error: { code: 'attachment-error', details: { reason: 'QUEUE_EDIT_NON_TEXT' } } })
+    expect(updateQueue).toHaveBeenCalledOnce()
   })
 
   it('uses upstream image admission and durable refs without changing the prompt wire', async () => {

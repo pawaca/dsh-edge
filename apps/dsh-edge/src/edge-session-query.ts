@@ -20,6 +20,7 @@ import SessionQueryEngine, {
   type SessionSearchRequest,
 } from '@deepseek-ai/dsh-session-query'
 import type DurableObjectSessionPersistence from './do-session-persistence.ts'
+import type {} from './upstream-message-sources.ts'
 
 /**
  * Search documents for a session's conversation. Runtime-context snapshots
@@ -33,7 +34,7 @@ export function edgeSearchDocuments(
   // Build from every event (surface folding follows seq references), then
   // drop the snapshots' documents.
   const snapshots = new Set(events.filter(event => event.type === 'user/message'
-    && event.data.source.kind === 'plugin' && event.data.source.plugin === '@deepseek-ai/dsh-system-prompt')
+    && event.data.source.kind === 'runtime-context')
     .map(event => event.seq))
   return buildSessionEventSearchDocuments(sessionId, events).filter(document => !snapshots.has(document.seq))
 }

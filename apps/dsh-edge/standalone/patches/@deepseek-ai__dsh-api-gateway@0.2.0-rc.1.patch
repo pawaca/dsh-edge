@@ -1,0 +1,46 @@
+diff --git a/lib/index.js b/lib/index.js
+index 6c174ec..c722310 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -547,7 +547,8 @@ function rejectRemoteStreamUpgrade(socket, status) {
+ * streams use the Gateway-owned WebSocket mux.
+ * @module @deepseek-ai/dsh-api-gateway
+ */
+-const NEVER_ABORTED_SIGNAL = new AbortController().signal;
++let _neverAbortedSignal;
++function neverAbortedSignal() { return _neverAbortedSignal ??= new AbortController().signal; }
+ const DEFAULT_WEBSOCKET_HEARTBEAT_INTERVAL_MS = 2e3;
+ const DEFAULT_STREAM_INBOX_BYTES = 262144;
+ const EMPTY_ASYNC_ITERABLE = { [Symbol.asyncIterator]: () => ({ next: () => Promise.resolve({
+@@ -1234,7 +1235,7 @@ function remoteRequest(endpoint, payload, signal, peer) {
+ */
+ function methodSignal(request, control) {
+ 	const carrier = request.signal;
+-	if (request.uplink === void 0) return carrier ?? NEVER_ABORTED_SIGNAL;
++	if (request.uplink === void 0) return carrier ?? neverAbortedSignal();
+ 	if (carrier === void 0 || carrier === control.signal) return control.signal;
+ 	return AbortSignal.any([carrier, control.signal]);
+ }
+diff --git a/lib/types/index.js b/lib/types/index.js
+index 5e5a22d..33fa3b8 100644
+--- a/lib/types/index.js
++++ b/lib/types/index.js
+@@ -13,7 +13,8 @@ import z from '@deepseek-ai/schemastery';
+ import { RemoteError, isRemoteJsonValue, remoteErrorOf, remoteMethods, } from '@deepseek-ai/dsh-typert-protocol';
+ import { RemoteStreamMuxServer, rejectRemoteStreamUpgrade, } from "./stream-server.js";
+ import { REMOTE_EVENT_STREAM_ENDPOINT, REMOTE_EVENT_STREAM_READY, REMOTE_EVENT_RESULT_ENDPOINT, REMOTE_STREAM_MUX_PATH, isRemoteEventAgentId, parseRemoteEventResult, projectRemoteEventRequest, restoreRemoteEventRejection, } from "./stream-protocol.js";
+-const NEVER_ABORTED_SIGNAL = new AbortController().signal;
++let _neverAbortedSignal;
++function neverAbortedSignal() { return _neverAbortedSignal ??= new AbortController().signal; }
+ const DEFAULT_WEBSOCKET_HEARTBEAT_INTERVAL_MS = 2_000;
+ const DEFAULT_STREAM_INBOX_BYTES = 262_144;
+ const EMPTY_ASYNC_ITERABLE = {
+@@ -827,7 +828,7 @@ function remoteRequest(endpoint, payload, signal, peer) {
+ function methodSignal(request, control) {
+     const carrier = request.signal;
+     if (request.uplink === undefined)
+-        return carrier ?? NEVER_ABORTED_SIGNAL;
++        return carrier ?? neverAbortedSignal();
+     if (carrier === undefined || carrier === control.signal)
+         return control.signal;
+     return AbortSignal.any([carrier, control.signal]);

@@ -22,16 +22,12 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap { 'settings.edge': EdgeSettingsKey }
 }
 
-export const inject = ['slots', 'locale', 'settingsScope']
+// Settings persist on the Host because the Edge shell declares the browser
+// transport as host-owning (`__DSH_TRANSPORT__.ownsHost`).
+export const inject = ['slots', 'locale']
 
 export function apply(ctx: Context): void {
   const slots = (ctx as unknown as { slots: Slots }).slots
-  const mirror = (ctx as never as { settingsScope: { describe(): { persistence: string; load(): void } } })
-    .settingsScope.describe()
-  if (mirror.persistence === 'memory') {
-    mirror.persistence = 'host'
-    mirror.load()
-  }
   ctx.effect(() => ctx.locale.register('settings.edge', { en, zh }), 'ui-edge: settings dictionaries')
   const controller = new EdgeSettingsController({
     fetch: (input, init) => globalThis.fetch(input, init),

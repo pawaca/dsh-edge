@@ -1,16 +1,16 @@
 diff --git a/lib/index.js b/lib/index.js
-index 0e94dd33ddca78b3d1f9a7145298d3a56293494f..852c0c15460377d4420c0fe52b547b8f27560962 100644
+index 3b8507e..e6eb90e 100644
 --- a/lib/index.js
 +++ b/lib/index.js
-@@ -3,7 +3,6 @@ import z from "@deepseek-ai/schemastery";
- import { AssistantStreamAccumulator, ReasoningEffortId, assistantStreamChunks, createUserMessage, errorChain, freezeMessage } from "@deepseek-ai/dsh-llm";
- import { canOpenNativePath, nativeFileManager, openNativePath, revealNativePath } from "@deepseek-ai/dsh-native-command";
+@@ -5,7 +5,6 @@ import { AssistantStreamAccumulator, ReasoningEffortId, assistantStreamChunks, c
+ import { canOpenNativePath, nativeFileApplications, nativeFileManager, openNativeAssociatedPath, openNativeFileApplication, revealNativePath } from "@deepseek-ai/dsh-native-command";
+ import { SessionQueryError } from "@deepseek-ai/dsh-session-query";
  import { Remote, RemoteError, TypertRemoteService, remoteErrorOf } from "@deepseek-ai/dsh-typert-protocol";
 -import { mkdir } from "node:fs/promises";
  import { installModelSelection } from "@deepseek-ai/dsh-agent";
- import { SessionQueryError } from "@deepseek-ai/dsh-session-query";
+ import { credentialRef } from "@deepseek-ai/dsh-credentials";
  import { randomUUID } from "node:crypto";
-@@ -437,11 +436,6 @@ var ApiSessionAgentController = class {
+@@ -441,11 +440,6 @@ var ApiSessionAgentController = class {
  		} catch (error) {
  			if (!(error instanceof SessionQueryError) || error.code !== "SESSION_QUERY_SESSION_NOT_FOUND") throw error;
  		}
@@ -22,7 +22,7 @@ index 0e94dd33ddca78b3d1f9a7145298d3a56293494f..852c0c15460377d4420c0fe52b547b8f
  		const composition = await this.composeAgent(presetId);
  		return (await this.ctx.agents.create({
  			sessionId,
-@@ -2737,7 +2731,8 @@ let SessionController = (() => {
+@@ -2858,7 +2852,8 @@ let SessionController = (() => {
  				await Promise.allSettled([...this.promotions]);
  			}, "session-controller.promotions");
  			this.history = new SessionHistoryController(ctx, (observation) => {
@@ -31,21 +31,21 @@ index 0e94dd33ddca78b3d1f9a7145298d3a56293494f..852c0c15460377d4420c0fe52b547b8f
 +				else this.promote(observation);
  			});
  			this.listState = new ApiSessionList(ctx);
- 			this.openPath = internals.openPath ?? openNativePath;
-@@ -2750,7 +2745,7 @@ let SessionController = (() => {
+ 			this.fileApplications = internals.fileApplications ?? nativeFileApplications;
+@@ -2874,7 +2869,7 @@ let SessionController = (() => {
  				ctx.emit("api-session/added", this.listState.summaryFor(session));
  			});
  			ctx.on("session/disposed", (session) => {
 -				ctx.emit("api-session/removed", session.id);
 +				if (internals.activateOnFollow !== false) ctx.emit("api-session/removed", session.id);
  			});
- 			ctx.on("agent/status", ({ agent, status }) => {
- 				ctx.emit("api-session/status", agent.id, status === "running");
+ 			const publishAgentAvailability = ({ agent }) => {
+ 				if (ctx.sessions.get(agent.id) === agent.session) ctx.emit("api-session/added", this.listState.summaryFor(agent.session));
 diff --git a/lib/types/index.d.ts b/lib/types/index.d.ts
-index f2c0f34483e8229068915dd693ccc9dd1233f570..469cb5c1d4cc13042473137fafe9c7f026d68b59 100644
+index 58e6dd4..c0793b7 100644
 --- a/lib/types/index.d.ts
 +++ b/lib/types/index.d.ts
-@@ -24,6 +24,8 @@ export interface Config {
+@@ -25,6 +25,8 @@ export interface Config {
  }
  /** Host integrations replaceable by direct unit tests. */
  export interface SessionControllerInternals {
@@ -53,4 +53,4 @@ index f2c0f34483e8229068915dd693ccc9dd1233f570..469cb5c1d4cc13042473137fafe9c7f0
 +    readonly activateOnFollow?: boolean;
      /** Native default-application handoff. */
      readonly openPath?: (path: string, signal: AbortSignal) => Promise<void>;
-     /** Native file-manager handoff. */
+     /** Native file-association query. */

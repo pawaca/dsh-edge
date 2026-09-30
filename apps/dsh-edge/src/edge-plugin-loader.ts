@@ -5,15 +5,20 @@ import bootGraph from '../standalone/expected-boot-graph.json' with { type: 'jso
 
 /**
  * The subset of a cordis Loader entry that `PluginInventoryGateway.list()`
- * reads: identity, module name, group marker, effective enablement, and the
- * root fiber whose state maps onto the public phase vocabulary.
+ * reads: identity, module name, group marker, effective enablement, the
+ * root fiber whose state maps onto the public phase vocabulary, and the config
+ * tree whose package base URL locates display metadata.
  */
 export interface EdgeLoaderEntry {
   readonly id: string
   readonly options: { readonly name: string; readonly group?: boolean }
   readonly disabled: boolean
   readonly fiber?: Pick<Fiber, 'state'>
+  readonly parent: typeof NO_CONFIG_TREE
 }
+
+/** The Edge composes plugins in code, so no entry has a package base URL to read metadata from. */
+const NO_CONFIG_TREE = { tree: { ctx: { baseUrl: undefined } } } as const
 
 /** Entry id prefix for plugins composed in the Durable Object host context. */
 export const HOST_ENTRY_PREFIX = 'host:'
@@ -55,6 +60,7 @@ export class EdgeLoader extends Service {
         id: `${HOST_ENTRY_PREFIX}${name}${ordinal === 1 ? '' : `#${String(ordinal)}`}`,
         options: { name },
         disabled: false,
+        parent: NO_CONFIG_TREE,
         ...(fiber === undefined ? {} : { fiber }),
       }
     }
@@ -66,6 +72,7 @@ export class EdgeLoader extends Service {
         id: `${WEB_ENTRY_PREFIX}${entry.id}`,
         options: { name: entry.id },
         disabled: false,
+        parent: NO_CONFIG_TREE,
         fiber: { state: ACTIVE_FIBER_STATE },
       }
     }

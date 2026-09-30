@@ -1,3 +1,5 @@
+// First: platform fetch semantics every upstream provider relies on.
+import './fetch-redirect-error.ts'
 import { getWorkspace } from '@cloudflare/computer'
 import type { EdgeShellResult } from './agent.ts'
 import {

@@ -1,39 +1,16 @@
 - dialog "Settings":
   - navigation:
     - text: Settings
-    - button "General":
-      - img
-      - text: General
-    - button "Models":
-      - img
-      - text: Models
-    - button "Plugins":
-      - img
-      - text: Plugins
-    - button "Agent presets":
-      - img
-      - text: Agent presets
-    - button "MCP Connectors":
-      - img
-      - text: MCP Connectors
-    - button "DSH Edge":
-      - img
-      - text: DSH Edge
-  - button "Close":
-    - img
-    - text: Close
-  - heading "Plugins" [level=2]
-  - paragraph: Configure and inspect the plugins installed in this deployment.
-  - tablist "Plugin views":
-    - tab "Plugin configuration" [selected]
-    - tab "Plugin list"
-  - tabpanel "Plugin configuration":
-    - list:
-      - listitem:
-        - 'button "Show settings: Agent loop"':
-          - text: Agent loop How the agent dispatches tool calls.
-          - img
-      - listitem:
-        - 'button "Show settings: Web search"':
-          - text: Web search The DeepSeek search provider.
-          - img
+    - button "General"
+    - button "Models"
+    - button "Built-in plugins"
+    - button "Agent presets"
+    - button "MCP Connectors"
+    - button "DSH Edge"
+  - button "Close"
+  - heading "Built-in plugins" [level=2]
+  - paragraph: Inspect the plugins this deployment ships.
+  - text: Search plugins
+  - searchbox "Search plugins"
+  - button "Global plugins"
+  - paragraph: Shared by the system and every session ·125 plugins

@@ -257,7 +257,7 @@ describe('dsh-edge installer primitives', () => {
       temporary: true,
     })).toEqual([
       'deploy', '--env', '', '--name', 'dsh-edge', '--config',
-      '/private/wrangler.json', '--secrets-file', '/private/secrets.json', '--temporary',
+      '/private/wrangler.json', '--tag', `v${EDGE_VERSION}`, '--secrets-file', '/private/secrets.json', '--temporary',
     ])
     expect(wranglerDeployArgs({
       mode: 'isolated',
@@ -273,6 +273,7 @@ describe('dsh-edge installer primitives', () => {
       configFile: '/private/wrangler.json',
     })).toEqual([
       'deploy', '--env', 'container', '--name', 'private-edge', '--config', '/private/wrangler.json',
+      '--tag', `v${EDGE_VERSION}`,
     ])
     expect(() => wranglerDeployArgs({
       mode: 'isolated',
@@ -571,7 +572,7 @@ describe('dsh-edge installer primitives', () => {
       [[storage, loader, container], 'container'],
     ] as const) {
       versions['version-a'] = [...bindings]
-      await expect(inspect()).resolves.toEqual({ mode, attachmentStorage: 'temporary-do' })
+      await expect(inspect()).resolves.toEqual({ mode, attachmentStorage: 'temporary-do', sessionFormatUpgrade: true })
     }
     // `--name` selects the Worker whatever mode deployed it, so no `--env` is needed.
     expect(runWrangler.mock.calls.map(call => call[0])).toContainEqual([
@@ -619,7 +620,32 @@ describe('dsh-edge installer primitives', () => {
     await expect(inspectExistingDeployment({
       workerName: 'dsh-edge',
       runWrangler,
-    })).resolves.toEqual({ mode: 'direct', attachmentStorage: 'temporary-do' })
+    })).resolves.toEqual({ mode: 'direct', attachmentStorage: 'temporary-do', sessionFormatUpgrade: true })
+  })
+
+  it('flags a session-format upgrade unless every active version carries a 0.19+ release tag', async () => {
+    const tags: Record<string, string | undefined> = {}
+    const runWrangler = vi.fn(async (args: string[]): Promise<CommandResult> => {
+      if (args[0] === 'deployments') {
+        return commandResult(0, JSON.stringify({ versions: Object.keys(tags).map(version_id => ({ version_id, percentage: 50 })) }))
+      }
+      const tag = tags[args[2]!]
+      return commandResult(0, JSON.stringify({
+        resources: { bindings: [INSTANCE_BINDING] },
+        ...tag === undefined ? {} : { annotations: { 'workers/tag': tag } },
+      }))
+    })
+    const upgrade = async () => (await inspectExistingDeployment({ workerName: 'dsh-edge', runWrangler }))?.sessionFormatUpgrade
+    tags['version-a'] = 'v0.19.0-alpha.1'
+    expect(await upgrade()).toBe(false)
+    tags['version-a'] = 'v1.0.0'
+    expect(await upgrade()).toBe(false)
+    // A gradual rollout still serving an untagged (0.18) version keeps the note.
+    tags['version-b'] = undefined
+    expect(await upgrade()).toBe(true)
+    delete tags['version-b']
+    tags['version-a'] = 'v0.18.0'
+    expect(await upgrade()).toBe(true)
   })
 
   it('recognizes an unmarked R2 binding as authoritative', async () => {
@@ -1228,7 +1254,7 @@ describe('dsh-edge guided installation', () => {
     const runWrangler = existingWorkerWrangler([])
 
     await expect(installEdge({ ui, runWrangler })).rejects.toThrow('cancelled')
-    expect(existingWorker).toHaveBeenCalledWith({ workerName: 'dsh-edge', mode: 'direct' })
+    expect(existingWorker).toHaveBeenCalledWith({ workerName: 'dsh-edge', mode: 'direct', sessionFormatUpgrade: true })
     expect(runWrangler.mock.calls.some(([args]) => args[0] === 'deploy')).toBe(false)
   })
 
@@ -1276,7 +1302,7 @@ describe('dsh-edge guided installation', () => {
       expect(selectAccount).toHaveBeenCalledWith(command === 'upgrade'
         ? expect.not.arrayContaining([expect.objectContaining({ value: 'temporary' })])
         : expect.arrayContaining([expect.objectContaining({ value: 'temporary' })]))
-      expect(existingWorker).toHaveBeenCalledWith({ workerName: 'dsh-edge', mode: 'isolated' })
+      expect(existingWorker).toHaveBeenCalledWith({ workerName: 'dsh-edge', mode: 'isolated', sessionFormatUpgrade: true })
       // "Update it" is the confirmation: no capability question, summary, or key prompt.
       expect(selectCapability).not.toHaveBeenCalled()
       expect(confirm).not.toHaveBeenCalled()

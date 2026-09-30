@@ -7,7 +7,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
-import type { SettingsScope } from '@deepseek-ai/dsh-settings'
+import { edgeSettings, type EdgeSettingsScope } from './edge-settings.ts'
 import type { BashRoutingPolicy } from './bash-routing.ts'
 
 export const RUNTIME_SETTINGS_NAMESPACE = 'edge-runtime'
@@ -36,8 +36,8 @@ const EdgeRuntimeSettingsSchema: Schema<EdgeRuntimeSettings> = Schema.object({
     .default(DEFAULT_RUNTIME_SETTINGS.containerSleepMinutes),
 }) as unknown as Schema<EdgeRuntimeSettings>
 
-export function installEdgeRuntimeSettings(ctx: Context): SettingsScope<EdgeRuntimeSettings> {
-  return ctx.settings.register(RUNTIME_SETTINGS_NAMESPACE, EdgeRuntimeSettingsSchema)
+export function installEdgeRuntimeSettings(ctx: Context): EdgeSettingsScope<EdgeRuntimeSettings> {
+  return edgeSettings(ctx).register(RUNTIME_SETTINGS_NAMESPACE, EdgeRuntimeSettingsSchema)
 }
 
 /** Validate an owner's partial update, returning an error message for invalid input. */

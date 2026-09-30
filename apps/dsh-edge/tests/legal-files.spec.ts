@@ -61,4 +61,19 @@ describe('bundled license documents', () => {
       { file: 'package metadata fallback', name: 'missing-mit', version: '1.2.3' },
     ])
   })
+
+  it('reproduces ISC terms when a published ISC package omits its license file', () => {
+    const [document] = collectLicenseDocuments([{
+      author: 'Example Author <author@example.com>',
+      license: 'ISC',
+      name: 'missing-isc',
+      path: packageDirectory({}),
+      version: '6.0.0',
+    }])
+    if (document === undefined) throw new Error('expected generated ISC terms')
+
+    expect(document.text).toContain('ISC License')
+    expect(document.text).toContain('Published package author: Example Author <author@example.com>')
+    expect(document.text).toContain('Permission to use, copy, modify, and/or distribute this software')
+  })
 })

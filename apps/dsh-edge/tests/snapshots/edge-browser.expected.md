@@ -1,53 +1,27 @@
 - banner:
-  - navigation "Session hierarchy":
-    - button "Browser snapshot (1)" [disabled]
-  - img
+  - navigation "Session hierarchy": Browser snapshot (1)
   - text: Standard mode
-  - button "Open right sidebar":
-    - img
+  - button "Open right sidebar"
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
-- button "System prompt":
-  - img
-  - img
-  - text: System prompt
 - button "one-pixel.png, click to view original":
   - img "one-pixel.png"
 - text: snapshot the browser edge path {{clock}}
-- button "Copy":
-  - img
-- button "Thought for a while":
-  - text: Thought for a while
-  - img
+- button "Copy"
+- status: Worked
+- button "Took {{metric}}" [disabled]
 - paragraph: remembered-alpha
-- button "Copy":
-  - img
-- button "Good response":
-  - img
-- button "Bad response":
-  - img
-- button "Branch into a new conversation":
-  - img
-- button "Usage 14 tok":
-  - img
-  - text: Usage 14 tok
-- button "Ran for {{metric}}":
-  - img
-  - text: Ran for {{metric}}
+- button "Copy"
+- button "Good response"
+- button "Bad response"
+- button "Branch into a new conversation"
+- button "Usage 14 tok"
 - text: {{clock}}
 - textbox "Message or run a task, / commands, @ files or sessions"
-- button "Commands":
-  - img
-- button "Add attachment":
-  - img
-- button "Select model, current DeepSeek-V4-Flash-Vision-Exp, reasoning effort High":
-  - text: DeepSeek-V4-Flash-Vision-Exp High
-  - img
+- button "Add files or run commands"
+- button "Select model, current DeepSeek-V41-Flash, reasoning effort High": DeepSeek-V41-Flash High
 - button "Send message" [disabled]
-- button "1 turns 1 steps":
-  - img
-  - text: 1 turns 1 steps
-- button "14 tok · Cache hit 0%":
-  - img
-  - text: 14 tokCache hit 0%
+- button "1 turns 1 steps"
+- button "14 tok · Cache hit 0%": 14 tokCache hit 0%
+- button "0% of context used": 0%

@@ -77,7 +77,7 @@ To call DeepSeek, create an ignored `apps/dsh-edge/.dev.vars` file:
 DSH_EDGE_ACCESS_KEY=replace-with-at-least-32-random-bytes
 DEEPSEEK_API_KEY=replace-with-your-key
 DEEPSEEK_MAX_OUTPUT_TOKENS=256000
-DEEPSEEK_MODEL=deepseek-v4-flash
+DEEPSEEK_MODEL=deepseek-flash
 DEEPSEEK_REASONING_EFFORT=high
 DEEPSEEK_STREAM_IDLE_TIMEOUT_MS=120000
 DSH_EDGE_DEFAULT_COMMAND_TIMEOUT_MS=120000
@@ -212,9 +212,9 @@ A focused failure test proves that post-enqueue durability failure blocks model 
 
 | Variable | Purpose and validation |
 | --- | --- |
-| `DEEPSEEK_BASE_URL` | Chat endpoint. Must be HTTP(S) without URL userinfo. The browser projection omits query and fragment components that may carry gateway credentials. |
+| `DEEPSEEK_BASE_URL` | Anthropic-compatible Messages endpoint. Defaults to `https://api.deepseek.com/anthropic`. Must be HTTP(S) without URL userinfo. The browser projection omits query and fragment components that may carry gateway credentials. |
 | `DEEPSEEK_SEARCH_BASE_URL` | Anthropic-compatible Messages endpoint for native Web Search. Defaults to `https://api.deepseek.com/anthropic/v1`; must be HTTP(S) without userinfo, query, or fragment. Search does not follow redirects. |
-| `DEEPSEEK_MODEL` | Validated deployment default; defaults to `deepseek-v4-flash`. Each session may choose another upstream catalog entry. As upstream, the latest choice in any session becomes the model new sessions start on, so this value applies until the owner first picks a model. |
+| `DEEPSEEK_MODEL` | Validated deployment default; defaults to `deepseek-flash` (DeepSeek-V4.1-Flash, with image input). Each session may choose another upstream catalog entry. As upstream, the latest choice in any session becomes the model new sessions start on, so this value applies until the owner first picks a model. |
 | `DEEPSEEK_REASONING_EFFORT` | `off`, `low`, `high`, or `max`; defaults to `high`. |
 | `DEEPSEEK_MAX_OUTPUT_TOKENS` | Optional positive safe integer overriding the 256,000-token chat default. |
 | `DEEPSEEK_STREAM_IDLE_TIMEOUT_MS` | Optional positive integer up to 2,147,483,647; defaults to 120,000 ms. |

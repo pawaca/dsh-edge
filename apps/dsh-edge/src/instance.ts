@@ -1,6 +1,6 @@
 /** Workspace Durable Object with persistent sessions and streamed agent turns. */
 
-import { initializeSchedules, nextSchedule, scheduleWakeTime, setScheduleRetry } from './schedule-store.ts'
+import { initializeSchedules, nextSchedule, scheduleWakeTime, setScheduleRetry, dispatchDueSchedules } from './schedule-store.ts'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import type { EdgeMcpServerConfig } from './edge-mcp-manager.ts'
 
@@ -15,7 +15,6 @@ import {
 } from '@cloudflare/computer/backends/container'
 import type { WorkerShellLoader } from '@cloudflare/computer/backends/worker-shell'
 import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
-import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { SessionListMetadata, QueueAction } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/types'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
@@ -27,6 +26,7 @@ import {
   type ServerRequest,
 } from './edge-rpc-types.ts'
 import { callEdgeApi, dispatchEdgeApi } from './edge-api-dispatch.ts'
+import { typertRpcResponse } from './edge-typert-connection.ts'
 import { createUserMessage, freezeMessage, MessageId, type UserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
@@ -153,12 +153,12 @@ interface DownlinkAttachment {
 }
 
 /** Whether the Typert gateway reported that no active service exports the endpoint. */
-function isUnservedEndpointError(error: unknown): boolean {
-  const code = (error as { code?: unknown }).code
-  if (code === 'gateway/definition-unavailable'
-    || code === 'gateway/method-unavailable'
-    || code === 'gateway/service-unavailable') return true
-  return error instanceof Error && error.message.includes('no active Remote method')
+function isUnservedEndpointError(error: { readonly code: string; readonly message: string }): boolean {
+  if (error.code === 'gateway/definition-unavailable'
+    || error.code === 'gateway/method-unavailable'
+    || error.code === 'gateway/service-unavailable'
+    || error.code === 'gateway/invocation-unavailable') return true
+  return error.message.includes('no active Remote method')
 }
 
 /** Project a gateway failure onto the RPC wire without inventing a new code. */
@@ -351,7 +351,6 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
   private mainDriving = false
   private mainStreamCount = 0
   private readonly controlTarget = new AsyncLocalStorage<EdgeTurnId>()
-  private readonly runtimeQueueListeners = new Set<(sessionId: SessionId) => void>()
   private readonly liveQueues = new Map<SessionId, QueuedInboxItem[]>()
   private readonly mainStreams = new Map<number, Set<{ publish(event: SessionEvent): void; resolve(): void; reject(error: unknown): void }>>()
   private readonly activeTurns = new Map<SessionId, ActiveTurn>()
@@ -720,7 +719,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
           // No progress (including a preparation error) must not create a hot alarm loop.
           setScheduleRetry(this.ctx.storage, due.sessionId, Date.now() + MAIN_WAKE_MS)
           try {
-            if (await this.sessions.dispatchDueSchedules(SessionId(due.sessionId), this.model, this.ctx.storage)) setScheduleRetry(this.ctx.storage, due.sessionId, 0)
+            if (dispatchDueSchedules(this.ctx.storage, due.sessionId, Date.now())) setScheduleRetry(this.ctx.storage, due.sessionId, 0)
           } catch (error) {
             // A broken reminder must not prevent healthy queued sessions from claiming the slot.
             console.error('dsh-edge reminder preparation failed; retry is deferred.', error)
@@ -781,7 +780,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     }
   }
 
-  private async enqueueMain(sessionId: SessionId, content: ContentBlock[], rpcId?: RpcId, clientTimeZone?: string, contentDigest?: string, announce = true): Promise<MainInput> {
+  private async enqueueMain(sessionId: SessionId, content: readonly ContentBlock[], rpcId?: RpcId, clientTimeZone?: string, contentDigest?: string, announce = true): Promise<MainInput> {
     resolveEdgeDeploymentConfig(this.env)
     await this.sessions.getApiSessionSummary(sessionId)
     const identity = rpcId ?? RpcId(crypto.randomUUID())
@@ -904,49 +903,35 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
 
   private async pumpRemoteStream(
     socket: WebSocket,
-    gateway: { wireStream: { open(endpoint: string, payload: unknown, signal: AbortSignal): Promise<AsyncIterable<unknown>>; failure(error: unknown): { code: string; message: string; details: object } } },
+    gateway: { wireStream: { open(endpoint: string, payload: unknown, uplink: AsyncIterable<unknown>, peer: undefined, signal: AbortSignal): Promise<AsyncIterable<unknown>>; failure(error: unknown): { code: string; message: string; details: object } } },
     streamId: string,
     endpoint: string,
     payload: unknown,
     abort: AbortController,
   ): Promise<void> {
-    const control = endpoint === 'session/control'
-    const sendQueue = (sessionId: SessionId) => {
-      if (socket.readyState === WebSocket.OPEN && !abort.signal.aborted) socket.send(JSON.stringify({
-        type: 'item', streamId, value: { type: 'queue', sessionId, items: this.runtimeQueueItems(sessionId) },
-      }))
-    }
     try {
-      let source = await gateway.wireStream.open(endpoint, payload, abort.signal)
+      // No mounted Remote endpoint declares client-to-host items; the operator's in-process peer owns the stream.
+      let source = await gateway.wireStream.open(endpoint, payload, emptyUplink(), undefined, abort.signal)
       if (endpoint === 'workspaceFiles/changes') {
         const iterator = source[Symbol.asyncIterator]()
         let first = true
         source = { [Symbol.asyncIterator]: () => ({
           next: () => {
-            if (!first) return iterator.next()
+            if (!first) return this.withBorrowedWorkspaceMetadata(() => iterator.next())
             first = false
-            // Only the initial ready frame resolves the VFS root. Release the
-            // workspace before waiting for later metadata observations.
+            // The initial ready frame resolves the VFS root with the workspace held.
             return this.withWorkspaceFileScope(() => iterator.next())
           },
           return: () => iterator.return?.() ?? Promise.resolve({ done: true as const, value: undefined }),
         }) }
       }
+      // Upstream frames pass through unchanged: the 0.2.0 control stream carries
+      // only projection baselines and sequenced projection frames, and the
+      // client rejects any other frame. Queued inputs the Edge holds before
+      // admission reach this tab as the client's own submission echoes.
       for await (const value of source) {
         if (socket.readyState !== WebSocket.OPEN) break
-        let outgoing = value
-        if (control) {
-          const frame = value as { type: string; sessionId?: string; items?: unknown[]; value?: { queues: Record<string, unknown[]> } }
-          if (frame.type === 'baseline' && frame.value !== undefined) {
-            const queues = { ...frame.value.queues }
-            for (const id of new Set([...Object.keys(queues), ...this.mainQueue.sessions()])) queues[id] = this.runtimeQueueItems(SessionId(id), queues[id])
-            outgoing = { ...frame, value: { ...frame.value, queues } }
-            this.runtimeQueueListeners.add(sendQueue)
-          } else if (frame.type === 'queue' && frame.sessionId !== undefined) {
-            outgoing = { ...frame, items: this.runtimeQueueItems(SessionId(frame.sessionId), frame.items) }
-          }
-        }
-        socket.send(JSON.stringify({ type: 'item', streamId, value: outgoing }))
+        socket.send(JSON.stringify({ type: 'item', streamId, value }))
       }
       if (!abort.signal.aborted && socket.readyState === WebSocket.OPEN) {
         socket.send(JSON.stringify({ type: 'end', streamId }))
@@ -960,8 +945,6 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
           socket.close(1011, 'Remote stream failure could not be delivered')
         }
       }
-    } finally {
-      this.runtimeQueueListeners.delete(sendQueue)
     }
   }
 
@@ -1205,6 +1188,20 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     return this.withWorkspaceFiles(files => fs.runInScope(files as never, '/workspace', run))
   }
 
+  /**
+   * Scope a long-lived stream whose later steps read file metadata after
+   * waiting for a change. Each metadata read borrows the workspace for that
+   * read alone, so the wait between changes keeps nothing in use.
+   */
+  private async withBorrowedWorkspaceMetadata<T>(run: () => Promise<T>): Promise<T> {
+    const fs = this.sessions.filesystem()
+    if (fs === undefined) throw new Error('Workspace filesystem is unavailable.')
+    const borrow = <K extends 'stat' | 'lstat' | 'readdir'>(method: K) =>
+      (path: string) => this.withWorkspaceFiles(files => (files as unknown as Record<K, (path: string) => Promise<unknown>>)[method](path))
+    const metadata = { stat: borrow('stat'), lstat: borrow('lstat'), readdir: borrow('readdir') }
+    return fs.runInScope(metadata as never, '/workspace', run)
+  }
+
   private async workspaceForSession(sessionId: SessionId): Promise<WorkspaceId | undefined> {
     const registry = await this.sessions.workspaceRegistry()
     for (const entity of registry.list()) {
@@ -1339,8 +1336,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       if (interceptor === undefined || !interceptor.claims(endpoint)) {
         return new Response('not found', { status: 404 })
       }
-      const result = await interceptor.dispatch(endpoint, payload, request.signal)
-      return Response.json({ type: 'server-response', rpcId, result })
+      return typertRpcResponse(rpcId, await interceptor.dispatch(endpoint, payload, request.signal))
     }
     // The Edge owns the turn lifecycle: agents open per turn and dispose when
     // it ends, matching Durable Object eviction, while the upstream controller
@@ -1356,25 +1352,26 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       }
       return edgeDispatch()
     }
-    const gateway = this.sessions.typertGateway()
-    if (gateway === undefined) return edgeDispatch()
+    const interceptor = this.sessions.typertRpcInterceptor()
+    if (interceptor === undefined) return edgeDispatch()
     try {
-      const invoke = () => gateway.invoke({ namespace: ns, method, args, signal: AbortSignal.timeout(30_000) })
+      // The gateway's own RPC path encodes results (byte values included) for the Connection wire.
+      const invoke = () => interceptor.dispatch(`${ns}/${method}`, payload ?? { args }, AbortSignal.timeout(30_000))
       // Agent-scoped commands (including /plan) use the same residency budget.
       // Their upstream lookup may otherwise leave a cold Agent permanently live.
-      const value = ns === 'workspaceFiles'
+      const result = ns === 'workspaceFiles'
         ? await this.withWorkspaceFileScope(invoke)
         : typeof args.agentId === 'string'
           ? await this.withAgentControl(SessionId(args.agentId), invoke)
           : await invoke()
-      return Response.json({ type: 'server-response', rpcId, result: { ok: true, value } })
-    } catch (error) {
       // Only endpoints no registered controller serves fall back to the Edge
       // API; validation and business failures surface as the gateway reported
       // them so protocol regressions stay visible.
-      if (isUnservedEndpointError(error)) {
+      if (!result.ok && isUnservedEndpointError(result.error)) {
         try { return await edgeDispatch() } catch {}
       }
+      return typertRpcResponse(rpcId, result)
+    } catch (error) {
       return Response.json({ type: 'server-response', rpcId, result: {
         ok: false,
         error: remoteFailureOf(error),
@@ -1441,13 +1438,8 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     })
   }
 
-  private runtimeQueueItems(sessionId: SessionId, live?: readonly unknown[]): unknown[] {
-    return [...(live ?? this.liveQueues.get(sessionId) ?? []), ...this.mainQueue.pending(sessionId).map(input => ({ id: input.message.id, placement: 'queued', message: input.message }))]
-  }
-
   private publishSessionQueue(sessionId: SessionId, items?: QueuedInboxItem[]): void {
     if (items !== undefined) this.liveQueues.set(sessionId, items)
-    for (const listener of this.runtimeQueueListeners) listener(sessionId)
     this.broadcast('mux', { type: 'session/queue', sessionId, items: [...(this.liveQueues.get(sessionId) ?? []), ...this.mainQueue.pending(sessionId).map(input => ({ id: input.message.id, placement: 'queued' as const, message: input.message }))] })
   }
 
@@ -1675,7 +1667,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
   private async startApiPrompt(input: {
     sessionId: SessionId
     mode: 'queue' | 'steer'
-    content: ContentBlock[]
+    content: readonly ContentBlock[]
     rpcId: RpcId
     clientTimeZone?: string
     contentDigest?: string
@@ -1712,7 +1704,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     sessionId: SessionId,
     itemId: MessageId,
     action: QueueAction,
-  ): Promise<'accepted' | 'queue-item-not-found' | 'steer-unavailable' | 'queue-edit-attachment-invalid'> {
+  ): Promise<'accepted' | 'queue-item-not-found' | 'steer-unavailable'> {
     const pending = this.mainQueue.pending(sessionId).find(input => input.message.id === itemId)
     if (pending !== undefined) {
       if (action.kind === 'steer') {
@@ -1724,7 +1716,6 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         return 'accepted'
       }
       if (action.kind === 'edit') {
-        if (!preservesAdmittedQueueImages(pending.message.content, action.content)) return 'queue-edit-attachment-invalid'
         this.mainQueue.edit(sessionId, itemId, { ...pending.message, content: [...action.content] })
       } else {
         this.mainQueue.remove(sessionId, itemId)
@@ -1750,9 +1741,6 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       return 'steer-unavailable'
     }
     if (action.kind === 'edit') {
-      if (!preservesAdmittedQueueImages(message.content, action.content)) {
-        return 'queue-edit-attachment-invalid'
-      }
       agent.inbox.replace(itemId, freezeMessage({ ...message, content: [...action.content] } as UserMessage))
     } else {
       agent.inbox.remove(itemId)
@@ -1818,7 +1806,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     message?: UserMessage
     claimed: { sessionId: SessionId; turn: ActiveTurn; handle: AgentHandle }
     commandTimeoutPolicy: EdgeCommandTimeoutPolicy
-    content: ContentBlock[]
+    content: readonly ContentBlock[]
     mode: 'queue' | 'steer'
     rpcId?: RpcId
     clientTimeZone?: string
@@ -1840,8 +1828,10 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         onClosing: () => {
           turn.accepting = false
         },
+        // Record the run as it starts: a tab's follow stream can show this turn
+        // before its events are durable and published here.
+        onTurnStart: (seq) => { turn.turnStartSeq = seq },
         publish: async (event) => {
-          if (event.type === 'turn/start') turn.turnStartSeq = event.seq
           this.publishSessionEvent(sessionId, event)
           await input.publish?.(event)
         },
@@ -1866,7 +1856,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     message?: UserMessage
     agent: Agent
     commandTimeoutPolicy: EdgeCommandTimeoutPolicy
-    content: ContentBlock[]
+    content: readonly ContentBlock[]
     mode: 'queue' | 'steer'
     turn: ActiveTurn
     rpcId?: RpcId
@@ -1875,6 +1865,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     publishQueue: (items: QueuedInboxItem[]) => void | Promise<void>
     onAdmitted?: (admit: EdgeAgentPromptAdmitter) => void
     onClosing?: () => void
+    onTurnStart?: (seq: number) => void
   }): Promise<void> {
     const workspace = await this.workspace()
     const edgeFs = this.sessions.filesystem()
@@ -1902,6 +1893,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       },
       ...input.onAdmitted === undefined ? {} : { onAdmitted: input.onAdmitted },
       ...input.onClosing === undefined ? {} : { onClosing: input.onClosing },
+      ...input.onTurnStart === undefined ? {} : { onTurnStart: input.onTurnStart },
       publish: input.publish,
       publishQueue: input.publishQueue,
     })
@@ -1948,30 +1940,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
   }
 }
 
-/** Keep queue edits inside the exact attachment authority of one pending message. */
-function preservesAdmittedQueueImages(
-  original: readonly ContentBlock[],
-  edited: readonly ContentBlock[],
-): boolean {
-  const available = original.flatMap(block => block.type === 'image' ? [block.attachment] : [])
-  for (const block of edited) {
-    if (block.type === 'text') continue
-    if (block.type !== 'image') return false
-    const index = available.findIndex(candidate => sameImageRef(candidate, block.attachment))
-    if (index < 0) return false
-    available.splice(index, 1)
-  }
-  return true
-}
-
-function sameImageRef(left: ImageAttachmentRef, right: ImageAttachmentRef): boolean {
-  return left.attachmentId === right.attachmentId
-    && left.mediaType === right.mediaType
-    && left.bytes === right.bytes
-    && left.width === right.width
-    && left.height === right.height
-    && left.name === right.name
-}
+async function* emptyUplink(): AsyncIterable<unknown> {}
 
 function requireOwnerSessionExpiry(request: Request): number {
   const source = request.headers.get(OWNER_SESSION_EXPIRY_HEADER)

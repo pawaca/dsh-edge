@@ -6,7 +6,7 @@ TERMINAL
 | |_| |___) |  _  |_____| |___| |_| | |_| | |___
 |____/|____/|_| |_|     |_____|____/ \____|_____|
 DeepSeek Harness on Cloudflare
-dsh-edge {{version}} · Harness 0.1.5-rc.2
+dsh-edge {{version}} · Harness 0.2.0-rc.1
 community project · install
 │
 ◇  Checking Cloudflare accounts…
@@ -77,7 +77,7 @@ community project · install
 └  Your dsh-edge is ready.
 BOUNDARY EVENTS
 {"kind":"wrangler","command":"whoami","hasHome":true,"hasPath":true,"leakedKeys":[]}
-{"kind":"wrangler","command":"deploy","args":["--env","","--name","dsh-edge","--config","{{private-config-file}}","--secrets-file","{{private-secrets-file}}","--temporary"],"hasOutputCapture":true,"leakedKeys":[],"secretNames":["DSH_EDGE_ACCESS_KEY"]}
+{"kind":"wrangler","command":"deploy","args":["--env","","--name","dsh-edge","--config","{{private-config-file}}","--tag","v{{version}}","--secrets-file","{{private-secrets-file}}","--temporary"],"hasOutputCapture":true,"leakedKeys":[],"secretNames":["DSH_EDGE_ACCESS_KEY"]}
 {"kind":"activation","url":"https://dsh-edge.preview.workers.dev/api/health","redirect":"manual","leakedHeaders":[]}
 {"kind":"activation","url":"https://dsh-edge.preview.workers.dev/api/auth/login","redirect":"manual","leakedHeaders":[]}
 {"kind":"activation","url":"https://dsh-edge.preview.workers.dev/api/ready","redirect":"manual","leakedHeaders":[]}

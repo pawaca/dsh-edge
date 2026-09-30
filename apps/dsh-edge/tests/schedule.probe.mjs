@@ -6,13 +6,13 @@ import { join } from 'node:path'
 import { chromium } from 'playwright'
 import { unstable_dev } from 'wrangler'
 import { workerArtifactPath, writePrebuiltModeWranglerConfig } from '../scripts/wrangler-config.mjs'
-import { latestUserPromptIndex, startMockDeepSeek } from './fixtures/mock-deepseek.mjs'
+import { chatMessages, latestUserPromptIndex, startMockDeepSeek } from './fixtures/mock-deepseek.mjs'
 const mode = process.env.DSH_EDGE_TEST_RUNTIME_MODE ?? 'direct'
 const state = mkdtempSync(join(tmpdir(), 'dsh-schedule-probe-'))
 const mock = await startMockDeepSeek()
 const ownerKey = 'schedule-probe-owner-key-32-bytes'
 let worker, browser
-const latest = request => request.messages[latestUserPromptIndex(request.messages)]?.content
+const latest = request => { const messages = chatMessages(request); return messages[latestUserPromptIndex(messages)]?.content }
 const reminders = () => mock.requests.filter(request => typeof latest(request) === 'string' && latest(request).startsWith('[SCHEDULE REMINDER'))
 const wait = async (predicate, label, timeout = 30_000) => {
   const until = Date.now() + timeout
@@ -46,7 +46,7 @@ try {
     })
     assert.ok(result.ok, JSON.stringify(result))
   }
-  const history = async id => (await rpc(a, 'session.history', { sessionId: id })).value.events.map(entry => entry.event)
+  const history = async id => { const result = await rpc(a, 'session.history', { sessionId: id }); if (result.value === undefined) throw new Error(JSON.stringify(result)); return result.value.events.map(entry => entry.event) }
   const ended = async (id, count) => (await history(id)).filter(event => event.type === 'turn/end').length >= count
   for (const id of ['schedule-a', 'busy-b', 'deleted', 'restart']) assert.ok((await rpc(a, 'session.create', { sessionId: id })).ok)
   await prompt(a, 'schedule-a', 'schedule once 5')
@@ -61,15 +61,15 @@ try {
   await wait(() => reminders().length === 1, 'reminder after slot release')
   assert.ok(mock.requests.findIndex(request => latest(request) === 'queued user input') < mock.requests.findIndex(request => typeof latest(request) === 'string' && latest(request).startsWith('[SCHEDULE REMINDER')))
   await wait(() => ended('schedule-a', 3), 'user and reminder turns complete')
-  const events = await history('schedule-a')
-  assert.equal(events.filter(event => event.type === 'schedule/change' && event.data.operation === 'dispatch').length, 1)
+  await new Promise(resolve => setTimeout(resolve, 1500))
+  assert.equal(reminders().length, 1)
   console.log(`PASS ${mode}: two tabs, busy B blocks A reminder; queued user input executes first; one dispatch`)
 
   await prompt(a, 'deleted', 'schedule once 3')
   await wait(() => ended('deleted', 1), 'deletable reminder created')
-  await prompt(a, 'deleted', 'schedule delete schedule-1')
+  await prompt(a, 'deleted', 'schedule delete latest')
   await wait(() => ended('deleted', 2), 'delete completed')
-  assert.ok((await history('deleted')).some(event => event.type === 'schedule/change' && event.data.operation === 'delete'))
+  assert.ok(JSON.stringify(await history('deleted')).includes('\\"deleted\\":true'))
   await new Promise(resolve => setTimeout(resolve, 3500))
   assert.equal(reminders().length, 1)
   console.log(`PASS ${mode}: deleted reminder does not fire`)
@@ -85,7 +85,7 @@ try {
   assert.equal(reminders().length, 2)
   // The restarted object reloads the owner's stored zone rather than falling
   // back to UTC for the reminder's date context.
-  const restartContexts = reminders()[1].messages
+  const restartContexts = chatMessages(reminders()[1])
     .filter(message => typeof message.content === 'string' && message.content.startsWith('Current runtime context'))
   assert.match(restartContexts.at(-1)?.content ?? '', /\(Asia\/Tokyo\)\./u)
   console.log(`PASS ${mode}: persisted alarm wakes original session after Worker restart; no duplicate delivery`)

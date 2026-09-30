@@ -7,6 +7,7 @@ import {
   ImageVariantId,
   type ImageAttachmentLimits,
   type ImageAttachmentRef,
+  type ImageRequestTarget,
   type ImageMediaType,
   type SaveImageAttachment,
   type StoredImageAttachment,
@@ -140,11 +141,11 @@ abstract class EdgeImageAttachmentStore extends AttachmentStore {
 
   override async readImageRequest(
     ref: ImageAttachmentRef,
-    policy: { maxPixels: number; maxBytes: number },
+    target: ImageRequestTarget,
     signal?: AbortSignal,
   ) {
     const stored = await this.readImage(ref, signal)
-    const descriptor = `${ref.attachmentId}:${String(policy.maxPixels)}:${String(policy.maxBytes)}`
+    const descriptor = `${ref.attachmentId}:${String(target.width)}x${String(target.height)}:${String(target.maxBytes)}`
     const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(descriptor))
     const hex = Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('')
     const variantId = ImageVariantId(`sha256:${hex}`)
@@ -159,12 +160,9 @@ abstract class EdgeImageAttachmentStore extends AttachmentStore {
     if (this.images !== undefined) {
       try {
         signal?.throwIfAborted()
-        const aspect = ref.width / ref.height
-        const targetHeight = Math.round(Math.sqrt(policy.maxPixels / aspect))
-        const targetWidth = Math.round(targetHeight * aspect)
         const result = await this.images
           .input(stored.data)
-          .transform({ width: targetWidth, height: targetHeight, fit: 'scale-down' })
+          .transform({ width: target.width, height: target.height, fit: 'scale-down' })
           .output({ format: ref.mediaType })
         signal?.throwIfAborted()
         const resp = 'response' in result && typeof (result as { response: unknown }).response === 'function'
@@ -174,7 +172,7 @@ abstract class EdgeImageAttachmentStore extends AttachmentStore {
             : await (result as { arrayBuffer(): Promise<ArrayBuffer> }).arrayBuffer()
         signal?.throwIfAborted()
         const transformed = new Uint8Array(resp)
-        if (transformed.byteLength <= policy.maxBytes) {
+        if (transformed.byteLength <= target.maxBytes) {
           return { ...base, data: transformed, bytes: transformed.byteLength }
         }
       } catch {

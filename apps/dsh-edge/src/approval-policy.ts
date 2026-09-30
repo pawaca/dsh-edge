@@ -4,7 +4,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
-import type { SettingsScope } from '@deepseek-ai/dsh-settings'
+import { edgeSettings, type EdgeSettingsScope } from './edge-settings.ts'
 import type { ToolExecution } from '@deepseek-ai/dsh-tools'
 
 export const APPROVAL_SETTINGS_NAMESPACE = 'edge-approval'
@@ -32,8 +32,8 @@ export interface EdgeApprovalPolicyOptions {
 export function installEdgeApprovalPolicy(
   ctx: Context,
   options?: EdgeApprovalPolicyOptions,
-): SettingsScope<EdgeApprovalSettings> {
-  const scope = ctx.settings.register(APPROVAL_SETTINGS_NAMESPACE, EdgeApprovalSchema)
+): EdgeSettingsScope<EdgeApprovalSettings> {
+  const scope = edgeSettings(ctx).register(APPROVAL_SETTINGS_NAMESPACE, EdgeApprovalSchema)
 
   ctx.on('tools/pre-execute', async (exec, next) => {
     if (!needsApproval(exec)) return next()

@@ -29,6 +29,7 @@ const DSH_EDGE_HERO = String.raw` ____  ____  _   _       _____ ____   ____ ____
 |____/|____/|_| |_|     |_____|____/ \____|_____|`
 const KEPT_ON_UPDATE = 'conversations, files, access key, and DeepSeek key'
 const CONTAINER_ROLLOUT_NOTE = 'The first command after this can take a few minutes while the container image rolls out.'
+const SESSION_FORMAT_UPGRADE_NOTE = 'Stored sessions move to a new format when this release first starts; only the stored rows that change are rewritten. Rolling back to an earlier dsh-edge release afterwards is not supported.'
 
 export class InstallInterruptedError extends InstallCancelledError {
   constructor(signal) {
@@ -128,7 +129,7 @@ export function createInstallerUi(
         validate,
       })))
     },
-    async existingWorker({ workerName, mode }) {
+    async existingWorker({ workerName, mode, sessionFormatUpgrade }) {
       note([
         ...fields([
           ['Can', modeCapabilities(mode).join(', ')],
@@ -136,6 +137,7 @@ export function createInstallerUi(
           ['Kept', KEPT_ON_UPDATE],
         ]),
         ...(mode === 'container' ? [CONTAINER_ROLLOUT_NOTE] : []),
+        ...(sessionFormatUpgrade ? [SESSION_FORMAT_UPGRADE_NOTE] : []),
       ].join('\n'), `${workerName} already exists`)
       return await requireAnswer(await clack.select(withOutput({
         message: `Update ${workerName}?`,

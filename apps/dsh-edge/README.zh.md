@@ -77,7 +77,7 @@ pnpm --dir apps/dsh-edge/standalone install --frozen-lockfile
 DSH_EDGE_ACCESS_KEY=replace-with-at-least-32-random-bytes
 DEEPSEEK_API_KEY=replace-with-your-key
 DEEPSEEK_MAX_OUTPUT_TOKENS=256000
-DEEPSEEK_MODEL=deepseek-v4-flash
+DEEPSEEK_MODEL=deepseek-flash
 DEEPSEEK_REASONING_EFFORT=high
 DEEPSEEK_STREAM_IDLE_TIMEOUT_MS=120000
 DSH_EDGE_DEFAULT_COMMAND_TIMEOUT_MS=120000
@@ -212,9 +212,9 @@ Cloudflare static assets -> upstream Web shell + client plugin graph
 
 | 变量 | 用途与校验 |
 | --- | --- |
-| `DEEPSEEK_BASE_URL` | Chat endpoint。必须是不含 URL userinfo 的 HTTP(S) URL。Browser 投影会省略可能携带 gateway credential 的 query 与 fragment。 |
+| `DEEPSEEK_BASE_URL` | Anthropic-compatible Messages endpoint。默认为 `https://api.deepseek.com/anthropic`。必须是不含 URL userinfo 的 HTTP(S) URL。Browser 投影会省略可能携带 gateway credential 的 query 与 fragment。 |
 | `DEEPSEEK_SEARCH_BASE_URL` | Native Web Search 的 Anthropic-compatible Messages endpoint。默认为 `https://api.deepseek.com/anthropic/v1`；必须是不含 userinfo、query 与 fragment 的 HTTP(S) URL。Search 不跟随 redirect。 |
-| `DEEPSEEK_MODEL` | 已校验的部署默认模型；默认 `deepseek-v4-flash`。每个 session 可选择其他上游 catalog 条目。与上游一致，在任一 session 中最近一次选择的模型会成为新 session 的起始模型，因此该值只在所有者第一次选择模型之前生效。 |
+| `DEEPSEEK_MODEL` | 已校验的部署默认模型；默认 `deepseek-flash`（DeepSeek-V4.1-Flash，支持图片输入）。每个 session 可选择其他上游 catalog 条目。与上游一致，在任一 session 中最近一次选择的模型会成为新 session 的起始模型，因此该值只在所有者第一次选择模型之前生效。 |
 | `DEEPSEEK_REASONING_EFFORT` | `off`、`low`、`high` 或 `max`；默认 `high`。 |
 | `DEEPSEEK_MAX_OUTPUT_TOKENS` | 可选正安全整数，用于覆盖默认的 256,000-token chat 上限。 |
 | `DEEPSEEK_STREAM_IDLE_TIMEOUT_MS` | 可选正整数，上限 2,147,483,647；默认 120,000 ms。 |
