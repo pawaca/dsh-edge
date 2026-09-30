@@ -212,7 +212,7 @@ A focused failure test proves that post-enqueue durability failure blocks model 
 
 | Variable | Purpose and validation |
 | --- | --- |
-| `DEEPSEEK_BASE_URL` | Anthropic-compatible Messages endpoint. Defaults to `https://api.deepseek.com/anthropic`. DeepSeek's former OpenAI-compatible root (`https://api.deepseek.com`, `/v1`, or `/beta`), here or saved as the Models page Base URL, is moved to that default on start; another endpoint that answers 404 fails with a message naming it. Must be HTTP(S) without URL userinfo. The browser projection omits query and fragment components that may carry gateway credentials. |
+| `DEEPSEEK_BASE_URL` | Anthropic-compatible Messages endpoint. Defaults to `https://api.deepseek.com/anthropic`. DeepSeek's former OpenAI-compatible root (`https://api.deepseek.com`, `/v1`, or `/beta`), here or saved as the Models page Base URL, is moved to that default on start; another endpoint that answers 404 fails with a message naming its origin. Must be HTTP(S) without URL userinfo. The browser projection omits query and fragment components that may carry gateway credentials. |
 | `DEEPSEEK_SEARCH_BASE_URL` | Anthropic-compatible Messages endpoint for native Web Search. Defaults to `https://api.deepseek.com/anthropic/v1`; must be HTTP(S) without userinfo, query, or fragment. Search does not follow redirects. |
 | `DEEPSEEK_MODEL` | Validated deployment default; defaults to `deepseek-flash` (DeepSeek-V4.1-Flash, with image input). Each session may choose another upstream catalog entry. As upstream, the latest choice in any session becomes the model new sessions start on, so this value applies until the owner first picks a model. |
 | `DEEPSEEK_REASONING_EFFORT` | `off`, `low`, `high`, or `max`; defaults to `high`. |

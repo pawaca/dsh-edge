@@ -89,11 +89,25 @@ export async function* explained(source: AsyncIterable<StreamChunk>, baseURL: ()
         ...chunk.reason,
         failure: {
           ...chunk.reason.failure,
-          message: `DeepSeek endpoint ${baseURL()} does not serve the Messages API (404). DeepSeek now needs an `
+          message: `The DeepSeek endpoint at ${endpointOrigin(baseURL())} does not serve the Messages API (404). DeepSeek now needs an `
             + 'Anthropic-compatible endpoint such as https://api.deepseek.com/anthropic; change the Base URL on the Models '
             + 'settings page or the DEEPSEEK_BASE_URL Worker variable.',
         },
       },
     }
+  }
+}
+
+/**
+ * Name an endpoint by its origin only: a gateway may carry a credential in its
+ * path (or, if validation ever allowed them, its query or fragment), and this
+ * message is persisted with the turn. The origin cannot hold one; userinfo is
+ * rejected before any request.
+ */
+function endpointOrigin(baseURL: string): string {
+  try {
+    return new URL(baseURL).origin
+  } catch {
+    return 'the configured endpoint'
   }
 }
