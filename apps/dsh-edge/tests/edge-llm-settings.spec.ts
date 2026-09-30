@@ -78,15 +78,15 @@ describe('DeepSeek provider settings', () => {
     const finish = (failure: Record<string, unknown>) => ({ type: 'finish', reason: { kind: 'error', failure } }) as unknown as StreamChunk
     const collect = async (chunks: StreamChunk[]) => {
       const out: StreamChunk[] = []
-      // A gateway may carry its credential in the path; the message must not repeat it.
-      for await (const chunk of explained((async function* () { yield* chunks })(), () => 'https://gateway.example.com/k/sk-secret-token/v1')) out.push(chunk)
+      for await (const chunk of explained((async function* () { yield* chunks })())) out.push(chunk)
       return out
     }
     const [notFound] = await collect([finish({ message: 'DeepSeek Messages request failed (404)', code: 'HTTP_404', status: 404 })])
     const failure = (notFound as unknown as { reason: { kind: string, failure: { message: string, code: string, status: number } } }).reason
     expect(failure.kind).toBe('error')
-    expect(failure.failure.message).toContain('The DeepSeek endpoint at https://gateway.example.com does not serve the Messages API')
-    expect(failure.failure.message).not.toContain('sk-secret-token')
+    expect(failure.failure.message).toContain('The configured DeepSeek endpoint does not serve the Messages API')
+    // A gateway may carry its credential in any URL component; the persisted message names none of them.
+    expect(failure.failure.message).not.toContain('gateway.example.com')
     expect(failure.failure.message).toContain('https://api.deepseek.com/anthropic')
     expect(failure.failure).toMatchObject({ code: 'HTTP_404', status: 404 })
     // Other outcomes pass through unchanged.

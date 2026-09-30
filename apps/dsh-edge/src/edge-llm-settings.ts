@@ -33,7 +33,7 @@ export async function mountDeepSeekProvider(ctx: Context, base: Record<string, u
   if (typeof saved === 'string' && upgradeLegacyDeepSeekBaseURL(saved) !== saved) {
     await scope.update({ baseURL: upgradeLegacyDeepSeekBaseURL(saved) })
   }
-  explainMissingMessagesEndpoint(ctx, () => String((scope.get() as { baseURL?: unknown }).baseURL))
+  explainMissingMessagesEndpoint(ctx)
   // The provider declares `ctx.fiber.entry?.options.id` to the Models page. Name
   // its fiber before it applies, where the Loader assigns an entry.
   const stop = ctx.on('internal/plugin', (fiber) => {
@@ -69,15 +69,24 @@ export function commitVolatile(fiber: Pick<Fiber, 'config'>, candidate: unknown)
  * Messages API (an OpenAI-compatible root or gateway); say so and how to fix
  * it instead of a bare status.
  */
-function explainMissingMessagesEndpoint(ctx: Context, baseURL: () => string): void {
-  ctx.on('llm/stream', (options, next) => options.provider === DEEPSEEK_PROVIDER ? explained(next(), baseURL) : next(), { global: true })
+function explainMissingMessagesEndpoint(ctx: Context): void {
+  ctx.on('llm/stream', (options, next) => options.provider === DEEPSEEK_PROVIDER ? explained(next()) : next(), { global: true })
 }
+
+/**
+ * Names no part of the endpoint: a gateway may carry a credential in any
+ * component of its URL, and this message is persisted with the turn. The
+ * owner configures a single DeepSeek endpoint, in one of the two places named.
+ */
+const ENDPOINT_NOT_FOUND_MESSAGE = 'The configured DeepSeek endpoint does not serve the Messages API (404). DeepSeek now needs '
+  + 'an Anthropic-compatible endpoint such as https://api.deepseek.com/anthropic; change the Base URL on the Models '
+  + 'settings page or the DEEPSEEK_BASE_URL Worker variable.'
 
 /**
  * @internal Exported for tests. The runtime reports an adapter failure as the
  * stream's terminal `finish` chunk, so the 404 is rewritten there.
  */
-export async function* explained(source: AsyncIterable<StreamChunk>, baseURL: () => string): AsyncIterable<StreamChunk> {
+export async function* explained(source: AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk> {
   for await (const chunk of source) {
     if (chunk.type !== 'finish' || chunk.reason.kind !== 'error' || chunk.reason.failure.status !== 404) {
       yield chunk
@@ -89,25 +98,9 @@ export async function* explained(source: AsyncIterable<StreamChunk>, baseURL: ()
         ...chunk.reason,
         failure: {
           ...chunk.reason.failure,
-          message: `The DeepSeek endpoint at ${endpointOrigin(baseURL())} does not serve the Messages API (404). DeepSeek now needs an `
-            + 'Anthropic-compatible endpoint such as https://api.deepseek.com/anthropic; change the Base URL on the Models '
-            + 'settings page or the DEEPSEEK_BASE_URL Worker variable.',
+          message: ENDPOINT_NOT_FOUND_MESSAGE,
         },
       },
     }
-  }
-}
-
-/**
- * Name an endpoint by its origin only: a gateway may carry a credential in its
- * path (or, if validation ever allowed them, its query or fragment), and this
- * message is persisted with the turn. The origin cannot hold one; userinfo is
- * rejected before any request.
- */
-function endpointOrigin(baseURL: string): string {
-  try {
-    return new URL(baseURL).origin
-  } catch {
-    return 'the configured endpoint'
   }
 }
