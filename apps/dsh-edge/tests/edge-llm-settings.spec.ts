@@ -2,7 +2,8 @@ import { Context } from '@deepseek-ai/cordis'
 import LlmRuntime from '@deepseek-ai/dsh-llm'
 import { describe, expect, it } from 'vitest'
 import { EdgeSettings, SETTINGS_DOCUMENT_KEY, edgeSettings } from '../src/edge-settings.ts'
-import { DEEPSEEK_SETTINGS_NAMESPACE, mountDeepSeekProvider } from '../src/edge-llm-settings.ts'
+import type { StreamChunk } from '@deepseek-ai/dsh-llm'
+import { DEEPSEEK_SETTINGS_NAMESPACE, explained, mountDeepSeekProvider } from '../src/edge-llm-settings.ts'
 
 function memoryStorage(): DurableObjectStorage {
   const store = new Map<string, unknown>()
@@ -57,6 +58,41 @@ describe('DeepSeek provider settings', () => {
     const ctx = await mounted(storage)
     expect(edgeSettings(ctx).describe().find(entry => entry.ns === DEEPSEEK_SETTINGS_NAMESPACE)?.value)
       .toMatchObject({ baseURL: 'https://api.deepseek.com/anthropic', reasoningEffort: 'low', maxTokens: 2048 })
+  })
+
+  it('moves a 0.18 Models page Base URL off the old OpenAI-compatible root', async () => {
+    const storage = memoryStorage()
+    await storage.put(SETTINGS_DOCUMENT_KEY, { 'llm-deepseek': { baseURL: 'https://api.deepseek.com', maxTokens: 2048 } })
+    const ctx = await mounted(storage)
+    const section = edgeSettings(ctx).describe().find(entry => entry.ns === DEEPSEEK_SETTINGS_NAMESPACE)
+    expect(section?.user).toEqual({ baseURL: 'https://api.deepseek.com/anthropic', maxTokens: 2048 })
+    expect((await storage.get(SETTINGS_DOCUMENT_KEY) as Record<string, unknown>)['llm-deepseek']).toEqual({ baseURL: 'https://api.deepseek.com/anthropic', maxTokens: 2048 })
+  })
+
+  it('keeps a gateway Base URL and explains a 404 from it', async () => {
+    const storage = memoryStorage()
+    await storage.put(SETTINGS_DOCUMENT_KEY, { 'llm-deepseek': { baseURL: 'https://gateway.example.com/v1' } })
+    const ctx = await mounted(storage)
+    expect(edgeSettings(ctx).describe().find(entry => entry.ns === DEEPSEEK_SETTINGS_NAMESPACE)?.value)
+      .toMatchObject({ baseURL: 'https://gateway.example.com/v1' })
+    const finish = (failure: Record<string, unknown>) => ({ type: 'finish', reason: { kind: 'error', failure } }) as unknown as StreamChunk
+    const collect = async (chunks: StreamChunk[]) => {
+      const out: StreamChunk[] = []
+      for await (const chunk of explained((async function* () { yield* chunks })(), () => 'https://gateway.example.com/v1')) out.push(chunk)
+      return out
+    }
+    const [notFound] = await collect([finish({ message: 'DeepSeek Messages request failed (404)', code: 'HTTP_404', status: 404 })])
+    const failure = (notFound as unknown as { reason: { kind: string, failure: { message: string, code: string, status: number } } }).reason
+    expect(failure.kind).toBe('error')
+    expect(failure.failure.message).toContain('https://gateway.example.com/v1 does not serve the Messages API')
+    expect(failure.failure.message).toContain('https://api.deepseek.com/anthropic')
+    expect(failure.failure).toMatchObject({ code: 'HTTP_404', status: 404 })
+    // Other outcomes pass through unchanged.
+    const other = [
+      { type: 'text-delta', index: 0, text: 'hi' } as unknown as StreamChunk,
+      finish({ message: 'rate limited', code: 'RATE_LIMIT', status: 429 }),
+    ]
+    expect(await collect(other)).toEqual(other)
   })
 
   it('refuses a change the provider schema rejects and keeps the running values', async () => {

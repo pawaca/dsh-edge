@@ -8,9 +8,28 @@ const MODEL_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,127}$/
 
 export type EdgeReasoningEffort = 'off' | 'low' | 'high' | 'max'
 
+/**
+ * Map DeepSeek's official OpenAI-compatible root, the endpoint 0.18 used, to
+ * its Anthropic-compatible Messages root, the only wire the 0.2.0 adapter
+ * speaks (the old root answers 404 there). Any other endpoint is returned as
+ * is: a gateway may or may not speak Messages, which only a request can tell.
+ */
+export function upgradeLegacyDeepSeekBaseURL(value: string): string {
+  let parsed: URL
+  try {
+    parsed = new URL(value)
+  } catch {
+    return value
+  }
+  const path = parsed.pathname.replace(/\/+$/u, '')
+  const legacyRoot = parsed.protocol === 'https:' && parsed.hostname === 'api.deepseek.com' && parsed.port === ''
+    && parsed.search === '' && parsed.hash === '' && (path === '' || path === '/v1' || path === '/beta')
+  return legacyRoot ? DEFAULT_BASE_URL : value
+}
+
 /** Resolve and validate the DeepSeek HTTP endpoint selected by deployment configuration. */
 export function resolveEdgeBaseURL(raw?: string): string {
-  const value = raw ?? DEFAULT_BASE_URL
+  const value = upgradeLegacyDeepSeekBaseURL(raw ?? DEFAULT_BASE_URL)
   let parsed: URL
   try {
     parsed = new URL(value)
