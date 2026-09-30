@@ -161,6 +161,12 @@ export async function executeWorkspaceCommand(
   backend?: string,
   /** Skip creating cwd when the caller already did (Computer's mkdir always writes). */
   cwdReady = false,
+  /**
+   * Called when the result is `detached`: `settled` resolves once the command
+   * is known to be over, or at its own timeout. A caller that admitted the
+   * command holds its slot until then.
+   */
+  onDetached?: (settled: Promise<void>) => void,
 ): Promise<EdgeShellResult> {
   const effectiveTimeoutMs = resolveCommandTimeoutMs(timeoutPolicy, timeoutMs)
   signal?.throwIfAborted()
@@ -200,7 +206,8 @@ export async function executeWorkspaceCommand(
   if (started === GRACE_EXPIRED) {
     // Still running after its interrupt: stop waiting, release it once it answers.
     signal?.removeEventListener('abort', abort)
-    void starting.then(late => late[Symbol.dispose]?.(), () => undefined)
+    const answered = starting.then(late => late[Symbol.dispose]?.(), () => undefined)
+    onDetached?.(Promise.race([answered, deadline.expired()]))
     return {
       executionId: EdgeExecutionId(`detached-${crypto.randomUUID()}`),
       status: 'cancelled',
@@ -262,6 +269,8 @@ export async function executeWorkspaceCommand(
     reader.releaseLock()
     signal?.removeEventListener('abort', abort)
   }
+  // Its end is no longer observable: the command's own timeout bounds it.
+  if (detached) onDetached?.(deadline.expired())
   return {
     executionId: EdgeExecutionId(running.id),
     status: executionStatus(exitCode, interruptionRequested),
@@ -276,12 +285,13 @@ export async function executeWorkspaceCommand(
 
 const GRACE_EXPIRED = Symbol('cancelled command grace expired')
 
-function commandDeadline(timeoutMs: number): { complete(): void; readonly timedOut: boolean } {
+function commandDeadline(timeoutMs: number): { complete(): void; readonly timedOut: boolean; expired(): Promise<void> } {
   const expiresAt = performance.now() + timeoutMs
   let completedAt: number | undefined
   return {
     complete() { completedAt ??= performance.now() },
     get timedOut() { return (completedAt ?? performance.now()) >= expiresAt },
+    expired: () => new Promise(resolve => setTimeout(resolve, Math.max(0, expiresAt - performance.now()))),
   }
 }
 

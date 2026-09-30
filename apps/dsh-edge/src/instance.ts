@@ -1057,11 +1057,15 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         return waitTimedOut('light', 'timed out waiting for the lightweight shell')
       }
       let light: Awaited<ReturnType<DshEdgeInstance['runLightCommand']>>
+      // A stopped command the shell may still be running keeps the turn until it is over.
+      let lingering: Promise<void> | undefined
       try {
         light = await this.runLightCommand(workspace, command, cwd, timeoutPolicy,
-          { ...options, timeoutMs: Math.max(1, budgetMs - (Date.now() - started)) })
+          { ...options, timeoutMs: Math.max(1, budgetMs - (Date.now() - started)) },
+          (late) => { lingering = late })
       } finally {
-        release()
+        if (lingering === undefined) release()
+        else void lingering.then(release)
       }
       const settled = light.result.status !== 'cancelled' && !light.result.timedOut
       // A miss is a loud failure the Worker shell reports, or a silent reach
@@ -1093,6 +1097,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     cwd: string,
     timeoutPolicy: EdgeCommandTimeoutPolicy,
     options: { timeoutMs?: number; signal?: AbortSignal },
+    onDetached?: (settled: Promise<void>) => void,
   ): Promise<{ result: EdgeShellResult; unchanged: boolean; crossedBoundary: boolean }> {
     // Reject invalid input and cancellation before cwd is created.
     resolveCommandTimeoutMs(timeoutPolicy, options.timeoutMs)
@@ -1103,7 +1108,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     const before = workspaceRevision(this.ctx.storage.sql)
     const boundaryMark = this.boundary.mark()
     const result = await executeWorkspaceCommand(
-      workspace, command, cwd, timeoutPolicy, options.timeoutMs, options.signal, undefined, true,
+      workspace, command, cwd, timeoutPolicy, options.timeoutMs, options.signal, undefined, true, onDetached,
     )
     return {
       result,
@@ -1134,16 +1139,23 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       return { ...waitTimedOut('container', 'timed out waiting for a free Linux container slot'), queuedMs: budgetMs }
     }
     const { release, queuedMs } = admission
-    try {
-      const result = await executeWorkspaceCommand(
-        workspace, command, cwd, timeoutPolicy, Math.max(1, budgetMs - queuedMs), options.signal, backend,
-      )
-      return { ...result, runtime: 'container', queuedMs }
-    } finally {
+    // A stopped command the container may still be running keeps its slot until it is over.
+    let lingering: Promise<void> | undefined
+    const releaseSlot = async () => {
       release()
       const deadline = this.containerActivity.deadline()
       const scheduled = await this.ctx.storage.getAlarm()
       if (scheduled === null || scheduled > deadline) await this.ctx.storage.setAlarm(deadline)
+    }
+    try {
+      const result = await executeWorkspaceCommand(
+        workspace, command, cwd, timeoutPolicy, Math.max(1, budgetMs - queuedMs), options.signal, backend,
+        false, (late) => { lingering = late },
+      )
+      return { ...result, runtime: 'container', queuedMs }
+    } finally {
+      if (lingering === undefined) await releaseSlot()
+      else void lingering.then(releaseSlot).catch((error: unknown) => { console.error('dsh-edge: container slot release failed', error) })
     }
   }
 

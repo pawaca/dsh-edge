@@ -124,7 +124,9 @@ describe('dsh-edge workspace command execution', () => {
         runtime: { exec: vi.fn(async () => execution) },
       } as unknown as EdgeWorkspace
       const abort = new AbortController()
-      const pending = executeWorkspaceCommand(workspace, 'sleep 40', '/workspace', resolveEdgeCommandTimeoutPolicy(), undefined, abort.signal)
+      let lingering: Promise<void> | undefined
+      const pending = executeWorkspaceCommand(workspace, 'sleep 40', '/workspace', resolveEdgeCommandTimeoutPolicy(), 30_000, abort.signal,
+        undefined, false, (late) => { lingering = late })
       await vi.advanceTimersByTimeAsync(10)
       abort.abort({ kind: 'user' })
       await vi.advanceTimersByTimeAsync(CANCELLED_COMMAND_GRACE_MS - 1)
@@ -134,6 +136,13 @@ describe('dsh-edge workspace command execution', () => {
       expect(kill).toHaveBeenCalledWith('SIGINT')
       expect(result).toMatchObject({ status: 'cancelled', detached: true, stdout: 'partial\n' })
       expect(cancelled).toBe(true)
+      // Its end is unobservable now, so the caller's slot is held until the command's own timeout.
+      let over = false
+      void lingering!.then(() => { over = true })
+      await vi.advanceTimersByTimeAsync(30_000 - 10 - CANCELLED_COMMAND_GRACE_MS - 1)
+      expect(over).toBe(false)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(over).toBe(true)
     } finally {
       vi.useRealTimers()
     }
@@ -150,15 +159,22 @@ describe('dsh-edge workspace command execution', () => {
         runtime: { exec: vi.fn(() => answered.promise) },
       } as unknown as EdgeWorkspace
       const abort = new AbortController()
-      const pending = executeWorkspaceCommand(workspace, 'sleep 40', '/workspace', resolveEdgeCommandTimeoutPolicy(), undefined, abort.signal)
+      let lingering: Promise<void> | undefined
+      const pending = executeWorkspaceCommand(workspace, 'sleep 40', '/workspace', resolveEdgeCommandTimeoutPolicy(), undefined, abort.signal,
+        undefined, false, (late) => { lingering = late })
       await vi.advanceTimersByTimeAsync(10)
       abort.abort({ kind: 'user' })
       await vi.advanceTimersByTimeAsync(CANCELLED_COMMAND_GRACE_MS)
       expect(await pending).toMatchObject({ status: 'cancelled', detached: true, stdout: '' })
-      // The late execution is released when it finally answers.
+      let over = false
+      void lingering!.then(() => { over = true })
+      await vi.advanceTimersByTimeAsync(0)
+      expect(over).toBe(false)
+      // The late execution is released, and the caller's slot freed, when it finally answers.
       answered.resolve({ id: 'late', getReader: vi.fn(), kill: vi.fn(), [Symbol.dispose]: dispose })
       await vi.advanceTimersByTimeAsync(0)
       expect(dispose).toHaveBeenCalledOnce()
+      expect(over).toBe(true)
     } finally {
       vi.useRealTimers()
     }
