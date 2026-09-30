@@ -212,7 +212,7 @@ Cloudflare static assets -> upstream Web shell + client plugin graph
 
 | 变量 | 用途与校验 |
 | --- | --- |
-| `DEEPSEEK_BASE_URL` | Anthropic-compatible Messages endpoint。默认为 `https://api.deepseek.com/anthropic`。必须是不含 URL userinfo 的 HTTP(S) URL。Browser 投影会省略可能携带 gateway credential 的 query 与 fragment。 |
+| `DEEPSEEK_BASE_URL` | Anthropic-compatible Messages endpoint。默认为 `https://api.deepseek.com/anthropic`。DeepSeek 以前的 OpenAI-compatible 根地址（`https://api.deepseek.com`、`/v1` 或 `/beta`），无论设在这里还是保存为 Models 页的 Base URL，启动时都会改成该默认值；其他地址返回 404 时，保留原报错并补充提示：该地址可能不支持 Messages API，以及在哪里修改。必须是不含 URL userinfo 的 HTTP(S) URL。Browser 投影会省略可能携带 gateway credential 的 query 与 fragment。 |
 | `DEEPSEEK_SEARCH_BASE_URL` | Native Web Search 的 Anthropic-compatible Messages endpoint。默认为 `https://api.deepseek.com/anthropic/v1`；必须是不含 userinfo、query 与 fragment 的 HTTP(S) URL。Search 不跟随 redirect。 |
 | `DEEPSEEK_MODEL` | 已校验的部署默认模型；默认 `deepseek-flash`（DeepSeek-V4.1-Flash，支持图片输入）。每个 session 可选择其他上游 catalog 条目。与上游一致，在任一 session 中最近一次选择的模型会成为新 session 的起始模型，因此该值只在所有者第一次选择模型之前生效。 |
 | `DEEPSEEK_REASONING_EFFORT` | `off`、`low`、`high` 或 `max`；默认 `high`。 |

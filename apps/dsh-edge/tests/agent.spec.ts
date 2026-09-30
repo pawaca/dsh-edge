@@ -276,9 +276,20 @@ describe('dsh-edge native agent runtime', () => {
   it('validates the deployment model and reasoning policy', () => {
     expect(resolveEdgeBaseURL()).toBe('https://api.deepseek.com/anthropic')
     expect(resolveEdgeBaseURL('http://127.0.0.1:9797/v1')).toBe('http://127.0.0.1:9797/v1')
+    // 0.18's official OpenAI-compatible root answers 404 on the Messages wire.
+    for (const legacy of ['https://api.deepseek.com', 'https://api.deepseek.com/', 'https://api.deepseek.com/v1', 'https://api.deepseek.com/beta']) {
+      expect(resolveEdgeBaseURL(legacy)).toBe('https://api.deepseek.com/anthropic')
+    }
+    // Other endpoints, including gateways and the official host on other paths, are left alone.
+    for (const kept of ['https://api.deepseek.com/anthropic', 'https://gateway.example.com/v1', 'http://api.deepseek.com', 'https://api.deepseek.com/v1?x=1']) {
+      expect(resolveEdgeBaseURL(kept)).toBe(kept)
+    }
     expect(() => resolveEdgeBaseURL('http://[')).toThrow(/valid HTTP\(S\) URL/)
     expect(() => resolveEdgeBaseURL('file:///tmp/api')).toThrow(/valid HTTP\(S\) URL/)
     expect(() => resolveEdgeBaseURL('https://key@example.com')).toThrow(/without credentials/)
+    // A credential-bearing legacy root is still rejected, not silently replaced.
+    expect(() => resolveEdgeBaseURL('https://token@api.deepseek.com')).toThrow(/without credentials/)
+    expect(() => resolveEdgeBaseURL('https://user:secret@api.deepseek.com/v1')).toThrow(/without credentials/)
     expect(resolveEdgeModel()).toBe('deepseek-flash')
     expect(resolveEdgeModel('deepseek-v4-pro')).toBe('deepseek-v4-pro')
     expect(() => resolveEdgeModel('bad model')).toThrow(/valid model id/)

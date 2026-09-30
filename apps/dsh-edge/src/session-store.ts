@@ -120,7 +120,7 @@ import DurableObjectSessionPersistence, {
 } from './do-session-persistence.ts'
 import EdgeModelSelectionBridge from './model-selection-bridge.ts'
 import EdgeSessionQuery, { edgeSearchDocuments } from './edge-session-query.ts'
-import { resolveEdgeModel } from './deepseek.ts'
+import { resolveEdgeModel, upgradeLegacyDeepSeekBaseURL } from './deepseek.ts'
 import type { CreateEdgeSessionInput, EdgeSession } from './protocol.ts'
 import {
   normalizeAgentPreset,
@@ -2513,7 +2513,7 @@ function summarizeApiLive(
 
 function buildEdgeLlmPluginConfig(config: EdgeSessionStoreConfig): Record<string, unknown> {
   const out: Record<string, unknown> = {}
-  if (config.baseURL !== undefined) out['baseURL'] = config.baseURL
+  if (config.baseURL !== undefined) out['baseURL'] = upgradeLegacyDeepSeekBaseURL(config.baseURL)
   if (config.maxTokens !== undefined) {
     const n = Number(config.maxTokens)
     if (Number.isFinite(n)) out['maxTokens'] = n
