@@ -170,10 +170,47 @@ describe('dsh-edge workspace command execution', () => {
       void lingering!.then(() => { over = true })
       await vi.advanceTimersByTimeAsync(0)
       expect(over).toBe(false)
-      // The late execution is released, and the caller's slot freed, when it finally answers.
-      answered.resolve({ id: 'late', getReader: vi.fn(), kill: vi.fn(), [Symbol.dispose]: dispose })
+      // A Worker shell's late answer carries a finished stream: the slot frees at once.
+      const kill = vi.fn(async () => undefined)
+      const finished = new ReadableStream({ start(controller) { controller.enqueue({ id: 'late', seq: 0, name: 'exit', code: 0 }); controller.close() } })
+      answered.resolve({ id: 'late', getReader: () => finished.getReader(), kill, [Symbol.dispose]: dispose })
       await vi.advanceTimersByTimeAsync(0)
+      expect(kill).toHaveBeenCalledWith('SIGINT')
       expect(dispose).toHaveBeenCalledOnce()
+      expect(over).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('holds the slot of a late container start until its process exits', async () => {
+    vi.useFakeTimers()
+    try {
+      // A cold container answers `exec` late with a running process, not a finished one.
+      const answered = Promise.withResolvers<unknown>()
+      const workspace = {
+        fs: { mkdir: vi.fn(async () => undefined) },
+        runtime: { exec: vi.fn(() => answered.promise) },
+      } as unknown as EdgeWorkspace
+      const abort = new AbortController()
+      let lingering: Promise<void> | undefined
+      const pending = executeWorkspaceCommand(workspace, 'sleep 40', '/workspace', resolveEdgeCommandTimeoutPolicy(), 30_000, abort.signal,
+        'container', false, (late) => { lingering = late })
+      await vi.advanceTimersByTimeAsync(10)
+      abort.abort({ kind: 'user' })
+      await vi.advanceTimersByTimeAsync(CANCELLED_COMMAND_GRACE_MS)
+      expect(await pending).toMatchObject({ status: 'cancelled', detached: true })
+      let over = false
+      void lingering!.then(() => { over = true })
+      let exit!: () => void
+      const running = new ReadableStream({ start(controller) { exit = () => { controller.enqueue({ id: 'late', seq: 0, name: 'exit', code: 130 }); controller.close() } } })
+      const kill = vi.fn(async () => undefined)
+      answered.resolve({ id: 'late', getReader: () => running.getReader(), kill, [Symbol.dispose]: vi.fn() })
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(kill).toHaveBeenCalledWith('SIGINT')
+      expect(over).toBe(false)
+      exit()
+      await vi.advanceTimersByTimeAsync(0)
       expect(over).toBe(true)
     } finally {
       vi.useRealTimers()

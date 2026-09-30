@@ -204,10 +204,27 @@ export async function executeWorkspaceCommand(
     throw error
   }
   if (started === GRACE_EXPIRED) {
-    // Still running after its interrupt: stop waiting, release it once it answers.
+    // Still starting or running after its interrupt: stop waiting. A late
+    // answer only proves the command started (a container) or ended (a Worker
+    // shell), so interrupt it and treat it as over once its stream ends.
     signal?.removeEventListener('abort', abort)
-    const answered = starting.then(late => late[Symbol.dispose]?.(), () => undefined)
-    onDetached?.(Promise.race([answered, deadline.expired()]))
+    const exited = starting.then(async (late) => {
+      try {
+        void late.kill('SIGINT').catch(() => undefined)
+        const reader = late.getReader()
+        try {
+          while (!(await reader.read()).done) { /* drain to the exit event */ }
+        } finally {
+          reader.releaseLock()
+        }
+      } catch {
+        // An unreadable late stream leaves the command's own timeout as the bound.
+        await deadline.expired()
+      } finally {
+        late[Symbol.dispose]?.()
+      }
+    }, () => undefined)
+    onDetached?.(Promise.race([exited, deadline.expired()]))
     return {
       executionId: EdgeExecutionId(`detached-${crypto.randomUUID()}`),
       status: 'cancelled',
