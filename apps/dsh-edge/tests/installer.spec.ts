@@ -26,6 +26,7 @@ import {
   parseDeploymentOutput,
   parseWhoami,
   parseWorkerExistence,
+  processGroupExists,
   resolveOwnerSecret,
   resolveWranglerClose,
   truncateUtf8Tail,
@@ -78,6 +79,24 @@ async function expectPrivateTemporaryFile(path: string): Promise<void> {
     expect(metadata.mode & 0o777).toBe(0o600)
   }
 }
+
+describe('Wrangler process group probe', () => {
+  it.skipIf(process.platform === 'win32')('counts an exited but unreaped group as existing, then gone once reaped', async () => {
+    const { spawn } = await import('node:child_process')
+    const child = spawn('sleep', ['10'], { detached: true, stdio: 'ignore' })
+    const exited = new Promise(resolve => child.once('exit', resolve))
+    await new Promise(resolve => setTimeout(resolve, 100))
+    expect(processGroupExists(child.pid!)).toBe(true)
+    process.kill(-child.pid!, 'SIGKILL')
+    // Without yielding, Node cannot reap the child: macOS then answers EPERM for the group.
+    const until = Date.now() + 200
+    while (Date.now() < until) { /* hold the event loop */ }
+    expect(processGroupExists(child.pid!)).toBe(true)
+    await exited
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(processGroupExists(child.pid!)).toBe(false)
+  })
+})
 
 describe('dsh-edge installer primitives', () => {
   it('puts signed-in accounts before a temporary account, which only installs offer', () => {

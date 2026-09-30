@@ -1031,12 +1031,19 @@ async function waitForProcessGroupExit(pid, timeoutMs) {
   return true
 }
 
-function processGroupExists(pid) {
+/**
+ * Whether any process of the group still exists. EPERM also means it does: on
+ * macOS, probing a group whose members have exited but are not yet reaped by
+ * this process answers EPERM rather than success, until the reap turns it into
+ * ESRCH.
+ */
+export function processGroupExists(pid) {
   try {
     process.kill(-pid, 0)
     return true
   } catch (error) {
     if (error?.code === 'ESRCH') return false
+    if (error?.code === 'EPERM') return true
     throw error
   }
 }
