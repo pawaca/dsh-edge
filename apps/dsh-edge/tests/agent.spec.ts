@@ -148,6 +148,28 @@ describe('dsh-edge native agent runtime', () => {
     await ctx.fiber.dispose()
   })
 
+  it('tells the next turn when a stopped command may still be running', async () => {
+    const shells = new EdgeShellBindings()
+    const result = { executionId: 'e', status: 'cancelled', timedOut: false, exitCode: -1, stdout: '', stderr: '', outputTruncated: false }
+    const exec = vi.fn(async () => ({ ...result, detached: true }))
+    shells.bind('agent-1' as never, { exec } as never, '/workspace')
+    const tool = createEdgeBashTool(shells, 'just-bash-isolated')
+    const deferContext = vi.fn()
+    const run = (tool as unknown as { execute: (args: unknown, exec: unknown) => Promise<unknown> }).execute
+    await run({ command: 'sleep 40 && touch x', description: 'wait then touch' }, { agent: { id: 'agent-1' }, signal: new AbortController().signal, deferContext })
+    // The upstream cancellation result keeps deferred contexts, not the rendered result.
+    expect(deferContext).toHaveBeenCalledOnce()
+    const notice = deferContext.mock.calls[0]![0] as { role: string, source: unknown, content: Array<{ text: string }> }
+    expect(notice).toMatchObject({
+      role: 'user',
+      source: { kind: 'edge-shell', form: 'notice', summary: 'A stopped bash command may still be running' },
+    })
+    expect(notice.content[0]!.text).toContain('`sleep 40 && touch x` was stopped')
+    exec.mockResolvedValueOnce({ ...result, status: 'cancelled' } as never)
+    await run({ command: 'sleep 1', description: 'wait' }, { agent: { id: 'agent-1' }, signal: new AbortController().signal, deferContext })
+    expect(deferContext).toHaveBeenCalledOnce()
+  })
+
   it('advertises Edge runtime constraints and MCP naming convention', () => {
     const EDGE_SYSTEM_PROMPT = edgeSystemPrompt('just-bash-isolated')
     expect(EDGE_SYSTEM_PROMPT).toContain('Cloudflare Worker')

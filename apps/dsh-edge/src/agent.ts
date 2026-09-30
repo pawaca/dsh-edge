@@ -1,6 +1,7 @@
 /** Cloudflare-specific runtime bindings exposed through upstream DSH tool seams. */
 
 import type { SessionId } from '@deepseek-ai/dsh-session'
+import { createUserMessage, type ContextFormed } from '@deepseek-ai/dsh-llm'
 import { defineTool, type ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { EDGE_SHELL_OUTPUT_LIMIT_BYTES } from './direct-shell-protocol.ts'
 import type { EdgeExecutionId } from './protocol.ts'
@@ -89,6 +90,13 @@ export const EDGE_PLAN_MODE_SECTION = [
     + 'do not proceed with implementation.',
 ].join('\n\n')
 
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    /** The Edge bash tool: a cancelled command the shell may still be finishing. */
+    'edge-shell': { kind: 'edge-shell' } & ContextFormed
+  }
+}
+
 export interface EdgeShellResult {
   executionId: EdgeExecutionId
   status: 'completed' | 'failed' | 'cancelled'
@@ -105,6 +113,8 @@ export interface EdgeShellResult {
   retriedFromLight?: boolean
   /** The lightweight shell could not run it but changed the workspace, so it was not rerun. */
   lightShellMiss?: boolean
+  /** Cancelled, but the shell had not stopped it; it may still finish in the background. */
+  detached?: boolean
 }
 
 export interface EdgeShell {
@@ -208,6 +218,7 @@ export function createEdgeBashTool(
           queuedMs: { type: 'number' },
           retriedFromLight: { type: 'boolean' },
           lightShellMiss: { type: 'boolean' },
+          detached: { type: 'boolean' },
         },
       },
       render: (_args, result) => [{ type: 'text', text: formatExecution(result) }],
@@ -216,13 +227,30 @@ export function createEdgeBashTool(
       const agent = exec.agent
       if (agent === undefined) throw new Error('dsh-edge: bash requires an initiating agent')
       const { shell, cwd } = bindings.require(agent.id)
-      return shell.exec(args.command, {
+      const result = await shell.exec(args.command, {
         cwd: args.workdir ?? cwd,
         ...args.timeoutMs === undefined ? {} : { timeoutMs: args.timeoutMs },
         ...(args as { linux?: boolean }).linux === true ? { requestContainer: true } : {},
         signal: exec.signal,
       })
+      // A cancelled call's result is replaced by the upstream cancellation
+      // result; a deferred context survives it and reaches the next turn.
+      if (result.detached === true) exec.deferContext(detachedCommandNotice(args.command))
+      return result
     },
+  })
+}
+
+/** Tell the model a stopped command may still change the workspace. */
+function detachedCommandNotice(command: string) {
+  const shown = command.length > 200 ? `${command.slice(0, 200)}…` : command
+  return createUserMessage({
+    content: [{
+      type: 'text',
+      text: `The bash command \`${shown}\` was stopped, but the shell had not ended it yet, so it may still be running `
+        + 'and changing files in the workspace. Check the workspace before relying on or repeating its effects.',
+    }],
+    source: { kind: 'edge-shell', form: 'notice', summary: 'A stopped bash command may still be running' },
   })
 }
 
@@ -244,5 +272,8 @@ function formatExecution(result: Omit<EdgeShellResult, 'executionId'>): string {
       ? '\n[the lightweight shell could not run part of this after it had changed files; '
         + 'check the workspace, then rerun with linux: true to use the Linux container]'
       : ''
-  return output + truncated + timedOut + suffix + where || '(no output)'
+  const detached = result.detached === true
+    ? '\n[cancelled; the shell had not stopped the command yet, so it may still finish in the background]'
+    : ''
+  return output + truncated + timedOut + suffix + where + detached || '(no output)'
 }

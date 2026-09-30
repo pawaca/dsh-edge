@@ -23,20 +23,23 @@ import type DurableObjectSessionPersistence from './do-session-persistence.ts'
 import type {} from './upstream-message-sources.ts'
 
 /**
- * Search documents for a session's conversation. Runtime-context snapshots
- * (the current date) are loop-owned user messages, not what anyone said, so
- * they would match dates and zones in nearly every session.
+ * Search documents for a session's conversation. Context a producer injects as
+ * a user message carries a context `form` (the runtime snapshot, the skill
+ * catalog, a recalled session, a shell notice): it is not what anyone said in
+ * this session, and the runtime snapshot alone would match dates and zones in
+ * nearly every session. The owner's own words, including reminder prompts,
+ * carry no form.
  */
 export function edgeSearchDocuments(
   sessionId: SessionId,
   events: readonly SessionEvent[],
 ): SessionEventSearchDocument[] {
   // Build from every event (surface folding follows seq references), then
-  // drop the snapshots' documents.
-  const snapshots = new Set(events.filter(event => event.type === 'user/message'
-    && event.data.source.kind === 'runtime-context')
+  // drop the injected contexts' documents.
+  const contexts = new Set(events.filter(event => event.type === 'user/message'
+    && event.data.source.kind !== 'user' && 'form' in event.data.source && event.data.source.form !== undefined)
     .map(event => event.seq))
-  return buildSessionEventSearchDocuments(sessionId, events).filter(document => !snapshots.has(document.seq))
+  return buildSessionEventSearchDocuments(sessionId, events).filter(document => !contexts.has(document.seq))
 }
 
 const MAX_SEARCH_SESSIONS = 32

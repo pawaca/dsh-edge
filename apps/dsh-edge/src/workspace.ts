@@ -12,6 +12,12 @@ const MAX_COMMAND_BYTES = 16_384
 const DEFAULT_COMMAND_TIMEOUT_MS = 120_000
 const DEFAULT_MAX_COMMAND_TIMEOUT_MS = 120_000
 const MAX_TIMER_DELAY_MS = 2_147_483_647
+/**
+ * How long a cancelled command gets to exit after SIGINT. A Worker shell kill
+ * is a separate RPC that can reach a different isolate than the running
+ * command, so it may not stop it; the turn then stops waiting instead.
+ */
+export const CANCELLED_COMMAND_GRACE_MS = 2_000
 const textEncoder = new TextEncoder()
 
 export const MAX_TEXT_FILE_BYTES = 1_048_576
@@ -155,36 +161,100 @@ export async function executeWorkspaceCommand(
   backend?: string,
   /** Skip creating cwd when the caller already did (Computer's mkdir always writes). */
   cwdReady = false,
+  /**
+   * Called when the result is `detached`: `settled` resolves once the command
+   * is known to be over, or at its own timeout. A caller that admitted the
+   * command holds its slot until then.
+   */
+  onDetached?: (settled: Promise<void>) => void,
 ): Promise<EdgeShellResult> {
   const effectiveTimeoutMs = resolveCommandTimeoutMs(timeoutPolicy, timeoutMs)
   signal?.throwIfAborted()
   if (!cwdReady) await workspace.fs.mkdir(cwd, { recursive: true })
   signal?.throwIfAborted()
   const deadline = commandDeadline(effectiveTimeoutMs)
-  using execution = await workspace.runtime.exec(command, {
+  // Cancellation starts a grace period before the execution exists: a Worker
+  // shell answers `exec` only after the command has finished.
+  let graceTimer: ReturnType<typeof setTimeout> | undefined
+  let stopWaiting!: () => void
+  const graceExpired = new Promise<typeof GRACE_EXPIRED>((resolve) => { stopWaiting = () => resolve(GRACE_EXPIRED) })
+  let interruptionRequested = false
+  const current: { execution?: Awaited<ReturnType<EdgeWorkspace['runtime']['exec']>> } = {}
+  const interrupt = (): Promise<void> => {
+    interruptionRequested = true
+    return current.execution?.kill('SIGINT').catch(() => undefined) ?? Promise.resolve()
+  }
+  const abort = (): void => {
+    void interrupt()
+    graceTimer ??= setTimeout(stopWaiting, CANCELLED_COMMAND_GRACE_MS)
+  }
+  signal?.addEventListener('abort', abort, { once: true })
+  if (signal?.aborted === true) abort()
+  const starting = workspace.runtime.exec(command, {
     cwd,
     timeoutMs: effectiveTimeoutMs,
     ...backend === undefined ? {} : { backend },
   })
-  let interruptionRequested = false
-  const interrupt = (): Promise<void> => {
-    interruptionRequested = true
-    return execution.kill('SIGINT').catch(() => undefined)
+  let started: Awaited<typeof starting> | typeof GRACE_EXPIRED
+  try {
+    started = await Promise.race([starting, graceExpired])
+  } catch (error) {
+    clearTimeout(graceTimer)
+    signal?.removeEventListener('abort', abort)
+    throw error
   }
-  const abort = (): void => {
-    void interrupt()
+  if (started === GRACE_EXPIRED) {
+    // Still starting or running after its interrupt: stop waiting. A late
+    // answer only proves the command started (a container) or ended (a Worker
+    // shell), so interrupt it and treat it as over once its stream ends.
+    signal?.removeEventListener('abort', abort)
+    const exited = starting.then(async (late) => {
+      try {
+        void late.kill('SIGINT').catch(() => undefined)
+        const reader = late.getReader()
+        try {
+          while (!(await reader.read()).done) { /* drain to the exit event */ }
+        } finally {
+          reader.releaseLock()
+        }
+      } catch {
+        // An unreadable late stream leaves the command's own timeout as the bound.
+        await deadline.expired()
+      } finally {
+        late[Symbol.dispose]?.()
+      }
+    }, () => undefined)
+    onDetached?.(Promise.race([exited, deadline.expired()]))
+    return {
+      executionId: EdgeExecutionId(`detached-${crypto.randomUUID()}`),
+      status: 'cancelled',
+      timedOut: false,
+      exitCode: -1,
+      stdout: '',
+      stderr: '',
+      outputTruncated: false,
+      detached: true,
+    }
   }
-  signal?.addEventListener('abort', abort, { once: true })
-  if (signal?.aborted === true) abort()
+  using running = started
+  current.execution = running
+  if (interruptionRequested) void interrupt()
+  let detached = false
   const stdout: Uint8Array[] = []
   const stderr: Uint8Array[] = []
   let retainedBytes = 0
   let outputTruncated = false
   let exitCode = -1
-  const reader = execution.getReader()
+  const reader = running.getReader()
   try {
     while (true) {
-      const next = await reader.read()
+      const next = await Promise.race([reader.read(), graceExpired])
+      if (next === GRACE_EXPIRED) {
+        // The command outlived its interrupt: stop waiting for it.
+        detached = true
+        void reader.cancel().catch(() => undefined)
+        break
+      }
       if (next.done) break
       const event = next.value
       if (event.name === 'exit') {
@@ -212,26 +282,33 @@ export async function executeWorkspaceCommand(
       }
     }
   } finally {
+    clearTimeout(graceTimer)
     reader.releaseLock()
     signal?.removeEventListener('abort', abort)
   }
+  // Its end is no longer observable: the command's own timeout bounds it.
+  if (detached) onDetached?.(deadline.expired())
   return {
-    executionId: EdgeExecutionId(execution.id),
+    executionId: EdgeExecutionId(running.id),
     status: executionStatus(exitCode, interruptionRequested),
     timedOut: deadline.timedOut,
     exitCode,
     stdout: decodeChunks(stdout),
     stderr: decodeChunks(stderr),
     outputTruncated,
+    ...detached ? { detached: true } : {},
   }
 }
 
-function commandDeadline(timeoutMs: number): { complete(): void; readonly timedOut: boolean } {
+const GRACE_EXPIRED = Symbol('cancelled command grace expired')
+
+function commandDeadline(timeoutMs: number): { complete(): void; readonly timedOut: boolean; expired(): Promise<void> } {
   const expiresAt = performance.now() + timeoutMs
   let completedAt: number | undefined
   return {
     complete() { completedAt ??= performance.now() },
     get timedOut() { return (completedAt ?? performance.now()) >= expiresAt },
+    expired: () => new Promise(resolve => setTimeout(resolve, Math.max(0, expiresAt - performance.now()))),
   }
 }
 
