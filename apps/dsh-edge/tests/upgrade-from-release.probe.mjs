@@ -166,9 +166,11 @@ try {
   await turn(ptc, 'run some code')
 
   const image = (await rpc('session.create', {})).sessionId
-  // 0.18's catalog lists no modalities; its image model is the vision preview.
+  // Listed catalogs carry no modalities: 0.18's image model is the vision preview, 0.19's is deepseek-flash.
   const models = (await rpc('llm.models', {})).groups.flatMap(group => group.models)
-  const vision = models.find(model => model.inputModalities?.includes('image') || /vision/u.test(model.id))
+  const vision = models.find(model => model.inputModalities?.includes('image'))
+    ?? models.find(model => model.id === 'deepseek-flash')
+    ?? models.find(model => /vision/u.test(model.id))
   await rpc('session.selectModel', { sessionId: image, provider: vision?.provider ?? 'deepseek-official', model: vision?.id ?? 'deepseek-v4-flash-vision-exp' })
   await rpc('session.prompt', {
     sessionId: image, mode: 'queue',
@@ -189,6 +191,9 @@ try {
   const fork = (await rpc('session.fork', { sessionId: long })).sessionId
   const archived = (await rpc('session.create', {})).sessionId
   await turn(archived, 'remember alpha')
+  // A title generated after archiving is shown but never persisted (#253); archive once it is stored.
+  await waitFor(async () => (await history(archived)).some(event => event.type === 'session/title'
+    && event.data.source?.kind !== 'fallback'), 'archived session title persisted')
   await rpc('workspace.archiveSession', { sessionId: archived })
 
   await json('/api/approval-mode', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode: 'never' }) })
@@ -217,6 +222,10 @@ try {
   assert.equal(childIds.length, 1, `expected one subagent child, found ${JSON.stringify(childIds)}`)
   assert.ok(Date.now() < dueAt - 15_000, 'the due-soon reminder must still be pending when the previous release stops')
   await worker.stop()
+  // Whether the previous release's schedule_create takes a title, as the mock decides when it creates them.
+  const previousReminderTitles = mock.requests.some(request => (request.tools ?? []).some(tool =>
+    (tool.function?.name ?? tool.name) === 'schedule_create'
+    && Object.hasOwn((tool.function?.parameters ?? tool.input_schema)?.properties ?? {}, 'title')))
   const remindersBeforeUpgrade = mock.requests.filter(request => {
     const latest = request.messages?.[latestUserPromptIndex(request.messages ?? [])]?.content
     return typeof latest === 'string' && latest.startsWith('[SCHEDULE REMINDER')
@@ -263,8 +272,13 @@ try {
 
   const listedReminders = await turn(reminders, 'list reminders')
   const listedViews = JSON.parse(textOf(listedReminders.find(event => event.type === 'tool/result').data.message.content))
-  assert.deepEqual(listedViews.map(view => view.title).sort(), ['schedule-fixture-periodic', 'schedule-fixture-reminder'], JSON.stringify(listedViews))
-  pass('active reminders import with generated titles and list through the tools')
+  // A 0.18 reminder has no title and imports with one from its prompt; a titled (0.19+) reminder keeps its own.
+  assert.deepEqual(listedViews.map(view => view.title).sort(), previousReminderTitles
+    ? ['Fixture periodic', 'Fixture reminder']
+    : ['schedule-fixture-periodic', 'schedule-fixture-reminder'], JSON.stringify(listedViews))
+  pass(previousReminderTitles
+    ? 'active reminders keep their titles and list through the tools'
+    : 'active reminders import with generated titles and list through the tools')
 
   const reminderPrompt = request => {
     const messages = request.system === undefined ? request.messages : chatMessages(request)
@@ -296,8 +310,9 @@ try {
   worker = undefined
   const rowsAfter = sqliteStats()
   console.log(`candidate state: ${JSON.stringify(rowsAfter)}`)
-  // Every legacy reminder imported: two still active, the fired one-shot kept as ended.
-  assert.equal(rowsAfter.dsh_schedule_tasks, rowsBefore.dsh_schedule_active)
+  // Every reminder kept: two still active, the fired one-shot kept as ended. A 0.18 release held them
+  // in dsh_schedule_active and the upgrade imports them; from 0.19 on they stay in dsh_schedule_tasks.
+  assert.equal(rowsAfter.dsh_schedule_tasks, rowsBefore.dsh_schedule_active ?? rowsBefore.dsh_schedule_tasks)
   console.log(`PASS upgrade from ${from}: ${passed.length} checks`)
 } finally {
   await worker?.stop()

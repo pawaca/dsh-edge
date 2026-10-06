@@ -181,9 +181,13 @@ describe('dsh-edge native agent runtime', () => {
     const shells = new EdgeShellBindings()
     expect(createEdgeBashTool(shells, 'just-bash-isolated').description)
       .toBe('Execute a just-bash command against the persistent /workspace virtual filesystem. '
-        + 'Each call starts in the session working directory unless workdir is supplied.')
+        + 'Each call starts in the session working directory unless workdir is supplied. '
+        + 'Before any delete or move, verify that the resolved absolute target path is the intended one; never '
+        + 'run it against a computed path you have not checked. An unset variable expands to an empty string, '
+        + 'so guard variables in such paths with `${VAR:?}`.')
     const routed = createEdgeBashTool(shells, 'linux-container')
     expect(routed.description).toContain('lightweight just-bash shell unless it needs git')
+    expect(routed.description).toContain('guard variables in such paths with `${VAR:?}`')
     expect(routed.description).toContain('set linux to true to force the container')
     const properties = (tool: ReturnType<typeof createEdgeBashTool>) =>
       Object.keys((tool.parameters as { properties?: Record<string, unknown> }).properties ?? {})

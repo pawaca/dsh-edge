@@ -474,7 +474,7 @@ describe('dsh-edge assembled browser snapshot', () => {
         { timeout: 30_000 },
       ).toBeGreaterThanOrEqual(1)
       // The tool rows sit behind the turn's collapsed process disclosure and its read group.
-      await page.getByRole('button', { name: /^Took /u }).last().click()
+      await page.getByRole('button', { name: /^Completed in /u }).last().click()
       await page.getByRole('button', { name: 'Read files', exact: true }).last().click()
       const fileLink = page.getByRole('button', { name: /download-probe\.txt$/u }).last()
       await fileLink.waitFor({ timeout: 15_000 })
@@ -692,6 +692,7 @@ function normalize(source) {
     .replace(/ Cache hit \d+% Input \d+ tok · Output \d+ tok/gu, '')
     .replaceAll(mockChannelVersion, '{{channel-version}}')
     .replaceAll(edgePackage.version, '{{version}}')
+    .replaceAll(edgePackage.dshEdge.upstreamVersion, '{{upstream-version}}')
     .replaceAll(channel, '{{channel}}')
     .trimEnd()}\n`
 }
