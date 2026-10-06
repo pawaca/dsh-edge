@@ -49,8 +49,12 @@ it('wakes a cold session for a durable reminder without a browser connection', a
     await expect.poll(() => mock.requests.filter(request => chatMessages(request).some(message => message.role === 'user' && typeof message.content === 'string' && message.content.startsWith('[SCHEDULE REMINDER]'))).length, { timeout: (delay + 30) * 1000 }).toBe(1)
     const restored = await context.newPage()
     await restored.goto(origin)
-    await restored.getByText('schedule-delivered', { exact: true }).first().waitFor({ timeout: 15_000 })
-    if (process.env.DSH_EDGE_SCHEDULE_SCREENSHOT) await restored.screenshot({ path: process.env.DSH_EDGE_SCHEDULE_SCREENSHOT, fullPage: true })
+    try {
+      await restored.getByText('schedule-delivered', { exact: true }).first().waitFor({ timeout: 15_000 })
+    } finally {
+      // Capture the restored page on failure too; CI keeps it as an artifact.
+      if (process.env.DSH_EDGE_SCHEDULE_SCREENSHOT) await restored.screenshot({ path: process.env.DSH_EDGE_SCHEDULE_SCREENSHOT, fullPage: true })
+    }
   } finally {
     mock.releaseSlowResponses()
     await browser?.close()
