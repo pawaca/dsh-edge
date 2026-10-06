@@ -50,7 +50,11 @@ describe('repository workflows', () => {
     // The release job verifies on Windows; CI repeats its integration and browser snapshots there.
     expect(release).toContain('runs-on: windows-2025')
     expect(edge).toContain('name: edge / windows release checks')
-    expect(edge).toContain('run: pnpm --filter dsh-edge run bundle:workers')
+    // Both jobs build the standalone closure before the repository install can mask a missing input.
+    const windowsJob = edge.slice(edge.indexOf('name: edge / windows release checks'), edge.indexOf('name: edge / container image'))
+    expect(windowsJob.indexOf('run: pnpm --dir apps/dsh-edge/standalone run build'))
+      .toBeLessThan(windowsJob.indexOf('run: pnpm install --frozen-lockfile'))
+    expect(windowsJob).toContain('run: pnpm --dir apps/dsh-edge/standalone run verify')
     expect(edge).toContain('run: node apps/dsh-edge/tests/run-session-integration.mjs')
     expect(count(edge, /DSH_EDGE_PLAYWRIGHT_CHANNEL: chrome\n\s+(?:DSH_EDGE_SCHEDULE_SCREENSHOT: [^\n]+\n\s+)?run: pnpm --filter dsh-edge run test:snapshot/gu)).toBe(2)
   })

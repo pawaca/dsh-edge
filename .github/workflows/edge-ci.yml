@@ -142,11 +142,19 @@ jobs:
       - name: Install pinned standalone assembly dependencies
         run: pnpm --dir apps/dsh-edge/standalone install --frozen-lockfile
 
+      # As in the Linux job: build before the repository install so a parent
+      # dependency cannot mask a missing package in the standalone closure.
+      - name: Build the pinned standalone release artifacts
+        run: pnpm --dir apps/dsh-edge/standalone run build
+
+      - name: Verify the standalone release contract
+        run: pnpm --dir apps/dsh-edge/standalone run verify
+
+      - name: Promote standalone artifacts to release paths
+        run: node apps/dsh-edge/standalone/scripts/promote.mjs all
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-
-      - name: Build both release Workers
-        run: pnpm --filter dsh-edge run bundle:workers
 
       - name: Verify durable-state and runtime parity
         run: node apps/dsh-edge/tests/run-session-integration.mjs
