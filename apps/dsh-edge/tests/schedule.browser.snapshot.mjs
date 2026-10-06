@@ -50,7 +50,9 @@ it('wakes a cold session for a durable reminder without a browser connection', a
     const restored = await context.newPage()
     await restored.goto(origin)
     try {
-      await restored.getByText('schedule-delivered', { exact: true }).first().waitFor({ timeout: 15_000 })
+      // 30 s like this file's other waits: the 0.19.2 Windows release run timed out at 15 s once
+      // in four Windows runs of the same code (flake mitigation; the screenshot below is for the cause).
+      await restored.getByText('schedule-delivered', { exact: true }).first().waitFor({ timeout: 30_000 })
     } finally {
       // Capture the restored page on failure too; CI keeps it as an artifact.
       if (process.env.DSH_EDGE_SCHEDULE_SCREENSHOT) await restored.screenshot({ path: process.env.DSH_EDGE_SCHEDULE_SCREENSHOT, fullPage: true })
