@@ -44,6 +44,27 @@ describe('durable event delivery queue', () => {
     expect(flush).toHaveBeenCalledTimes(1)
   })
 
+  it('bounds a burst of immediate items to one immediate flush per window', async () => {
+    vi.useFakeTimers()
+    const flush = vi.fn()
+    const deliver = vi.fn((_items: readonly number[]) => {})
+    const queue = new DurableEventDeliveryQueue({ maxDelayMs: 100, flush, deliver })
+
+    for (let item = 1; item <= 10; item++) queue.enqueue(item, { immediate: true })
+    await vi.advanceTimersByTimeAsync(0)
+    // The first starts at once; the rest wait for the window, as ordinary items do.
+    expect(flush).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(100)
+    await queue.drain()
+    expect(flush).toHaveBeenCalledTimes(2)
+    expect(deliver.mock.calls.flatMap(([items]) => items)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+
+    // A later window may flush immediately again.
+    queue.enqueue(11, { immediate: true })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(flush).toHaveBeenCalledTimes(3)
+  })
+
   it('reports idle only after the durable batch has been delivered', async () => {
     const order: string[] = []
     const queue = new DurableEventDeliveryQueue({

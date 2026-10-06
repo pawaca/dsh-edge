@@ -760,6 +760,8 @@ export class EdgeSessionStore {
         this.unsettledEventDeliveries.add(state.queue)
         // The session list reads a new title from memory before this batch is
         // durable; flush it now so a restart cannot revert a shown title (#253).
+        // The queue allows one immediate flush per window, so rapid renames
+        // still coalesce.
         state.queue.enqueue(event, { immediate: event.type === 'session/title' })
       })
     }

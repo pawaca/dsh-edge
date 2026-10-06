@@ -19,6 +19,7 @@ export class DurableEventDeliveryQueue<T> {
   private failed = false
   private failure: unknown
   private acceptedEnqueues = 0
+  private lastImmediateAt = Number.NEGATIVE_INFINITY
 
   constructor(private readonly config: DurableEventDeliveryQueueConfig<T>) {}
 
@@ -30,13 +31,17 @@ export class DurableEventDeliveryQueue<T> {
   /**
    * Accept one item. `immediate` starts its durable flush now instead of after
    * the short window, for the rare event whose state is already readable
-   * before it is durable (a session title shown in the session list).
+   * before it is durable (a session title shown in the session list). At most
+   * one immediate flush starts per window; later ones join the normal batch,
+   * so a burst costs no more flushes than batching would (two per window).
    */
   enqueue(item: T, options?: { readonly immediate?: boolean }): void {
     if (this.failed) return
     this.acceptedEnqueues += 1
     this.pending.push(item)
-    if (options?.immediate === true) {
+    const now = Date.now()
+    if (options?.immediate === true && now - this.lastImmediateAt >= this.config.maxDelayMs) {
+      this.lastImmediateAt = now
       if (this.timer !== undefined) {
         clearTimeout(this.timer)
         this.timer = undefined
