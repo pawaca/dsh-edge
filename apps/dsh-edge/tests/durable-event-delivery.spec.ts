@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { DurableEventDeliveryQueue } from '../src/durable-event-delivery.ts'
+import { DurableEventDeliveryQueue, ImmediateFlushLimiter } from '../src/durable-event-delivery.ts'
 
 describe('durable event delivery queue', () => {
   afterEach(() => vi.useRealTimers())
@@ -44,25 +44,33 @@ describe('durable event delivery queue', () => {
     expect(flush).toHaveBeenCalledTimes(1)
   })
 
-  it('bounds a burst of immediate items to one immediate flush per window', async () => {
+  it('allows one immediate flush per key and window, across queues that went idle', async () => {
+    let now = 1_000
+    const limiter = new ImmediateFlushLimiter<string>(100, () => now)
+    const flushes: string[] = []
+    // A fresh queue per rename models the store dropping an idle queue between serial requests.
+    const rename = async (session: string) => {
+      const queue = new DurableEventDeliveryQueue({ maxDelayMs: 100, flush: () => { flushes.push(session) }, deliver: () => {} })
+      queue.enqueue(session, { immediate: limiter.take(session) })
+      return queue
+    }
+
     vi.useFakeTimers()
-    const flush = vi.fn()
-    const deliver = vi.fn((_items: readonly number[]) => {})
-    const queue = new DurableEventDeliveryQueue({ maxDelayMs: 100, flush, deliver })
-
-    for (let item = 1; item <= 10; item++) queue.enqueue(item, { immediate: true })
+    const first = await rename('a')
     await vi.advanceTimersByTimeAsync(0)
-    // The first starts at once; the rest wait for the window, as ordinary items do.
-    expect(flush).toHaveBeenCalledTimes(1)
+    expect(flushes).toEqual(['a'])
+    now += 40
+    const second = await rename('a')
+    await vi.advanceTimersByTimeAsync(0)
+    // Within the window: no second immediate flush, the item waits for the batch window.
+    expect(flushes).toEqual(['a'])
+    expect(limiter.take('b')).toBe(true)
     await vi.advanceTimersByTimeAsync(100)
-    await queue.drain()
-    expect(flush).toHaveBeenCalledTimes(2)
-    expect(deliver.mock.calls.flatMap(([items]) => items)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+    await Promise.all([first.drain(), second.drain()])
+    expect(flushes).toEqual(['a', 'a'])
 
-    // A later window may flush immediately again.
-    queue.enqueue(11, { immediate: true })
-    await vi.advanceTimersByTimeAsync(0)
-    expect(flush).toHaveBeenCalledTimes(3)
+    now += 100
+    expect(limiter.take('a')).toBe(true)
   })
 
   it('reports idle only after the durable batch has been delivered', async () => {
