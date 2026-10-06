@@ -27,10 +27,23 @@ export class DurableEventDeliveryQueue<T> {
     return this.acceptedEnqueues
   }
 
-  enqueue(item: T): void {
+  /**
+   * Accept one item. `immediate` starts its durable flush now instead of after
+   * the short window, for the rare event whose state is already readable
+   * before it is durable (a session title shown in the session list).
+   */
+  enqueue(item: T, options?: { readonly immediate?: boolean }): void {
     if (this.failed) return
     this.acceptedEnqueues += 1
     this.pending.push(item)
+    if (options?.immediate === true) {
+      if (this.timer !== undefined) {
+        clearTimeout(this.timer)
+        this.timer = undefined
+      }
+      this.schedulePending()
+      return
+    }
     if (this.timer !== undefined) return
     this.timer = setTimeout(() => {
       this.timer = undefined

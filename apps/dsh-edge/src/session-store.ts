@@ -758,7 +758,9 @@ export class EdgeSessionStore {
         }
         state.tail.seq = session.seq
         this.unsettledEventDeliveries.add(state.queue)
-        state.queue.enqueue(event)
+        // The session list reads a new title from memory before this batch is
+        // durable; flush it now so a restart cannot revert a shown title (#253).
+        state.queue.enqueue(event, { immediate: event.type === 'session/title' })
       })
     }
     if (config.onProjectionChanged !== undefined) {

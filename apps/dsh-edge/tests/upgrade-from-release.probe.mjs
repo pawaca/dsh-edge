@@ -191,9 +191,6 @@ try {
   const fork = (await rpc('session.fork', { sessionId: long })).sessionId
   const archived = (await rpc('session.create', {})).sessionId
   await turn(archived, 'remember alpha')
-  // A title generated after archiving is shown but never persisted (#253); archive once it is stored.
-  await waitFor(async () => (await history(archived)).some(event => event.type === 'session/title'
-    && event.data.source?.kind !== 'fallback'), 'archived session title persisted')
   await rpc('workspace.archiveSession', { sessionId: archived })
 
   await json('/api/approval-mode', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode: 'never' }) })
@@ -212,6 +209,17 @@ try {
   await (await request('/api/workspace/file?path=/workspace/upgrade.txt', { method: 'PUT', body: 'upgrade file body' })).text()
 
   const sessionIds = [long, tools, parent, ptc, image, reminders, dueSoon, fork, archived]
+  // Releases through 0.19.2 show a late generated title shortly before it is durable (#253), and
+  // stopping the Worker is abrupt; compare against stored state by waiting for every shown title.
+  await waitFor(async () => {
+    for (const item of (await rpc('session.list', {})).items) {
+      const shown = listedTitle(item)
+      if (typeof shown !== 'string') continue
+      const stored = (await history(item.sessionId)).filter(event => event.type === 'session/title').at(-1)?.data.title
+      if (stored !== shown) return false
+    }
+    return true
+  }, 'every shown session title is stored')
   const before = {
     list: (await rpc('session.list', {})).items.map(item => ({ sessionId: item.sessionId, title: listedTitle(item), agentPreset: item.agentPreset })),
     transcripts: Object.fromEntries(await Promise.all(sessionIds.map(async id => [id, await transcript(id)]))),

@@ -26,6 +26,24 @@ describe('durable event delivery queue', () => {
     expect(order).toEqual(['flush', 'deliver:1,2,3'])
   })
 
+  it('flushes an immediate item, with the batch already waiting, without the short window', async () => {
+    vi.useFakeTimers()
+    const flush = vi.fn()
+    const deliver = vi.fn()
+    const queue = new DurableEventDeliveryQueue({ maxDelayMs: 200, flush, deliver })
+
+    queue.enqueue(1)
+    queue.enqueue(2, { immediate: true })
+    // No timer advance: the durable flush starts at once and covers the waiting item too.
+    await vi.advanceTimersByTimeAsync(0)
+    expect(flush).toHaveBeenCalledTimes(1)
+    expect(deliver).toHaveBeenCalledWith([1, 2])
+
+    // The cancelled window does not flush again later.
+    await vi.advanceTimersByTimeAsync(200)
+    expect(flush).toHaveBeenCalledTimes(1)
+  })
+
   it('reports idle only after the durable batch has been delivered', async () => {
     const order: string[] = []
     const queue = new DurableEventDeliveryQueue({
