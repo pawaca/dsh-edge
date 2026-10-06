@@ -2,6 +2,7 @@ import {
   EdgeHttpError,
   readBoundedText,
 } from './http.ts'
+import { DSH_EDGE_UPGRADE_COMMAND } from './release.ts'
 
 const LOCAL_COOKIE_NAME = 'dsh_edge_owner'
 const SECURE_COOKIE_NAME = '__Host-dsh_edge_owner'
@@ -308,7 +309,7 @@ function loginPage(error?: string): string {
       <input id="access-key" name="accessKey" type="password" autocomplete="current-password" required autofocus>
       <button type="submit">Unlock</button>
     </form>
-    <p class="hint">Lost the key? Run <code>npx dsh-edge upgrade</code> and choose <strong>Update and reset the access key</strong>. Conversations and files are kept.</p>
+    <p class="hint">Lost the key? Run <code>${DSH_EDGE_UPGRADE_COMMAND}</code> and choose <strong>Update and reset the access key</strong>. Conversations and files are kept.</p>
   </main>
 </body>
 </html>`

@@ -7,6 +7,7 @@ import {
   unauthorizedResponse,
 } from '../src/auth.ts'
 import { errorResponse, resolveDeepSeekApiKey } from '../src/http.ts'
+import edgePackage from '../package.json' with { type: 'json' }
 
 const ACCESS_KEY = 'owner-test-access-key-32-bytes-long'
 const config = resolveOwnerAuthConfig(ACCESS_KEY)
@@ -38,7 +39,8 @@ describe('single-owner authentication', () => {
     const body = await response.text()
     expect(body).toContain('Owner access key')
     // A lost key is recoverable only from the installer, so the page says how.
-    expect(body).toContain('<code>npx dsh-edge upgrade</code>')
+    // On the deployment's own release channel, so a prerelease gets the installer that has the reset.
+    expect(body).toContain(`<code>npx dsh-edge@${edgePackage.version.includes('-') ? 'next' : 'latest'} upgrade</code>`)
     expect(body).toContain('Update and reset the access key')
     expect(body).not.toContain('minlength=')
     expect(body).not.toContain('maxlength=')

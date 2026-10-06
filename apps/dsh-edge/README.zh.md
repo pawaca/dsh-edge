@@ -295,11 +295,11 @@ npx dsh-edge upgrade
 
 ### Credential 交接与激活
 
-- 新实例的 owner key 通过权限模式为 `0600` 的临时 secret 文件传递，命令结束后删除该文件。更新不传 secret 文件，Cloudflare 会保留 Worker 现有的 secret。Wrangler 只收到 allowlist 内的 runtime 环境与当前选中的 Cloudflare authentication；其他 ambient secret 与 Node 注入选项不会进入子进程。
+- 新实例的 owner key，或重置 key 的更新所生成的新 key，通过权限模式为 `0600` 的临时 secret 文件传递，命令结束后删除该文件。Wrangler 以增量方式应用该文件，Worker 的其他 secret 保持不变。普通更新不传 secret 文件，Cloudflare 会保留 Worker 现有的 secret。Wrangler 只收到 allowlist 内的 runtime 环境与当前选中的 Cloudflare authentication；其他 ambient secret 与 Node 注入选项不会进入子进程。
 - 部署 URL 来自 Wrangler 的结构化输出。添加 `--verbose` 可查看完整部署诊断。
-- 上传后，安装器会在不携带 credential、不跟随重定向的前提下，最多观察公开 `/api/health` 45 秒。只有精确 package 版本与能力才算数；propagation、challenge、占位页、传输错误与旧 release response 均保持 pending。随后新实例会用新 key 登录并检查 `/api/ready`。更新不知道被保留的 key，因此会把已验证的版本报告为 live，并请你登录确认。
+- 上传后，安装器会在不携带 credential、不跟随重定向的前提下，最多观察公开 `/api/health` 45 秒。只有精确 package 版本与能力才算数；propagation、challenge、占位页、传输错误与旧 release response 均保持 pending。随后新实例或重置 key 的更新会用新 key 登录并检查 `/api/ready`。普通更新不知道被保留的 key，因此会把已验证的版本报告为 live，并请你登录确认。
 - 观察到期仍以成功退出，并请 owner 稍后刷新。该观察不调用 DeepSeek，也不触碰 Durable Object 状态。
-- 最终卡片输出 URL、新的 owner key（更新后显示 "unchanged"）与下一步，然后询问是否在浏览器中打开该 URL（默认 Yes，仅限交互式终端）。临时账户还会收到必须在 60 分钟内认领的 bearer claim URL。
+- 最终卡片输出 URL、新的 owner key（普通更新后显示 "unchanged"）与下一步，然后询问是否在浏览器中打开该 URL（默认 Yes，仅限交互式终端）。临时账户还会收到必须在 60 分钟内认领的 bearer claim URL。
 - 上传被拒绝时会明确报告未安装。Wrangler 如果已创建临时账户，仍显示其 claim URL，但不把未使用的 owner key 显示为 active。付费能力被 Cloudflare 拒绝时，会建议启用 Workers Paid 或改选 `Research and write`。
 - 上传成功但交接失败时，恢复卡片会在命令按失败退出前输出已生效 owner key 与所有已知 URL。
 - 安装直接通过 Wrangler 上传；不会创建或绑定 GitHub 仓库、Cloudflare Builds 项目或源码构建流水线。
