@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record: the git blob hash of each side at the
+# last confirmed-consistent state. Both languages carry equal authority.
+# After editing either side, update both and re-record every pair with:
+#   pnpm run doc-pairs -- --write
+0.19.0.md: 375135b8ba5bd8f477de105e8c3aede2bcac2e6a
+0.19.0.zh.md: 47e59c97dba9fc8945b3dc5218029c6039e4c83b
