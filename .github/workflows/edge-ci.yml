@@ -117,6 +117,54 @@ jobs:
       - name: Verify Windows installer security and lifecycle
         run: pnpm exec vitest run --project edge-runtime apps/dsh-edge/tests/installer.spec.ts
 
+  # The release workflow publishes from Windows after running integration and
+  # the browser snapshots there; run the same release-only checks on every
+  # change so a Windows-only failure surfaces before a tag, not after.
+  windows-release:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    name: edge / windows release checks
+    runs-on: windows-2025
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/setup@v2
+        with:
+          install: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.WINDOWS_NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install pinned standalone assembly dependencies
+        run: pnpm --dir apps/dsh-edge/standalone install --frozen-lockfile
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build both release Workers
+        run: pnpm --filter dsh-edge run bundle:workers
+
+      - name: Verify durable-state and runtime parity
+        run: node apps/dsh-edge/tests/run-session-integration.mjs
+
+      - name: Verify assembled runtime and browser snapshots
+        env:
+          DSH_EDGE_PLAYWRIGHT_CHANNEL: chrome
+          DSH_EDGE_SCHEDULE_SCREENSHOT: ${{ runner.temp }}/schedule-restored.png
+        run: pnpm --filter dsh-edge run test:snapshot
+
+      - name: Keep the failing browser state
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-browser-snapshots
+          path: ${{ runner.temp }}/*.png
+          if-no-files-found: ignore
+
   container-image:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     name: edge / container image
@@ -163,7 +211,7 @@ jobs:
 
   verify:
     if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.draft == false) }}
-    needs: [linux, windows-installer, container-image]
+    needs: [linux, windows-installer, windows-release, container-image]
     name: edge / verify
     runs-on: ubuntu-latest
     timeout-minutes: 2
@@ -172,8 +220,10 @@ jobs:
         env:
           LINUX_RESULT: ${{ needs.linux.result }}
           WINDOWS_RESULT: ${{ needs.windows-installer.result }}
+          WINDOWS_RELEASE_RESULT: ${{ needs.windows-release.result }}
           CONTAINER_RESULT: ${{ needs.container-image.result }}
         run: |
           test "$LINUX_RESULT" = success
           test "$WINDOWS_RESULT" = success
+          test "$WINDOWS_RELEASE_RESULT" = success
           test "$CONTAINER_RESULT" = success

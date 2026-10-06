@@ -38,9 +38,21 @@ describe('repository workflows', () => {
     expect(source).toContain('runs-on: windows-2025')
     expect(source).toContain('node-version: ${{ env.WINDOWS_NODE_VERSION }}')
     expect(source).toContain('pnpm exec vitest run --project edge-runtime apps/dsh-edge/tests/installer.spec.ts')
-    expect(source).toContain('needs: [linux, windows-installer, container-image]')
+    expect(source).toContain('needs: [linux, windows-installer, windows-release, container-image]')
     expect(source).toContain('name: edge / verify')
     expect(source).toContain('test "$WINDOWS_RESULT" = success')
+    expect(source).toContain('test "$WINDOWS_RELEASE_RESULT" = success')
+  })
+
+  it('runs the release-only Windows checks before a tag can depend on them', () => {
+    const edge = workflow('edge-ci.yml')
+    const release = workflow('release-edge.yml')
+    // The release job verifies on Windows; CI repeats its integration and browser snapshots there.
+    expect(release).toContain('runs-on: windows-2025')
+    expect(edge).toContain('name: edge / windows release checks')
+    expect(edge).toContain('run: pnpm --filter dsh-edge run bundle:workers')
+    expect(edge).toContain('run: node apps/dsh-edge/tests/run-session-integration.mjs')
+    expect(count(edge, /DSH_EDGE_PLAYWRIGHT_CHANNEL: chrome\n\s+(?:DSH_EDGE_SCHEDULE_SCREENSHOT: [^\n]+\n\s+)?run: pnpm --filter dsh-edge run test:snapshot/gu)).toBe(2)
   })
 
   it('uses the reviewed Node 24 action toolchain without an implicit root install', () => {
@@ -48,10 +60,10 @@ describe('repository workflows', () => {
     const release = workflow('release-edge.yml')
     const explicitPnpmSetup = /uses: pnpm\/setup@v2\n\s+with:\n\s+install: false/gu
 
-    expect(count(edge, /uses: actions\/checkout@v7/gu)).toBe(3)
-    expect(count(edge, /uses: actions\/setup-node@v7/gu)).toBe(2)
-    expect(count(edge, /uses: pnpm\/setup@v2/gu)).toBe(2)
-    expect(count(edge, explicitPnpmSetup)).toBe(2)
+    expect(count(edge, /uses: actions\/checkout@v7/gu)).toBe(4)
+    expect(count(edge, /uses: actions\/setup-node@v7/gu)).toBe(3)
+    expect(count(edge, /uses: pnpm\/setup@v2/gu)).toBe(3)
+    expect(count(edge, explicitPnpmSetup)).toBe(3)
     expect(count(release, /uses: actions\/checkout@v7/gu)).toBe(3)
     expect(count(release, /uses: actions\/setup-node@v7/gu)).toBe(2)
     expect(count(release, /uses: pnpm\/setup@v2/gu)).toBe(1)
