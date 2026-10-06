@@ -410,5 +410,15 @@
       "reason": "Per-turn changed-file summaries and diffs; upstream captures git working-tree snapshots and file-tool edits."
     }
   },
-  "wikiOmit": {}
+  "wikiOmit": {
+    "agent-team": "Experimental Agent Teams (dsh-experimental-tool-agent-team) are declined; subagents are covered on the Subagent page.",
+    "browser-use": "Drives a local Chromium process through experimental providers; Workers cannot run a browser engine.",
+    "computer-use": "Observes and operates the local desktop; a Worker has no desktop.",
+    "extensions": "Agent-defined Cordis packages installed and loaded at runtime; Workers cannot install or import packages at runtime, so the Edge composition is fixed at build time.",
+    "office-to-pdf": "Office conversion through a native LibreOffice build on the host.",
+    "product-telemetry": "Desktop product analytics over OTLP; the Edge excludes the client analytics plugin and mounts no exporter.",
+    "ssh": "Moves the filesystem and process world to a remote host over a deployment-owned OpenSSH connection; the Edge workspace is the Durable Object VFS with an optional Linux container.",
+    "voice-input": "Experimental speech-to-text with local SenseVoice inference on the host.",
+    "webhook": "External deliveries that create root Sessions are not offered; GitHub webhook review sessions are tracked in #180."
+  }
 }
