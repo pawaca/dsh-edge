@@ -692,7 +692,7 @@ export class EdgeSessionStore {
       // deployments with the Worker Loader binding offer the workflow tool.
       const { default: EdgeWorkflowEngine } = await import('./edge-workflow-engine.ts')
       await this.context.plugin(EdgeWorkflowEngine, { loader: config.workerLoader } as never)
-      // The executor behind `run_code`; ToolRuntime reads ctx.codeRuntime lazily.
+      // The executor behind `run_code`; ToolRuntime reads ctx.ptcRuntime lazily.
       const { default: EdgeCodeRuntime } = await import('./edge-code-runtime.ts')
       await this.context.plugin(EdgeCodeRuntime, { loader: config.workerLoader } as never)
       // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment

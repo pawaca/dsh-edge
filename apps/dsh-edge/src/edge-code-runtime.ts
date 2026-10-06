@@ -1,5 +1,5 @@
 /**
- * Edge provider for the upstream `ctx.codeRuntime` seam, the executor behind
+ * Edge provider for the upstream `ctx.ptcRuntime` seam (`ctx.codeRuntime` before 0.2.0), the executor behind
  * the `run_code` tool of `@deepseek-ai/dsh-tools` PTC mode. Offered only
  * where the Dynamic Worker runtime provider is available.
  *

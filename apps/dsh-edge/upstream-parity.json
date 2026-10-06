@@ -380,7 +380,7 @@
     },
     "@deepseek-ai/dsh-tool-todo": {
       "status": "gap",
-      "reason": "todo_write task list; the Web todos UI is already in the client bundle.",
+      "reason": "todo_write task list with its log-only event and replay projection; upstream ships no separate Web todo plugin, so porting means mounting the tool and checking how the chat client renders its events.",
       "priority": "P2",
       "issue": 234
     },
