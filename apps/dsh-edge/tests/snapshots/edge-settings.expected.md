@@ -21,7 +21,7 @@
     - term: Channel version
     - definition: {{channel-version}}
     - term: DeepSeek Harness base
-    - definition: 0.2.0-rc.1
+    - definition: {{upstream-version}}
     - paragraph: Update available
     - button "Upgrade command copied"
     - link "Release notes":

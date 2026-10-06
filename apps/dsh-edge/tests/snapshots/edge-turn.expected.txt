@@ -224,7 +224,7 @@ Current date: {{date}} (UTC).",
               },
             },
             {
-              "description": "Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in the session working directory unless workdir is supplied.",
+              "description": "Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in the session working directory unless workdir is supplied. Before any delete or move, verify that the resolved absolute target path is the intended one; never run it against a computed path you have not checked. An unset variable expands to an empty string, so guard variables in such paths with `${VAR:?}`.",
               "name": "bash",
               "parameters": {
                 "properties": {
@@ -1106,7 +1106,7 @@ Current date: {{date}} (UTC).",
               },
             },
             {
-              "description": "Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in the session working directory unless workdir is supplied.",
+              "description": "Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in the session working directory unless workdir is supplied. Before any delete or move, verify that the resolved absolute target path is the intended one; never run it against a computed path you have not checked. An unset variable expands to an empty string, so guard variables in such paths with `${VAR:?}`.",
               "name": "bash",
               "parameters": {
                 "properties": {
@@ -2089,7 +2089,7 @@ Current date: {{date}} (UTC).",
               },
             },
             {
-              "description": "Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in the session working directory unless workdir is supplied.",
+              "description": "Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in the session working directory unless workdir is supplied. Before any delete or move, verify that the resolved absolute target path is the intended one; never run it against a computed path you have not checked. An unset variable expands to an empty string, so guard variables in such paths with `${VAR:?}`.",
               "name": "bash",
               "parameters": {
                 "properties": {
@@ -2971,7 +2971,7 @@ Current date: {{date}} (UTC).",
               },
             },
             {
-              "description": "Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in the session working directory unless workdir is supplied.",
+              "description": "Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in the session working directory unless workdir is supplied. Before any delete or move, verify that the resolved absolute target path is the intended one; never run it against a computed path you have not checked. An unset variable expands to an empty string, so guard variables in such paths with `${VAR:?}`.",
               "name": "bash",
               "parameters": {
                 "properties": {
@@ -3829,7 +3829,7 @@ Your working directory is /workspace. Only files under /workspace persist across
           "name": "ask_user_question",
         },
         {
-          "description": "Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in the session working directory unless workdir is supplied.",
+          "description": "Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in the session working directory unless workdir is supplied. Before any delete or move, verify that the resolved absolute target path is the intended one; never run it against a computed path you have not checked. An unset variable expands to an empty string, so guard variables in such paths with `${VAR:?}`.",
           "input_schema": {
             "properties": {
               "command": {
@@ -4581,7 +4581,7 @@ Your working directory is /workspace. Only files under /workspace persist across
           "name": "ask_user_question",
         },
         {
-          "description": "Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in the session working directory unless workdir is supplied.",
+          "description": "Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in the session working directory unless workdir is supplied. Before any delete or move, verify that the resolved absolute target path is the intended one; never run it against a computed path you have not checked. An unset variable expands to an empty string, so guard variables in such paths with `${VAR:?}`.",
           "input_schema": {
             "properties": {
               "command": {

@@ -167,7 +167,11 @@ export function createEdgeBashTool(
         + 'shell unless it needs git, node, npm, python3, other native programs, or the network, in which '
         + 'case it runs in the Linux container; set linux to true to force the container.'
       : 'Execute a just-bash command against the persistent /workspace virtual filesystem.')
-      + ' Each call starts in the session working directory unless workdir is supplied.',
+      + ' Each call starts in the session working directory unless workdir is supplied. '
+      // Upstream 0.2.0-rc.2 dsh-tool-bash guidance, verbatim; just-bash honors `${VAR:?}`.
+      + 'Before any delete or move, verify that the resolved absolute target path is the intended one; never '
+      + 'run it against a computed path you have not checked. An unset variable expands to an empty string, '
+      + 'so guard variables in such paths with `${VAR:?}`.',
     parameters: {
       command: {
         type: 'string',

@@ -10,7 +10,10 @@ import { execa } from 'execa'
 import { readFileSync } from 'node:fs'
 
 const appDirectory = fileURLToPath(new URL('..', import.meta.url))
-const edgeVersion = JSON.parse(readFileSync(join(appDirectory, 'package.json'), 'utf8')).version
+const edgeManifest = JSON.parse(readFileSync(join(appDirectory, 'package.json'), 'utf8'))
+const edgeVersion = edgeManifest.version
+// The upstream baseline also changes on its own; a baseline bump needs no snapshot edit.
+const upstreamVersion = edgeManifest.dshEdge.upstreamVersion
 const cli = join(appDirectory, 'scripts/cli.mjs')
 const preload = fileURLToPath(new URL('./install-keyless-preload.cjs', import.meta.url))
 const fixtureWrangler = fileURLToPath(new URL('./install-keyless-wrangler.mjs', import.meta.url))
@@ -115,7 +118,7 @@ export async function runKeylessInstall() {
       'TERMINAL',
       normalizeTerminal(result.stdout),
       'BOUNDARY EVENTS',
-      ...events.map(event => JSON.stringify(event).replaceAll(edgeVersion, '{{version}}')),
+      ...events.map(event => JSON.stringify(event).replaceAll(edgeVersion, '{{version}}').replaceAll(upstreamVersion, '{{upstream-version}}')),
       '',
     ].join('\n')
   } finally {
@@ -128,6 +131,7 @@ function normalizeTerminal(source) {
     .replaceAll('\r', '')
     .replace(/Owner access key: [A-Za-z0-9_-]+/u, 'Owner access key: {{generated-access-key}}')
     .replaceAll(edgeVersion, '{{version}}')
+    .replaceAll(upstreamVersion, '{{upstream-version}}')
     .split('\n')
     .map(line => line.trimEnd())
     .filter(line => line !== '')

@@ -9,8 +9,8 @@
   - img "one-pixel.png"
 - text: snapshot the browser edge path {{clock}}
 - button "Copy"
-- status: Worked
-- button "Took {{metric}}" [disabled]
+- status: Completed
+- button "Completed in {{metric}}" [disabled]
 - paragraph: remembered-alpha
 - button "Copy"
 - button "Good response"
