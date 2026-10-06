@@ -473,8 +473,10 @@ describe('dsh-edge assembled browser snapshot', () => {
         () => page.getByText('read-finished', { exact: true }).count(),
         { timeout: 30_000 },
       ).toBeGreaterThanOrEqual(1)
-      // The tool rows sit behind the turn's collapsed process disclosure and its read group.
-      await page.getByRole('button', { name: /^Completed in /u }).last().click()
+      // The tool rows sit behind the turn's collapsed process disclosure and its read group. The
+      // control renders only once the turn closes, which can trail the reply; an earlier turn with
+      // no process keeps a disabled one, so wait for the enabled control rather than the last.
+      await page.getByRole('button', { name: /^Completed in /u, disabled: false }).last().click()
       await page.getByRole('button', { name: 'Read files', exact: true }).last().click()
       const fileLink = page.getByRole('button', { name: /download-probe\.txt$/u }).last()
       await fileLink.waitFor({ timeout: 15_000 })
