@@ -28,6 +28,7 @@ const DSH_EDGE_HERO = String.raw` ____  ____  _   _       _____ ____   ____ ____
 | |_| |___) |  _  |_____| |___| |_| | |_| | |___
 |____/|____/|_| |_|     |_____|____/ \____|_____|`
 const KEPT_ON_UPDATE = 'conversations, files, access key, and DeepSeek key'
+const KEPT_ON_KEY_RESET = 'conversations, files, and DeepSeek key'
 const CONTAINER_ROLLOUT_NOTE = 'The first command after this can take a few minutes while the container image rolls out.'
 const SESSION_FORMAT_UPGRADE_NOTE = 'Stored sessions move to a new format when this release first starts; only the stored rows that change are rewritten. Rolling back to an earlier dsh-edge release afterwards is not supported.'
 
@@ -146,6 +147,7 @@ export function createInstallerUi(
         options: [
           { value: 'update', label: 'Update it', hint: 'keeps everything' },
           { value: 'change', label: 'Update and change what it can do' },
+          { value: 'reset-key', label: 'Update and reset the access key', hint: 'if you lost it' },
           { value: 'rename', label: 'Use another name' },
           { value: 'cancel', label: 'Cancel' },
         ],
@@ -210,13 +212,21 @@ export function createInstallerUi(
           ['Images', summary.attachmentStorage === 'temporary-do'
             ? 'stored in this instance (64 MiB limit)'
             : 'stored privately in Cloudflare R2'],
-          ...(summary.updating
+          ...(summary.resetAccessKey
+            ? [
+                ['Kept', KEPT_ON_KEY_RESET],
+                ['Owner key', 'replaced; the new key is shown when the update finishes'],
+              ]
+            : summary.updating
             ? [['Kept', KEPT_ON_UPDATE]]
             : [
                 ['Owner key', 'generated and shown when installation finishes'],
                 ['DeepSeek', 'add your API key when the web app asks, or later in Settings → Models'],
               ]),
         ]),
+        ...(summary.resetAccessKey
+          ? ['', 'The old key stops working, and every signed-in browser must sign in again with the new key.']
+          : []),
         ...(summary.mode === 'container'
           ? ['', 'The container sleeps after 10 idle minutes by default; change it in Settings → DSH Edge.', CONTAINER_ROLLOUT_NOTE]
           : []),
@@ -298,7 +308,7 @@ export function createInstallerUi(
           : ['Claim this temporary account within 60 minutes to keep the Worker and its data.']),
         'Open the URL above.',
         newKey
-          ? 'Enter the owner access key when prompted.'
+          ? `Enter the ${result.updated ? 'new ' : ''}owner access key when prompted.`
           : 'Sign in with your existing owner access key.',
         ...(result.updated ? [] : ['Add your DeepSeek API key when the web app asks (or later in Settings → Models).']),
         ...(newKey ? ['Save the owner access key; you need it to sign in.'] : []),

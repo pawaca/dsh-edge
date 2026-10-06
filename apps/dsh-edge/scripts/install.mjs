@@ -669,8 +669,10 @@ export async function installEdge({
     requireRuntimeMode(mode)
     const attachmentStorage = existing?.attachmentStorage ?? 'temporary-do'
     requireAttachmentStorage(attachmentStorage)
-    // An update keeps the Worker's secrets; only a new instance gets an owner key.
-    const ownerSecret = updating ? undefined : resolveOwnerSecret(environment)
+    // An update keeps the Worker's secrets unless the owner resets the access
+    // key; `--secrets-file` is additive, so the other secrets stay in place.
+    const resetAccessKey = updating && updateAction === 'reset-key'
+    const ownerSecret = updating && !resetAccessKey ? undefined : resolveOwnerSecret(environment)
     // Choosing "Update it" was the confirmation; everything else confirms once here.
     if (updateAction !== 'update' && !await ui.confirm({
       mode,
@@ -678,6 +680,7 @@ export async function installEdge({
       workerName,
       temporary,
       updating,
+      resetAccessKey,
       attachmentStorage,
     })) {
       throw new InstallCancelledError()

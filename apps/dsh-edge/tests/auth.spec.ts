@@ -37,6 +37,9 @@ describe('single-owner authentication', () => {
     expect(response.status).toBe(200)
     const body = await response.text()
     expect(body).toContain('Owner access key')
+    // A lost key is recoverable only from the installer, so the page says how.
+    expect(body).toContain('<code>npx dsh-edge upgrade</code>')
+    expect(body).toContain('Update and reset the access key')
     expect(body).not.toContain('minlength=')
     expect(body).not.toContain('maxlength=')
     expect(response.headers.get('content-security-policy')).toContain("default-src 'none'")

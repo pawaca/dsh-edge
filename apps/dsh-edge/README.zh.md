@@ -278,7 +278,7 @@ npx dsh-edge upgrade
 
 - **账户。** 已登录的 Cloudflare 账户排在最前，按 Enter 即得到永久实例。未登录时临时账户排在最前：无需登录，只运行免费能力，必须在 60 分钟内认领。也可以登录或注册账户。
 - **Worker 名称。** 安装器检查该名称在账户中是否已存在。只用 `--name` 就能选中 Worker，与部署它时的能力无关。
-- **已存在的名称就是更新。** 安装器从 Worker 的 binding 读出它当前能做什么，提供 **Update it**（默认）、**Update and change what it can do**、**Use another name** 和 **Cancel**。选 "Update it" 即是确认：以相同能力部署新版本，并保留对话、文件、owner access key 与 DeepSeek key。安装器不会替你改名，也不会再次询问 secret。
+- **已存在的名称就是更新。** 安装器从 Worker 的 binding 读出它当前能做什么，提供 **Update it**（默认）、**Update and change what it can do**、**Update and reset the access key**、**Use another name** 和 **Cancel**。选 "Update it" 即是确认：以相同能力部署新版本，并保留对话、文件、owner access key 与 DeepSeek key。安装器不会替你改名，也不会再次询问 secret。
 - **新名称会询问 agent 要做什么。** 选项逐级包含，价格放在第二位：
   - `Research and write`（direct 模式，默认）：联网搜索、读网页、写文档，并通过 MCP 连接你的工具。可在 Workers Free 上运行。
   - `+ Analyze data and split big jobs`（isolated 模式）：增加 `workflow`，把任务交给并行子 agent；在以 PTC 模式 agent 预设开始的会话中增加 `run_code`，用脚本处理你的数据（与上游一样，该预设不提供 `workflow`）。需要 Workers Paid（每月 5 美元起）。
@@ -289,7 +289,7 @@ npx dsh-edge upgrade
 ### 默认值
 
 - **图片** 存入实例的 Durable Object（64 MiB），因此新安装无需配置 R2。每个部署都会记录 attachment-storage marker，更新时保留 marker 或 binding 指定的 backend。已使用私有 R2 的 Worker 会继续使用 R2；如果 R2 不再启用（Cloudflare 错误 `10042`），安装器提供账户专属的启用链接、重试或取消，绝不切换到会让图片引用失联的 backend。图片功能之前的 Worker 没有可失联的引用，会改用 Durable Object 默认值。Active rollout 混用 backend 时会拒绝猜测。
-- **Owner access key** 在新实例上自动生成，并在安装完成时显示。如需自定义，请在安装器环境中设置 `DSH_EDGE_ACCESS_KEY`（32–512 个 UTF-8 字节）；它不会进入 shell 历史或进程列表。更新会保留现有 key。
+- **Owner access key** 在新实例上自动生成，并在安装完成时显示。如需自定义，请在安装器环境中设置 `DSH_EDGE_ACCESS_KEY`（32–512 个 UTF-8 字节）；它不会进入 shell 历史或进程列表。更新会保留现有 key。Cloudflare 无法再次显示已存的 key，所以丢失时请运行 `npx dsh-edge upgrade` 并选择 **Update and reset the access key**：安装器会用新 key（自动生成，或取自 `DSH_EDGE_ACCESS_KEY`）部署该版本，并只显示一次。对话、文件与 DeepSeek key 均保留；旧 key 随即失效，所有已登录的浏览器都需要用新 key 重新登录。
 - **DeepSeek API key** 在安装完成后于 Settings → Models 中添加。安装器不会询问它。
 - **图片优化**（Cloudflare Images binding）对你自己的账户开启，对临时账户关闭。
 

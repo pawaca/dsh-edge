@@ -1246,6 +1246,7 @@ describe('dsh-edge guided installation', () => {
       workerName: 'dsh-edge',
       temporary: false,
       updating: false,
+      resetAccessKey: false,
       attachmentStorage: 'temporary-do',
     })
     // Images stay in the instance without R2 setup; only the generated owner key is a secret.
@@ -1337,6 +1338,44 @@ describe('dsh-edge guided installation', () => {
       })
       expect(result.ownerSecret).toBeUndefined()
       expect(success).toHaveBeenCalledOnce()
+    },
+  )
+
+  it.each(['generated', 'supplied'] as const)(
+    'resets a lost access key in an update with a %s key, keeping capabilities and other secrets',
+    async (source) => {
+      const directory = await mkdtemp(join(tmpdir(), 'dsh-edge-reset-key-test-'))
+      const { ui, confirm, selectCapability, success } = createUi({ existingActions: ['reset-key'] })
+      let deployArgs: string[] = []
+      let secrets: unknown
+      const runWrangler = existingWorkerWrangler([
+        { name: 'DSH_EDGE_ATTACHMENT_STORAGE', type: 'plain_text', text: 'temporary-do' },
+        { name: 'LOADER', type: 'worker_loader' },
+      ], async (args) => {
+        deployArgs = args
+        secrets = JSON.parse(await readFile(args[args.indexOf('--secrets-file') + 1]!, 'utf8'))
+      })
+      const observeActivation = vi.fn().mockResolvedValue({ attempts: 1, elapsedMs: 0, status: 'ready' })
+
+      const result = await installEdge({
+        command: 'upgrade', ui, runWrangler, observeActivation,
+        environment: source === 'supplied' ? OWNER_ENV : {},
+        createTemporaryDirectory: async () => directory,
+      })
+
+      expect(selectCapability).not.toHaveBeenCalled()
+      expect(confirm).toHaveBeenCalledWith(expect.objectContaining({
+        mode: 'isolated', updating: true, resetAccessKey: true,
+      }))
+      expect(deployArgs).toContain('isolated')
+      // `--secrets-file` is additive in Wrangler: only the owner key is replaced.
+      expect(secrets).toEqual({ DSH_EDGE_ACCESS_KEY: result.ownerSecret })
+      if (source === 'supplied') expect(result.ownerSecret).toBe(OWNER_SECRET)
+      else expect(validateOwnerSecret(result.ownerSecret!)).toBeUndefined()
+      // The new key lets activation sign in and verify the runtime, as for a new install.
+      expect(observeActivation).toHaveBeenCalledWith(expect.objectContaining({ ownerSecret: result.ownerSecret }))
+      expect(result).toMatchObject({ mode: 'isolated', updated: true })
+      expect(success).toHaveBeenCalledWith(expect.objectContaining({ ownerSecret: result.ownerSecret, updated: true }))
     },
   )
 
@@ -1871,7 +1910,7 @@ function createUi({
 }: {
   capabilities?: RuntimeMode[]
   accountSelections?: string[]
-  existingActions?: Array<'update' | 'change' | 'rename' | 'cancel'>
+  existingActions?: Array<'update' | 'change' | 'reset-key' | 'rename' | 'cancel'>
   nameTakenActions?: Array<'rename' | 'cancel'>
   workerNames?: string[]
   confirmed?: boolean
