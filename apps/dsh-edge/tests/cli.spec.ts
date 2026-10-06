@@ -86,6 +86,9 @@ describe('dsh-edge CLI', () => {
 
     expect(result.status).toBe(0)
     expect(`${result.stdout}${result.stderr}`).toContain('Usage: dsh-edge <install|upgrade>')
+    // A lost key is recovered through upgrade, with an optional supplied key.
+    expect(result.stdout).toContain('(choose "Update and reset the access key" if you lost it)')
+    expect(result.stdout).toContain('DSH_EDGE_ACCESS_KEY  Owner access key for a new instance or an access-key reset')
   })
 
   it('renders a product hero only when the terminal has room for it', () => {

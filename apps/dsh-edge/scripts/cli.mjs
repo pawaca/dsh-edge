@@ -625,7 +625,7 @@ async function main() {
   const args = process.argv.slice(2)
   const command = parseCommand(args)
   if (command === 'help') {
-    process.stdout.write('Usage: dsh-edge <install|upgrade> [--verbose]\n\nCommands:\n  install   Create an instance, or update one that already exists\n  upgrade   Update an existing instance, keeping its data and keys\n\nOptions:\n  --verbose  Show Wrangler deployment output\n\nEnvironment:\n  DSH_EDGE_ACCESS_KEY  Owner access key for a new instance (default: generated)\n')
+    process.stdout.write('Usage: dsh-edge <install|upgrade> [--verbose]\n\nCommands:\n  install   Create an instance, or update one that already exists\n  upgrade   Update an existing instance, keeping its data and keys\n            (choose \"Update and reset the access key\" if you lost it)\n\nOptions:\n  --verbose  Show Wrangler deployment output\n\nEnvironment:\n  DSH_EDGE_ACCESS_KEY  Owner access key for a new instance or an access-key reset\n                       (default: generated)\n')
     return
   }
   if (command === 'version') {
