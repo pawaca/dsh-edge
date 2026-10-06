@@ -278,7 +278,7 @@ npx dsh-edge upgrade
 
 - **账户。** 已登录的 Cloudflare 账户排在最前，按 Enter 即得到永久实例。未登录时临时账户排在最前：无需登录，只运行免费能力，必须在 60 分钟内认领。也可以登录或注册账户。
 - **Worker 名称。** 安装器检查该名称在账户中是否已存在。只用 `--name` 就能选中 Worker，与部署它时的能力无关。
-- **已存在的名称就是更新。** 安装器从 Worker 的 binding 读出它当前能做什么，提供 **Update it**（默认）、**Update and change what it can do**、**Use another name** 和 **Cancel**。选 "Update it" 即是确认：以相同能力部署新版本，并保留对话、文件、owner access key 与 DeepSeek key。安装器不会替你改名，也不会再次询问 secret。
+- **已存在的名称就是更新。** 安装器从 Worker 的 binding 读出它当前能做什么，提供 **Update it**（默认）、**Update and change what it can do**、**Update and reset the access key**、**Use another name** 和 **Cancel**。选 "Update it" 即是确认：以相同能力部署新版本，并保留对话、文件、owner access key 与 DeepSeek key。安装器不会替你改名，也不会再次询问 secret。
 - **新名称会询问 agent 要做什么。** 选项逐级包含，价格放在第二位：
   - `Research and write`（direct 模式，默认）：联网搜索、读网页、写文档，并通过 MCP 连接你的工具。可在 Workers Free 上运行。
   - `+ Analyze data and split big jobs`（isolated 模式）：增加 `workflow`，把任务交给并行子 agent；在以 PTC 模式 agent 预设开始的会话中增加 `run_code`，用脚本处理你的数据（与上游一样，该预设不提供 `workflow`）。需要 Workers Paid（每月 5 美元起）。
@@ -289,17 +289,17 @@ npx dsh-edge upgrade
 ### 默认值
 
 - **图片** 存入实例的 Durable Object（64 MiB），因此新安装无需配置 R2。每个部署都会记录 attachment-storage marker，更新时保留 marker 或 binding 指定的 backend。已使用私有 R2 的 Worker 会继续使用 R2；如果 R2 不再启用（Cloudflare 错误 `10042`），安装器提供账户专属的启用链接、重试或取消，绝不切换到会让图片引用失联的 backend。图片功能之前的 Worker 没有可失联的引用，会改用 Durable Object 默认值。Active rollout 混用 backend 时会拒绝猜测。
-- **Owner access key** 在新实例上自动生成，并在安装完成时显示。如需自定义，请在安装器环境中设置 `DSH_EDGE_ACCESS_KEY`（32–512 个 UTF-8 字节）；它不会进入 shell 历史或进程列表。更新会保留现有 key。
+- **Owner access key** 在新实例上自动生成，并在安装完成时显示。如需自定义，请在安装器环境中设置 `DSH_EDGE_ACCESS_KEY`（32–512 个 UTF-8 字节）；它不会进入 shell 历史或进程列表。普通更新会保留现有 key。Cloudflare 无法再次显示已存的 key，所以丢失时请按部署所在的发布渠道运行升级命令，并选择 **Update and reset the access key**：稳定版运行 `npx dsh-edge upgrade`；已安装版本包含 `-alpha` 或 `-rc` 时运行 `npx dsh-edge@next upgrade`（登录页会显示适用于该部署的命令）。安装器会用新 key（自动生成，或取自 `DSH_EDGE_ACCESS_KEY`）部署该版本，并只显示一次。对话、文件与 DeepSeek key 均保留；旧 key 随即失效，所有已登录的浏览器都需要用新 key 重新登录。
 - **DeepSeek API key** 在安装完成后于 Settings → Models 中添加。安装器不会询问它。
 - **图片优化**（Cloudflare Images binding）对你自己的账户开启，对临时账户关闭。
 
 ### Credential 交接与激活
 
-- 新实例的 owner key 通过权限模式为 `0600` 的临时 secret 文件传递，命令结束后删除该文件。更新不传 secret 文件，Cloudflare 会保留 Worker 现有的 secret。Wrangler 只收到 allowlist 内的 runtime 环境与当前选中的 Cloudflare authentication；其他 ambient secret 与 Node 注入选项不会进入子进程。
+- 新实例的 owner key，或重置 key 的更新所生成的新 key，通过权限模式为 `0600` 的临时 secret 文件传递，命令结束后删除该文件。Wrangler 以增量方式应用该文件，Worker 的其他 secret 保持不变。普通更新不传 secret 文件，Cloudflare 会保留 Worker 现有的 secret。Wrangler 只收到 allowlist 内的 runtime 环境与当前选中的 Cloudflare authentication；其他 ambient secret 与 Node 注入选项不会进入子进程。
 - 部署 URL 来自 Wrangler 的结构化输出。添加 `--verbose` 可查看完整部署诊断。
-- 上传后，安装器会在不携带 credential、不跟随重定向的前提下，最多观察公开 `/api/health` 45 秒。只有精确 package 版本与能力才算数；propagation、challenge、占位页、传输错误与旧 release response 均保持 pending。随后新实例会用新 key 登录并检查 `/api/ready`。更新不知道被保留的 key，因此会把已验证的版本报告为 live，并请你登录确认。
+- 上传后，安装器会在不携带 credential、不跟随重定向的前提下，最多观察公开 `/api/health` 45 秒。只有精确 package 版本与能力才算数；propagation、challenge、占位页、传输错误与旧 release response 均保持 pending。随后新实例或重置 key 的更新会用新 key 登录并检查 `/api/ready`。普通更新不知道被保留的 key，因此会把已验证的版本报告为 live，并请你登录确认。
 - 观察到期仍以成功退出，并请 owner 稍后刷新。该观察不调用 DeepSeek，也不触碰 Durable Object 状态。
-- 最终卡片输出 URL、新的 owner key（更新后显示 "unchanged"）与下一步，然后询问是否在浏览器中打开该 URL（默认 Yes，仅限交互式终端）。临时账户还会收到必须在 60 分钟内认领的 bearer claim URL。
+- 最终卡片输出 URL、新的 owner key（普通更新后显示 "unchanged"）与下一步，然后询问是否在浏览器中打开该 URL（默认 Yes，仅限交互式终端）。临时账户还会收到必须在 60 分钟内认领的 bearer claim URL。
 - 上传被拒绝时会明确报告未安装。Wrangler 如果已创建临时账户，仍显示其 claim URL，但不把未使用的 owner key 显示为 active。付费能力被 Cloudflare 拒绝时，会建议启用 Workers Paid 或改选 `Research and write`。
 - 上传成功但交接失败时，恢复卡片会在命令按失败退出前输出已生效 owner key 与所有已知 URL。
 - 安装直接通过 Wrangler 上传；不会创建或绑定 GitHub 仓库、Cloudflare Builds 项目或源码构建流水线。

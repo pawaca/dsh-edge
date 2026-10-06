@@ -2,6 +2,7 @@ import {
   EdgeHttpError,
   readBoundedText,
 } from './http.ts'
+import { DSH_EDGE_UPGRADE_COMMAND } from './release.ts'
 
 const LOCAL_COOKIE_NAME = 'dsh_edge_owner'
 const SECURE_COOKIE_NAME = '__Host-dsh_edge_owner'
@@ -308,6 +309,7 @@ function loginPage(error?: string): string {
       <input id="access-key" name="accessKey" type="password" autocomplete="current-password" required autofocus>
       <button type="submit">Unlock</button>
     </form>
+    <p class="hint">Lost the key? Run <code>${DSH_EDGE_UPGRADE_COMMAND}</code> and choose <strong>Update and reset the access key</strong>. Conversations and files are kept.</p>
   </main>
 </body>
 </html>`
@@ -349,5 +351,7 @@ function pageStyles(): string {
     button, .button { display: inline-block; box-sizing: border-box; margin-top: 1rem; padding: .75rem 1rem; border: 0; border-radius: .6rem; background: #5a87ff; color: #071022; font: inherit; font-weight: 750; text-decoration: none; cursor: pointer; }
     .secondary { background: #29314b; color: #edf2ff; }
     .error { padding: .75rem; border-radius: .5rem; background: #461d2b; color: #ffd6df; }
+    .hint { margin: 1.5rem 0 0; font-size: .875rem; }
+    code { padding: .1rem .3rem; border-radius: .3rem; background: #0c1222; color: #edf2ff; }
   `
 }

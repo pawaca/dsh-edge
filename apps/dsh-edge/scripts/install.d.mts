@@ -23,13 +23,16 @@ export interface InstallerUi {
   step(message: string): void
   selectAccount(choices: Array<{ value: string; label: string; hint?: string }>): Promise<string>
   workerName(initialValue: string, validate: (value: string) => string | undefined): Promise<string>
-  /** The Worker name already exists; `update` keeps everything and is the confirmation. */
+  /**
+   * The Worker name already exists; `update` keeps everything and is the
+   * confirmation. `reset-key` updates and replaces the owner access key.
+   */
   existingWorker(existing: {
     workerName: string
     mode: RuntimeMode
     /** The running release predates the 0.19 session format; updating migrates stored sessions. */
     sessionFormatUpgrade: boolean
-  }): Promise<'update' | 'change' | 'rename' | 'cancel'>
+  }): Promise<'update' | 'change' | 'reset-key' | 'rename' | 'cancel'>
   /** The Worker name belongs to something other than dsh-edge; it is never updated. */
   nameTaken(workerName: string): Promise<'rename' | 'cancel'>
   /** Choose what the agent can do; `current` marks an existing instance's capabilities. */
@@ -43,6 +46,8 @@ export interface InstallerUi {
     workerName: string
     temporary: boolean
     updating: boolean
+    /** An update that replaces the owner access key with a new one. */
+    resetAccessKey: boolean
     attachmentStorage: AttachmentStorage
   }): Promise<boolean>
   deploymentStart?(message: string): void

@@ -86,6 +86,9 @@ describe('dsh-edge CLI', () => {
 
     expect(result.status).toBe(0)
     expect(`${result.stdout}${result.stderr}`).toContain('Usage: dsh-edge <install|upgrade>')
+    // A lost key is recovered through upgrade, with an optional supplied key.
+    expect(result.stdout).toContain('(choose "Update and reset the access key" if you lost it)')
+    expect(result.stdout).toContain('DSH_EDGE_ACCESS_KEY  Owner access key for a new instance or an access-key reset')
   })
 
   it('renders a product hero only when the terminal has room for it', () => {
@@ -185,7 +188,8 @@ describe('dsh-edge CLI', () => {
       initialValue: 'update',
     }))
     expect(select.mock.calls[0]?.[0].options.map(option => option.value))
-      .toEqual(['update', 'change', 'rename', 'cancel'])
+      .toEqual(['update', 'change', 'reset-key', 'rename', 'cancel'])
+    expect(select.mock.calls[0]?.[0].options[2]).toMatchObject({ label: 'Update and reset the access key' })
   })
 
   it('asks what the agent should do, marking an existing instance\'s capabilities', async () => {
@@ -227,6 +231,7 @@ describe('dsh-edge CLI', () => {
       workerName: 'dsh-edge',
       temporary: true,
       updating: false,
+      resetAccessKey: false,
       attachmentStorage: 'temporary-do',
     })
     expect(note).toHaveBeenLastCalledWith(expect.stringMatching(/^Cost: +free on Workers Free$/mu), 'Install dsh-edge')
@@ -243,11 +248,26 @@ describe('dsh-edge CLI', () => {
       workerName: 'dsh-edge',
       temporary: false,
       updating: true,
+      resetAccessKey: false,
       attachmentStorage: 'private-r2',
     })
     expect(note.mock.lastCall?.[0]).toContain('Workers Paid on this account')
     expect(note.mock.lastCall?.[0]).toMatch(/^Kept: +conversations, files, access key, and DeepSeek key$/mu)
     expect(note.mock.lastCall?.[0]).not.toContain('terms')
+    expect(confirm).toHaveBeenLastCalledWith(expect.objectContaining({ message: 'Update this instance?' }))
+
+    await ui.confirm({
+      mode: 'direct',
+      accountLabel: 'Personal',
+      workerName: 'dsh-edge',
+      temporary: false,
+      updating: true,
+      resetAccessKey: true,
+      attachmentStorage: 'temporary-do',
+    })
+    expect(note.mock.lastCall?.[0]).toMatch(/^Kept: +conversations, files, and DeepSeek key$/mu)
+    expect(note.mock.lastCall?.[0]).toMatch(/^Owner key: +replaced; the new key is shown when the update finishes$/mu)
+    expect(note.mock.lastCall?.[0]).toContain('every signed-in browser must sign in again')
     expect(confirm).toHaveBeenLastCalledWith(expect.objectContaining({ message: 'Update this instance?' }))
   })
 
@@ -774,6 +794,29 @@ describe('dsh-edge CLI', () => {
     )
     expect(note.mock.lastCall?.[0]).not.toContain('DeepSeek')
     expect(outro).toHaveBeenCalledWith('Your dsh-edge update is live.')
+  })
+
+  it('hands over an update that reset the access key, showing the new key once', async () => {
+    const ownerSecret = 'owner-access-key-with-at-least-32-bytes'
+    const note = vi.fn()
+    const clack = { ...prompt, confirm: vi.fn().mockResolvedValue(false), note, outro: vi.fn() } as unknown as typeof prompt
+
+    await createInstallerUi(clack).success({
+      activation: { attempts: 1, elapsedMs: 0, status: 'ready' },
+      attachmentStorage: 'temporary-do',
+      ownerSecret,
+      publicUrl: 'https://dsh-edge.example.workers.dev',
+      mode: 'isolated',
+      temporary: false,
+      updated: true,
+      workerName: 'dsh-edge',
+    })
+
+    expect(note).toHaveBeenCalledWith(expect.stringContaining(`Owner access key: ${ownerSecret}`),
+      'dsh-edge update is live')
+    expect(note.mock.lastCall?.[0]).toContain(
+      '1. Open the URL above.\n2. Enter the new owner access key when prompted.\n3. Save the owner access key; you need it to sign in.',
+    )
   })
 
   it('puts account claim before opening a temporary deployment', async () => {
