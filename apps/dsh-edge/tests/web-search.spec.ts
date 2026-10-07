@@ -5,7 +5,8 @@ import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { HttpFetchProvider } from '@deepseek-ai/dsh-web-fetch-http'
 import { describe, expect, it, vi } from 'vitest'
 import EdgeCredentialProvider from '../src/edge-credentials.ts'
-import { EdgeSettings } from '../src/edge-settings.ts'
+import { EdgeSettings, edgeSettings } from '../src/edge-settings.ts'
+import { WEB_SEARCH_SETTINGS_NAMESPACE } from '../src/edge-plugin-settings.ts'
 import { installEdgeWebSearch } from '../src/web-search.ts'
 
 describe('dsh-edge Web Search composition', () => {
@@ -51,6 +52,41 @@ describe('dsh-edge Web Search composition', () => {
     } finally {
       await ctx.fiber.dispose()
       vi.restoreAllMocks()
+    }
+  })
+
+  it('applies a search endpoint saved on the settings card in the form the deployment variable takes', async () => {
+    const urls: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      urls.push(String(input instanceof Request ? input.url : input))
+      return new Response('{}', { status: 500 })
+    }))
+    const ctx = new Context()
+    try {
+      const storage = { get: () => Promise.resolve(undefined), put: () => Promise.resolve(), delete: () => Promise.resolve(true) } as unknown as DurableObjectStorage
+      await ctx.plugin(EdgeCredentialProvider, { storage, readDeepSeekApiKey: () => 'search-key' })
+      await ctx.plugin(EdgeSettings, { storage })
+      await ctx.plugin(SystemPrompt)
+      await ctx.plugin(ToolRuntime)
+      await installEdgeWebSearch(ctx, 'https://search.test/anthropic/v1')
+      const search = () => ctx.tools.execute({
+        signal: new AbortController().signal,
+        callId: CallId(`search-${String(urls.length)}`),
+        name: 'web_search',
+        arguments: { queries: ['edge'] },
+      })
+      await search()
+      await expect(edgeSettings(ctx).update(WEB_SEARCH_SETTINGS_NAMESPACE, { baseURL: 'https://user:secret@other.test/v1' }))
+        .rejects.toThrow(/without credentials/u)
+      await edgeSettings(ctx).update(WEB_SEARCH_SETTINGS_NAMESPACE, { baseURL: 'https://other.test/anthropic/v1/' })
+      await new Promise(resolve => setTimeout(resolve, 0))
+      await search()
+      expect(urls).toHaveLength(2)
+      expect(urls[0]).toMatch(/^https:\/\/search\.test\/anthropic\/v1\//u)
+      expect(urls[1]).toBe(urls[0]!.replace('search.test', 'other.test'))
+    } finally {
+      await ctx.fiber.dispose()
+      vi.unstubAllGlobals()
     }
   })
 

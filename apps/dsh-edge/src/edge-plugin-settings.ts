@@ -49,14 +49,21 @@ export async function mountAgentLoop(ctx: Context): Promise<Fiber> {
 export async function mountDeepSeekWebSearch(
   ctx: Context,
   baseURL: string,
+  /** Throws on an endpoint the deployment variable would refuse; returns it without a trailing slash. */
   validateBaseURL: (value: string) => string,
 ): Promise<Fiber> {
   const scope = edgeSettings(ctx).register(WEB_SEARCH_SETTINGS_NAMESPACE, DeepSeekWebSearch.Config, {
     base: { baseURL } as never,
     validate: value => { validateBaseURL((value as { baseURL: string }).baseURL) },
   })
-  const fiber = ctx.plugin(DeepSeekWebSearch, scope.get() as never)
+  // The provider gets the endpoint in the form the deployment variable takes
+  // (no trailing slash), whatever spelling the card saved.
+  const input = (settings: unknown) => {
+    const value = settings as { baseURL: string }
+    return { ...value, baseURL: validateBaseURL(value.baseURL) }
+  }
+  const fiber = ctx.plugin(DeepSeekWebSearch, input(scope.get()) as never)
   await fiber.await()
-  scope.watch(next => { commitVolatile(fiber, DeepSeekWebSearch.Config(next as never)) })
+  scope.watch(next => { commitVolatile(fiber, DeepSeekWebSearch.Config(input(next) as never)) })
   return fiber
 }
