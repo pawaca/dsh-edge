@@ -56,6 +56,32 @@ describe('EdgeSettings', () => {
     expect(storage.store.get(SETTINGS_DOCUMENT_KEY)).toEqual({ other: { kept: true } })
   })
 
+  it('keeps registering and serving defaults when storage refuses to drop an invalid section', async () => {
+    const schema = z.object({ endpoint: z.string().default('https://default.test') })
+    const validate = (value: { endpoint: string }) => {
+      if (value.endpoint.includes('?')) throw new Error('endpoint must not carry a query')
+    }
+    const storage = createMockStorage()
+    storage.store.set(SETTINGS_DOCUMENT_KEY, { search: { endpoint: 'https://old.test/?key=1' } })
+    const ctx = new Context()
+    await ctx.plugin(EdgeSettings, { storage })
+    const unhandled: unknown[] = []
+    const onUnhandled = (reason: unknown) => { unhandled.push(reason) }
+    process.on('unhandledRejection', onUnhandled)
+    try {
+      ;(storage as unknown as { put: () => Promise<void> }).put = () => Promise.reject(new Error('storage unavailable'))
+      const scope = edgeSettings(ctx).register('search', schema, { validate, discardInvalidSection: true })
+      expect(scope.get()).toEqual({ endpoint: 'https://default.test' })
+      await new Promise(resolve => setTimeout(resolve, 10))
+      expect(unhandled).toEqual([])
+      // Storage still holds the stale section, which the next start discards again.
+      expect(storage.store.get(SETTINGS_DOCUMENT_KEY)).toEqual({ search: { endpoint: 'https://old.test/?key=1' } })
+    } finally {
+      process.off('unhandledRejection', onUnhandled)
+      await ctx.fiber.dispose()
+    }
+  })
+
   it('loads empty state from fresh storage', async () => {
     const ctx = new Context()
     const storage = createMockStorage()

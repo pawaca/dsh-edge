@@ -259,13 +259,20 @@ export class EdgeSettings extends Service {
     }
   }
 
-  /** Remove one namespace's stored section, queued behind any pending write. */
+  /**
+   * Remove one namespace's stored section, queued behind any pending write.
+   * The section is ignored in memory either way; if storage refuses the
+   * removal, the warning says so and the next start discards it again.
+   */
   private discardSection(ns: SettingsNamespace): void {
     const { [ns]: _discarded, ...document } = this.document
     this.document = document
     const run = this.writes.catch(() => undefined).then(async () => {
       const { [ns]: _stale, ...current } = this.document
       await this.config.storage.put(SETTINGS_DOCUMENT_KEY, current)
+    }).catch((error: unknown) => {
+      this.ctx.logger.warn('settings: could not remove the stored "%s" section; it stays ignored and is removed again on the next start', ns)
+      this.ctx.logger.warn(error)
     })
     this.writes = run
     this.pending.add(run)
