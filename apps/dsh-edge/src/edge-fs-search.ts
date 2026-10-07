@@ -1,0 +1,371 @@
+/**
+ * Upstream's `glob` and `grep` tools over the workspace VFS.
+ *
+ * `@deepseek-ai/dsh-tool-fs-search` runs the packaged ripgrep binary through
+ * `ctx.subprocess`, which Workers cannot provide. This plugin registers the
+ * same tool names, parameter and output schemas, result rendering, search-card
+ * metadata, and formatted-result spill, and replaces only the ripgrep run:
+ *
+ * - files come from the workspace's own tree walk, skipping VCS metadata as
+ *   upstream's argv does, and, for `grep`, hidden entries as ripgrep's
+ *   defaults do; `.gitignore` files are not applied;
+ * - globs use minimatch with ripgrep's rule that a pattern with no `/`
+ *   matches the basename at any depth;
+ * - `grep` patterns compile with re2js, the linear-time RE2 engine just-bash
+ *   already ships, so a pathological pattern cannot stall the Durable Object.
+ *
+ * Helpers upstream exports are imported; the few it does not (match retention,
+ * search-card metadata, the direct-call check) are copied from its 0.2.0-rc.2
+ * `lib/index.js` and marked below.
+ */
+import type { Context } from '@deepseek-ai/cordis'
+import { ItemRetainer, type RetainedItems } from '@deepseek-ai/dsh-output-retention'
+import {
+  GLOB_MAX_RESULTS,
+  GLOB_VCS_EXCLUDES,
+  GREP_MAX_LINE_BYTES,
+  GREP_MAX_MATCHES,
+  SEARCH_META_MAX_BYTES,
+  SEARCH_TIMEOUT_MS,
+  SearchError,
+  formatGrepMatches,
+  formatGrepOutput,
+  parseGlobArgs,
+  parseGrepArgs,
+  presentGlobCall,
+  presentGlobResult,
+  presentGrepCall,
+  presentGrepResult,
+  previewLine,
+  toWorkdirRelative,
+  trySaveFormattedResult,
+  type GrepMatch,
+} from '@deepseek-ai/dsh-tool-fs-search'
+import { defineTool, type ToolDefinition, type ToolExecution } from '@deepseek-ai/dsh-tools'
+import { minimatch } from 'minimatch'
+import { RE2JS } from 're2js'
+import type { EdgeFileSystem, EdgeVfs } from './edge-filesystem.ts'
+
+export const name = 'edge-fs-search'
+export const inject = ['tools', 'systemPrompt', 'fs']
+
+/**
+ * Entries one search may walk (files and directories). The walk reads the
+ * VFS's SQLite tables synchronously, so the cap bounds how long a search over
+ * a huge tree holds the Durable Object.
+ */
+export const SEARCH_MAX_ENTRIES = 20_000
+/** Matches one `grep` may collect; upstream's equivalent is its 20 MB raw-output cap. */
+export const GREP_MAX_COLLECTED_MATCHES = 20_000
+/** Files larger than this are skipped by `grep`, like a binary file. */
+export const GREP_MAX_FILE_BYTES = 4 * 1024 * 1024
+
+const VCS_EXCLUDE_GLOBS = GLOB_VCS_EXCLUDES.map(entry => `**/${entry}`)
+const HIDDEN_EXCLUDE_GLOB = '**/.*'
+
+interface SearchScope {
+  readonly vfs: EdgeVfs
+  readonly workdir: string
+  readonly root: string
+}
+
+export function apply(ctx: Context): void {
+  applyGlobTool(ctx)
+  applyGrepTool(ctx)
+}
+
+function applyGlobTool(ctx: Context): void {
+  // Upstream's section text, verbatim.
+  ctx.systemPrompt.section({
+    name: 'tool:glob',
+    order: ctx.systemPrompt.getSectionOrder('TOOL_GLOB'),
+    text: ({ scope }) => ctx.tools.get('glob', scope) === undefined
+      ? ''
+      : 'Use the glob tool — not shell find — to discover files by path pattern.',
+  })
+  const tool: ToolDefinition = defineTool({
+    name: 'glob',
+    description: `Find files, not directories, whose paths match a glob pattern, including hidden and ignored files. Returns up to ${String(GLOB_MAX_RESULTS)} paths in modification-time order; a larger result keeps the first paths and reports where the complete list was saved.`,
+    parameters: {
+      pattern: {
+        type: 'string',
+        required: true,
+        description: 'Glob pattern to match file paths against (e.g. "**/*.ts", "src/**/*.test.js"). A pattern with no "/" matches the basename at any depth, so "*" and "*.ts" both search the whole tree; include a separator to anchor the depth.',
+      },
+      path: {
+        type: 'string',
+        description: 'Directory to search in. Defaults to the session workspace; a relative path resolves against it.',
+      },
+    },
+    timeoutMs: SEARCH_TIMEOUT_MS,
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          root: { type: 'string', required: true },
+          paths: { type: 'array', required: true, items: { type: 'string' } },
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: renderGlobPaths(value.paths) }],
+      presentationMeta: (_args, value) => globSearchMeta({
+        items: value.paths.slice(0, GLOB_MAX_RESULTS),
+        truncated: value.paths.length > GLOB_MAX_RESULTS,
+        seen: value.paths.length,
+      }, SEARCH_META_MAX_BYTES),
+    },
+    async execute(args, exec) {
+      const input = parseGlobArgs(args)
+      const scope = await searchScope(ctx, exec, input.path)
+      const root = input.path === undefined ? '.' : toWorkdirRelative(input.path, scope.workdir)
+      const files = await listFiles(scope, 'glob', VCS_EXCLUDE_GLOBS)
+      const matched = files.filter(path => globMatches(input.pattern, relativeTo(path, scope.root)))
+      // ripgrep's --sort=modified: oldest first, the path breaking ties.
+      const dated = await Promise.all(matched.map(async path => ({ path, mtime: (await scope.vfs.stat(path)).mtime })))
+      dated.sort((left, right) => left.mtime - right.mtime || (left.path < right.path ? -1 : left.path > right.path ? 1 : 0))
+      return { root, paths: dated.map(entry => toWorkdirRelative(entry.path, scope.workdir)) }
+    },
+    presentCall: presentGlobCall,
+    presentResult: presentGlobResult,
+  })
+  ctx.tools.register(tool)
+  ctx.on('tools/post-execute', async (exec, result, next) => {
+    const decision = await next()
+    const value = acceptedDirectCallValue(ctx, tool, exec, result, decision) as { root: string; paths: string[] } | undefined
+    if (value === undefined) return decision
+    const paths = value.paths
+    if (paths.length <= GLOB_MAX_RESULTS) return decision
+    const spillRef = await trySaveFormattedResult(ctx, exec, 'glob-results.txt', paths.join('\n'))
+    return {
+      kind: 'accept',
+      content: [{ type: 'text', text: renderGlobPaths(paths, spillRef) }],
+      ...decision.additionalContexts === undefined ? {} : { additionalContexts: decision.additionalContexts },
+    }
+  })
+}
+
+function applyGrepTool(ctx: Context): void {
+  // Upstream's section text, verbatim.
+  ctx.systemPrompt.section({
+    name: 'tool:grep',
+    order: ctx.systemPrompt.getSectionOrder('TOOL_GREP'),
+    text: ({ scope }) => ctx.tools.get('grep', scope) === undefined
+      ? ''
+      : 'Use the grep tool — not shell grep or rg — to search file contents.'
+        + (ctx.tools.get('read', scope) === undefined ? '' : ' Use read on a matched file when you need surrounding context.'),
+  })
+  const tool: ToolDefinition = defineTool({
+    name: 'grep',
+    description: `Search file contents with an RE2 regular expression (ripgrep's syntax, without lookaround or backreferences). Returns matching lines with line numbers, grouped by file. Skips hidden and binary files. Returns up to ${String(GREP_MAX_MATCHES)} matches; a larger result reports where the complete match list was saved.`,
+    parameters: {
+      pattern: {
+        type: 'string',
+        required: true,
+        description: 'Regular expression to search for (RE2 syntax).',
+      },
+      path: {
+        type: 'string',
+        description: 'File or directory to search. Defaults to the session workspace; a relative path resolves against it.',
+      },
+      include: {
+        type: 'string',
+        description: 'One glob filter for which files to search (e.g. "*.ts", "*.{js,jsx}"). Not a list; negation is not supported.',
+      },
+    },
+    timeoutMs: SEARCH_TIMEOUT_MS,
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          matches: {
+            type: 'array',
+            required: true,
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                path: { type: 'string', required: true },
+                lineNumber: { type: 'integer', required: true },
+                line: { type: 'string', required: true },
+              },
+            },
+          },
+        },
+      },
+      render: (_args, value) => [{
+        type: 'text',
+        text: formatRetainedGrep(retainGrepMatches(value.matches)),
+      }],
+      presentationMeta: (_args, value) => grepSearchMeta(retainGrepMatches(value.matches), SEARCH_META_MAX_BYTES),
+    },
+    async execute(args, exec) {
+      const input = parseGrepArgs(args)
+      let regex: RE2JS
+      try {
+        regex = RE2JS.compile(input.pattern)
+      } catch (error) {
+        throw new SearchError(`grep pattern rejected: ${error instanceof Error ? error.message : String(error)}`, 'SEARCH_INVALID_PATTERN')
+      }
+      const scope = await searchScope(ctx, exec, input.path)
+      const files = await listFiles(scope, 'grep', [...VCS_EXCLUDE_GLOBS, HIDDEN_EXCLUDE_GLOB])
+      const matches: GrepMatch[] = []
+      for (const path of files) {
+        if (exec.signal.aborted) throw new SearchError('grep aborted', 'SEARCH_ABORTED', { cause: exec.signal.reason })
+        if (input.include !== undefined && path !== scope.root && !globMatches(input.include, relativeTo(path, scope.root))) continue
+        if ((await scope.vfs.stat(path)).size > GREP_MAX_FILE_BYTES) continue
+        const text = await scope.vfs.readFile(path, 'utf8')
+        if (text.includes('\u0000')) continue
+        const display = toWorkdirRelative(path, scope.workdir)
+        const lines = text.split('\n')
+        if (lines.at(-1) === '') lines.pop()
+        for (const [index, raw] of lines.entries()) {
+          const line = raw.endsWith('\r') ? raw.slice(0, -1) : raw
+          if (!regex.test(line)) continue
+          if (matches.length >= GREP_MAX_COLLECTED_MATCHES) {
+            throw new SearchError(`grep matched more than ${String(GREP_MAX_COLLECTED_MATCHES)} lines; narrow pattern, path, or include`, 'SEARCH_RAW_OUTPUT_OVERFLOW')
+          }
+          matches.push({ path: display, lineNumber: index + 1, line })
+        }
+      }
+      return { matches }
+    },
+    presentCall: presentGrepCall,
+    presentResult: presentGrepResult,
+  })
+  ctx.tools.register(tool)
+  ctx.on('tools/post-execute', async (exec, result, next) => {
+    const decision = await next()
+    const value = acceptedDirectCallValue(ctx, tool, exec, result, decision) as { matches: GrepMatch[] } | undefined
+    if (value === undefined) return decision
+    const matches = value.matches
+    if (matches.length <= GREP_MAX_MATCHES) return decision
+    const previewedAll = matches.map(match => ({ ...match, line: previewLine(match.line, GREP_MAX_LINE_BYTES) }))
+    const spillRef = await trySaveFormattedResult(ctx, exec, 'grep-results.txt',
+      `Found ${String(matches.length)} ${matchNoun(matches.length)}\n\n${formatGrepMatches(previewedAll)}`)
+    return {
+      kind: 'accept',
+      content: [{ type: 'text', text: formatRetainedGrep(retainGrepMatches(matches), spillRef) }],
+      ...decision.additionalContexts === undefined ? {} : { additionalContexts: decision.additionalContexts },
+    }
+  })
+}
+
+/** Resolve the search root against the session's working directory. */
+async function searchScope(ctx: Context, exec: ToolExecution, path: string | undefined): Promise<SearchScope> {
+  const fs = ctx.fs as unknown as EdgeFileSystem
+  const { vfs, cwd } = fs.searchScope()
+  const workdir = exec.agent?.session.header.cwd ?? cwd
+  const target = await fs.resolve(path ?? workdir, { cwd: workdir, signal: exec.signal })
+  return { vfs, workdir, root: String(target.targetKey) }
+}
+
+/**
+ * Every file under the search root (or the root itself when it is a file),
+ * skipping excluded entries and everything below an excluded directory.
+ */
+async function listFiles(scope: SearchScope, toolName: string, exclude: readonly string[]): Promise<string[]> {
+  let info
+  try {
+    info = await scope.vfs.stat(scope.root)
+  } catch (error) {
+    throw new SearchError(`${toolName} path not found: ${scope.root}`, 'SEARCH_FAILED', { cause: error })
+  }
+  if (!info.isDirectory) return [scope.root]
+  if (scope.vfs.find === undefined) throw new SearchError(`${toolName} cannot walk this filesystem`, 'SEARCH_FAILED')
+  const entries = await scope.vfs.find(scope.root, undefined, { exclude: [...exclude], limit: SEARCH_MAX_ENTRIES + 1 })
+  if (entries.length > SEARCH_MAX_ENTRIES) {
+    throw new SearchError(`${toolName} would walk more than ${String(SEARCH_MAX_ENTRIES)} entries under ${scope.root}; narrow path`, 'SEARCH_RAW_OUTPUT_OVERFLOW')
+  }
+  return entries.filter(entry => entry.type === 'file').map(entry => entry.path)
+}
+
+function relativeTo(path: string, root: string): string {
+  if (path === root) return path.slice(path.lastIndexOf('/') + 1)
+  return path.startsWith(`${root}/`) ? path.slice(root.length + 1) : root === '/' ? path.slice(1) : path
+}
+
+/** ripgrep glob rules: hidden names match, and a pattern with no `/` matches the basename at any depth. */
+function globMatches(pattern: string, relativePath: string): boolean {
+  return minimatch(relativePath, pattern, { dot: true, matchBase: !pattern.includes('/') })
+}
+
+function renderGlobPaths(paths: readonly string[], spillRef?: { locator: string; retrievalHint: string }): string {
+  if (paths.length === 0) return 'No files found'
+  if (paths.length <= GLOB_MAX_RESULTS) return paths.join('\n')
+  // Copied from upstream formatGlobPage (not exported); upstream's composition
+  // sets sampleOverCapGlobResults: false, so the page keeps the oldest paths.
+  const recovery = spillRef === undefined
+    ? 'The complete result could not be saved; narrow pattern or path to see more.'
+    : `Full sorted result stored at: ${spillRef.locator}. ${spillRef.retrievalHint}`
+  return `${paths.slice(0, GLOB_MAX_RESULTS).join('\n')}\n\n(Showing ${String(GLOB_MAX_RESULTS)} of ${String(paths.length)} paths. ${recovery})`
+}
+
+// ---- Copied from @deepseek-ai/dsh-tool-fs-search 0.2.0-rc.2 (not exported) ----
+
+function retainGrepMatches(matches: readonly GrepMatch[]): RetainedItems<GrepMatch> {
+  const retainer = new ItemRetainer<GrepMatch>({ kind: 'head', maxItems: GREP_MAX_MATCHES })
+  for (const match of matches) retainer.push({ ...match, line: previewLine(match.line, GREP_MAX_LINE_BYTES) })
+  return retainer.finish()
+}
+
+function matchNoun(count: number): string {
+  return count === 1 ? 'match' : 'matches'
+}
+
+function formatRetainedGrep(retained: RetainedItems<GrepMatch>, spillRef?: Parameters<typeof formatGrepOutput>[1]): string {
+  if (retained.seen === 0) return 'No matches found'
+  return formatGrepOutput(retained, spillRef)
+}
+
+type SearchMeta =
+  | { shape: 'matches'; files: Array<{ path: string; matches: Array<{ lineNumber: number; line: string }> }>; truncated: boolean; total: number }
+  | { shape: 'paths'; paths: string[]; truncated: boolean; total: number }
+
+function groupMatchesByFile(matches: readonly GrepMatch[]): Array<{ path: string; matches: Array<{ lineNumber: number; line: string }> }> {
+  const byFile = new Map<string, Array<{ lineNumber: number; line: string }>>()
+  for (const match of matches) {
+    const entry = { lineNumber: match.lineNumber, line: match.line }
+    const group = byFile.get(match.path)
+    if (group === undefined) byFile.set(match.path, [entry])
+    else group.push(entry)
+  }
+  return Array.from(byFile, ([path, fileMatches]) => ({ path, matches: fileMatches }))
+}
+
+function metaBytes(meta: SearchMeta): number {
+  return new TextEncoder().encode(JSON.stringify(meta)).byteLength
+}
+
+function capMetaBytes(meta: SearchMeta, maxMetaBytes: number): SearchMeta {
+  if (metaBytes(meta) <= maxMetaBytes) return meta
+  if (meta.shape === 'matches') {
+    const files = [...meta.files]
+    while (files.length > 1 && metaBytes({ ...meta, files, truncated: true }) > maxMetaBytes) files.pop()
+    return { ...meta, files, truncated: true }
+  }
+  const paths = [...meta.paths]
+  while (paths.length > 1 && metaBytes({ ...meta, paths, truncated: true }) > maxMetaBytes) paths.pop()
+  return { ...meta, paths, truncated: true }
+}
+
+function grepSearchMeta(retained: RetainedItems<GrepMatch>, maxMetaBytes: number): SearchMeta {
+  return capMetaBytes({ shape: 'matches', files: groupMatchesByFile(retained.items), truncated: retained.truncated, total: retained.seen }, maxMetaBytes)
+}
+
+function globSearchMeta(retained: { items: string[]; truncated: boolean; seen: number }, maxMetaBytes: number): SearchMeta {
+  return capMetaBytes({ shape: 'paths', paths: retained.items, truncated: retained.truncated, total: retained.seen }, maxMetaBytes)
+}
+
+function acceptedDirectCallValue(
+  ctx: Context,
+  tool: ToolDefinition,
+  exec: ToolExecution,
+  result: { isError?: boolean; value?: unknown },
+  decision: { kind: string; content?: unknown },
+): unknown {
+  if (decision.kind !== 'accept' || decision.content !== undefined || Object.hasOwn(decision, 'value')
+    || exec.parent !== undefined || exec.name !== tool.name || result.isError === true
+    || ctx.tools.get(exec.name, exec.agent) !== tool) return undefined
+  return result.value
+}

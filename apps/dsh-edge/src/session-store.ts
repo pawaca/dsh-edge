@@ -112,6 +112,7 @@ import {
   type EdgeAttachmentStorage,
 } from './edge-attachment-store.ts'
 import { EdgeVfsSpillStore } from './edge-spill-store.ts'
+import * as EdgeFsSearch from './edge-fs-search.ts'
 import {
   type SettingsDescriptor,
   type SettingsPathOp,
@@ -647,6 +648,9 @@ export class EdgeSessionStore {
       this.context.systemPrompt.section({ name: 'mcp-servers', order: 50, text: mcpSummary })
     }
     await this.context.plugin(ToolFs)
+    // Upstream's glob and grep, run over the workspace VFS: Workers cannot
+    // spawn the ripgrep binary dsh-tool-fs-search needs.
+    await this.context.plugin(EdgeFsSearch)
     await this.context.plugin(ToolSkill)
     await this.context.plugin(GoalService)
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment

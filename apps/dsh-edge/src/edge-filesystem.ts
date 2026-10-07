@@ -19,7 +19,7 @@ import type {
   FsWriteOutcome,
 } from '@deepseek-ai/dsh-fs'
 
-interface EdgeVfs {
+export interface EdgeVfs {
   readFile(path: string, encoding: 'utf8'): Promise<string>
   readFile(path: string): Promise<ReadableStream<Uint8Array>>
   writeFile(path: string, content: string | Uint8Array): Promise<void>
@@ -45,6 +45,11 @@ interface EdgeVfs {
     isDirectory: boolean
   }>>
   mkdir(path: string, options?: { recursive?: boolean }): Promise<void>
+  /** Walk a directory tree; only the workspace's own files offer it. */
+  find?(directory: string, pattern?: string, options?: { limit?: number; exclude?: string[] }): Promise<Array<{
+    path: string
+    type: 'file' | 'dir'
+  }>>
 }
 
 function resolvePath(cwd: string, path: string): string {
@@ -112,6 +117,11 @@ export class EdgeFileSystem extends FileSystem {
 
   runInScope<T>(vfs: EdgeVfs, cwd: string, fn: () => Promise<T>): Promise<T> {
     return EdgeFileSystem.storage.run({ vfs, cwd }, fn)
+  }
+
+  /** The bound workspace files and working directory, for Edge's VFS-backed search tools. */
+  searchScope(): { readonly vfs: EdgeVfs; readonly cwd: string } {
+    return this.requireBinding()
   }
 
   private requireBinding(): { vfs: EdgeVfs; cwd: string } {

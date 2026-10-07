@@ -294,12 +294,6 @@
       "status": "not-applicable",
       "reason": "Runtime plugin loading (Creator mode); Workers cannot import packages at runtime."
     },
-    "@deepseek-ai/dsh-tool-fs-search": {
-      "status": "gap",
-      "reason": "glob and grep tools; upstream needs ripgrep through ctx.subprocess and node:fs, so the Edge needs a VFS implementation.",
-      "priority": "P2",
-      "issue": 234
-    },
     "@deepseek-ai/dsh-tool-lsp": {
       "status": "tracked",
       "reason": "LSP navigation.",
