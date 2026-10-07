@@ -2067,6 +2067,10 @@ try {
   assert.ok(mock.requests.slice(repeatRequestsBefore).some(request => chatMessages(request).some(message =>
     message.role === 'user' && JSON.stringify(message.content).includes('repeating the exact same tool call'))),
   'the reminder reaches the model in the next request')
+  // Upstream's checkpoint policy stores the log before each of the 4 model requests and 3 bash
+  // calls, so this fast turn cannot share a few 100 ms delivery windows (4 batches without it).
+  const repeatBatches = sessionEventStorageStats(repeatSessionId).writeBatches
+  assert.ok(repeatBatches >= 7, `checkpointed tool turn used only ${repeatBatches} write batches`)
 
   // Upstream's retry executor recovers a transient model failure inside the same turn: one 429
   // with Retry-After, then the retried step answers. The retry is durable before its wait.
