@@ -49,8 +49,14 @@ it('wakes a cold session for a durable reminder without a browser connection', a
     await expect.poll(() => mock.requests.filter(request => chatMessages(request).some(message => message.role === 'user' && typeof message.content === 'string' && message.content.startsWith('[SCHEDULE REMINDER]'))).length, { timeout: (delay + 30) * 1000 }).toBe(1)
     const restored = await context.newPage()
     await restored.goto(origin)
-    await restored.getByText('schedule-delivered', { exact: true }).first().waitFor({ timeout: 15_000 })
-    if (process.env.DSH_EDGE_SCHEDULE_SCREENSHOT) await restored.screenshot({ path: process.env.DSH_EDGE_SCHEDULE_SCREENSHOT, fullPage: true })
+    try {
+      // 30 s like this file's other waits: the 0.19.2 Windows release run timed out at 15 s once
+      // in four Windows runs of the same code (flake mitigation; the screenshot below is for the cause).
+      await restored.getByText('schedule-delivered', { exact: true }).first().waitFor({ timeout: 30_000 })
+    } finally {
+      // Capture the restored page on failure too; CI keeps it as an artifact.
+      if (process.env.DSH_EDGE_SCHEDULE_SCREENSHOT) await restored.screenshot({ path: process.env.DSH_EDGE_SCHEDULE_SCREENSHOT, fullPage: true })
+    }
   } finally {
     mock.releaseSlowResponses()
     await browser?.close()
