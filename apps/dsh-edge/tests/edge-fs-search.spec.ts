@@ -129,6 +129,12 @@ describe('glob over the workspace VFS', () => {
     expect(vfs.calls).toMatchObject({ stat: 1, readdir: 6 })
   })
 
+  it('reports workspace-relative POSIX paths, and absolute ones outside the working directory', async () => {
+    const search = tools(workspace({ '/workspace/src/a.ts': '', '/data/b.ts': '' }), '/workspace/src')
+    expect(await search.run('glob', { pattern: '*.ts', path: '/workspace' })).toEqual({ root: '/workspace', paths: ['a.ts'] })
+    expect(await search.run('glob', { pattern: '*.ts', path: '/data' })).toEqual({ root: '/data', paths: ['/data/b.ts'] })
+  })
+
   it('refuses a walk beyond its entry cap without listing past it', async () => {
     const vfs = workspace(Object.fromEntries(Array.from({ length: SEARCH_MAX_ENTRIES + 50 }, (_, index) => [`/workspace/f${String(index)}.txt`, ''])))
     await expect(tools(vfs).run('glob', { pattern: '*' })).rejects.toMatchObject({ code: 'SEARCH_RAW_OUTPUT_OVERFLOW' })

@@ -41,7 +41,6 @@ import {
   presentGrepCall,
   presentGrepResult,
   previewLine,
-  toWorkdirRelative,
   trySaveFormattedResult,
   type GrepMatch,
 } from '@deepseek-ai/dsh-tool-fs-search'
@@ -134,12 +133,12 @@ function applyGlobTool(ctx: Context): void {
       const input = parseGlobArgs(args)
       assertValidGlob('glob', input.pattern)
       const scope = await searchScope(ctx, exec, input.path)
-      const root = input.path === undefined ? '.' : toWorkdirRelative(input.path, scope.workdir)
+      const root = input.path === undefined ? '.' : workspaceRelative(input.path, scope.workdir)
       const files = await listFiles(scope, 'glob', skipVcs, exec.signal)
       const matched = files.filter(file => globMatches(input.pattern, relativeTo(file.path, scope.root)))
       // ripgrep's --sort=modified: oldest first, the path breaking ties.
       matched.sort((left, right) => left.mtime - right.mtime || (left.path < right.path ? -1 : left.path > right.path ? 1 : 0))
-      return { root, paths: matched.map(file => toWorkdirRelative(file.path, scope.workdir)) }
+      return { root, paths: matched.map(file => workspaceRelative(file.path, scope.workdir)) }
     },
     presentCall: presentGlobCall,
     presentResult: presentGlobResult,
@@ -233,7 +232,7 @@ function applyGrepTool(ctx: Context): void {
         if (input.include !== undefined && path !== scope.root && !globMatches(input.include, relativeTo(path, scope.root))) continue
         const text = await readTextFile(scope.vfs, path, exec.signal)
         if (text === undefined) continue
-        const display = toWorkdirRelative(path, scope.workdir)
+        const display = workspaceRelative(path, scope.workdir)
         const lines = text.split('\n')
         if (lines.at(-1) === '') lines.pop()
         for (const [index, raw] of lines.entries()) {
@@ -356,6 +355,18 @@ async function readTextFile(vfs: EdgeVfs, path: string, signal: AbortSignal): Pr
     offset += chunk.byteLength
   }
   return new TextDecoder().decode(bytes)
+}
+
+/**
+ * Upstream's `toWorkdirRelative` uses the host's `node:path`, which joins with
+ * `\\` on Windows; workspace paths are always POSIX. A path outside the
+ * working directory stays absolute, as upstream keeps it.
+ */
+function workspaceRelative(path: string, workdir: string): string {
+  if (!path.startsWith('/')) return path
+  if (path === workdir) return '.'
+  const prefix = workdir === '/' ? '/' : `${workdir}/`
+  return path.startsWith(prefix) ? path.slice(prefix.length) : path
 }
 
 function throwIfAborted(toolName: string, signal: AbortSignal): void {
