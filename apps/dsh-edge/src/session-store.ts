@@ -2112,6 +2112,12 @@ export class EdgeSessionStore {
      * is idle with no goal round pending.
      */
     start?: () => Promise<void>
+    /**
+     * Work the turn must wait for before it closes (calls that joined it), or
+     * undefined when there is none. Checked synchronously right before
+     * closing, so no call can join between the check and the close.
+     */
+    pendingWork?: () => Promise<void> | undefined
   }): Promise<void> {
     const { sessions } = await this.services()
     const { agent } = input
@@ -2190,6 +2196,11 @@ export class EdgeSessionStore {
         // is idle. Keep the turn open for it, so every round runs in this
         // turn's workspace scope, deadline, and event delivery.
         if (this.goalRoundPending(agent) && await this.goalRoundStarted(agent)) continue
+        const pending = input.pendingWork?.()
+        if (pending !== undefined) {
+          await pending
+          continue
+        }
         input.onClosing?.()
         break
       }

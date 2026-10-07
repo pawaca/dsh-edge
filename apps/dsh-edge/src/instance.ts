@@ -264,6 +264,8 @@ interface ActiveTurn {
   accepting: boolean
   /** Run work in this turn's workspace scope, so work it starts can use file tools. */
   inScope?: <T>(run: () => Promise<T>) => Promise<T>
+  /** Goal calls that joined this turn and have not settled; the turn stays open for them. */
+  joined?: Set<Promise<unknown>>
   wasAdmitted: boolean
   admit?: EdgeAgentPromptAdmitter
   admissionReady: Promise<void>
@@ -1444,8 +1446,17 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     // A turn still accepting work keeps any round the call starts. One that is
     // closing may release its workspace and observers before the round runs,
     // so claim a fresh turn once it has released.
-    // A goal round the call starts must inherit the turn's workspace scope.
-    if (active?.agent !== undefined && active.accepting) return active.inScope === undefined ? invoke() : active.inScope(invoke)
+    // A goal round the call starts must inherit the turn's workspace scope,
+    // and the turn stays open until the call settles (it may arm the goal
+    // after the current activity ends).
+    if (active?.agent !== undefined && active.accepting) {
+      const call = active.inScope === undefined ? invoke() : active.inScope(invoke)
+      const joined = active.joined ??= new Set()
+      joined.add(call)
+      const settled = () => { joined.delete(call) }
+      call.then(settled, settled)
+      return call
+    }
     if (active !== undefined) await active.releaseComplete
     // Resolve configuration before taking the slot: an invalid setting throws
     // here instead of leaving the slot and the claimed turn held.
@@ -1920,6 +1931,9 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         onClosing: () => {
           turn.accepting = false
         },
+        pendingWork: () => turn.joined === undefined || turn.joined.size === 0
+          ? undefined
+          : Promise.allSettled(turn.joined).then(() => undefined),
         // Record the run as it starts: a tab's follow stream can show this turn
         // before its events are durable and published here.
         onTurnStart: (seq) => { turn.turnStartSeq = seq },
@@ -1959,6 +1973,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     onClosing?: () => void
     onTurnStart?: (seq: number) => void
     start?: () => Promise<void>
+    pendingWork?: () => Promise<void> | undefined
   }): Promise<void> {
     const workspace = await this.workspace()
     const edgeFs = this.sessions.filesystem()
@@ -1988,6 +2003,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       ...input.onClosing === undefined ? {} : { onClosing: input.onClosing },
       ...input.onTurnStart === undefined ? {} : { onTurnStart: input.onTurnStart },
       ...input.start === undefined ? {} : { start: input.start },
+      ...input.pendingWork === undefined ? {} : { pendingWork: input.pendingWork },
       publish: input.publish,
       publishQueue: input.publishQueue,
     })
