@@ -87,7 +87,9 @@ export class EdgeFileSystem extends FileSystem {
   private static storage = new AsyncLocalStorage<{ vfs: EdgeVfs; cwd: string }>()
   /** Per-target tail promise, as in upstream's LocalFileSystem: a guarded write's
    * stat → version check → write cannot interleave with another write or edit of
-   * the same file, so one wins and the rest see its version and fail as stale. */
+   * the same file, so one wins and the rest see its version and fail as stale.
+   * Shell and container writers do not take this lock, as shell commands bypass
+   * upstream's; their changes are caught when the next guarded write checks. */
   private readonly locks = new Map<string, Promise<void>>()
 
   constructor(ctx: Context) {
