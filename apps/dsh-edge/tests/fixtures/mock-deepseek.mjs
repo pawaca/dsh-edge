@@ -276,6 +276,37 @@ export async function startMockDeepSeek(port = 0) {
       }
 
       // Three identical bash calls in a row, so the repeat-tool reminder fires once.
+      if (prompt === 'find the needles' && !hasToolResult) {
+        sendEvents(response, [
+          { choices: [{ delta: { role: 'assistant', content: null, reasoning_content: '' } }] },
+          {
+            choices: [{
+              delta: {
+                tool_calls: [
+                  {
+                    index: 0,
+                    id: 'call_mock_grep',
+                    type: 'function',
+                    function: { name: 'grep', arguments: JSON.stringify({ pattern: 'needle-\\d+', path: 'haystack', include: '*.txt' }) },
+                  },
+                  {
+                    index: 1,
+                    id: 'call_mock_glob',
+                    type: 'function',
+                    function: { name: 'glob', arguments: JSON.stringify({ pattern: '*.txt', path: 'haystack' }) },
+                  },
+                ],
+              },
+            }],
+          },
+          {
+            choices: [{ delta: {}, finish_reason: 'tool_calls' }],
+            usage: { prompt_tokens: 8, completion_tokens: 3 },
+          },
+        ])
+        return
+      }
+
       if (prompt === 'write my checklist' && !hasToolResult) {
         sendEvents(response, [
           { choices: [{ delta: { role: 'assistant', content: null, reasoning_content: '' } }] },
@@ -581,6 +612,8 @@ export async function startMockDeepSeek(port = 0) {
                   ? `workflow-finished:${messageText(toolResults[0])}`
                   : prompt.includes('run some code')
                     ? `code-finished:${messageText(toolResults[0])}`
+                    : prompt === 'find the needles'
+                      ? 'search-finished'
                     : prompt === 'write my checklist'
                       ? `todo-finished:${messageText(toolResults[0])}`
                     : prompt === 'repeat the same command'

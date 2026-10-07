@@ -2139,11 +2139,32 @@ try {
   const instructionsEvents = await turn(instructionsSessionId, 'read the file /workspace/guide/notes.txt')
   assert.equal(assistantText(instructionsEvents), 'read-finished')
   const instructionsRequests = mock.requests.slice(instructionsRequestsBefore)
-    .filter(request => !JSON.stringify(request).includes('session-title'))
+    // The background title request can land anywhere among the turn's requests.
+    .filter(request => !JSON.stringify(chatMessages(request)).includes('Create a concise title'))
   const requestText = request => JSON.stringify(chatMessages(request))
   assert.match(requestText(instructionsRequests[0]), /Root rule: keep replies short\./u)
   assert.doesNotMatch(requestText(instructionsRequests[0]), /Guide rule/u)
   assert.match(requestText(instructionsRequests.at(-1)), /Guide rule: cite the guide\./u)
+  // Edge's grep and glob, upstream's tool contracts over the workspace VFS: grep honors include at
+  // any depth and skips hidden files; an over-cap grep keeps 250 matches inline and spills the rest.
+  for (const [path, body] of [
+    ['/workspace/haystack/a.txt', Array.from({ length: 260 }, (_, index) => `needle-${String(index)}`).join('\n') + '\n'],
+    ['/workspace/haystack/deep/b.txt', 'needle-7\n'],
+    ['/workspace/haystack/c.md', 'needle-1\n'],
+    ['/workspace/haystack/.hidden.txt', 'needle-9\n'],
+  ]) {
+    assert.equal((await request(`/api/workspace/file?path=${path}`, { method: 'PUT', body })).status, 200)
+  }
+  const vfsSearchSessionId = (await rpc('session.create', {})).body.result.value.sessionId
+  const vfsSearchEvents = await turn(vfsSearchSessionId, 'find the needles')
+  assert.equal(assistantText(vfsSearchEvents), 'search-finished', JSON.stringify(vfsSearchEvents.map(event => event.type)))
+  const vfsSearchResult = callId => toolResultText(vfsSearchEvents.find(event => event.type === 'tool/result' && event.data.message.toolCallId === callId))
+  const grepText = vfsSearchResult('call_mock_grep')
+  assert.match(grepText, /^Found 250 of 261 matches\n\nhaystack\/a\.txt\nLine 1: needle-0\n/u)
+  assert.match(grepText, /Full grep result stored at: /u)
+  assert.doesNotMatch(grepText, /c\.md|\.hidden/u)
+  assert.deepEqual(vfsSearchResult('call_mock_glob').split('\n').sort(),
+    ['haystack/.hidden.txt', 'haystack/a.txt', 'haystack/deep/b.txt'])
   process.stdout.write(`dsh-edge ${runtimeMode} session integration passed\n`)
 } finally {
   mock.releaseSlowResponses()
