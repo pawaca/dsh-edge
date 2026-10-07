@@ -930,7 +930,9 @@ try {
     const workflowEvents = await turn(sessionId, 'run a workflow over the items')
     // Guard DO write amplification: the parent's progress events and each
     // child's streamed turn must persist in a few append batches, not one
-    // write per progress event or delta.
+    // write per progress event or delta. The parent's 30 events take 7 batches
+    // locally and 9 on the Windows runner, including upstream's checkpoints
+    // before its 2 model requests and its workflow call; one per event is 30.
     const revisionsAfterWorkflow = sessionRevisions()
     const parentWorkflowBatches = revisionsAfterWorkflow.get(sessionId).revision
       - revisionsBeforeWorkflow.get(sessionId).revision
@@ -938,7 +940,7 @@ try {
       .filter(([id, row]) => row.parentSession === sessionId && !revisionsBeforeWorkflow.has(id))
     assert.equal(workflowChildren.length, 5)
     const childWorkflowBatches = workflowChildren.map(([, row]) => row.revision)
-    assert.ok(parentWorkflowBatches <= 8, `Workflow turn caused ${parentWorkflowBatches} parent persistence batches`)
+    assert.ok(parentWorkflowBatches <= 10, `Workflow turn caused ${parentWorkflowBatches} parent persistence batches`)
     for (const batches of childWorkflowBatches) {
       assert.ok(batches <= 6, `Workflow child caused ${batches} persistence batches`)
     }
