@@ -9,12 +9,6 @@
       "status": "substitute",
       "reason": "EdgeAgentDefaultModel in session-store.ts, kept in Durable Object KV."
     },
-    "@deepseek-ai/dsh-agent-instructions": {
-      "status": "gap",
-      "reason": "AGENTS.md / CLAUDE.md instruction loading; upstream reads the host disk, so the Edge needs a VFS adapter.",
-      "priority": "P2",
-      "issue": 234
-    },
     "@deepseek-ai/dsh-agent-preset": {
       "status": "substitute",
       "reason": "EdgeAgentPresets in agent-presets.ts declares the standard and ptc presets in code."

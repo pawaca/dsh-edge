@@ -2125,6 +2125,25 @@ try {
   const todoSummary = (await rpc('session.list', {})).body.result.value.items
     .find(item => item.sessionId === todoSessionId)
   assert.deepEqual(todoSummary.projections.values.todos, expectedTodos)
+  // Upstream's agent-instructions loader reads AGENTS.md through ctx.fs, the workspace VFS: the
+  // root file joins the first request, and a nested one joins after a read reaches its directory.
+  for (const [path, body] of [
+    ['/workspace/AGENTS.md', 'Root rule: keep replies short.\n'],
+    ['/workspace/guide/AGENTS.md', 'Guide rule: cite the guide.\n'],
+    ['/workspace/guide/notes.txt', 'guide notes\n'],
+  ]) {
+    assert.equal((await request(`/api/workspace/file?path=${path}`, { method: 'PUT', body })).status, 200)
+  }
+  const instructionsSessionId = (await rpc('session.create', {})).body.result.value.sessionId
+  const instructionsRequestsBefore = mock.requests.length
+  const instructionsEvents = await turn(instructionsSessionId, 'read the file /workspace/guide/notes.txt')
+  assert.equal(assistantText(instructionsEvents), 'read-finished')
+  const instructionsRequests = mock.requests.slice(instructionsRequestsBefore)
+    .filter(request => !JSON.stringify(request).includes('session-title'))
+  const requestText = request => JSON.stringify(chatMessages(request))
+  assert.match(requestText(instructionsRequests[0]), /Root rule: keep replies short\./u)
+  assert.doesNotMatch(requestText(instructionsRequests[0]), /Guide rule/u)
+  assert.match(requestText(instructionsRequests.at(-1)), /Guide rule: cite the guide\./u)
   process.stdout.write(`dsh-edge ${runtimeMode} session integration passed\n`)
 } finally {
   mock.releaseSlowResponses()

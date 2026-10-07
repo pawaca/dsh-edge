@@ -13,4 +13,4 @@
   - text: Search plugins
   - searchbox "Search plugins"
   - button "Global plugins"
-  - paragraph: Shared by the system and every session ·130 plugins
+  - paragraph: Shared by the system and every session ·131 plugins
