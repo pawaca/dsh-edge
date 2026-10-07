@@ -6,14 +6,15 @@ function storeWithGoal(activation: 'armed' | 'disarmed', status: 'idle' | 'runni
   const agent = { id: 'session-goal', status, session: {}, cancel: vi.fn() }
   const goal = { phase: 'active', activation, roundsStarted: 1, maxGoalRounds: 5 }
   const disarm = vi.fn(() => { goal.activation = 'disarmed' })
+  const handlers = new Map<string, (payload: unknown) => void>()
   const store = Object.assign(Object.create(EdgeSessionStore.prototype) as object, {
     context: {
       agents: { get: (id: string) => id === agent.id ? agent : undefined },
       goals: { get: () => ({ ...goal }), disarm },
-      on: () => () => {},
+      on: (name: string, handler: (payload: unknown) => void) => { handlers.set(name, handler); return () => {} },
     },
   }) as unknown as EdgeSessionStore
-  return { store, agent, disarm }
+  return { store, agent, disarm, handlers }
 }
 
 describe('Edge goal rounds', () => {
@@ -33,6 +34,23 @@ describe('Edge goal rounds', () => {
   it('leaves a disarmed goal alone when a turn stops between rounds', () => {
     const { store, agent, disarm } = storeWithGoal('disarmed')
     store.stopAgentWork(agent as never)
+    expect(disarm).not.toHaveBeenCalled()
+  })
+
+  it('disarms a goal armed while its session\'s turn has a stop requested, whichever call armed it', async () => {
+    const { store, agent, disarm, handlers } = storeWithGoal('armed')
+    store.disarmGoalsArmedWhileStopping(sessionId => sessionId === agent.id)
+    handlers.get('goal/activation-changed')!({ sessionId: agent.id, goal: { id: 'goal-1', revision: 1, activation: 'armed' } })
+    expect(disarm).not.toHaveBeenCalled()
+    await Promise.resolve()
+    expect(disarm).toHaveBeenCalledWith(agent)
+  })
+
+  it('leaves a goal armed when no stop is requested', async () => {
+    const { store, agent, disarm, handlers } = storeWithGoal('armed')
+    store.disarmGoalsArmedWhileStopping(() => false)
+    handlers.get('goal/activation-changed')!({ sessionId: agent.id, goal: { id: 'goal-1', revision: 1, activation: 'armed' } })
+    await Promise.resolve()
     expect(disarm).not.toHaveBeenCalled()
   })
 

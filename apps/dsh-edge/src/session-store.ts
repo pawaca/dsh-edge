@@ -170,6 +170,8 @@ interface EdgeSessionStoreConfig {
   withWorkspaceFiles<T>(read: (files: EdgeWorkspaceFiles) => Promise<T>): Promise<T>
   onLateSessionEvent?: (sessionId: SessionId, event: SessionEvent) => void
   onProjectionChanged?: (sessionId: SessionId, key: string, value: unknown, seq: number) => void
+  /** Whether the session's turn has a stop (Stop or its deadline) requested. */
+  isStopRequested?: (sessionId: SessionId) => boolean
   /** Called after every committed runtime-settings change, whichever API wrote it. */
   onRuntimeSettingsChanged?: () => void | Promise<void>
 }
@@ -680,6 +682,7 @@ export class EdgeSessionStore {
     // tool touches into nested directories.
     await this.context.plugin(AgentInstructions, { maxBytes: 65_536, dshHome: '/.dsh' })
     await this.context.plugin(GoalRoundDriver)
+    if (config.isStopRequested !== undefined) this.disarmGoalsArmedWhileStopping(config.isStopRequested)
     // As upstream: /compact compacts the session's history now; /goal shows,
     // sets, edits, pauses, resumes, or clears the session's goal. A command
     // that arms a goal runs inside a turn, so its rounds do too (instance.ts).
@@ -2224,6 +2227,23 @@ export class EdgeSessionStore {
       return
     }
     this.disarmGoal(agent)
+  }
+
+  /**
+   * A turn with a stop requested keeps no armed goal, whichever call armed it
+   * (goals/create, goals/resume, /goal, joining or starting the turn): the
+   * goal is disarmed before the round driver, which first awaits a storage
+   * checkpoint, can queue a round. The disarm is deferred past the goal
+   * service's own activation commit.
+   */
+  disarmGoalsArmedWhileStopping(isStopRequested: (sessionId: SessionId) => boolean): void {
+    this.context.on('goal/activation-changed', ({ sessionId, goal }) => {
+      if (goal?.activation !== 'armed' || !isStopRequested(SessionId(sessionId))) return
+      queueMicrotask(() => {
+        const agent = this.context.agents.get(SessionId(sessionId))
+        if (agent !== undefined && isStopRequested(SessionId(sessionId))) this.disarmGoal(agent)
+      })
+    })
   }
 
   private disarmGoal(agent: Agent): void {

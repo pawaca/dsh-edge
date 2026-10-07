@@ -331,6 +331,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       onLateSessionEvent: (sessionId, event) => {
         this.publishSessionEvent(sessionId, event)
       },
+      isStopRequested: sessionId => this.activeTurns.get(sessionId)?.cancelRequested === true,
       // A shorter sleep window moves the idle stop earlier.
       onRuntimeSettingsChanged: () => this.scheduleMainWake(),
       onProjectionChanged: (sessionId, key, value, seq) => {
