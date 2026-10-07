@@ -2111,6 +2111,20 @@ try {
   assert.equal(staleResults[2].data.message.isError, true)
   assert.match(toolResultText(staleResults[2]), /changed since it was read/u)
   assert.equal(await (await request('/api/workspace/file?path=/workspace/stale.txt')).text(), 'one\nchanged\n')
+  // Upstream's todo_write replaces the session's task list, logs it as `todo/write`, and folds it
+  // into the `todos` projection the Web client's todo dock reads.
+  const todoSessionId = (await rpc('session.create', {})).body.result.value.sessionId
+  const todoEvents = await turn(todoSessionId, 'write my checklist')
+  assert.equal(assistantText(todoEvents), 'todo-finished:Updated todo list: 0 pending, 1 in progress, 1 completed.',
+    JSON.stringify(todoEvents.map(event => event.type)))
+  const expectedTodos = [
+    { content: 'Draft the checklist', status: 'completed' },
+    { content: 'Review the checklist', status: 'in_progress' },
+  ]
+  assert.deepEqual(todoEvents.find(event => event.type === 'todo/write')?.data, { todos: expectedTodos })
+  const todoSummary = (await rpc('session.list', {})).body.result.value.items
+    .find(item => item.sessionId === todoSessionId)
+  assert.deepEqual(todoSummary.projections.values.todos, expectedTodos)
   process.stdout.write(`dsh-edge ${runtimeMode} session integration passed\n`)
 } finally {
   mock.releaseSlowResponses()

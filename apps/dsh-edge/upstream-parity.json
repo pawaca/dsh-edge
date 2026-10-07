@@ -358,12 +358,6 @@
       "reason": "Persistent PTY sessions (the minimal preset needs them).",
       "issue": 99
     },
-    "@deepseek-ai/dsh-tool-todo": {
-      "status": "gap",
-      "reason": "todo_write task list with its log-only event and replay projection; upstream ships no separate Web todo plugin, so porting means mounting the tool and checking how the chat client renders its events.",
-      "priority": "P2",
-      "issue": 234
-    },
     "@deepseek-ai/dsh-tool-workspace-dependencies": {
       "status": "not-applicable",
       "reason": "Bundled Python, Node.js, and pnpm payloads for host processes."

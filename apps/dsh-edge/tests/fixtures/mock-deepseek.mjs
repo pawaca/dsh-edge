@@ -276,6 +276,35 @@ export async function startMockDeepSeek(port = 0) {
       }
 
       // Three identical bash calls in a row, so the repeat-tool reminder fires once.
+      if (prompt === 'write my checklist' && !hasToolResult) {
+        sendEvents(response, [
+          { choices: [{ delta: { role: 'assistant', content: null, reasoning_content: '' } }] },
+          {
+            choices: [{
+              delta: {
+                tool_calls: [{
+                  index: 0,
+                  id: 'call_mock_todo',
+                  type: 'function',
+                  function: {
+                    name: 'todo_write',
+                    arguments: JSON.stringify({ todos: [
+                      { content: 'Draft the checklist', status: 'completed' },
+                      { content: 'Review the checklist', status: 'in_progress' },
+                    ] }),
+                  },
+                }],
+              },
+            }],
+          },
+          {
+            choices: [{ delta: {}, finish_reason: 'tool_calls' }],
+            usage: { prompt_tokens: 8, completion_tokens: 3 },
+          },
+        ])
+        return
+      }
+
       if (prompt === 'repeat the same command' && toolResults.length < 3) {
         sendEvents(response, [
           { choices: [{ delta: { role: 'assistant', content: null, reasoning_content: '' } }] },
@@ -552,6 +581,8 @@ export async function startMockDeepSeek(port = 0) {
                   ? `workflow-finished:${messageText(toolResults[0])}`
                   : prompt.includes('run some code')
                     ? `code-finished:${messageText(toolResults[0])}`
+                    : prompt === 'write my checklist'
+                      ? `todo-finished:${messageText(toolResults[0])}`
                     : prompt === 'repeat the same command'
                       ? 'repeat-finished'
                       : prompt.startsWith('policy ')
