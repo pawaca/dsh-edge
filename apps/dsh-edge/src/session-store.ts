@@ -55,6 +55,7 @@ import {
 import SessionTitleService from '@deepseek-ai/dsh-session-title'
 import * as FirstPromptTitle from '@deepseek-ai/dsh-session-title-first-prompt-llm'
 import BasicCompactionEngine from '@deepseek-ai/dsh-compaction-basic'
+import * as RepeatToolReminder from '@deepseek-ai/dsh-repeat-tool-reminder'
 import ToolResultPruner from '@deepseek-ai/dsh-compaction-tool-result-pruner'
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import * as SpillPolicy from '@deepseek-ai/dsh-spill-policy'
@@ -409,6 +410,9 @@ export class EdgeSessionStore {
     await this.context.plugin(ToolRuntime, config.workerLoader === undefined
       ? {}
       : { maxParallelSubCalls: 4 })
+    // As in upstream's base bundle: remind the model after 3, 5, and 8 identical
+    // consecutive tool calls; a new user message resets the count.
+    await this.context.plugin(RepeatToolReminder)
     await this.context.plugin(SkillRegistry)
     await this.context.plugin(EdgeSkillProvider, { storage })
     await this.context.plugin(TypertRegistry)

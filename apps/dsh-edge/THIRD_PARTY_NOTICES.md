@@ -7,7 +7,7 @@
 
 ## DeepSeek Harness
 
-`dsh-edge` assembles published DeepSeek Harness packages and applies 6 version-bound adaptations to the pinned `0.2.0-rc.2` release. DeepSeek Harness remains under its upstream MIT license:
+`dsh-edge` assembles published DeepSeek Harness packages and applies 7 version-bound adaptations to the pinned `0.2.0-rc.2` release. DeepSeek Harness remains under its upstream MIT license:
 
 ```text
 MIT License

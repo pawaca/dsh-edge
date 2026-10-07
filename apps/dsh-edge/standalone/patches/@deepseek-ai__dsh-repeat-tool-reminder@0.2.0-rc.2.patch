@@ -1,0 +1,18 @@
+diff --git a/lib/index.js b/lib/index.js
+index 7af220f70d324049cb58fb1334f16ba57ccc5838..e5d91543591cd277c5e28d2c15f850c7c92e43fd 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -1,4 +1,3 @@
+-import { createRequire } from "node:module";
+ import z from "@deepseek-ai/schemastery";
+ import { Context, Service } from "@deepseek-ai/cordis";
+ //#region ../../typert/protocol/src/remote-error.ts
+@@ -712,7 +711,7 @@ function projectToolUpdates(messages, tools, toolUpdate, history) {
+ * App-attribution vocabulary for provider requests.
+ * @module @deepseek-ai/dsh-llm/attribution
+ */
+-const { version } = createRequire(import.meta.url)("../package.json");
++const version = "0.2.0-rc.2";
+ //#endregion
+ //#region ../../llm/llm/src/index.ts
+ /**

@@ -2052,6 +2052,22 @@ try {
     assert.equal(retried.body.result.ok, true, JSON.stringify(retried.body.result))
     assert.equal(retried.body.result.value.agentPreset, 'ptc')
   }
+  // Upstream's base-bundle repeat guard sees Edge's own bash tool: three identical calls in a
+  // row add one notice after the third result, and the next request carries it to the model.
+  // Last, so its four requests change no earlier request count.
+  const repeatSessionId = (await rpc('session.create', {})).body.result.value.sessionId
+  const repeatRequestsBefore = mock.requests.length
+  const repeatEvents = await turn(repeatSessionId, 'repeat the same command')
+  assert.equal(assistantText(repeatEvents), 'repeat-finished')
+  assert.equal(repeatEvents.filter(event => event.type === 'tool/call' && event.data.name === 'bash').length, 3)
+  const repeatNotices = repeatEvents.filter(event => event.type === 'user/message'
+    && event.data.source?.kind === 'repeat-tool-reminder')
+  assert.equal(repeatNotices.length, 1, JSON.stringify(repeatEvents.map(event => event.type)))
+  assert.match(JSON.stringify(repeatNotices[0].data.content), /repeating the exact same tool call/u)
+  assert.ok(mock.requests.slice(repeatRequestsBefore).some(request => chatMessages(request).some(message =>
+    message.role === 'user' && JSON.stringify(message.content).includes('repeating the exact same tool call'))),
+  'the reminder reaches the model in the next request')
+
   process.stdout.write(`dsh-edge ${runtimeMode} session integration passed\n`)
 } finally {
   mock.releaseSlowResponses()
