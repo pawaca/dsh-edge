@@ -2198,6 +2198,27 @@ export class EdgeSessionStore {
     }
   }
 
+  /**
+   * Stop a turn's work: cancel the agent's current activity and disarm its
+   * goal. Between goal rounds the agent is idle, so cancelling alone is a
+   * no-op and the round driver would go on to queue the next round; a
+   * disarmed goal stays active, records no event, and resumes on the owner's
+   * request, as upstream's lifecycle owners do before unloading the driver.
+   */
+  stopAgentWork(agent: Agent): void {
+    agent.cancel({ kind: 'user' })
+    this.disarmGoal(agent)
+  }
+
+  private disarmGoal(agent: Agent): void {
+    if (this.context.agents.get(agent.id) !== agent) return
+    try {
+      if (this.context.goals.get(agent)?.activation === 'armed') this.context.goals.disarm(agent)
+    } catch (error) {
+      console.warn('dsh-edge: could not disarm a goal.', error)
+    }
+  }
+
   /** Whether upstream's goal round driver is about to queue a round for this agent. */
   private goalRoundPending(agent: Agent): boolean {
     if (this.context.agents.get(agent.id) !== agent) return false
@@ -2213,13 +2234,16 @@ export class EdgeSessionStore {
   /**
    * Wait for the pending goal round to start the agent. Resolves false when
    * the goal stops being pending first, or when the driver does not start the
-   * round within GOAL_ROUND_START_WAIT_MS (its failures disarm the goal).
+   * round within GOAL_ROUND_START_WAIT_MS, in which case the goal is disarmed.
    */
   private goalRoundStarted(agent: Agent): Promise<boolean> {
     return new Promise(resolve => {
       const disposers: (() => void)[] = []
       const timer = setTimeout(() => {
-        console.warn('dsh-edge: a pending goal round did not start; the turn ends without it.')
+        // The turn ends, so the round must not start later outside it: the
+        // driver checks the goal is still armed before it queues the round.
+        console.warn('dsh-edge: a pending goal round did not start; its goal is disarmed and the turn ends.')
+        this.disarmGoal(agent)
         finish(false)
       }, GOAL_ROUND_START_WAIT_MS)
       const settle = () => {

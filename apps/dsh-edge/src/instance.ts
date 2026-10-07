@@ -742,7 +742,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
           timer = setTimeout(() => {
             interrupted = true
             claimed.turn.cancelRequested = true
-            claimed.handle.agent.cancel({ kind: 'user' })
+            this.sessions.stopAgentWork(claimed.handle.agent)
           }, Math.max(1, claim.deadline - Date.now()))
           await this.runClaimedTurn({ claimed, commandTimeoutPolicy, mode: 'queue',
             message: input.message, content: input.message.content,
@@ -1448,7 +1448,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     const outcome = new Promise<{ ok: true; value: T } | { ok: false; error: unknown }>(resolve => { settle = resolve })
     const timer = setTimeout(() => {
       claimed.turn.cancelRequested = true
-      claimed.handle.agent.cancel({ kind: 'user' })
+      this.sessions.stopAgentWork(claimed.handle.agent)
     }, MAIN_RUN_TIMEOUT_MS)
     const turn = this.runClaimedTurn({
       claimed,
@@ -1966,7 +1966,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         ),
       },
       afterFollowup: () => {
-        if (input.turn.cancelRequested) input.agent.cancel({ kind: 'user' })
+        if (input.turn.cancelRequested) this.sessions.stopAgentWork(input.agent)
       },
       ...input.onAdmitted === undefined ? {} : { onAdmitted: input.onAdmitted },
       ...input.onClosing === undefined ? {} : { onClosing: input.onClosing },
@@ -2006,7 +2006,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     const active = this.activeTurns.get(sessionId)
     if (active === undefined || (this.controlTarget.getStore() !== undefined && this.controlTarget.getStore() !== active.turnId)) return false
     active.cancelRequested = true
-    active.agent?.cancel({ kind: 'user' })
+    if (active.agent !== undefined) this.sessions.stopAgentWork(active.agent)
     return true
   }
 
