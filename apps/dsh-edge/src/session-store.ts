@@ -71,6 +71,7 @@ import * as FsObservationPolicy from '@deepseek-ai/dsh-fs-observation-policy'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as ToolGoal from '@deepseek-ai/dsh-tool-goal'
 import * as ToolSkill from '@deepseek-ai/dsh-tool-skill'
+import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
 import * as GoalRoundDriver from '@deepseek-ai/dsh-goal-round-driver'
 import GoalService from '@deepseek-ai/dsh-goal'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
@@ -651,6 +652,11 @@ export class EdgeSessionStore {
     const { TYPERT: GOAL_TYPERT } = await import('@deepseek-ai/dsh-goal/typert' as string)
     this.context.typert.register(GOAL_TYPERT as never)
     await this.context.plugin(ToolGoal)
+    // As upstream: `todo_write` keeps the session's task list; its `todos`
+    // projection drives the Web client's todo dock. Several tasks may be in
+    // progress, as in upstream's composition, since subagents, background
+    // commands, and workflows run work in parallel.
+    await this.context.plugin(ToolTodo, { allowParallelInProgress: true })
     await this.context.plugin(GoalRoundDriver)
     // Upstream estimates 4 bytes per token (50,000 bytes became 12,500 tokens); keep the Edge's 32 KiB budget.
     await this.context.plugin(SpillPolicy, { maxInlineTokens: 8_192 })
