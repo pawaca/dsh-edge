@@ -2208,6 +2208,15 @@ try {
   // Upstream saves the session before the command answers, so the summary is already stored.
   const storedSummary = await request(`/api/sessions/${commandSessionId}/events?after=${compacted.sourceEventSeq - 1}&limit=1`)
   assert.equal(parseEvents(await storedSummary.text())[0]?.seq, compacted.sourceEventSeq)
+  // Upstream's sessionStats and turnOutline projections, which the Web chat view reads.
+  const statsSessionId = (await rpc('session.create', {})).body.result.value.sessionId
+  for (const message of ['stats fixture one', 'stats fixture two']) await turn(statsSessionId, message)
+  const statsSummary = (await rpc('session.list', {})).body.result.value.items.find(item => item.sessionId === statsSessionId)
+  const { sessionStats, turnOutline } = statsSummary.projections.values
+  assert.equal(sessionStats.turns, 2, JSON.stringify(sessionStats))
+  assert.ok(sessionStats.steps >= 2 && sessionStats.llmMs > 0, JSON.stringify(sessionStats))
+  assert.deepEqual(turnOutline.map(entry => [entry.prompt, entry.response]),
+    [['stats fixture one', 'remembered-alpha'], ['stats fixture two', 'remembered-alpha']])
   process.stdout.write(`dsh-edge ${runtimeMode} session integration passed\n`)
 } finally {
   mock.releaseSlowResponses()

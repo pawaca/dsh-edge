@@ -212,20 +212,10 @@
       "reason": "FTS5 search; the Edge scans a bounded window instead.",
       "issue": 92
     },
-    "@deepseek-ai/dsh-session-stats": {
-      "status": "gap",
-      "reason": "sessionStats projection; dsh-client-ui-chat already reads it.",
-      "priority": "P2"
-    },
     "@deepseek-ai/dsh-session-telemetry-otel": {
       "status": "tracked",
       "reason": "OpenTelemetry session telemetry.",
       "issue": 94
-    },
-    "@deepseek-ai/dsh-session-turn-outline": {
-      "status": "gap",
-      "reason": "turnOutline projection; dsh-client-ui-chat already reads it.",
-      "priority": "P2"
     },
     "@deepseek-ai/dsh-shell-env": {
       "status": "not-applicable",
