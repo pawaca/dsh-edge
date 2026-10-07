@@ -25,6 +25,7 @@ import {
   GLOB_VCS_EXCLUDES,
   GREP_MAX_LINE_BYTES,
   GREP_MAX_MATCHES,
+  RAW_OUTPUT_MAX_BYTES,
   SEARCH_META_MAX_BYTES,
   SEARCH_TIMEOUT_MS,
   SearchError,
@@ -59,6 +60,12 @@ export const SEARCH_MAX_ENTRIES = 20_000
 export const GREP_MAX_COLLECTED_MATCHES = 20_000
 /** Files larger than this are skipped by `grep`, like a binary file. */
 export const GREP_MAX_FILE_BYTES = 4 * 1024 * 1024
+/**
+ * Characters of matched lines one `grep` may hold, upstream's 20 MB raw-output
+ * cap: long lines (minified bundles) must not exhaust the Durable Object's
+ * memory before the match cap is reached.
+ */
+export const GREP_MAX_COLLECTED_CHARS = RAW_OUTPUT_MAX_BYTES
 
 const VCS_EXCLUDE_GLOBS = GLOB_VCS_EXCLUDES.map(entry => `**/${entry}`)
 const HIDDEN_EXCLUDE_GLOB = '**/.*'
@@ -116,6 +123,7 @@ function applyGlobTool(ctx: Context): void {
     },
     async execute(args, exec) {
       const input = parseGlobArgs(args)
+      assertValidGlob('glob', input.pattern)
       const scope = await searchScope(ctx, exec, input.path)
       const root = input.path === undefined ? '.' : toWorkdirRelative(input.path, scope.workdir)
       const files = await listFiles(scope, 'glob', VCS_EXCLUDE_GLOBS)
@@ -207,9 +215,11 @@ function applyGrepTool(ctx: Context): void {
       } catch (error) {
         throw new SearchError(`grep pattern rejected: ${error instanceof Error ? error.message : String(error)}`, 'SEARCH_INVALID_PATTERN')
       }
+      if (input.include !== undefined) assertValidGlob('grep', input.include)
       const scope = await searchScope(ctx, exec, input.path)
       const files = await listFiles(scope, 'grep', [...VCS_EXCLUDE_GLOBS, HIDDEN_EXCLUDE_GLOB])
       const matches: GrepMatch[] = []
+      let collectedChars = 0
       for (const path of files) {
         if (exec.signal.aborted) throw new SearchError('grep aborted', 'SEARCH_ABORTED', { cause: exec.signal.reason })
         if (input.include !== undefined && path !== scope.root && !globMatches(input.include, relativeTo(path, scope.root))) continue
@@ -222,8 +232,9 @@ function applyGrepTool(ctx: Context): void {
         for (const [index, raw] of lines.entries()) {
           const line = raw.endsWith('\r') ? raw.slice(0, -1) : raw
           if (!regex.test(line)) continue
-          if (matches.length >= GREP_MAX_COLLECTED_MATCHES) {
-            throw new SearchError(`grep matched more than ${String(GREP_MAX_COLLECTED_MATCHES)} lines; narrow pattern, path, or include`, 'SEARCH_RAW_OUTPUT_OVERFLOW')
+          collectedChars += line.length
+          if (matches.length >= GREP_MAX_COLLECTED_MATCHES || collectedChars > GREP_MAX_COLLECTED_CHARS) {
+            throw new SearchError(`grep matched more than ${String(GREP_MAX_COLLECTED_MATCHES)} lines or ${String(GREP_MAX_COLLECTED_CHARS)} characters; narrow pattern, path, or include`, 'SEARCH_RAW_OUTPUT_OVERFLOW')
           }
           matches.push({ path: display, lineNumber: index + 1, line })
         }
@@ -283,6 +294,39 @@ async function listFiles(scope: SearchScope, toolName: string, exclude: readonly
 function relativeTo(path: string, root: string): string {
   if (path === root) return path.slice(path.lastIndexOf('/') + 1)
   return path.startsWith(`${root}/`) ? path.slice(root.length + 1) : root === '/' ? path.slice(1) : path
+}
+
+/**
+ * Reject the glob syntax ripgrep's globset refuses (an unclosed character
+ * class or alternate group, a nested or unopened group, a dangling escape),
+ * which minimatch would otherwise read as literal text and match nothing.
+ */
+function assertValidGlob(toolName: string, pattern: string): void {
+  const reject = (reason: string): never => {
+    throw new SearchError(`${toolName} pattern rejected: error parsing glob '${pattern}': ${reason}`, 'SEARCH_INVALID_PATTERN')
+  }
+  let groupDepth = 0
+  for (let index = 0; index < pattern.length; index++) {
+    const char = pattern[index]
+    if (char === '\\') {
+      if (index + 1 >= pattern.length) reject('dangling \'\\\'')
+      index++
+    } else if (char === '[') {
+      let end = index + 1
+      if (pattern[end] === '!' || pattern[end] === '^') end++
+      if (pattern[end] === ']') end++
+      end = pattern.indexOf(']', end)
+      if (end === -1) reject('unclosed character class; missing \']\'')
+      index = end
+    } else if (char === '{') {
+      if (groupDepth > 0) reject('nested alternate groups are not allowed')
+      groupDepth++
+    } else if (char === '}') {
+      if (groupDepth === 0) reject('unopened alternate group; missing \'{\'')
+      groupDepth--
+    }
+  }
+  if (groupDepth > 0) reject('unclosed alternate group; missing \'}\'')
 }
 
 /** ripgrep glob rules: hidden names match, and a pattern with no `/` matches the basename at any depth. */

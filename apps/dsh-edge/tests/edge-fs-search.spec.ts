@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { minimatch } from 'minimatch'
-import { apply, GREP_MAX_COLLECTED_MATCHES, SEARCH_MAX_ENTRIES } from '../src/edge-fs-search.ts'
+import { apply, GREP_MAX_COLLECTED_CHARS, GREP_MAX_COLLECTED_MATCHES, SEARCH_MAX_ENTRIES } from '../src/edge-fs-search.ts'
 
 type Tool = {
   name: string
@@ -85,6 +85,18 @@ describe('glob over the workspace VFS', () => {
     expect(search.render('glob', { root: '.', paths: [] })).toBe('No files found')
   })
 
+  it.each(['[', 'a[b', '{a,b', 'a}', '{a,{b,c}}', 'x\\'])('rejects the malformed glob %s as ripgrep does', async pattern => {
+    const search = tools(workspace({ '/workspace/a.ts': 'a' }))
+    await expect(search.run('glob', { pattern })).rejects.toMatchObject({ code: 'SEARCH_INVALID_PATTERN' })
+    await expect(search.run('grep', { pattern: 'a', include: pattern })).rejects.toMatchObject({ code: 'SEARCH_INVALID_PATTERN' })
+  })
+
+  it('accepts escaped and closed glob syntax', async () => {
+    const search = tools(workspace({ '/workspace/[x].ts': 'a', '/workspace/b.ts': 'b' }))
+    expect(await search.run('glob', { pattern: '\\[x\\].ts' })).toEqual({ root: '.', paths: ['[x].ts'] })
+    expect(await search.run('glob', { pattern: '[]ab].ts' })).toEqual({ root: '.', paths: ['b.ts'] })
+  })
+
   it('refuses a walk beyond its entry cap', async () => {
     const files = Object.fromEntries(Array.from({ length: SEARCH_MAX_ENTRIES + 1 }, (_, index) => [`/workspace/f${String(index)}.txt`, '']))
     await expect(tools(workspace(files)).run('glob', { pattern: '*' })).rejects.toMatchObject({ code: 'SEARCH_RAW_OUTPUT_OVERFLOW' })
@@ -125,6 +137,13 @@ describe('grep over the workspace VFS', () => {
     const started = Date.now()
     expect(await search.run('grep', { pattern: '^(a+)+$' })).toEqual({ matches: [] })
     expect(Date.now() - started).toBeLessThan(5_000)
+  })
+
+  it('refuses to hold more matched text than its cap', async () => {
+    const line = `hit${'x'.repeat(1024 * 1024)}`
+    const files = Object.fromEntries(Array.from({ length: Math.ceil(GREP_MAX_COLLECTED_CHARS / line.length) + 1 },
+      (_, index) => [`/workspace/min${String(index)}.js`, `${line}\n`]))
+    await expect(tools(workspace(files)).run('grep', { pattern: 'hit' })).rejects.toMatchObject({ code: 'SEARCH_RAW_OUTPUT_OVERFLOW' })
   })
 
   it('refuses to collect more matches than its cap', async () => {
