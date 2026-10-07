@@ -156,6 +156,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # The release's publish job runs the full check on Windows; run it here
+      # so a Windows-only unit failure stops the PR, not the tagged release.
+      - name: Verify source contracts
+        run: pnpm run check
+
       - name: Verify durable-state and runtime parity
         run: node apps/dsh-edge/tests/run-session-integration.mjs
 
