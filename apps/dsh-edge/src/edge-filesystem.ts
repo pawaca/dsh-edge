@@ -70,6 +70,16 @@ function versionOf(mtime: number, size: number): FsVersion {
   return FsVersion(`${String(mtime)}:${String(size)}`)
 }
 
+/**
+ * A version is mtime:size, and the VFS stamps mtime in milliseconds. A write in
+ * the same millisecond as the one it replaces, at the same size, would keep the
+ * version and let a queued guarded write pass. Wait for a later millisecond.
+ */
+async function waitPastModification(vfs: EdgeVfs, path: string): Promise<void> {
+  const { mtime } = await vfs.stat(path)
+  while (Date.now() <= mtime) await new Promise(resolve => setTimeout(resolve, 1))
+}
+
 function entryType(entry: { isFile: boolean; isDirectory: boolean }): 'file' | 'directory' | 'other' {
   if (entry.isFile) return 'file'
   if (entry.isDirectory) return 'directory'
@@ -371,6 +381,7 @@ export class EdgeFileSystem extends FileSystem {
     }
     const parentDir = path.substring(0, path.lastIndexOf('/')) || '/'
     try { await vfs.mkdir(parentDir, { recursive: true }) } catch { /* already exists */ }
+    if (existing !== undefined) await waitPastModification(vfs, path)
     await vfs.writeFile(path, content)
     const after = await this.stat(target)
     const version = after?.version ?? versionOf(Date.now(), content.length)
@@ -417,6 +428,7 @@ export class EdgeFileSystem extends FileSystem {
     }
     const newNorm = normalizeLineEndings(edit.newString)
     const edited = original.split(oldNorm).join(newNorm)
+    await waitPastModification(vfs, path)
     await vfs.writeFile(path, edited)
     const afterInfo = await this.stat(target)
     const version = afterInfo?.version ?? versionOf(Date.now(), edited.length)

@@ -208,4 +208,36 @@ describe('guarded writes', () => {
       })
     } finally { await ctx.fiber.dispose() }
   })
+
+  it('changes the version of a same-size rewrite in the same millisecond', async () => {
+    const ctx = new Context()
+    await ctx.plugin(EdgeFileSystem)
+    const fs = ctx.fs as EdgeFileSystem
+    // Stamped like the Cloudflare VFS: wall-clock milliseconds; calls settle without a timer.
+    const files = new Map([['/workspace/same.txt', { content: 'aaaa', mtime: Date.now() }]])
+    const vfs = {
+      stat: async (path: string) => {
+        const file = files.get(path)
+        if (file === undefined) throw Object.assign(new Error('missing'), { code: 'ENOENT' })
+        return { size: file.content.length, mtime: file.mtime, isFile: true, isDirectory: false, isSymbolicLink: false }
+      },
+      readFile: async (path: string) => files.get(path)?.content ?? '',
+      writeFile: async (path: string, content: string) => { files.set(path, { content, mtime: Date.now() }) },
+      mkdir: async () => {},
+    }
+    try {
+      await fs.runInScope(vfs as never, '/workspace', async () => {
+        const target = await fs.resolve('same.txt')
+        const observed = await fs.stat(target)
+        const guard = { kind: 'replaceIfVersion', version: observed!.version } as const
+        const results = await Promise.allSettled([
+          fs.writeText(target, 'bbbb', guard),
+          fs.writeText(target, 'cccc', guard),
+        ])
+        expect(results[0].status).toBe('fulfilled')
+        expect(results[1]).toMatchObject({ status: 'rejected', reason: { code: 'FS_STALE_VERSION' } })
+        expect(files.get('/workspace/same.txt')?.content).toBe('bbbb')
+      })
+    } finally { await ctx.fiber.dispose() }
+  })
 })
