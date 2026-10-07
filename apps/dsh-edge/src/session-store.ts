@@ -2175,6 +2175,9 @@ export class EdgeSessionStore {
         input.onAdmitted?.(admission.admit)
       } else {
         await input.start()
+        // As after an admission: a Stop or deadline accepted while the call
+        // ran must also stop the work it just armed.
+        input.afterFollowup?.()
         if (agent.status !== 'idle' || this.goalRoundPending(agent)) input.onAdmitted?.(admission.admit)
       }
       while (true) {
