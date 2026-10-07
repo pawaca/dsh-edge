@@ -262,6 +262,8 @@ interface ActiveTurn {
   agent?: Agent
   cancelRequested: boolean
   accepting: boolean
+  /** Run work in this turn's workspace scope, so work it starts can use file tools. */
+  inScope?: <T>(run: () => Promise<T>) => Promise<T>
   wasAdmitted: boolean
   admit?: EdgeAgentPromptAdmitter
   admissionReady: Promise<void>
@@ -1442,7 +1444,8 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     // A turn still accepting work keeps any round the call starts. One that is
     // closing may release its workspace and observers before the round runs,
     // so claim a fresh turn once it has released.
-    if (active?.agent !== undefined && active.accepting) return invoke()
+    // A goal round the call starts must inherit the turn's workspace scope.
+    if (active?.agent !== undefined && active.accepting) return active.inScope === undefined ? invoke() : active.inScope(invoke)
     if (active !== undefined) await active.releaseComplete
     // Resolve configuration before taking the slot: an invalid setting throws
     // here instead of leaving the slot and the claimed turn held.
@@ -1989,15 +1992,9 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       publishQueue: input.publishQueue,
     })
     }
-    if (edgeFs !== undefined) {
-      await edgeFs.runInScope(
-        workspace.fs as never,
-        input.agent.session.header.cwd ?? '/workspace',
-        runTurn,
-      )
-    } else {
-      await runTurn()
-    }
+    const cwd = input.agent.session.header.cwd ?? '/workspace'
+    input.turn.inScope = edgeFs === undefined ? run => run() : run => edgeFs.runInScope(workspace.fs as never, cwd, run)
+    await input.turn.inScope(runTurn)
   }
 
   private cancelTurn(sessionId: SessionId, request: Request): Response {
