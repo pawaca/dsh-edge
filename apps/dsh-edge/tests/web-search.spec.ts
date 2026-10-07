@@ -90,6 +90,34 @@ describe('dsh-edge Web Search composition', () => {
     }
   })
 
+  it('starts with the deployment endpoint when a 0.18 card saved one today\'s check refuses', async () => {
+    const urls: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      urls.push(String(input instanceof Request ? input.url : input))
+      return new Response('{}', { status: 500 })
+    }))
+    const document = new Map<string, unknown>([['dsh-edge:settings-document', { 'web-search-deepseek': { baseURL: 'https://legacy.test/v1?token=1' } }]])
+    const storage = {
+      get: (key: string) => Promise.resolve(document.get(key)),
+      put: (key: string, value: unknown) => { document.set(key, value); return Promise.resolve() },
+      delete: () => Promise.resolve(true),
+    } as unknown as DurableObjectStorage
+    const ctx = new Context()
+    try {
+      await ctx.plugin(EdgeCredentialProvider, { storage, readDeepSeekApiKey: () => 'search-key' })
+      await ctx.plugin(EdgeSettings, { storage })
+      await ctx.plugin(SystemPrompt)
+      await ctx.plugin(ToolRuntime)
+      await installEdgeWebSearch(ctx, 'https://search.test/anthropic/v1')
+      await ctx.tools.execute({ signal: new AbortController().signal, callId: CallId('legacy'), name: 'web_search', arguments: { queries: ['edge'] } })
+      expect(urls[0]).toMatch(/^https:\/\/search\.test\/anthropic\/v1\//u)
+      expect(edgeSettings(ctx).describe().find(entry => entry.ns === WEB_SEARCH_SETTINGS_NAMESPACE)?.user).toBeUndefined()
+    } finally {
+      await ctx.fiber.dispose()
+      vi.unstubAllGlobals()
+    }
+  })
+
   it.each([
     'http://127.0.0.1:8787/private',
     'http://2130706433/private',

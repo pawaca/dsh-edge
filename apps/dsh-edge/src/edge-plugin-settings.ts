@@ -31,7 +31,7 @@ const AgentLoopSettings = z.object({
 
 /** Mount the agent loop on the `agent-loop` namespace its settings card edits. */
 export async function mountAgentLoop(ctx: Context): Promise<Fiber> {
-  const scope = edgeSettings(ctx).register(AGENT_LOOP_SETTINGS_NAMESPACE, AgentLoopSettings)
+  const scope = edgeSettings(ctx).register(AGENT_LOOP_SETTINGS_NAMESPACE, AgentLoopSettings, { discardInvalidSection: true })
   const input = (settings: unknown) => ({ ...settings as object, agents: [] })
   const fiber = ctx.plugin(AgentLoop, input(scope.get()) as never)
   await fiber.await()
@@ -55,6 +55,8 @@ export async function mountDeepSeekWebSearch(
   const scope = edgeSettings(ctx).register(WEB_SEARCH_SETTINGS_NAMESPACE, DeepSeekWebSearch.Config, {
     base: { baseURL } as never,
     validate: value => { validateBaseURL((value as { baseURL: string }).baseURL) },
+    // An endpoint the 0.18 card saved may fail today's check; it must not stop the runtime.
+    discardInvalidSection: true,
   })
   // The provider gets the endpoint in the form the deployment variable takes
   // (no trailing slash), whatever spelling the card saved.

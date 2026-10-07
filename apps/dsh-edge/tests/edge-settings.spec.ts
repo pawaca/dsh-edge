@@ -34,6 +34,28 @@ describe('EdgeSettings', () => {
     await ctx.fiber.dispose()
   })
 
+  it('drops a stored section that no longer validates when asked, and only then', async () => {
+    const schema = z.object({ endpoint: z.string().default('https://default.test') })
+    const validate = (value: { endpoint: string }) => {
+      if (value.endpoint.includes('?')) throw new Error('endpoint must not carry a query')
+    }
+    const storage = createMockStorage()
+    storage.store.set(SETTINGS_DOCUMENT_KEY, { search: { endpoint: 'https://old.test/?key=1' }, other: { kept: true } })
+
+    const strict = new Context()
+    await strict.plugin(EdgeSettings, { storage })
+    expect(() => edgeSettings(strict).register('search', schema, { validate })).toThrow(/query/u)
+    await strict.fiber.dispose()
+
+    const ctx = new Context()
+    await ctx.plugin(EdgeSettings, { storage })
+    const scope = edgeSettings(ctx).register('search', schema, { validate, discardInvalidSection: true })
+    expect(scope.get()).toEqual({ endpoint: 'https://default.test' })
+    await ctx.fiber.dispose()
+    // The stale override is gone from storage; other namespaces are untouched.
+    expect(storage.store.get(SETTINGS_DOCUMENT_KEY)).toEqual({ other: { kept: true } })
+  })
+
   it('loads empty state from fresh storage', async () => {
     const ctx = new Context()
     const storage = createMockStorage()
