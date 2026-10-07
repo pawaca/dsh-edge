@@ -273,7 +273,9 @@ function applyGrepTool(ctx: Context): void {
 async function searchScope(ctx: Context, exec: ToolExecution, path: string | undefined): Promise<SearchScope> {
   const fs = ctx.fs as unknown as EdgeFileSystem
   const { vfs, cwd } = fs.searchScope()
-  const workdir = exec.agent?.session.header.cwd ?? cwd
+  // Normalize the session cwd (`/workspace/./a/` is accepted) so display paths compare against the
+  // same spelling fs.resolve gives targets.
+  const workdir = String((await fs.resolve(exec.agent?.session.header.cwd ?? cwd, { cwd, signal: exec.signal })).targetKey)
   const target = await fs.resolve(path ?? workdir, { cwd: workdir, signal: exec.signal })
   return { vfs, workdir, root: String(target.targetKey) }
 }

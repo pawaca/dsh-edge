@@ -135,6 +135,12 @@ describe('glob over the workspace VFS', () => {
     expect(await search.run('glob', { pattern: '*.ts', path: '/data' })).toEqual({ root: '/data', paths: ['/data/b.ts'] })
   })
 
+  it.each(['/workspace/src/', '/workspace/./src'])('normalizes the session cwd %s before relativizing', async cwd => {
+    const search = tools(workspace({ '/workspace/src/a.ts': 'hit\n' }), cwd)
+    expect(await search.run('glob', { pattern: '*.ts' })).toEqual({ root: '.', paths: ['a.ts'] })
+    expect(await search.run('grep', { pattern: 'hit' })).toEqual({ matches: [{ path: 'a.ts', lineNumber: 1, line: 'hit' }] })
+  })
+
   it('refuses a walk beyond its entry cap without listing past it', async () => {
     const vfs = workspace(Object.fromEntries(Array.from({ length: SEARCH_MAX_ENTRIES + 50 }, (_, index) => [`/workspace/f${String(index)}.txt`, ''])))
     await expect(tools(vfs).run('glob', { pattern: '*' })).rejects.toMatchObject({ code: 'SEARCH_RAW_OUTPUT_OVERFLOW' })
