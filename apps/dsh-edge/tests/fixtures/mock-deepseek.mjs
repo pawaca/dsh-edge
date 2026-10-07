@@ -150,6 +150,16 @@ export async function startMockDeepSeek(port = 0) {
         return
       }
 
+      // Upstream compaction appends its instruction as the final user message; answer with a short checkpoint.
+      const finalMessage = messages.at(-1)
+      if (finalMessage?.role === 'user' && messageText(finalMessage).startsWith('You are now acting as a compaction engine')) {
+        sendEvents(response, [
+          { choices: [{ delta: { role: 'assistant', content: '## Goal\n- compact fixture' } }] },
+          { choices: [{ delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 8, completion_tokens: 3 } },
+        ])
+        return
+      }
+
       if (prompt.startsWith('[SCHEDULE REMINDER')) {
         sendEvents(response, [
           { choices: [{ delta: { role: 'assistant', content: 'schedule-delivered' } }] },

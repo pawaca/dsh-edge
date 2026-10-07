@@ -1368,7 +1368,12 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     if (interceptor === undefined) return edgeDispatch()
     try {
       // The gateway's own RPC path encodes results (byte values included) for the Connection wire.
-      const invoke = () => interceptor.dispatch(`${ns}/${method}`, payload ?? { args }, AbortSignal.timeout(30_000))
+      // A command may run model work (/compact summarizes the history), so it
+      // gets a turn's deadline and ends early only if the caller disconnects.
+      const deadline = ns === 'commands'
+        ? AbortSignal.any([request.signal, AbortSignal.timeout(MAIN_RUN_TIMEOUT_MS)])
+        : AbortSignal.timeout(30_000)
+      const invoke = () => interceptor.dispatch(`${ns}/${method}`, payload ?? { args }, deadline)
       // Agent-scoped commands (including /plan) use the same residency budget.
       // Their upstream lookup may otherwise leave a cold Agent permanently live.
       const result = ns === 'workspaceFiles'
