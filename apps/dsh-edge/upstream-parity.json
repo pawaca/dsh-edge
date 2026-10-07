@@ -149,11 +149,6 @@
       "status": "substitute",
       "reason": "EdgeFileReferenceService in edge-file-reference.ts over the Computer VFS."
     },
-    "@deepseek-ai/dsh-fs-observation-policy": {
-      "status": "gap",
-      "reason": "Read-before-write and changed-since-read guards for the file tools; matters more now that container commands also change /workspace.",
-      "priority": "P1"
-    },
     "@deepseek-ai/dsh-fs-sandbox": {
       "status": "not-applicable",
       "reason": "Host-OS process sandboxing, subprocesses, and shell environment."

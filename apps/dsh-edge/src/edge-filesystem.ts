@@ -70,6 +70,16 @@ function versionOf(mtime: number, size: number): FsVersion {
   return FsVersion(`${String(mtime)}:${String(size)}`)
 }
 
+/**
+ * A version is mtime:size, and the VFS stamps mtime in milliseconds. A write in
+ * the same millisecond as the one it replaces, at the same size, would keep the
+ * version and let a queued guarded write pass. Wait for a later millisecond.
+ */
+async function waitPastModification(vfs: EdgeVfs, path: string): Promise<void> {
+  const { mtime } = await vfs.stat(path)
+  while (Date.now() <= mtime) await new Promise(resolve => setTimeout(resolve, 1))
+}
+
 function entryType(entry: { isFile: boolean; isDirectory: boolean }): 'file' | 'directory' | 'other' {
   if (entry.isFile) return 'file'
   if (entry.isDirectory) return 'directory'
@@ -85,6 +95,12 @@ function pathType(entry: { isFile: boolean; isDirectory: boolean; isSymbolicLink
 
 export class EdgeFileSystem extends FileSystem {
   private static storage = new AsyncLocalStorage<{ vfs: EdgeVfs; cwd: string }>()
+  /** Per-target tail promise, as in upstream's LocalFileSystem: a guarded write's
+   * stat → version check → write cannot interleave with another write or edit of
+   * the same file, so one wins and the rest see its version and fail as stale.
+   * Shell and container writers do not take this lock, as shell commands bypass
+   * upstream's; their changes are caught when the next guarded write checks. */
+  private readonly locks = new Map<string, Promise<void>>()
 
   constructor(ctx: Context) {
     super(ctx)
@@ -331,7 +347,16 @@ export class EdgeFileSystem extends FileSystem {
     }
   }
 
-  async writeText(
+  writeText(
+    target: FsTarget,
+    content: string,
+    expected?: FsWriteIntent,
+    signal?: AbortSignal,
+  ): Promise<FsWriteOutcome> {
+    return this.withLock(target.targetKey, () => this.writeTextLocked(target, content, expected, signal))
+  }
+
+  private async writeTextLocked(
     target: FsTarget,
     content: string,
     expected?: FsWriteIntent,
@@ -356,6 +381,7 @@ export class EdgeFileSystem extends FileSystem {
     }
     const parentDir = path.substring(0, path.lastIndexOf('/')) || '/'
     try { await vfs.mkdir(parentDir, { recursive: true }) } catch { /* already exists */ }
+    if (existing !== undefined) await waitPastModification(vfs, path)
     await vfs.writeFile(path, content)
     const after = await this.stat(target)
     const version = after?.version ?? versionOf(Date.now(), content.length)
@@ -368,7 +394,16 @@ export class EdgeFileSystem extends FileSystem {
     }
   }
 
-  async editText(
+  editText(
+    target: FsTarget,
+    edit: FsEditRequest,
+    expected?: { version: FsVersion },
+    signal?: AbortSignal,
+  ): Promise<FsEditOutcome> {
+    return this.withLock(target.targetKey, () => this.editTextLocked(target, edit, expected, signal))
+  }
+
+  private async editTextLocked(
     target: FsTarget,
     edit: FsEditRequest,
     expected?: { version: FsVersion },
@@ -393,10 +428,22 @@ export class EdgeFileSystem extends FileSystem {
     }
     const newNorm = normalizeLineEndings(edit.newString)
     const edited = original.split(oldNorm).join(newNorm)
+    await waitPastModification(vfs, path)
     await vfs.writeFile(path, edited)
     const afterInfo = await this.stat(target)
     const version = afterInfo?.version ?? versionOf(Date.now(), edited.length)
     this.ctx.emit('fs/observed', target, { kind: 'present', version }, undefined)
     return { version, before: original, after: edited }
+  }
+
+  private async withLock<T>(key: string, op: () => Promise<T>): Promise<T> {
+    const run = (this.locks.get(key) ?? Promise.resolve()).then(op, op)
+    const tail = run.then(() => undefined, () => undefined)
+    this.locks.set(key, tail)
+    try {
+      return await run
+    } finally {
+      if (this.locks.get(key) === tail) this.locks.delete(key)
+    }
   }
 }
