@@ -1443,12 +1443,11 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
    */
   private async withAgentTurn<T>(sessionId: SessionId, invoke: () => Promise<T>): Promise<T> {
     const active = this.activeTurns.get(sessionId)
-    // A turn still accepting work keeps any round the call starts. One that is
-    // closing may release its workspace and observers before the round runs,
-    // so claim a fresh turn once it has released.
-    // A goal round the call starts must inherit the turn's workspace scope,
-    // and the turn stays open until the call settles (it may arm the goal
-    // after the current activity ends).
+    // A turn still accepting work keeps any round the call starts: the call
+    // runs in the turn's workspace scope, and the turn stays open until it
+    // settles (it may arm the goal after the current activity ends). A turn
+    // that is closing may drop its workspace and observers before a round
+    // runs, so the call is refused as busy below and the client retries it.
     if (active?.agent !== undefined && active.accepting) {
       const call = active.inScope === undefined ? invoke() : active.inScope(invoke)
       const joined = active.joined ??= new Set()
@@ -1457,7 +1456,6 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       call.then(settled, settled)
       return call
     }
-    if (active !== undefined) await active.releaseComplete
     // Resolve configuration before taking the slot: an invalid setting throws
     // here instead of leaving the slot and the claimed turn held.
     const { commandTimeoutPolicy } = resolveEdgeDeploymentConfig(this.env)
