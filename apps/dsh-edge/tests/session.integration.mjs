@@ -2068,6 +2068,21 @@ try {
     message.role === 'user' && JSON.stringify(message.content).includes('repeating the exact same tool call'))),
   'the reminder reaches the model in the next request')
 
+  // Upstream's retry executor recovers a transient model failure inside the same turn: one 429
+  // with Retry-After, then the retried step answers. The retry is durable before its wait.
+  const llmRetrySessionId = (await rpc('session.create', {})).body.result.value.sessionId
+  const llmRetryRequestsBefore = mock.requests.length
+  const llmRetryEvents = await turn(llmRetrySessionId, 'rate limited once')
+  assert.equal(assistantText(llmRetryEvents), 'retry-finished', JSON.stringify(llmRetryEvents.map(event => event.type)))
+  assert.equal(llmRetryEvents.filter(event => event.type === 'turn/start').length, 1)
+  const llmRetries = llmRetryEvents.filter(event => event.type === 'llm/retry')
+  assert.equal(llmRetries.length, 1)
+  assert.equal(llmRetries[0].data.failure.code, 'RATE_LIMIT')
+  assert.equal(llmRetryEvents.filter(event => event.type === 'llm/retry-started').length, 1)
+  assert.ok(llmRetryEvents.findIndex(event => event.type === 'llm/retry')
+    < llmRetryEvents.findIndex(event => event.type === 'llm/retry-started'))
+  assert.equal(mock.requests.slice(llmRetryRequestsBefore).filter(request => chatMessages(request).some(message =>
+    message.role === 'user' && messageTextOf(message) === 'rate limited once')).length, 2)
   process.stdout.write(`dsh-edge ${runtimeMode} session integration passed\n`)
 } finally {
   mock.releaseSlowResponses()
