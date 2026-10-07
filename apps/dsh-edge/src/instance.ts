@@ -1443,6 +1443,9 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     // so claim a fresh turn once it has released.
     if (active?.agent !== undefined && active.accepting) return invoke()
     if (active !== undefined) await active.releaseComplete
+    // Resolve configuration before taking the slot: an invalid setting throws
+    // here instead of leaving the slot and the claimed turn held.
+    const { commandTimeoutPolicy } = resolveEdgeDeploymentConfig(this.env)
     if (this.mainDriving || this.activeTurns.size > 0) throw new EdgeSessionStoreError('BUSY', 'The main slot is occupied; retry this command after the current turn.')
     this.mainDriving = true
     let claimed: { sessionId: SessionId; turn: ActiveTurn; handle: AgentHandle }
@@ -1453,7 +1456,6 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       this.kickMain()
       throw error
     }
-    const { commandTimeoutPolicy } = resolveEdgeDeploymentConfig(this.env)
     let settle!: (outcome: { ok: true; value: T } | { ok: false; error: unknown }) => void
     const outcome = new Promise<{ ok: true; value: T } | { ok: false; error: unknown }>(resolve => { settle = resolve })
     const timer = setTimeout(() => {
