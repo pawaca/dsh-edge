@@ -131,7 +131,7 @@ import {
 import { installEdgeApprovalPolicy, type EdgeApprovalMode, type EdgeApprovalSettings } from './approval-policy.ts'
 import { installEdgeRuntimeSettings, type EdgeRuntimeSettings } from './runtime-settings.ts'
 import { installEdgeWebSearch } from './web-search.ts'
-import { DurableEventDeliveryQueue } from './durable-event-delivery.ts'
+import { DurableEventDeliveryQueue, ImmediateFlushLimiter } from './durable-event-delivery.ts'
 
 const DEFAULT_WRITE_BATCH_MAX_DELAY_MS = 100
 const MAX_TITLE_BYTES = 640
@@ -301,6 +301,7 @@ export class EdgeSessionStore {
   private readonly modelSelections: EdgeModelSelectionBridge
   private readonly turnPublishedAgents = new WeakSet<Agent>()
   private readonly lateEventDeliveries = new Map<SessionId, LateDeliveryState>()
+  private readonly titleFlushLimiter = new ImmediateFlushLimiter<SessionId>(DEFAULT_WRITE_BATCH_MAX_DELAY_MS)
   private readonly activeEventDeliveries = new WeakMap<Session, DurableEventDeliveryQueue<TurnDeliveryItem>>()
   private readonly unsettledEventDeliveries = new Set<StableDeliveryQueue>()
   private readonly baselineOwnedSessions = new WeakSet<Session>()
@@ -758,7 +759,13 @@ export class EdgeSessionStore {
         }
         state.tail.seq = session.seq
         this.unsettledEventDeliveries.add(state.queue)
-        state.queue.enqueue(event)
+        // The session list reads a new title from memory before this batch is
+        // durable; flush it now so a restart cannot revert a shown title (#253).
+        // One immediate flush per session and window, so rapid renames, even
+        // serial ones whose queue went idle between them, still coalesce.
+        state.queue.enqueue(event, {
+          immediate: event.type === 'session/title' && this.titleFlushLimiter.take(session.id),
+        })
       })
     }
     if (config.onProjectionChanged !== undefined) {

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { DurableEventDeliveryQueue } from '../src/durable-event-delivery.ts'
+import { DurableEventDeliveryQueue, ImmediateFlushLimiter } from '../src/durable-event-delivery.ts'
 
 describe('durable event delivery queue', () => {
   afterEach(() => vi.useRealTimers())
@@ -24,6 +24,53 @@ describe('durable event delivery queue', () => {
     expect(flush).toHaveBeenCalledTimes(1)
     expect(deliver).toHaveBeenCalledTimes(1)
     expect(order).toEqual(['flush', 'deliver:1,2,3'])
+  })
+
+  it('flushes an immediate item, with the batch already waiting, without the short window', async () => {
+    vi.useFakeTimers()
+    const flush = vi.fn()
+    const deliver = vi.fn()
+    const queue = new DurableEventDeliveryQueue({ maxDelayMs: 200, flush, deliver })
+
+    queue.enqueue(1)
+    queue.enqueue(2, { immediate: true })
+    // No timer advance: the durable flush starts at once and covers the waiting item too.
+    await vi.advanceTimersByTimeAsync(0)
+    expect(flush).toHaveBeenCalledTimes(1)
+    expect(deliver).toHaveBeenCalledWith([1, 2])
+
+    // The cancelled window does not flush again later.
+    await vi.advanceTimersByTimeAsync(200)
+    expect(flush).toHaveBeenCalledTimes(1)
+  })
+
+  it('allows one immediate flush per key and window, across queues that went idle', async () => {
+    let now = 1_000
+    const limiter = new ImmediateFlushLimiter<string>(100, () => now)
+    const flushes: string[] = []
+    // A fresh queue per rename models the store dropping an idle queue between serial requests.
+    const rename = async (session: string) => {
+      const queue = new DurableEventDeliveryQueue({ maxDelayMs: 100, flush: () => { flushes.push(session) }, deliver: () => {} })
+      queue.enqueue(session, { immediate: limiter.take(session) })
+      return queue
+    }
+
+    vi.useFakeTimers()
+    const first = await rename('a')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(flushes).toEqual(['a'])
+    now += 40
+    const second = await rename('a')
+    await vi.advanceTimersByTimeAsync(0)
+    // Within the window: no second immediate flush, the item waits for the batch window.
+    expect(flushes).toEqual(['a'])
+    expect(limiter.take('b')).toBe(true)
+    await vi.advanceTimersByTimeAsync(100)
+    await Promise.all([first.drain(), second.drain()])
+    expect(flushes).toEqual(['a', 'a'])
+
+    now += 100
+    expect(limiter.take('a')).toBe(true)
   })
 
   it('reports idle only after the durable batch has been delivered', async () => {
