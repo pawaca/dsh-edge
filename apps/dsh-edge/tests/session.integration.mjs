@@ -864,6 +864,10 @@ try {
   // plan mode from the next accepted step.
   const planCommands = await rpc('commands/list', { args: { agentId: sessionId } })
   assert.deepEqual(planCommands.body.result.value, [{
+    definitionId: '@deepseek-ai/dsh-command-compact',
+    description: 'Compact older conversation history',
+    name: 'compact',
+  }, {
     definitionId: '@deepseek-ai/dsh-plan-mode',
     name: 'plan',
     description: 'Enter or leave plan mode',
@@ -1109,7 +1113,7 @@ try {
     args: { agentId: protocolSessionId },
   })
   assert.equal(commandCatalog.body.result.ok, true)
-  assert.deepEqual(commandCatalog.body.result.value.map(command => command.name), ['plan'])
+  assert.deepEqual(commandCatalog.body.result.value.map(command => command.name), ['compact', 'plan'])
   assert.equal(commandCatalog.response.headers.get('access-control-allow-origin'), '*')
   assert.doesNotMatch(
     commandCatalog.response.headers.get('access-control-expose-headers') ?? '',
@@ -2186,6 +2190,24 @@ try {
   assert.equal(afterSave['agent-loop'].maxParallelToolCalls, 2)
   assert.equal(afterSave['web-search-deepseek'].maxUses, 2)
   assert.equal(afterSave['web-search-deepseek'].baseURL, searchBase)
+  // Upstream's /compact runs through the command runtime; a fresh session has nothing to compact.
+  const commandSessionId = (await rpc('session.create', {})).body.result.value.sessionId
+  const runCommand = async line => {
+    const response = await rpc('commands/execute', { args: { agentId: commandSessionId, line, submittedAttachments: [] } })
+    assert.equal(response.body.result.ok, true, JSON.stringify(response.body))
+    return response.body.result.value.result
+  }
+  assert.deepEqual(await runCommand('/compact'), { kind: 'success', text: 'No compactable history yet.' })
+  assert.deepEqual(await runCommand('/compact now'), { kind: 'error', text: 'Usage: /compact (no arguments)' })
+  // With history, /compact makes a model request for the summary and stores it like a turn's events.
+  // Each prompt outweighs the summary's fixed framing, so the summary is smaller than what it replaces.
+  for (const label of ['one', 'two']) await turn(commandSessionId, `compact fixture ${label}: ${'padding words '.repeat(600)}`)
+  const compacted = await runCommand('/compact')
+  assert.equal(compacted.kind, 'success', JSON.stringify(compacted))
+  assert.match(compacted.text, /^Compacted [1-9]\d* history items/u)
+  // Upstream saves the session before the command answers, so the summary is already stored.
+  const storedSummary = await request(`/api/sessions/${commandSessionId}/events?after=${compacted.sourceEventSeq - 1}&limit=1`)
+  assert.equal(parseEvents(await storedSummary.text())[0]?.seq, compacted.sourceEventSeq)
   process.stdout.write(`dsh-edge ${runtimeMode} session integration passed\n`)
 } finally {
   mock.releaseSlowResponses()

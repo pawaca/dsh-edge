@@ -75,6 +75,7 @@ import * as AgentInstructions from '@deepseek-ai/dsh-agent-instructions'
 import * as GoalRoundDriver from '@deepseek-ai/dsh-goal-round-driver'
 import GoalService from '@deepseek-ai/dsh-goal'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
+import * as CommandCompact from '@deepseek-ai/dsh-command-compact'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
 import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
 import PluginInventoryGateway from '@deepseek-ai/dsh-host-plugin-inventory'
@@ -667,6 +668,8 @@ export class EdgeSessionStore {
     // tool touches into nested directories.
     await this.context.plugin(AgentInstructions, { maxBytes: 65_536, dshHome: '/.dsh' })
     await this.context.plugin(GoalRoundDriver)
+    // As upstream: /compact compacts the session's history now.
+    await this.context.plugin(CommandCompact)
     // Upstream estimates 4 bytes per token (50,000 bytes became 12,500 tokens); keep the Edge's 32 KiB budget.
     await this.context.plugin(SpillPolicy, { maxInlineTokens: 8_192 })
     await installEdgeWebSearch(this.context, config.searchBaseURL)
