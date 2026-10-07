@@ -35,7 +35,6 @@ minimumReleaseAgeExclude:
   - '@deepseek-ai/dsh-ptc-runtime@0.2.0-rc.2'
   - '@deepseek-ai/dsh-commands@0.2.0-rc.2'
   - '@deepseek-ai/dsh-session-stats@0.2.0-rc.2'
-  - '@deepseek-ai/dsh-session-turn-outline@0.2.0-rc.2'
   - '@deepseek-ai/dsh-compaction@0.2.0-rc.2'
   - '@deepseek-ai/dsh-cordis-host-runner@0.2.0-rc.2'
   - '@deepseek-ai/dsh-credentials@0.2.0-rc.2'
