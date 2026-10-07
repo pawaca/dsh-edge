@@ -57,6 +57,7 @@ import * as FirstPromptTitle from '@deepseek-ai/dsh-session-title-first-prompt-l
 import BasicCompactionEngine from '@deepseek-ai/dsh-compaction-basic'
 import * as RepeatToolReminder from '@deepseek-ai/dsh-repeat-tool-reminder'
 import * as LlmRetry from '@deepseek-ai/dsh-llm-retry'
+import * as SessionCheckpointPolicy from '@deepseek-ai/dsh-session-checkpoint-policy'
 import ToolResultPruner from '@deepseek-ai/dsh-compaction-tool-result-pruner'
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import * as SpillPolicy from '@deepseek-ai/dsh-spill-policy'
@@ -436,6 +437,10 @@ export class EdgeSessionStore {
     // step, durably logged before each backoff. The DeepSeek provider's
     // default normal-mode policy applies: five retries, 0.5–10 s backoff.
     await this.context.plugin(LlmRetry)
+    // As in upstream's base bundle: store the session log before each model
+    // request, each top-level tool call, and each step, so a tool never runs
+    // before its call is durable. Turn delivery alone flushes up to 100 ms later.
+    await this.context.plugin(SessionCheckpointPolicy)
     // ctx.userQuestions: the upstream answerer waterfall tools and plan mode
     // ask through. The browser answers it over the forwarded `$events` stream.
     await this.context.plugin(UserQuestionService)

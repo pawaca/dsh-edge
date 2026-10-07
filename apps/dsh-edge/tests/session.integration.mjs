@@ -930,7 +930,9 @@ try {
     const workflowEvents = await turn(sessionId, 'run a workflow over the items')
     // Guard DO write amplification: the parent's progress events and each
     // child's streamed turn must persist in a few append batches, not one
-    // write per progress event or delta.
+    // write per progress event or delta. The parent's 30 events take 7 batches
+    // locally and 9 on the Windows runner, including upstream's checkpoints
+    // before its 2 model requests and its workflow call; one per event is 30.
     const revisionsAfterWorkflow = sessionRevisions()
     const parentWorkflowBatches = revisionsAfterWorkflow.get(sessionId).revision
       - revisionsBeforeWorkflow.get(sessionId).revision
@@ -938,7 +940,7 @@ try {
       .filter(([id, row]) => row.parentSession === sessionId && !revisionsBeforeWorkflow.has(id))
     assert.equal(workflowChildren.length, 5)
     const childWorkflowBatches = workflowChildren.map(([, row]) => row.revision)
-    assert.ok(parentWorkflowBatches <= 8, `Workflow turn caused ${parentWorkflowBatches} parent persistence batches`)
+    assert.ok(parentWorkflowBatches <= 10, `Workflow turn caused ${parentWorkflowBatches} parent persistence batches`)
     for (const batches of childWorkflowBatches) {
       assert.ok(batches <= 6, `Workflow child caused ${batches} persistence batches`)
     }
@@ -2067,6 +2069,10 @@ try {
   assert.ok(mock.requests.slice(repeatRequestsBefore).some(request => chatMessages(request).some(message =>
     message.role === 'user' && JSON.stringify(message.content).includes('repeating the exact same tool call'))),
   'the reminder reaches the model in the next request')
+  // Upstream's checkpoint policy stores the log before each of the 4 model requests and 3 bash
+  // calls, so this fast turn cannot share a few 100 ms delivery windows (4 batches without it).
+  const repeatBatches = sessionEventStorageStats(repeatSessionId).writeBatches
+  assert.ok(repeatBatches >= 7, `checkpointed tool turn used only ${repeatBatches} write batches`)
 
   // Upstream's retry executor recovers a transient model failure inside the same turn: one 429
   // with Retry-After, then the retried step answers. The retry is durable before its wait.

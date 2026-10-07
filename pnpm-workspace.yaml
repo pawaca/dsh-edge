@@ -53,6 +53,7 @@ minimumReleaseAgeExclude:
   - '@deepseek-ai/dsh-repeat-tool-reminder@0.2.0-rc.2'
   - '@deepseek-ai/dsh-sandbox-policy@0.2.0-rc.2'
   - '@deepseek-ai/dsh-scope@0.2.0-rc.2'
+  - '@deepseek-ai/dsh-session-checkpoint-policy@0.2.0-rc.2'
   - '@deepseek-ai/dsh-session-format-catalog@0.2.0-rc.2'
   - '@deepseek-ai/dsh-session-format-v0-to-v1@0.2.0-rc.2'
   - '@deepseek-ai/dsh-session-format-v1-to-v2@0.2.0-rc.2'

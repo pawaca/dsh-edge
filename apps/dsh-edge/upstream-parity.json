@@ -215,11 +215,6 @@
       "status": "not-applicable",
       "reason": "Host-OS process sandboxing, subprocesses, and shell environment."
     },
-    "@deepseek-ai/dsh-session-checkpoint-policy": {
-      "status": "gap",
-      "reason": "Durable checkpoints before model requests and side-effecting tools. Evaluate first: the Edge drains events on session/flush, and it is not confirmed that this always precedes tool side effects.",
-      "priority": "P1"
-    },
     "@deepseek-ai/dsh-session-log-deepseek": {
       "status": "declined",
       "reason": "Attach session logs or the plugin inventory to official DeepSeek API requests; opt-in upstream and a privacy decision."
