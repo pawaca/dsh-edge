@@ -9,7 +9,7 @@
  */
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, readdirSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -248,8 +248,12 @@ try {
   assert.equal(ready.status, 200, await ready.text())
   const bootMs = Date.now() - bootStarted
   const health = await json('/api/health')
-  // A release on the same Harness baseline (0.19.3 → 0.20.0-alpha.1) is still an upgrade to probe.
-  assert.equal(typeof health.upstreamVersion, 'string')
+  // The candidate must be this checkout's build, not a stale promoted artifact; a release on the
+  // same Harness baseline (0.19.3 → 0.20.0-alpha.1) is still an upgrade to probe.
+  const candidatePackage = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
+  assert.equal(health.version, candidatePackage.version)
+  assert.notEqual(health.version, previousHealth.version)
+  assert.equal(health.upstreamVersion, candidatePackage.dshEdge.upstreamVersion)
   pass(`candidate on Harness ${health.upstreamVersion} boots on ${from} (Harness ${previousHealth.upstreamVersion}) state in ${bootMs} ms, including migration`)
 
   const listed = (await rpc('session.list', {})).items
