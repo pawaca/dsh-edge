@@ -268,6 +268,7 @@ minimumReleaseAgeExclude:
   - '@deepseek-ai/dsh-workspace-changes@0.2.0-rc.2'
 
 patchedDependencies:
+  '@cloudflare/computer@0.3.1': patches/@cloudflare__computer@0.3.1.patch
   '@deepseek-ai/dsh-api-gateway@0.2.0-rc.2': patches/@deepseek-ai__dsh-api-gateway@0.2.0-rc.2.patch
   '@deepseek-ai/dsh-api-session-controller@0.2.0-rc.2': patches/@deepseek-ai__dsh-api-session-controller@0.2.0-rc.2.patch
   '@deepseek-ai/dsh-llm@0.2.0-rc.2': patches/@deepseek-ai__dsh-llm@0.2.0-rc.2.patch
