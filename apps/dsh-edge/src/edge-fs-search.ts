@@ -135,7 +135,7 @@ function applyGlobTool(ctx: Context): void {
       assertValidGlob('glob', input.pattern)
       const scope = await searchScope(ctx, exec, input.path)
       const root = input.path === undefined ? '.' : toWorkdirRelative(input.path, scope.workdir)
-      const files = await listFiles(scope, 'glob', skipVcs)
+      const files = await listFiles(scope, 'glob', skipVcs, exec.signal)
       const matched = files.filter(file => globMatches(input.pattern, relativeTo(file.path, scope.root)))
       // ripgrep's --sort=modified: oldest first, the path breaking ties.
       matched.sort((left, right) => left.mtime - right.mtime || (left.path < right.path ? -1 : left.path > right.path ? 1 : 0))
@@ -225,11 +225,11 @@ function applyGrepTool(ctx: Context): void {
       }
       if (input.include !== undefined) assertValidGlob('grep', input.include)
       const scope = await searchScope(ctx, exec, input.path)
-      const files = await listFiles(scope, 'grep', skipVcsAndHidden)
+      const files = await listFiles(scope, 'grep', skipVcsAndHidden, exec.signal)
       const matches: GrepMatch[] = []
       let collectedChars = 0
       for (const { path } of files) {
-        if (exec.signal.aborted) throw new SearchError('grep aborted', 'SEARCH_ABORTED', { cause: exec.signal.reason })
+        throwIfAborted('grep', exec.signal)
         if (input.include !== undefined && path !== scope.root && !globMatches(input.include, relativeTo(path, scope.root))) continue
         const text = await readTextFile(scope.vfs, path)
         if (text === undefined) continue
@@ -281,10 +281,17 @@ async function searchScope(ctx: Context, exec: ToolExecution, path: string | und
 /**
  * Every file under the search root (or the root itself when it is a file),
  * depth-first in name order, with the mtime its directory listing reports.
- * A skipped directory is not entered. Fails once the walk lists more than
- * {@link SEARCH_MAX_ENTRIES} entries.
+ * A skipped directory is not entered. Each listing asks for at most the
+ * remaining budget plus one entry, so the walk fails once it would pass
+ * {@link SEARCH_MAX_ENTRIES} without reading further rows, and it stops at
+ * the next listing once the call is cancelled or times out.
  */
-async function listFiles(scope: SearchScope, toolName: string, skip: (name: string) => boolean): Promise<WalkedFile[]> {
+async function listFiles(
+  scope: SearchScope,
+  toolName: string,
+  skip: (name: string) => boolean,
+  signal: AbortSignal,
+): Promise<WalkedFile[]> {
   let info
   try {
     info = await scope.vfs.stat(scope.root)
@@ -295,7 +302,9 @@ async function listFiles(scope: SearchScope, toolName: string, skip: (name: stri
   const files: WalkedFile[] = []
   let listed = 0
   const visit = async (directory: string): Promise<void> => {
-    const entries = await scope.vfs.readdir(directory)
+    throwIfAborted(toolName, signal)
+    const entries = await scope.vfs.readdir(directory, { limit: SEARCH_MAX_ENTRIES - listed + 1 })
+    throwIfAborted(toolName, signal)
     listed += entries.length
     if (listed > SEARCH_MAX_ENTRIES) {
       throw new SearchError(`${toolName} would walk more than ${String(SEARCH_MAX_ENTRIES)} entries under ${scope.root}; narrow path`, 'SEARCH_RAW_OUTPUT_OVERFLOW')
@@ -344,15 +353,20 @@ async function readTextFile(vfs: EdgeVfs, path: string): Promise<string | undefi
   return new TextDecoder().decode(bytes)
 }
 
+function throwIfAborted(toolName: string, signal: AbortSignal): void {
+  if (signal.aborted) throw new SearchError(`${toolName} aborted`, 'SEARCH_ABORTED', { cause: signal.reason })
+}
+
 function relativeTo(path: string, root: string): string {
   if (path === root) return path.slice(path.lastIndexOf('/') + 1)
   return path.startsWith(`${root}/`) ? path.slice(root.length + 1) : root === '/' ? path.slice(1) : path
 }
 
 /**
- * Reject the glob syntax ripgrep's globset refuses (an unclosed character
- * class or alternate group, a nested or unopened group, a dangling escape),
- * which minimatch would otherwise read as literal text and match nothing.
+ * Reject the glob syntax ripgrep 15's globset refuses (an unclosed character
+ * class, a reversed range, an unclosed or unopened alternate group, a
+ * dangling escape), which minimatch would otherwise read as literal text or
+ * an empty class and match nothing. Nested alternates are valid in ripgrep 15.
  */
 function assertValidGlob(toolName: string, pattern: string): void {
   const reject = (reason: string): never => {
@@ -365,14 +379,8 @@ function assertValidGlob(toolName: string, pattern: string): void {
       if (index + 1 >= pattern.length) reject('dangling \'\\\'')
       index++
     } else if (char === '[') {
-      let end = index + 1
-      if (pattern[end] === '!' || pattern[end] === '^') end++
-      if (pattern[end] === ']') end++
-      end = pattern.indexOf(']', end)
-      if (end === -1) reject('unclosed character class; missing \']\'')
-      index = end
+      index = classEnd(pattern, index, reject)
     } else if (char === '{') {
-      if (groupDepth > 0) reject('nested alternate groups are not allowed')
       groupDepth++
     } else if (char === '}') {
       if (groupDepth === 0) reject('unopened alternate group; missing \'{\'')
@@ -380,6 +388,27 @@ function assertValidGlob(toolName: string, pattern: string): void {
     }
   }
   if (groupDepth > 0) reject('unclosed alternate group; missing \'}\'')
+}
+
+/** The index of the `]` closing the class opened at `start`, rejecting reversed ranges. */
+function classEnd(pattern: string, start: number, reject: (reason: string) => never): number {
+  let index = start + 1
+  if (pattern[index] === '!' || pattern[index] === '^') index++
+  // A `]` right after the opening (or negation) is a literal member.
+  let first = true
+  while (index < pattern.length) {
+    const char = pattern[index]!
+    if (char === ']' && !first) return index
+    first = false
+    const upper = pattern[index + 2]
+    if (pattern[index + 1] === '-' && upper !== undefined && upper !== ']') {
+      if (upper.codePointAt(0)! < char.codePointAt(0)!) reject(`invalid range; '${char}' > '${upper}'`)
+      index += 3
+    } else {
+      index++
+    }
+  }
+  return reject('unclosed character class; missing \']\'')
 }
 
 /** ripgrep glob rules: hidden names match, and a pattern with no `/` matches the basename at any depth. */

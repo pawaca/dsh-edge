@@ -12,7 +12,7 @@ function workspace(files: Record<string, string | { content: string; mtime: numb
   const entries = new Map(Object.entries(files).map(([path, value], index) =>
     [path, typeof value === 'string' ? { content: value, mtime: index + 1 } : value]))
   const isDirectory = (path: string) => [...entries.keys()].some(file => file.startsWith(`${path}/`))
-  const calls = { stat: 0, readdir: 0 }
+  const calls = { stat: 0, readdir: 0, widest: 0 }
   const encoder = new TextEncoder()
   return {
     calls,
@@ -25,7 +25,7 @@ function workspace(files: Record<string, string | { content: string; mtime: numb
       if (isDirectory(path)) return { size: 0, mtime: 0, isFile: false, isDirectory: true, isSymbolicLink: false }
       throw Object.assign(new Error('missing'), { code: 'ENOENT' })
     },
-    async readdir(directory: string) {
+    async readdir(directory: string, options?: { limit?: number }) {
       calls.readdir++
       const children = new Map<string, { size: number; mtime: number; isFile: boolean; isDirectory: boolean }>()
       for (const [path, file] of entries) {
@@ -35,7 +35,9 @@ function workspace(files: Record<string, string | { content: string; mtime: numb
           ? { size: file.content.length, mtime: file.mtime, isFile: true, isDirectory: false }
           : { size: 0, mtime: 0, isFile: false, isDirectory: true })
       }
-      return [...children].reverse().map(([name, info]) => ({ name, ...info }))
+      const listed = [...children].sort(([left], [right]) => left < right ? -1 : 1).slice(0, options?.limit)
+      calls.widest = Math.max(calls.widest, listed.length)
+      return listed.map(([name, info]) => ({ name, ...info }))
     },
     async readFile(path: string) {
       const bytes = encoder.encode(entries.get(path)!.content)
@@ -51,7 +53,7 @@ function workspace(files: Record<string, string | { content: string; mtime: numb
   }
 }
 
-function tools(vfs: ReturnType<typeof workspace>, cwd = '/workspace') {
+function tools(vfs: ReturnType<typeof workspace>, cwd = '/workspace', signal = new AbortController().signal) {
   const registered = new Map<string, Tool>()
   const resolve = (path: string, base: string) => {
     const joined = path.startsWith('/') ? path : `${base}/${path}`
@@ -73,7 +75,7 @@ function tools(vfs: ReturnType<typeof workspace>, cwd = '/workspace') {
     },
   }
   apply(ctx as never)
-  const exec = { signal: new AbortController().signal, agent: { session: { header: { cwd } } } }
+  const exec = { signal, agent: { session: { header: { cwd } } } }
   return {
     run: (name: string, args: Record<string, unknown>) => registered.get(name)!.execute(args, exec),
     render: (name: string, value: unknown) => registered.get(name)!.output.render({}, value as never)[0]!.text,
@@ -100,7 +102,7 @@ describe('glob over the workspace VFS', () => {
     expect(search.render('glob', { root: '.', paths: [] })).toBe('No files found')
   })
 
-  it.each(['[', 'a[b', '{a,b', 'a}', '{a,{b,c}}', 'x\\'])('rejects the malformed glob %s as ripgrep does', async pattern => {
+  it.each(['[', 'a[b', '{a,b', 'a}', '{a,{b,c}', '[z-a].ts', 'x\\'])('rejects the malformed glob %s as ripgrep does', async pattern => {
     const search = tools(workspace({ '/workspace/a.ts': 'a' }))
     await expect(search.run('glob', { pattern })).rejects.toMatchObject({ code: 'SEARCH_INVALID_PATTERN' })
     await expect(search.run('grep', { pattern: 'a', include: pattern })).rejects.toMatchObject({ code: 'SEARCH_INVALID_PATTERN' })
@@ -110,6 +112,12 @@ describe('glob over the workspace VFS', () => {
     const search = tools(workspace({ '/workspace/[x].ts': 'a', '/workspace/b.ts': 'b' }))
     expect(await search.run('glob', { pattern: '\\[x\\].ts' })).toEqual({ root: '.', paths: ['[x].ts'] })
     expect(await search.run('glob', { pattern: '[]ab].ts' })).toEqual({ root: '.', paths: ['b.ts'] })
+    expect(await search.run('glob', { pattern: '[a-c].ts' })).toEqual({ root: '.', paths: ['b.ts'] })
+  })
+
+  it('accepts nested alternates, as ripgrep 15 does', async () => {
+    const search = tools(workspace({ '/workspace/ab.ts': '', '/workspace/ac.ts': '', '/workspace/ad.ts': '', '/workspace/ae.ts': '' }))
+    expect(await search.run('glob', { pattern: 'a{b,{c,d}}.ts' })).toEqual({ root: '.', paths: ['ab.ts', 'ac.ts', 'ad.ts'] })
   })
 
   it('sorts by the mtime its directory listing reports, without a stat per file', async () => {
@@ -118,12 +126,21 @@ describe('glob over the workspace VFS', () => {
     const result = await tools(vfs).run('glob', { pattern: '*.txt' }) as { paths: string[] }
     expect(result.paths[0]).toBe('d4/f49.txt')
     expect(result.paths).toHaveLength(50)
-    expect(vfs.calls).toEqual({ stat: 1, readdir: 6 })
+    expect(vfs.calls).toMatchObject({ stat: 1, readdir: 6 })
   })
 
-  it('refuses a walk beyond its entry cap', async () => {
-    const files = Object.fromEntries(Array.from({ length: SEARCH_MAX_ENTRIES + 1 }, (_, index) => [`/workspace/f${String(index)}.txt`, '']))
-    await expect(tools(workspace(files)).run('glob', { pattern: '*' })).rejects.toMatchObject({ code: 'SEARCH_RAW_OUTPUT_OVERFLOW' })
+  it('refuses a walk beyond its entry cap without listing past it', async () => {
+    const vfs = workspace(Object.fromEntries(Array.from({ length: SEARCH_MAX_ENTRIES + 50 }, (_, index) => [`/workspace/f${String(index)}.txt`, ''])))
+    await expect(tools(vfs).run('glob', { pattern: '*' })).rejects.toMatchObject({ code: 'SEARCH_RAW_OUTPUT_OVERFLOW' })
+    expect(vfs.calls.widest).toBe(SEARCH_MAX_ENTRIES + 1)
+  })
+
+  it('stops walking once the call is cancelled', async () => {
+    const vfs = workspace({ '/workspace/a/b.ts': '' })
+    const controller = new AbortController()
+    controller.abort(new Error('timed out'))
+    await expect(tools(vfs, '/workspace', controller.signal).run('glob', { pattern: '*' })).rejects.toMatchObject({ code: 'SEARCH_ABORTED' })
+    expect(vfs.calls.readdir).toBe(0)
   })
 })
 

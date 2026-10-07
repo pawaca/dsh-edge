@@ -37,7 +37,7 @@ export interface EdgeVfs {
     isDirectory: boolean
     isSymbolicLink: boolean
   }>
-  readdir(path: string): Promise<Array<{
+  readdir(path: string, options?: { limit?: number }): Promise<Array<{
     name: string
     size: number
     mtime: number
