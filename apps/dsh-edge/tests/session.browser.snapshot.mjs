@@ -519,6 +519,19 @@ describe('dsh-edge assembled browser snapshot', () => {
         return { status: response.status, body: await response.text() }
       }, probePath)
       expect(downloaded).toEqual({ status: 200, body: 'download probe body' })
+      // A presented deliverable gets upstream's file card. The Edge has no desktop
+      // for native opening, so the card says so and keeps the sidebar preview.
+      await liveComposer.fill('present the report')
+      await page.getByRole('button', { name: 'Send message', exact: true }).click()
+      const presentedRow = page.locator('[data-presented-files-row]').last()
+      await presentedRow.waitFor({ timeout: 30_000 })
+      await expect.poll(
+        () => page.getByText('This Host has no desktop available to open files or folders in external apps. Files can still be previewed in the sidebar.', { exact: true }).count(),
+        { timeout: 15_000 },
+      ).toBe(1)
+      const presentedCard = await stableAria(page, '[data-presented-files-row]')
+      await expect(normalize(presentedCard))
+        .toMatchFileSnapshot('./snapshots/edge-present.expected.md')
       // Canonical V3 user cancellation settles the composer without a generic Error.
       const beforeCancelRequests = mock.requests.filter(r => r.max_tokens !== 32).length
       await liveComposer.fill('slow response for cancellation display')
