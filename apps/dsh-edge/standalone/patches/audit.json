@@ -28,5 +28,10 @@
     "package": "@deepseek-ai/dsh-workspace",
     "rationale": "Replace node:fs/promises realpath with lexical path normalization and remove stat calls, both incompatible with Cloudflare Workers. Edge VFS has no symlinks, so lexical resolution of '.', '..', and duplicate separators is exactly realpath's canonical result and keeps caller-supplied traversal paths from persisting alias workspaces.",
     "removeWhen": "The published workspace registry accepts an injectable path normalizer or the realpath/stat calls are gated behind a platform check."
+  },
+  {
+    "package": "@deepseek-ai/dsh-repeat-tool-reminder",
+    "rationale": "The published bundle inlines dsh-llm's attribution module, which resolves the Harness version with createRequire(import.meta.url)(\"../package.json\") at module load; import.meta.url is undefined in the Worker bundle, so without this patch the Worker fails to start (TypeError from node:module createRequire, reproduced by run-session-integration.mjs). Use the pinned version string, as the dsh-llm patch does.",
+    "removeWhen": "The published repeat-tool-reminder package imports createUserMessage from @deepseek-ai/dsh-llm instead of inlining it, or the inlined attribution module bundles without node:module."
   }
 ]

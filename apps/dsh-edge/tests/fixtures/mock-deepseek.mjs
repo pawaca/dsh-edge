@@ -13,7 +13,10 @@ import { pathToFileURL } from 'node:url'
 export function isLoopNote(message) {
   return message.role === 'user' && typeof message.content === 'string'
     && (message.content.startsWith('[model changed: ') || message.content.startsWith('Current runtime context')
-      || message.content.startsWith('<system-reminder>'))
+      || message.content.startsWith('<system-reminder>')
+      // dsh-repeat-tool-reminder notices follow a repeated tool result.
+      || message.content.startsWith('You are repeating the exact same tool call')
+      || message.content.startsWith('Repeated tool call detected:'))
 }
 
 /** The index of the latest user prompt in a chat request, skipping loop-owned notes. */
@@ -221,6 +224,30 @@ export async function startMockDeepSeek(port = 0) {
           {
             choices: [{ delta: { content: '' }, finish_reason: 'stop' }],
             usage: { prompt_tokens: 4, completion_tokens: 100 },
+          },
+        ])
+        return
+      }
+
+      // Three identical bash calls in a row, so the repeat-tool reminder fires once.
+      if (prompt === 'repeat the same command' && toolResults.length < 3) {
+        sendEvents(response, [
+          { choices: [{ delta: { role: 'assistant', content: null, reasoning_content: '' } }] },
+          {
+            choices: [{
+              delta: {
+                tool_calls: [{
+                  index: 0,
+                  id: `call_mock_repeat_${String(toolResults.length + 1)}`,
+                  type: 'function',
+                  function: { name: 'bash', arguments: '{"command":"echo same","description":"Repeat one command"}' },
+                }],
+              },
+            }],
+          },
+          {
+            choices: [{ delta: {}, finish_reason: 'tool_calls' }],
+            usage: { prompt_tokens: 8, completion_tokens: 3 },
           },
         ])
         return
@@ -479,7 +506,9 @@ export async function startMockDeepSeek(port = 0) {
                   ? `workflow-finished:${messageText(toolResults[0])}`
                   : prompt.includes('run some code')
                     ? `code-finished:${messageText(toolResults[0])}`
-                    : 'tool-finished'
+                    : prompt === 'repeat the same command'
+                      ? 'repeat-finished'
+                      : 'tool-finished'
       }
       if (prompt.includes('continue released fixture')) {
         const hasReleasedPrompt = messages.some(message =>

@@ -271,6 +271,7 @@ patchedDependencies:
   '@deepseek-ai/dsh-api-gateway@0.2.0-rc.2': patches/@deepseek-ai__dsh-api-gateway@0.2.0-rc.2.patch
   '@deepseek-ai/dsh-api-session-controller@0.2.0-rc.2': patches/@deepseek-ai__dsh-api-session-controller@0.2.0-rc.2.patch
   '@deepseek-ai/dsh-llm@0.2.0-rc.2': patches/@deepseek-ai__dsh-llm@0.2.0-rc.2.patch
+  '@deepseek-ai/dsh-repeat-tool-reminder@0.2.0-rc.2': patches/@deepseek-ai__dsh-repeat-tool-reminder@0.2.0-rc.2.patch
   '@deepseek-ai/dsh-tool-web@0.2.0-rc.2': patches/@deepseek-ai__dsh-tool-web@0.2.0-rc.2.patch
   '@deepseek-ai/dsh-web-fetch-http@0.2.0-rc.2': patches/@deepseek-ai__dsh-web-fetch-http@0.2.0-rc.2.patch
   '@deepseek-ai/dsh-workspace@0.2.0-rc.2': patches/@deepseek-ai__dsh-workspace@0.2.0-rc.2.patch

@@ -217,11 +217,6 @@
       "status": "substitute",
       "reason": "edge-code-runtime.ts runs each program in its own Dynamic Worker (Isolated only)."
     },
-    "@deepseek-ai/dsh-repeat-tool-reminder": {
-      "status": "gap",
-      "reason": "Advisory reminders when the model repeats an identical tool call (3, 5, 8 times); on by default upstream.",
-      "priority": "P1"
-    },
     "@deepseek-ai/dsh-sandbox-local": {
       "status": "not-applicable",
       "reason": "Host-OS process sandboxing, subprocesses, and shell environment."
