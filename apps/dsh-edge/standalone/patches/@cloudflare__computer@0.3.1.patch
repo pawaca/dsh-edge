@@ -1,0 +1,19 @@
+diff --git a/dist/index.js b/dist/index.js
+index fcfda5c422956bbebba061a49bcf5f57801f4661..37ecaf3094ce5f9625704a20175dd760e69fc4ac 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -459,10 +459,11 @@ function resolveViaCte(db, parts) {
+          UNION ALL
+          SELECT w.level + 1, n.inode, n.type, n.mode, n.mtime, n.size, n.link_target
+            FROM walk w
+-           JOIN segs s ON s.level = w.level
+-           JOIN vfs_dirents d ON d.parent_inode = w.inode AND d.name = s.name
++           CROSS JOIN segs s
++           CROSS JOIN vfs_dirents d
+            JOIN vfs_nodes n ON n.inode = d.child_inode
+-          WHERE w.type = 'dir'
++          WHERE s.level = w.level AND d.parent_inode = w.inode AND d.name = s.name
++            AND w.type = 'dir'
+        )
+      SELECT level, inode, type, mode, mtime, size, link_target
+        FROM walk

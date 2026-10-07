@@ -35,6 +35,8 @@ SOFTWARE.
 
 ## Bundled component inventory
 
+`dsh-edge` also applies a version-bound fix to `@cloudflare/computer@0.3.1`, recorded with its reason in `standalone/patches/audit.json`; the component's license below is unchanged.
+
 The following 674 package versions form the conservative, platform-neutral production closure used to assemble the Web and Worker artifacts in this distribution. Platform-specific build binaries that are not distributed in those artifacts are excluded; tree shaking can omit additional code. The inventory and legal texts are generated during packaging rather than referring recipients to a source checkout. License expressions are SPDX identifiers supplied by each package. Dependencies installed separately by npm remain declared in this package's `package.json`.
 
 | Component | License |

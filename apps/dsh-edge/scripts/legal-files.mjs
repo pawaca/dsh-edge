@@ -54,6 +54,8 @@ const packageRoot = fileURLToPath(new URL('../', import.meta.url))
 const standaloneRoot = join(packageRoot, 'standalone')
 const edgeManifest = JSON.parse(readFileSync(join(packageRoot, 'package.json'), 'utf8'))
 const patchAudit = JSON.parse(readFileSync(join(standaloneRoot, 'patches', 'audit.json'), 'utf8'))
+const harnessPatches = patchAudit.filter(entry => entry.package.startsWith('@deepseek-ai/dsh-'))
+const componentPatches = patchAudit.filter(entry => !entry.package.startsWith('@deepseek-ai/dsh-'))
 if (!Array.isArray(patchAudit) || patchAudit.length === 0) {
   throw new Error('The retained patch audit must be a non-empty array.')
 }
@@ -231,13 +233,14 @@ function renderNotices(components) {
 
 ## DeepSeek Harness
 
-\`dsh-edge\` assembles published DeepSeek Harness packages and applies ${String(patchAudit.length)} version-bound adaptations to the pinned \`${edgeManifest.dshEdge.upstreamVersion}\` release. DeepSeek Harness remains under its upstream MIT license:
+\`dsh-edge\` assembles published DeepSeek Harness packages and applies ${String(harnessPatches.length)} version-bound adaptations to the pinned \`${edgeManifest.dshEdge.upstreamVersion}\` release. DeepSeek Harness remains under its upstream MIT license:
 
 \`\`\`text
 ${upstreamLicense}
 \`\`\`
 
 ## Bundled component inventory
+${componentPatches.length === 0 ? '' : `\n\`dsh-edge\` also applies a version-bound fix to ${componentPatches.map(entry => `\`${entry.package}@${entry.version}\``).join(', ')}, recorded with its reason in \`standalone/patches/audit.json\`; the component's license below is unchanged.`}
 
 The following ${components.length} package versions form the conservative, platform-neutral production closure used to assemble the Web and Worker artifacts in this distribution. Platform-specific build binaries that are not distributed in those artifacts are excluded; tree shaking can omit additional code. The inventory and legal texts are generated during packaging rather than referring recipients to a source checkout. License expressions are SPDX identifiers supplied by each package. Dependencies installed separately by npm remain declared in this package's \`package.json\`.
 

@@ -50,20 +50,28 @@ const workspace = await readFile(join(standaloneRoot, 'pnpm-workspace.yaml'), 'u
 if (!Array.isArray(patchAudit) || patchAudit.length === 0) {
   throw new Error('The retained patch audit must be a non-empty array.')
 }
-const registrations = [...workspace.matchAll(/^  '(@deepseek-ai\/[^']+)':\s+(patches\/\S+\.patch)$/gm)]
+const registrations = [...workspace.matchAll(/^  '(@[^']+)':\s+(patches\/\S+\.patch)$/gm)]
 const registeredPatches = new Map(registrations.map(([, key, path]) => [key, path]))
 if (registeredPatches.size !== registrations.length) {
   throw new Error('The workspace contains a duplicate retained patch registration.')
 }
 const auditedNames = new Set()
+const auditedVersions = new Map()
 for (const entry of patchAudit) {
   if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) {
     throw new Error('Every retained patch audit entry must be an object.')
   }
   const { package: name, rationale, removeWhen } = entry
-  if (typeof name !== 'string' || !name.startsWith('@deepseek-ai/dsh-')) {
+  if (typeof name !== 'string' || !name.startsWith('@')) {
     throw new Error(`Invalid retained patch package: ${String(name)}.`)
   }
+  // Upstream Harness packages are patched at the baseline; any other package names its pinned version.
+  const isHarness = name.startsWith('@deepseek-ai/dsh-')
+  const patchedVersion = isHarness ? targetVersion : entry.version
+  if (!isHarness && (typeof patchedVersion !== 'string' || patchedVersion !== standalonePackage.dependencies?.[name])) {
+    throw new Error(`Retained patch ${name} must name its pinned dependency version.`)
+  }
+  auditedVersions.set(name, patchedVersion)
   if (auditedNames.has(name)) throw new Error(`Duplicate retained patch audit entry: ${name}.`)
   auditedNames.add(name)
   if (typeof rationale !== 'string' || rationale.trim() === '') {
@@ -72,8 +80,8 @@ for (const entry of patchAudit) {
   if (typeof removeWhen !== 'string' || removeWhen.trim() === '') {
     throw new Error(`Retained patch ${name} has no removal condition.`)
   }
-  const key = `${name}@${targetVersion}`
-  const filename = `${name.replace('/', '__')}@${targetVersion}.patch`
+  const key = `${name}@${patchedVersion}`
+  const filename = `${name.replace('/', '__')}@${patchedVersion}.patch`
   const registeredPath = registeredPatches.get(key)
   if (registeredPath !== `patches/${filename}`) {
     throw new Error(`Missing exact audited patch registration for '${key}': patches/${filename}.`)
@@ -89,8 +97,8 @@ for (const key of registeredPatches.keys()) {
   const separator = key.lastIndexOf('@')
   const name = key.slice(0, separator)
   const version = key.slice(separator + 1)
-  if (version !== targetVersion || !auditedNames.has(name)) {
-    throw new Error(`Registered patch is not covered by the ${targetVersion} audit: ${key}.`)
+  if (!auditedNames.has(name) || version !== auditedVersions.get(name)) {
+    throw new Error(`Registered patch is not covered by the audit: ${key}.`)
   }
 }
 

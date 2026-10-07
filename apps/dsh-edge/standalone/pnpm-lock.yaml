@@ -7,6 +7,7 @@ settings:
 pnpmfileChecksum: sha256-1crgu0N1myGOJCJigDNrWMiZp7pJmwkPRbW1loQiak4=
 
 patchedDependencies:
+  '@cloudflare/computer@0.3.1': abb7977762b448a82b0255563e80356fd6e4046c460bb68e9eb6436132d56607
   '@deepseek-ai/dsh-api-gateway@0.2.0-rc.2': 2f887bec7164fa158cba78a4caff76121e412192d07111bb2e17a5c3e0fb2d67
   '@deepseek-ai/dsh-api-session-controller@0.2.0-rc.2': f4fae932afc9d0c5cd79ac51e39d00daea991a8ff964ebdd5fb6a44e661bd70f
   '@deepseek-ai/dsh-llm@0.2.0-rc.2': fdad4d47e2f7c6a5e48c6ca434b5bec2643dd230a57aa23141bfc1b1b9cf6087
@@ -21,7 +22,7 @@ importers:
     dependencies:
       '@cloudflare/computer':
         specifier: 0.3.1
-        version: 0.3.1(zod@4.4.3)
+        version: 0.3.1(patch_hash=abb7977762b448a82b0255563e80356fd6e4046c460bb68e9eb6436132d56607)(zod@4.4.3)
       '@deepseek-ai/cordis':
         specifier: 4.0.4
         version: 4.0.4(@deepseek-ai/cordis-plugin-include@1.0.6)(@deepseek-ai/cordis-plugin-loader@1.0.5)
@@ -5747,7 +5748,7 @@ snapshots:
 
   '@cfworker/json-schema@4.1.1': {}
 
-  '@cloudflare/computer@0.3.1(zod@4.4.3)':
+  '@cloudflare/computer@0.3.1(patch_hash=abb7977762b448a82b0255563e80356fd6e4046c460bb68e9eb6436132d56607)(zod@4.4.3)':
     dependencies:
       acorn: 8.18.0
       capnweb: 0.10.0
