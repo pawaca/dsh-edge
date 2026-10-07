@@ -237,6 +237,44 @@ export async function startMockDeepSeek(port = 0) {
         return
       }
 
+      // dsh-fs-observation-policy: an unread edit is refused, then read and edit succeed;
+      // an edit after bash changed the read file is refused as stale.
+      const policySteps = {
+        'policy edit unread': [
+          ['edit', { file_path: '/workspace/policy.txt', old_string: 'alpha', new_string: 'beta' }],
+          ['read', { file_path: '/workspace/policy.txt' }],
+          ['edit', { file_path: '/workspace/policy.txt', old_string: 'alpha', new_string: 'beta' }],
+        ],
+        'policy stale edit': [
+          ['read', { file_path: '/workspace/stale.txt' }],
+          ['bash', { command: "printf 'changed\\n' >> /workspace/stale.txt", description: 'Change the file behind the read' }],
+          ['edit', { file_path: '/workspace/stale.txt', old_string: 'one', new_string: 'two' }],
+        ],
+      }[prompt]
+      if (policySteps !== undefined && toolResults.length < policySteps.length) {
+        const [name, args] = policySteps[toolResults.length]
+        sendEvents(response, [
+          { choices: [{ delta: { role: 'assistant', content: null, reasoning_content: '' } }] },
+          {
+            choices: [{
+              delta: {
+                tool_calls: [{
+                  index: 0,
+                  id: `call_mock_policy_${String(toolResults.length + 1)}`,
+                  type: 'function',
+                  function: { name, arguments: JSON.stringify(args) },
+                }],
+              },
+            }],
+          },
+          {
+            choices: [{ delta: {}, finish_reason: 'tool_calls' }],
+            usage: { prompt_tokens: 8, completion_tokens: 3 },
+          },
+        ])
+        return
+      }
+
       // Three identical bash calls in a row, so the repeat-tool reminder fires once.
       if (prompt === 'repeat the same command' && toolResults.length < 3) {
         sendEvents(response, [
@@ -516,6 +554,8 @@ export async function startMockDeepSeek(port = 0) {
                     ? `code-finished:${messageText(toolResults[0])}`
                     : prompt === 'repeat the same command'
                       ? 'repeat-finished'
+                      : prompt.startsWith('policy ')
+                        ? 'policy-finished'
                       : 'tool-finished'
       }
       if (prompt.includes('continue released fixture')) {

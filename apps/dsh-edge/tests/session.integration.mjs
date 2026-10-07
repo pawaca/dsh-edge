@@ -2083,6 +2083,28 @@ try {
     < llmRetryEvents.findIndex(event => event.type === 'llm/retry-started'))
   assert.equal(mock.requests.slice(llmRetryRequestsBefore).filter(request => chatMessages(request).some(message =>
     message.role === 'user' && messageTextOf(message) === 'rate limited once')).length, 2)
+  // Upstream's file observation policy: edit requires a prior read in the session, and a file
+  // changed after the read (here by bash) is refused as stale. Last, like the checks above.
+  for (const [path, body] of [['/workspace/policy.txt', 'alpha\n'], ['/workspace/stale.txt', 'one\n']]) {
+    assert.equal((await request(`/api/workspace/file?path=${path}`, { method: 'PUT', body })).status, 200)
+  }
+  const policySessionId = (await rpc('session.create', {})).body.result.value.sessionId
+  const unreadEvents = await turn(policySessionId, 'policy edit unread')
+  assert.equal(assistantText(unreadEvents), 'policy-finished')
+  const unreadResults = unreadEvents.filter(event => event.type === 'tool/result')
+  assert.equal(unreadResults.length, 3)
+  assert.equal(unreadResults[0].data.message.isError, true)
+  assert.match(toolResultText(unreadResults[0]), /file has not been read/u)
+  assert.notEqual(unreadResults[2].data.message.isError, true, toolResultText(unreadResults[2]))
+  assert.equal(await (await request('/api/workspace/file?path=/workspace/policy.txt')).text(), 'beta\n')
+  const staleSessionId = (await rpc('session.create', {})).body.result.value.sessionId
+  const staleEvents = await turn(staleSessionId, 'policy stale edit')
+  assert.equal(assistantText(staleEvents), 'policy-finished')
+  const staleResults = staleEvents.filter(event => event.type === 'tool/result')
+  assert.equal(staleResults.length, 3)
+  assert.equal(staleResults[2].data.message.isError, true)
+  assert.match(toolResultText(staleResults[2]), /changed since it was read/u)
+  assert.equal(await (await request('/api/workspace/file?path=/workspace/stale.txt')).text(), 'one\nchanged\n')
   process.stdout.write(`dsh-edge ${runtimeMode} session integration passed\n`)
 } finally {
   mock.releaseSlowResponses()

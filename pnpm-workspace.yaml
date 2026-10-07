@@ -106,6 +106,7 @@ minimumReleaseAgeExclude:
   - '@deepseek-ai/dsh-config-editor@0.2.0-rc.2'
   - '@deepseek-ai/dsh-deepseek-llm-api-extensions@0.2.0-rc.2'
   - '@deepseek-ai/dsh-deque@0.2.0-rc.2'
+  - '@deepseek-ai/dsh-fs-observation-policy@0.2.0-rc.2'
   - '@deepseek-ai/dsh-fs@0.2.0-rc.2'
   - '@deepseek-ai/dsh-goal-round-driver@0.2.0-rc.2'
   - '@deepseek-ai/dsh-http-proxy@0.2.0-rc.2'

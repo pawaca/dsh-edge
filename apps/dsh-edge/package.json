@@ -105,6 +105,7 @@
     "@deepseek-ai/dsh-credentials": "0.2.0-rc.2",
     "@deepseek-ai/dsh-file-reference": "0.2.0-rc.2",
     "@deepseek-ai/dsh-fs": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-fs-observation-policy": "0.2.0-rc.2",
     "@deepseek-ai/dsh-goal": "0.2.0-rc.2",
     "@deepseek-ai/dsh-goal-round-driver": "0.2.0-rc.2",
     "@deepseek-ai/dsh-host-directory-picker": "0.2.0-rc.2",

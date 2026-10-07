@@ -66,6 +66,7 @@ import ApprovalService from '@deepseek-ai/dsh-user-approval'
 import { assertSafeUrl } from './edge-mcp-client.ts'
 import { installEdgeMcpServers, type EdgeMcpServerConfig, type McpToolManager } from './edge-mcp-manager.ts'
 import type { CachedMcpTool } from './edge-mcp-tools.ts'
+import * as FsObservationPolicy from '@deepseek-ai/dsh-fs-observation-policy'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as ToolGoal from '@deepseek-ai/dsh-tool-goal'
 import * as ToolSkill from '@deepseek-ai/dsh-tool-skill'
@@ -406,6 +407,11 @@ export class EdgeSessionStore {
     }
     await this.context.plugin(EdgeVfsSpillStore)
     await this.context.plugin(EdgeFileSystem)
+    // As in upstream's base bundle, ahead of the file tools so it decides the
+    // fs/* intents first: write may not overwrite a file this session has not
+    // read, edit requires a prior read, and a file changed since it was read
+    // (by bash or the Linux container, for example) fails as stale.
+    await this.context.plugin(FsObservationPolicy)
     // Tools are presented natively; the PTC mode preset opts one session into
     // `run_code`, whose nested calls stay below the Workers six-connection limit.
     await this.context.plugin(ToolRuntime, config.workerLoader === undefined
