@@ -204,6 +204,19 @@ export async function startMockDeepSeek(port = 0) {
         return
       }
 
+      // Deliverables: write a report, then declare it with upstream's present tool.
+      if (prompt === 'present the report' && toolResults.length < 2) {
+        const call = toolResults.length === 0
+          ? { id: 'call_present_write', name: 'write', arguments: JSON.stringify({ file_path: '/workspace/report.md', content: '# Report\n' }) }
+          : { id: 'call_present', name: 'present', arguments: JSON.stringify({ files: [{ path: '/workspace/report.md', description: 'The report' }] }) }
+        sendEvents(response, [
+          { choices: [{ delta: { role: 'assistant', content: null, reasoning_content: '' } }] },
+          { choices: [{ delta: { tool_calls: [{ index: 0, id: call.id, type: 'function', function: { name: call.name, arguments: call.arguments } }] } }] },
+          { choices: [{ delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 8, completion_tokens: 3 } },
+        ])
+        return
+      }
+
       if (prompt.startsWith('[SCHEDULE REMINDER')) {
         sendEvents(response, [
           { choices: [{ delta: { role: 'assistant', content: 'schedule-delivered' } }] },

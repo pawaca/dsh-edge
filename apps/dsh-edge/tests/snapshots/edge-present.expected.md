@@ -1,0 +1,2 @@
+- button "Preview /workspace/report.md in sidebar"
+- text: report.md The report

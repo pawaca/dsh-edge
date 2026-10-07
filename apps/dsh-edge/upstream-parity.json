@@ -279,11 +279,6 @@
       "reason": "LSP navigation.",
       "issue": 101
     },
-    "@deepseek-ai/dsh-tool-present": {
-      "status": "gap",
-      "reason": "present tool for final deliverables; the Web deliverables panel is already in the client bundle.",
-      "priority": "P2"
-    },
     "@deepseek-ai/dsh-tool-pwsh": {
       "status": "not-applicable",
       "reason": "PowerShell; upstream also disables it off Windows."

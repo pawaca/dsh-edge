@@ -2261,6 +2261,16 @@ try {
     assert.equal(created.body.result.ok, true, JSON.stringify(created.body))
     assertGoalRound(`Typert-created goal, ${label}`, await goalStored(goalSessionId))
   }
+  // Upstream's present tool declares a workspace file as the turn's deliverable.
+  const presentSessionId = (await rpc('session.create', {})).body.result.value.sessionId
+  const presentEvents = await turn(presentSessionId, 'present the report')
+  const presented = presentEvents.find(event => event.type === 'tool/result' && event.data.message.toolCallId === 'call_present')
+  assert.equal(presented?.data.message.isError, false, toolResultText(presented))
+  assert.match(toolResultText(presented), /^Presented \/workspace\/report\.md/u)
+  // The Edge has no desktop to open presented files natively; the cards offer the sidebar preview.
+  const presentHost = await jsonRequest('/api/present.host')
+  assert.deepEqual(presentHost.body, { name: 'DSH Edge', available: false, fileManager: null })
+  assert.equal((await request(`/api/present.open?sessionId=${presentSessionId}&seq=1&index=0`, { method: 'POST' })).status, 409)
   process.stdout.write(`dsh-edge ${runtimeMode} session integration passed\n`)
 } finally {
   mock.releaseSlowResponses()
