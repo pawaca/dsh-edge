@@ -2250,6 +2250,29 @@ try {
   assert.deepEqual(await goalCommand('/goal pause'), { kind: 'error', text: `No goal is currently set; /goal pause requires one. ${goalUsage}` })
   assert.equal((await goalCommand('/goal write the goal marker')).kind, 'success')
   assertGoalRound('/goal command', await goalStored(goalCommandSessionId))
+  // Stop while a round runs: the agent is cancelled, and upstream's driver
+  // pauses the goal with a durable goal/change, as it does without the Edge.
+  const stoppedGoalSessionId = (await rpc('session.create', {})).body.result.value.sessionId
+  await turn(stoppedGoalSessionId, 'plain turn before a stopped goal')
+  const requestsBeforeRound = mock.requests.length
+  const stoppedGoal = await typertRpc('goals', 'create', { agentId: stoppedGoalSessionId, request: { objective: 'slow goal fixture', maxGoalRounds: 2 } })
+  assert.equal(stoppedGoal.body.result.ok, true, JSON.stringify(stoppedGoal.body))
+  for (const deadline = Date.now() + 20_000; mock.requests.length === requestsBeforeRound;) {
+    if (Date.now() >= deadline) throw new Error('the slow goal round made no model request')
+    await new Promise(resolve => { setTimeout(resolve, 50) })
+  }
+  assert.equal((await jsonRequest(`/api/sessions/${stoppedGoalSessionId}/cancel`, { method: 'POST' })).response.status, 202)
+  for (const deadline = Date.now() + 20_000; ;) {
+    const goalChanges = parseEvents(await (await request(`/api/sessions/${stoppedGoalSessionId}/events?limit=256`)).text())
+      .filter(event => event.type === 'goal/change').map(event => event.data.operation)
+    if (goalChanges.includes('pause')) {
+      assert.deepEqual(goalChanges, ['create', 'pause'])
+      break
+    }
+    if (Date.now() >= deadline) throw new Error(`the stopped goal was not paused: ${JSON.stringify(goalChanges)}`)
+    await new Promise(resolve => { setTimeout(resolve, 200) })
+  }
+  mock.releaseSlowResponses()
   for (const [label, restart] of [['warm agent', false], ['after a restart', true]]) {
     const goalSessionId = (await rpc('session.create', {})).body.result.value.sessionId
     await turn(goalSessionId, `plain turn before a goal, ${label}`)
@@ -2271,6 +2294,14 @@ try {
   const presentHost = await jsonRequest('/api/present.host')
   assert.deepEqual(presentHost.body, { name: 'DSH Edge', available: false, fileManager: null })
   assert.equal((await request(`/api/present.open?sessionId=${presentSessionId}&seq=1&index=0`, { method: 'POST' })).status, 409)
+  // Upstream's sessionStats projection, which the Web chat view reads.
+  const statsSessionId = (await rpc('session.create', {})).body.result.value.sessionId
+  for (const message of ['stats fixture one', 'stats fixture two']) await turn(statsSessionId, message)
+  const statsSummary = (await rpc('session.list', {})).body.result.value.items.find(item => item.sessionId === statsSessionId)
+  const { sessionStats } = statsSummary.projections.values
+  assert.equal(sessionStats.turns, 2, JSON.stringify(sessionStats))
+  assert.ok(sessionStats.steps >= 2 && sessionStats.llmMs > 0, JSON.stringify(sessionStats))
+  assert.equal(statsSummary.projections.values.turnOutline, undefined)
   process.stdout.write(`dsh-edge ${runtimeMode} session integration passed\n`)
 } finally {
   mock.releaseSlowResponses()

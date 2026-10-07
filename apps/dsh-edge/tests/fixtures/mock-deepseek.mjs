@@ -193,7 +193,8 @@ export async function startMockDeepSeek(port = 0) {
         ])
         return
       }
-      if (prompt.startsWith('<goal_round>') && !hasToolResult) {
+      // A slow goal's round falls through to the slow response below, so a test can stop it mid-round.
+      if (prompt.startsWith('<goal_round>') && !hasToolResult && !prompt.includes('slow goal')) {
         sendEvents(response, [
           { choices: [{ delta: { role: 'assistant', content: null, reasoning_content: '' } }] },
           { choices: [{ delta: { tool_calls: [{ index: 0, id: `call_goal_round_${String(requests.length)}`, type: 'function', function: {

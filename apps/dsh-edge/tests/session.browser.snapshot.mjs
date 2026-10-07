@@ -728,7 +728,9 @@ function normalize(source) {
   return `${source
     .replace(/http:\/\/127\.0\.0\.1:\d+/gu, '{{mock-deepseek}}')
     .replace(/\b\d{1,2}:\d{2}(?::\d{2})?\s*(?:AM|PM)?\b/giu, '{{clock}}')
-    .replace(/\b\d+(?:\.\d+)?\s*(?:ms|s|tok\/s)\b/giu, '{{metric}}')
+    .replace(/(?<![\d.])\d+(?:\.\d+)?\s*(?:ms|s|tok\/s)\b/giu, '{{metric}}')
+    // The sessionStats footer adds throughput only when the mock's decode time is measurable.
+    .replace(/^(\s*- button "\d+ turns \d+ steps) · \{\{metric\}\}": .*$/gmu, '$1"')
     .replace(/^- button "\d+% of context used"\n/gmu, '')
     .replace(/ Cache hit \d+% Input \d+ tok · Output \d+ tok/gu, '')
     .replaceAll(mockChannelVersion, '{{channel-version}}')

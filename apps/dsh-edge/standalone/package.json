@@ -89,6 +89,7 @@
     "@deepseek-ai/dsh-session-persistence": "0.2.0-rc.2",
     "@deepseek-ai/dsh-session-projection": "0.2.0-rc.2",
     "@deepseek-ai/dsh-session-projection-cache": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-session-stats": "0.2.0-rc.2",
     "@deepseek-ai/dsh-session-query": "0.2.0-rc.2",
     "@deepseek-ai/dsh-session-reference": "0.2.0-rc.2",
     "@deepseek-ai/dsh-session-title": "0.2.0-rc.2",

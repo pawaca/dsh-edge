@@ -47,6 +47,7 @@ import SessionStore, {
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SessionProjectionCache from '@deepseek-ai/dsh-session-projection-cache'
+import * as SessionStats from '@deepseek-ai/dsh-session-stats'
 import {
   foldSessionTitle,
   normalizeSessionTitle,
@@ -375,6 +376,9 @@ export class EdgeSessionStore {
     }
     await this.context.plugin(SessionStore)
     await this.context.plugin(SessionProjectionRegistry)
+    // As upstream: whole-session counts and timings, which the Web chat view
+    // reads from the session's projections.
+    await this.context.plugin(SessionStats)
     await this.context.plugin(SessionProjectionCache, {
       writeEveryEvents: 64,
       writeIntervalMs: 10_000,
@@ -2203,14 +2207,19 @@ export class EdgeSessionStore {
   }
 
   /**
-   * Stop a turn's work: cancel the agent's current activity and disarm its
-   * goal. Between goal rounds the agent is idle, so cancelling alone is a
-   * no-op and the round driver would go on to queue the next round; a
-   * disarmed goal stays active, records no event, and resumes on the owner's
-   * request, as upstream's lifecycle owners do before unloading the driver.
+   * Stop a turn's work as upstream's goal round driver expects. While the
+   * agent runs, cancel it: the driver then pauses a goal whose round was
+   * underway (a durable `goal/change`), and disarms one whose turn was not a
+   * round. Between rounds the agent is idle and cancelling is a no-op, so
+   * disarm the goal instead: it stays active, records no event, and resumes
+   * on the owner's request, as upstream's lifecycle owners do before
+   * unloading the driver.
    */
   stopAgentWork(agent: Agent): void {
-    agent.cancel({ kind: 'user' })
+    if (agent.status !== 'idle') {
+      agent.cancel({ kind: 'user' })
+      return
+    }
     this.disarmGoal(agent)
   }
 
