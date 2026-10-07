@@ -308,6 +308,9 @@ importers:
       '@deepseek-ai/dsh-tool-jobs':
         specifier: 0.2.0-rc.2
         version: 0.2.0-rc.2(26c5c70056a5f07e569cd6d5b3b08662)
+      '@deepseek-ai/dsh-tool-present':
+        specifier: 0.2.0-rc.2
+        version: 0.2.0-rc.2(b0549b67ff22013bee74b7398c2d10d4)
       '@deepseek-ai/dsh-tool-skill':
         specifier: 0.2.0-rc.2
         version: 0.2.0-rc.2(@deepseek-ai/cordis@4.0.4)(@deepseek-ai/dsh-agent@0.2.0-rc.2(533acd91ab3ad5930f9b32fbe32f5271))(@deepseek-ai/dsh-llm@0.2.0-rc.2(patch_hash=fdad4d47e2f7c6a5e48c6ca434b5bec2643dd230a57aa23141bfc1b1b9cf6087)(@deepseek-ai/cordis@4.0.4))(@deepseek-ai/dsh-skill@0.2.0-rc.2(@deepseek-ai/cordis@4.0.4)(@deepseek-ai/dsh-llm@0.2.0-rc.2(patch_hash=fdad4d47e2f7c6a5e48c6ca434b5bec2643dd230a57aa23141bfc1b1b9cf6087)(@deepseek-ai/cordis@4.0.4))(@deepseek-ai/dsh-scope@0.2.0-rc.2(@deepseek-ai/cordis@4.0.4)(@deepseek-ai/dsh-invariants@0.2.0-rc.2(@deepseek-ai/cordis@4.0.4))))(@deepseek-ai/dsh-tools@0.2.0-rc.2(c24cc597d3ef7f608c124da8c588d23a))
