@@ -86,11 +86,6 @@
       "reason": "/feedback and the sessionFeedback Remote behind the Web session feedback dialog; the Edge only has message feedback. The package stores an anonymous user id through node:fs under the Harness home, which Workers cannot persist, so the Edge needs its own id store first.",
       "priority": "P2"
     },
-    "@deepseek-ai/dsh-command-goal": {
-      "status": "gap",
-      "reason": "/goal command; goal tools and the goal round driver are already mounted. /goal <objective> and /goal resume arm a goal outside a turn, and the round the driver then queues must run through the Edge turn lifecycle (main queue, workspace binding, event delivery) in both modes before the command can ship; the GoalBar Resume button has the same path.",
-      "priority": "P2"
-    },
     "@deepseek-ai/dsh-compaction-image-offload": {
       "status": "gap",
       "priority": "P2",

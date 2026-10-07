@@ -78,6 +78,7 @@ import * as GoalRoundDriver from '@deepseek-ai/dsh-goal-round-driver'
 import GoalService from '@deepseek-ai/dsh-goal'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
 import * as CommandCompact from '@deepseek-ai/dsh-command-compact'
+import * as CommandGoal from '@deepseek-ai/dsh-command-goal'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
 import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
 import PluginInventoryGateway from '@deepseek-ai/dsh-host-plugin-inventory'
@@ -169,6 +170,8 @@ interface EdgeSessionStoreConfig {
   withWorkspaceFiles<T>(read: (files: EdgeWorkspaceFiles) => Promise<T>): Promise<T>
   onLateSessionEvent?: (sessionId: SessionId, event: SessionEvent) => void
   onProjectionChanged?: (sessionId: SessionId, key: string, value: unknown, seq: number) => void
+  /** Whether the session's turn has a stop (Stop or its deadline) requested. */
+  isStopRequested?: (sessionId: SessionId) => boolean
   /** Called after every committed runtime-settings change, whichever API wrote it. */
   onRuntimeSettingsChanged?: () => void | Promise<void>
 }
@@ -299,6 +302,9 @@ export class EdgeSessionCwdConflictError extends Error {
  * Edge-facing facade over the same SessionStore + SessionPersistence services
  * used by upstream. Durable Object SQL is visible only to the backend plugin.
  */
+/** How long a turn waits for upstream's goal round driver to start a pending round (it first stores the session). */
+const GOAL_ROUND_START_WAIT_MS = 30_000
+
 export class EdgeSessionStore {
   private readonly context = new Context()
   private readonly shells = new EdgeShellBindings()
@@ -676,8 +682,12 @@ export class EdgeSessionStore {
     // tool touches into nested directories.
     await this.context.plugin(AgentInstructions, { maxBytes: 65_536, dshHome: '/.dsh' })
     await this.context.plugin(GoalRoundDriver)
-    // As upstream: /compact compacts the session's history now.
+    if (config.isStopRequested !== undefined) this.disarmGoalsArmedWhileStopping(config.isStopRequested)
+    // As upstream: /compact compacts the session's history now; /goal shows,
+    // sets, edits, pauses, resumes, or clears the session's goal. A command
+    // that arms a goal runs inside a turn, so its rounds do too (instance.ts).
     await this.context.plugin(CommandCompact)
+    await this.context.plugin(CommandGoal)
     // Upstream estimates 4 bytes per token (50,000 bytes became 12,500 tokens); keep the Edge's 32 KiB budget.
     await this.context.plugin(SpillPolicy, { maxInlineTokens: 8_192 })
     await installEdgeWebSearch(this.context, config.searchBaseURL)
@@ -2095,6 +2105,19 @@ export class EdgeSessionStore {
     afterFollowup?: () => void
     onAdmitted?: (admit: EdgeAgentPromptAdmitter) => void
     onClosing?: () => void
+    /**
+     * Runs in place of admitting `content`, inside this turn's workspace scope
+     * and event delivery: an agent-scoped call (resuming a goal, a command)
+     * whose effects may start the agent. The turn then lasts until the agent
+     * is idle with no goal round pending.
+     */
+    start?: () => Promise<void>
+    /**
+     * Work the turn must wait for before it closes (calls that joined it), or
+     * undefined when there is none. Checked synchronously right before
+     * closing, so no call can join between the check and the close.
+     */
+    pendingWork?: () => Promise<void> | undefined
   }): Promise<void> {
     const { sessions } = await this.services()
     const { agent } = input
@@ -2146,21 +2169,38 @@ export class EdgeSessionStore {
     )
 
     try {
-      const admitted = admission.admit({
-        ...input.message === undefined ? {} : { message: input.message },
-        mode: input.mode,
-        content: input.content,
-        ...input.rpcId === undefined ? {} : { rpcId: input.rpcId },
-        ...input.clientTimeZone === undefined
-          ? {}
-          : { clientTimeZone: input.clientTimeZone },
-      })
-      input.afterFollowup?.()
-      await admitted
-      input.onAdmitted?.(admission.admit)
+      if (input.start === undefined) {
+        const admitted = admission.admit({
+          ...input.message === undefined ? {} : { message: input.message },
+          mode: input.mode,
+          content: input.content,
+          ...input.rpcId === undefined ? {} : { rpcId: input.rpcId },
+          ...input.clientTimeZone === undefined
+            ? {}
+            : { clientTimeZone: input.clientTimeZone },
+        })
+        input.afterFollowup?.()
+        await admitted
+        input.onAdmitted?.(admission.admit)
+      } else {
+        await input.start()
+        // As after an admission: a Stop or deadline accepted while the call
+        // ran must also stop the work it just armed.
+        input.afterFollowup?.()
+        if (agent.status !== 'idle' || this.goalRoundPending(agent)) input.onAdmitted?.(admission.admit)
+      }
       while (true) {
         await agent.whenIdle()
         if (agent.status !== 'idle') continue
+        // Upstream's goal round driver queues the next round once the agent
+        // is idle. Keep the turn open for it, so every round runs in this
+        // turn's workspace scope, deadline, and event delivery.
+        if (this.goalRoundPending(agent) && await this.goalRoundStarted(agent)) continue
+        const pending = input.pendingWork?.()
+        if (pending !== undefined) {
+          await pending
+          continue
+        }
         input.onClosing?.()
         break
       }
@@ -2181,6 +2221,94 @@ export class EdgeSessionStore {
       }
       this.turnPublishedAgents.delete(agent)
     }
+  }
+
+  /**
+   * Stop a turn's work as upstream's goal round driver expects. While the
+   * agent runs, cancel it: the driver then pauses a goal whose round was
+   * underway (a durable `goal/change`), and disarms one whose turn was not a
+   * round. Between rounds the agent is idle and cancelling is a no-op, so
+   * disarm the goal instead: it stays active, records no event, and resumes
+   * on the owner's request, as upstream's lifecycle owners do before
+   * unloading the driver.
+   */
+  stopAgentWork(agent: Agent): void {
+    if (agent.status !== 'idle') {
+      agent.cancel({ kind: 'user' })
+      return
+    }
+    this.disarmGoal(agent)
+  }
+
+  /**
+   * A turn with a stop requested keeps no armed goal, whichever call armed it
+   * (goals/create, goals/resume, /goal, joining or starting the turn): the
+   * goal is disarmed before the round driver, which first awaits a storage
+   * checkpoint, can queue a round. The disarm is deferred past the goal
+   * service's own activation commit.
+   */
+  disarmGoalsArmedWhileStopping(isStopRequested: (sessionId: SessionId) => boolean): void {
+    this.context.on('goal/activation-changed', ({ sessionId, goal }) => {
+      if (goal?.activation !== 'armed' || !isStopRequested(SessionId(sessionId))) return
+      queueMicrotask(() => {
+        const agent = this.context.agents.get(SessionId(sessionId))
+        if (agent !== undefined && isStopRequested(SessionId(sessionId))) this.disarmGoal(agent)
+      })
+    })
+  }
+
+  private disarmGoal(agent: Agent): void {
+    if (this.context.agents.get(agent.id) !== agent) return
+    try {
+      if (this.context.goals.get(agent)?.activation === 'armed') this.context.goals.disarm(agent)
+    } catch (error) {
+      console.warn('dsh-edge: could not disarm a goal.', error)
+    }
+  }
+
+  /** Whether upstream's goal round driver is about to queue a round for this agent. */
+  private goalRoundPending(agent: Agent): boolean {
+    if (this.context.agents.get(agent.id) !== agent) return false
+    try {
+      const goal = this.context.goals.get(agent)
+      return goal !== undefined && goal.phase === 'active' && goal.activation === 'armed'
+        && goal.roundsStarted < goal.maxGoalRounds
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * Wait for the pending goal round to start the agent. Resolves false when
+   * the goal stops being pending first, or when the driver does not start the
+   * round within GOAL_ROUND_START_WAIT_MS, in which case the goal is disarmed.
+   */
+  private goalRoundStarted(agent: Agent): Promise<boolean> {
+    return new Promise(resolve => {
+      const disposers: (() => void)[] = []
+      const timer = setTimeout(() => {
+        // The turn ends, so the round must not start later outside it: the
+        // driver checks the goal is still armed before it queues the round.
+        console.warn('dsh-edge: a pending goal round did not start; its goal is disarmed and the turn ends.')
+        this.disarmGoal(agent)
+        finish(false)
+      }, GOAL_ROUND_START_WAIT_MS)
+      const settle = () => {
+        if (agent.status !== 'idle') return finish(true)
+        if (!this.goalRoundPending(agent)) return finish(false)
+      }
+      const finish = (started: boolean) => {
+        clearTimeout(timer)
+        for (const dispose of disposers.splice(0)) dispose()
+        resolve(started)
+      }
+      disposers.push(
+        this.context.on('agent/status', ({ agent: subject }) => { if (subject === agent) settle() }),
+        this.context.on('goal/activation-changed', ({ sessionId }) => { if (sessionId === agent.id) settle() }),
+        this.context.on('session/event', (session, event) => { if (session === agent.session && event.type === 'goal/change') settle() }),
+      )
+      settle()
+    })
   }
 
   async readEventPage(

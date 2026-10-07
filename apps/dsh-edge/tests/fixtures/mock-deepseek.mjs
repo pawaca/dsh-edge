@@ -160,6 +160,51 @@ export async function startMockDeepSeek(port = 0) {
         return
       }
 
+      // Goal fixture: the model creates a one-round goal, and the round runs a workspace command.
+      if (prompt === 'set a goal fixture' && !hasToolResult) {
+        sendEvents(response, [
+          { choices: [{ delta: { role: 'assistant', content: null, reasoning_content: '' } }] },
+          { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_create_goal', type: 'function', function: {
+            name: 'create_goal', arguments: JSON.stringify({ objective: 'write the goal marker', max_goal_rounds: 1 }),
+          } }] } }] },
+          { choices: [{ delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 8, completion_tokens: 3 } },
+        ])
+        return
+      }
+      // After the marker, read the goal and mark it complete, so a goal without a round cap ends.
+      if (prompt.startsWith('<goal_round>') && (toolResults.length === 2 || toolResults.length === 3)) {
+        const call = toolResults.length === 2
+          ? { name: 'get_goal', arguments: '{}' }
+          : { name: 'update_goal', arguments: JSON.stringify((({ id, revision }) => ({ goal_id: id, revision, action: 'complete' }))(JSON.parse(messageText(toolResults[2])).goal)) }
+        sendEvents(response, [
+          { choices: [{ delta: { role: 'assistant', content: null, reasoning_content: '' } }] },
+          { choices: [{ delta: { tool_calls: [{ index: 0, id: `call_goal_${call.name}_${String(requests.length)}`, type: 'function', function: call }] } }] },
+          { choices: [{ delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 8, completion_tokens: 3 } },
+        ])
+        return
+      }
+      if (prompt.startsWith('<goal_round>') && toolResults.length === 1) {
+        sendEvents(response, [
+          { choices: [{ delta: { role: 'assistant', content: null, reasoning_content: '' } }] },
+          { choices: [{ delta: { tool_calls: [{ index: 0, id: `call_goal_write_${String(requests.length)}`, type: 'function', function: {
+            name: 'write', arguments: JSON.stringify({ file_path: `/workspace/goal-write-${String(requests.length)}.txt`, content: 'goal-write' }),
+          } }] } }] },
+          { choices: [{ delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 8, completion_tokens: 3 } },
+        ])
+        return
+      }
+      // A slow goal's round falls through to the slow response below, so a test can stop it mid-round.
+      if (prompt.startsWith('<goal_round>') && !hasToolResult && !prompt.includes('slow goal')) {
+        sendEvents(response, [
+          { choices: [{ delta: { role: 'assistant', content: null, reasoning_content: '' } }] },
+          { choices: [{ delta: { tool_calls: [{ index: 0, id: `call_goal_round_${String(requests.length)}`, type: 'function', function: {
+            name: 'bash', arguments: JSON.stringify({ command: 'echo goal-round >> /workspace/goal-round.txt', description: 'Write the goal marker' }),
+          } }] } }] },
+          { choices: [{ delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 8, completion_tokens: 3 } },
+        ])
+        return
+      }
+
       // Deliverables: write a report, then declare it with upstream's present tool.
       if (prompt === 'present the report' && toolResults.length < 2) {
         const call = toolResults.length === 0

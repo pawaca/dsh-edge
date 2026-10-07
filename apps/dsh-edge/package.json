@@ -100,6 +100,7 @@
     "@deepseek-ai/dsh-client-ui-settings-general": "0.2.0-rc.2",
     "@deepseek-ai/dsh-client-ui-theme": "0.2.0-rc.2",
     "@deepseek-ai/dsh-command-compact": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-command-goal": "0.2.0-rc.2",
     "@deepseek-ai/dsh-commands": "0.2.0-rc.2",
     "@deepseek-ai/dsh-compaction": "0.2.0-rc.2",
     "@deepseek-ai/dsh-compaction-basic": "0.2.0-rc.2",
