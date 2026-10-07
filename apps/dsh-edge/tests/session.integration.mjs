@@ -2165,6 +2165,27 @@ try {
   assert.doesNotMatch(grepText, /c\.md|\.hidden/u)
   assert.deepEqual(vfsSearchResult('call_mock_glob').split('\n').sort(),
     ['haystack/.hidden.txt', 'haystack/a.txt', 'haystack/deep/b.txt'])
+  // The agent-loop and web-search settings cards edit namespaces the Edge registers under the
+  // upstream entry ids; a saved endpoint must pass the DEEPSEEK_SEARCH_BASE_URL check.
+  const pluginSettings = async () => (await rpc('settings.describe', {})).body.result.value.namespaces
+    .filter(entry => entry.ns === 'agent-loop' || entry.ns === 'web-search-deepseek')
+    .map(entry => [entry.ns, entry.value])
+  const searchBase = `${mock.url}/anthropic/v1`
+  assert.deepEqual(Object.fromEntries((await pluginSettings()).map(([ns, value]) => [ns,
+    ns === 'agent-loop' ? value : { baseURL: value.baseURL, maxUses: value.maxUses }])), {
+    'agent-loop': { maxParallelToolCalls: 10 },
+    'web-search-deepseek': { baseURL: searchBase, maxUses: 5 },
+  })
+  for (const [ns, patch] of [['agent-loop', { maxParallelToolCalls: 2 }], ['web-search-deepseek', { maxUses: 2 }]]) {
+    const saved = await rpc('settings.update', { ns, patch })
+    assert.equal(saved.body.result.ok, true, JSON.stringify(saved.body.result))
+  }
+  const credentialed = await rpc('settings.update', { ns: 'web-search-deepseek', patch: { baseURL: 'https://user:secret@search.example' } })
+  assert.equal(credentialed.body.result.ok, false, JSON.stringify(credentialed.body.result))
+  const afterSave = Object.fromEntries(await pluginSettings())
+  assert.equal(afterSave['agent-loop'].maxParallelToolCalls, 2)
+  assert.equal(afterSave['web-search-deepseek'].maxUses, 2)
+  assert.equal(afterSave['web-search-deepseek'].baseURL, searchBase)
   process.stdout.write(`dsh-edge ${runtimeMode} session integration passed\n`)
 } finally {
   mock.releaseSlowResponses()

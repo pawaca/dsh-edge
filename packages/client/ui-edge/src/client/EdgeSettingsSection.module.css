@@ -68,3 +68,5 @@
 .mcpFormActions { justify-content: flex-end; gap: 8px; display: flex; }
 
 @media (max-width: 560px) { .row { grid-template-columns: 1fr; gap: 4px; } .mcpFormRow { grid-template-columns: 1fr; } .mcpFieldRow { grid-template-columns: 1fr; gap: 4px; } }
+.pluginSettings { display: grid; gap: 16px; max-width: 720px; }
+.pluginSettingsEmpty { color: var(--dsw-alias-label-secondary); }

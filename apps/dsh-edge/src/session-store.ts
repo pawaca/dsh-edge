@@ -14,7 +14,6 @@ import AgentRegistry, {
   type ModelSelection,
   type ModelSelectionRef,
 } from '@deepseek-ai/dsh-agent'
-import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import type {
   AttachmentStore,
   ImageAttachmentLimits,
@@ -138,6 +137,7 @@ import {
 import { installEdgeApprovalPolicy, type EdgeApprovalMode, type EdgeApprovalSettings } from './approval-policy.ts'
 import { installEdgeRuntimeSettings, type EdgeRuntimeSettings } from './runtime-settings.ts'
 import { installEdgeWebSearch } from './web-search.ts'
+import { mountAgentLoop } from './edge-plugin-settings.ts'
 import { DurableEventDeliveryQueue, ImmediateFlushLimiter } from './durable-event-delivery.ts'
 
 const DEFAULT_WRITE_BATCH_MAX_DELAY_MS = 100
@@ -670,7 +670,8 @@ export class EdgeSessionStore {
     // Upstream estimates 4 bytes per token (50,000 bytes became 12,500 tokens); keep the Edge's 32 KiB budget.
     await this.context.plugin(SpillPolicy, { maxInlineTokens: 8_192 })
     await installEdgeWebSearch(this.context, config.searchBaseURL)
-    await this.context.plugin(AgentLoop, { agents: [] })
+    // The agent loop's parallel tool-call cap is editable on its settings card.
+    await mountAgentLoop(this.context)
     installShortToolPool(this.context)
     {
       // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment

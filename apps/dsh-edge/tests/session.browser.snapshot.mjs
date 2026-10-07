@@ -143,6 +143,32 @@ describe('dsh-edge assembled browser snapshot', () => {
         { timeout: 15_000 },
       ).toBe(inventoryIds.length)
 
+      // The agent-loop and web-search cards from upstream render in the Edge's
+      // Built-in plugins settings tab, which hosts their `plugins.item` slot.
+      await settings.getByRole('tab', { name: 'Settings', exact: true }).click()
+      await expect.poll(
+        () => settings.locator('[data-plugin-item]').count(),
+        { timeout: 15_000 },
+      ).toBe(2)
+      await settings.getByLabel('Parallel tool calls', { exact: true }).waitFor()
+      await settings.getByLabel('Max searches per request', { exact: true }).waitFor()
+      const pluginSettingsSnapshot = await stableAria(page, '[role="dialog"]')
+      await expect(normalize(pluginSettingsSnapshot))
+        .toMatchFileSnapshot('./snapshots/edge-plugin-settings.expected.md')
+      // Saving the card writes the Edge-registered `agent-loop` namespace on the Host.
+      const parallel = settings.getByLabel('Parallel tool calls', { exact: true })
+      await parallel.fill('3')
+      await settings.locator('[data-plugin-item="agent-loop"]').getByRole('button', { name: 'Save', exact: true }).click()
+      await expect.poll(() => page.evaluate(async () => {
+        const response = await fetch('/api/settings/describe', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ type: 'client-request', rpcId: crypto.randomUUID(), payload: { args: {} } }),
+        })
+        const body = await response.json()
+        return body.result?.value?.namespaces?.find(row => row.ns === 'agent-loop')?.user
+      }), { timeout: 15_000 }).toEqual({ maxParallelToolCalls: 3 })
+
       // Upstream classifies the page as a trusted local client only on a
       // loopback hostname or when the shell declares host ownership. The Edge
       // shell declares it, so the host-persisted plugin configuration cards

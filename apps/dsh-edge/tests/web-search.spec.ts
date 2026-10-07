@@ -5,6 +5,7 @@ import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { HttpFetchProvider } from '@deepseek-ai/dsh-web-fetch-http'
 import { describe, expect, it, vi } from 'vitest'
 import EdgeCredentialProvider from '../src/edge-credentials.ts'
+import { EdgeSettings } from '../src/edge-settings.ts'
 import { installEdgeWebSearch } from '../src/web-search.ts'
 
 describe('dsh-edge Web Search composition', () => {
@@ -28,6 +29,7 @@ describe('dsh-edge Web Search composition', () => {
     try {
       const storage = { get: () => Promise.resolve(undefined), put: () => Promise.resolve(), delete: () => Promise.resolve(true) } as unknown as DurableObjectStorage
       await ctx.plugin(EdgeCredentialProvider, { storage, readDeepSeekApiKey: () => 'search-key' })
+      await ctx.plugin(EdgeSettings, { storage })
       await ctx.plugin(SystemPrompt)
       await ctx.plugin(ToolRuntime)
       await installEdgeWebSearch(ctx, 'https://search.test/anthropic/v1')
@@ -66,6 +68,7 @@ describe('dsh-edge Web Search composition', () => {
     try {
       const storage = { get: () => Promise.resolve(undefined), put: () => Promise.resolve(), delete: () => Promise.resolve(true) } as unknown as DurableObjectStorage
       await ctx.plugin(EdgeCredentialProvider, { storage, readDeepSeekApiKey: () => 'search-key' })
+      await ctx.plugin(EdgeSettings, { storage })
       await ctx.plugin(SystemPrompt)
       await ctx.plugin(ToolRuntime)
       await installEdgeWebSearch(ctx, 'https://search.test/anthropic/v1')
@@ -104,6 +107,7 @@ describe('dsh-edge Web Search composition', () => {
     try {
       const storage = { get: () => Promise.resolve(undefined), put: () => Promise.resolve(), delete: () => Promise.resolve(true) } as unknown as DurableObjectStorage
       await ctx.plugin(EdgeCredentialProvider, { storage, readDeepSeekApiKey: () => 'search-key' })
+      await ctx.plugin(EdgeSettings, { storage })
       await ctx.plugin(SystemPrompt)
       await ctx.plugin(ToolRuntime)
       await installEdgeWebSearch(ctx, 'https://search.test/anthropic/v1')

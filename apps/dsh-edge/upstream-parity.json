@@ -62,11 +62,6 @@
       "status": "declined",
       "reason": "DeepSeek account sign-in; the Edge authenticates with the deployment API key."
     },
-    "@deepseek-ai/dsh-client-ui-settings-agent-loop": {
-      "status": "gap",
-      "priority": "P2",
-      "reason": "Replaces the 0.18 Plugin configuration card for this plugin; the page mounts inside the plugin manager, so the Edge needs its own mount point first."
-    },
     "@deepseek-ai/dsh-client-ui-settings-session-log": {
       "status": "declined",
       "reason": "Attach session logs or the plugin inventory to official DeepSeek API requests; opt-in upstream and a privacy decision."
@@ -80,11 +75,6 @@
       "status": "gap",
       "priority": "P3",
       "reason": "Settings pages that mount inside the plugin manager and edit upstream plugin configuration the Edge composes in code; they need an Edge mount point first."
-    },
-    "@deepseek-ai/dsh-client-ui-settings-web-search": {
-      "status": "gap",
-      "priority": "P2",
-      "reason": "Replaces the 0.18 Plugin configuration card for this plugin; the page mounts inside the plugin manager, so the Edge needs its own mount point first."
     },
     "@deepseek-ai/dsh-client-ui-sidebar-terminal": {
       "status": "tracked",

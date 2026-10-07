@@ -5,17 +5,53 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import { EdgeSettingsSection, type EdgeSettingsInjected } from './EdgeSettingsSection.tsx'
 import { EdgeMcpSection, type EdgeMcpInjected } from './EdgeMcpSection.tsx'
+import { EdgePluginSettingsTab, type EdgePluginSettingsInjected, type PluginSettingsItem } from './EdgePluginSettingsTab.tsx'
+import { resolveSlotLabel, type SlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
 import { EdgeSettingsController } from './store.ts'
 import { en, zh, type EdgeSettingsKey } from './locales.ts'
 
 export type { EdgeSettingsInjected, EdgeSettingsSectionProps } from './EdgeSettingsSection.tsx'
 export type { EdgeMcpInjected, EdgeMcpSectionProps } from './EdgeMcpSection.tsx'
+export type { EdgePluginSettingsInjected, EdgePluginSettingsTabProps, PluginSettingsItem } from './EdgePluginSettingsTab.tsx'
 export type { EdgeSettingsKey } from './locales.ts'
 export type { ApprovalMode, BashRouting, EdgeRuntimeState, McpAuthType, McpServerEntry, EdgeSettingsState, EdgeHealth } from './store.ts'
 
 type Slots = {
   inject(name: string, callback: (() => unknown) | (() => Generator<unknown>)): unknown
   register(spec: object, component: unknown): unknown
+  entries(name: string): readonly { options: { id?: string; label?: SlotLabel } }[]
+  getVersion(name: string): number
+  subscribe(name: string, listener: () => void): () => void
+}
+
+/** The `plugins.item` cards as the settings tab lists them, re-read when the slot ledger or locale moves. */
+function pluginSettingsItems(ctx: Context, slots: Slots): EdgePluginSettingsInjected['hooks']['pluginSettingsItems'] {
+  let version = -1
+  let revision: unknown
+  let items: readonly PluginSettingsItem[] = []
+  return {
+    getSnapshot: () => {
+      const nextVersion = slots.getVersion('plugins.item')
+      const nextRevision = ctx.locale.getSnapshot().revision
+      if (nextVersion !== version || nextRevision !== revision) {
+        version = nextVersion
+        revision = nextRevision
+        items = slots.entries('plugins.item').map(entry => ({
+          id: entry.options.id ?? '',
+          label: resolveSlotLabel(entry.options.label) ?? '',
+        }))
+      }
+      return items
+    },
+    subscribe: (listener) => {
+      const offSlots = slots.subscribe('plugins.item', listener)
+      const offLocale = ctx.locale.subscribe(listener)
+      return () => {
+        offSlots()
+        offLocale()
+      }
+    },
+  }
 }
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -64,6 +100,20 @@ export function apply(ctx: Context): void {
     locale: 'settings.edge',
     inject: edgeInjected,
   }, EdgeSettingsSection))
+  // Upstream's agent-loop and web-search settings cards register into
+  // `plugins.item`; this Built-in plugins tab hosts that slot (see EdgePluginSettingsTab).
+  const pluginSettingsInjected = (): EdgePluginSettingsInjected => ({
+    hooks: { pluginSettingsItems: pluginSettingsItems(ctx, slots) },
+  })
+  slots.inject('settings.plugins.tab', () => slots.register({
+    name: 'settings.plugins.tab',
+    id: 'edge-plugin-settings',
+    order: 20,
+    label: () => ctx.locale.bind('settings.edge')('pluginSettingsTab'),
+    locale: 'settings.edge',
+    inject: pluginSettingsInjected,
+    children: { 'plugins.item': { kind: 'list', scope: 'root' } },
+  }, EdgePluginSettingsTab))
   slots.inject('settings.section', () => slots.register({
     name: 'settings.section',
     id: 'mcp-connectors',

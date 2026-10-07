@@ -6,6 +6,7 @@ import * as ToolWeb from '@deepseek-ai/dsh-tool-web'
 import WebRuntime from '@deepseek-ai/dsh-web'
 import * as HttpWebFetch from '@deepseek-ai/dsh-web-fetch-http'
 import * as DeepSeekWebSearch from '@deepseek-ai/dsh-web-search-deepseek'
+import { mountDeepSeekWebSearch } from './edge-plugin-settings.ts'
 
 /** Validate the credential-bearing Anthropic-compatible search endpoint. */
 export function resolveEdgeSearchBaseURL(raw?: string): string {
@@ -34,9 +35,8 @@ export async function installEdgeWebSearch(ctx: Context, rawBaseURL?: string): P
     searchProvider: DeepSeekWebSearch.DEEPSEEK_PROVIDER_ID,
     fetchProvider: HttpWebFetch.LOCAL_FETCH_PROVIDER_ID,
   })
-  await ctx.plugin(DeepSeekWebSearch, {
-    baseURL: resolveEdgeSearchBaseURL(rawBaseURL),
-  })
+  // Max searches, endpoint, and key are editable on the web search settings card.
+  await mountDeepSeekWebSearch(ctx, resolveEdgeSearchBaseURL(rawBaseURL), resolveEdgeSearchBaseURL)
   await ctx.plugin(HttpWebFetch)
   await ctx.plugin(TimeoutPolicy)
   await ctx.plugin(ToolWeb, { search: true, fetch: true })
