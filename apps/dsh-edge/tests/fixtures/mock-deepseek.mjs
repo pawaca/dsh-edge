@@ -11,12 +11,18 @@ import { pathToFileURL } from 'node:url'
  */
 /** Loop-owned user-role notes that are not a prompt: model changes, runtime-context snapshots, and system reminders. */
 export function isLoopNote(message) {
+  // Tools added to a running session (an upgrade adding glob and grep) arrive as tool_addition blocks.
+  if (message.role === 'user' && Array.isArray(message.content) && message.content.length > 0
+    && message.content.every(block => block.type === 'tool_addition')) return true
   return message.role === 'user' && typeof message.content === 'string'
     && (message.content.startsWith('[model changed: ') || message.content.startsWith('Current runtime context')
       || message.content.startsWith('<system-reminder>')
       // dsh-repeat-tool-reminder notices follow a repeated tool result.
       || message.content.startsWith('You are repeating the exact same tool call')
-      || message.content.startsWith('Repeated tool call detected:'))
+      || message.content.startsWith('Repeated tool call detected:')
+      // A system prompt that changed mid-session (an upgrade adding tool sections) is a
+      // `system-prompt` message, which the Messages wire carries in the user role.
+      || message.content.startsWith('You are dsh-edge'))
 }
 
 /** The index of the latest user prompt in a chat request, skipping loop-owned notes. */
