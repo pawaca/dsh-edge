@@ -16,7 +16,9 @@ permissions:
 
 env:
   NODE_VERSION: '24'
-  WINDOWS_NODE_VERSION: '24.15.0'
+  # Same pin as release-edge.yml: 24.21.0 carries nodejs/node#65118 (8.3 short-path
+  # file watchers) and nodejs/node#61999 (libuv UV_HANDLE_CLOSING abort at exit, 0xC0000409).
+  WINDOWS_NODE_VERSION: '24.21.0'
   DSH_TELEMETRY_DISABLED: '1'
 
 jobs:

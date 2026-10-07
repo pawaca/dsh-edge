@@ -10,10 +10,11 @@ permissions:
   contents: read
 
 env:
-  # Node 24.16+ can abort Windows file watchers when runner temp uses an 8.3
-  # short path. Keep the release verifier on the last unaffected release until
-  # a Node release contains https://github.com/nodejs/node/pull/65118.
-  NODE_VERSION: '24.15.0'
+  # 24.21.0 is the first release with both Windows fixes the verifier needs:
+  # nodejs/node#65118 (24.16-24.20 could abort file watchers when runner temp uses
+  # an 8.3 short path) and nodejs/node#61999 (before 24.20.0, Node could abort at
+  # exit on a libuv UV_HANDLE_CLOSING assertion, exit code 0xC0000409).
+  NODE_VERSION: '24.21.0'
   NPM_VERSION: '11.19.0'
   DSH_TELEMETRY_DISABLED: '1'
 
