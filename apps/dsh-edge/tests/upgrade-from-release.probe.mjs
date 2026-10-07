@@ -248,7 +248,8 @@ try {
   assert.equal(ready.status, 200, await ready.text())
   const bootMs = Date.now() - bootStarted
   const health = await json('/api/health')
-  assert.notEqual(health.upstreamVersion, previousHealth.upstreamVersion)
+  // A release on the same Harness baseline (0.19.3 → 0.20.0-alpha.1) is still an upgrade to probe.
+  assert.equal(typeof health.upstreamVersion, 'string')
   pass(`candidate on Harness ${health.upstreamVersion} boots on ${from} (Harness ${previousHealth.upstreamVersion}) state in ${bootMs} ms, including migration`)
 
   const listed = (await rpc('session.list', {})).items
