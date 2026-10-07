@@ -427,6 +427,39 @@ Current date: {{date}} (UTC).",
               },
             },
             {
+              "description": "Declare existing files as final deliverables for the user. Use it when the user needs a separate file, especially Office documents, spreadsheets, and slide decks; prefer your final response when that suffices. The user opens the current files; their contents are not copied.",
+              "name": "present",
+              "parameters": {
+                "properties": {
+                  "files": {
+                    "description": "Usually the 1-2 most important deliverables; at most 4 per call.",
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "description": {
+                          "description": "Brief description for the user.",
+                          "type": "string",
+                        },
+                        "path": {
+                          "description": "Path of an existing regular file. Relative paths use the Session working directory.",
+                          "type": "string",
+                        },
+                      },
+                      "required": [
+                        "path",
+                      ],
+                      "type": "object",
+                    },
+                    "type": "array",
+                  },
+                },
+                "required": [
+                  "files",
+                ],
+                "type": "object",
+              },
+            },
+            {
               "description": "Read a UTF-8 text file and return line-numbered content.",
               "name": "read",
               "parameters": {
@@ -1387,6 +1420,39 @@ Current date: {{date}} (UTC).",
                 },
                 "required": [
                   "job_id",
+                ],
+                "type": "object",
+              },
+            },
+            {
+              "description": "Declare existing files as final deliverables for the user. Use it when the user needs a separate file, especially Office documents, spreadsheets, and slide decks; prefer your final response when that suffices. The user opens the current files; their contents are not copied.",
+              "name": "present",
+              "parameters": {
+                "properties": {
+                  "files": {
+                    "description": "Usually the 1-2 most important deliverables; at most 4 per call.",
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "description": {
+                          "description": "Brief description for the user.",
+                          "type": "string",
+                        },
+                        "path": {
+                          "description": "Path of an existing regular file. Relative paths use the Session working directory.",
+                          "type": "string",
+                        },
+                      },
+                      "required": [
+                        "path",
+                      ],
+                      "type": "object",
+                    },
+                    "type": "array",
+                  },
+                },
+                "required": [
+                  "files",
                 ],
                 "type": "object",
               },
@@ -2462,6 +2528,39 @@ Current date: {{date}} (UTC).",
               },
             },
             {
+              "description": "Declare existing files as final deliverables for the user. Use it when the user needs a separate file, especially Office documents, spreadsheets, and slide decks; prefer your final response when that suffices. The user opens the current files; their contents are not copied.",
+              "name": "present",
+              "parameters": {
+                "properties": {
+                  "files": {
+                    "description": "Usually the 1-2 most important deliverables; at most 4 per call.",
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "description": {
+                          "description": "Brief description for the user.",
+                          "type": "string",
+                        },
+                        "path": {
+                          "description": "Path of an existing regular file. Relative paths use the Session working directory.",
+                          "type": "string",
+                        },
+                      },
+                      "required": [
+                        "path",
+                      ],
+                      "type": "object",
+                    },
+                    "type": "array",
+                  },
+                },
+                "required": [
+                  "files",
+                ],
+                "type": "object",
+              },
+            },
+            {
               "description": "Read a UTF-8 text file and return line-numbered content.",
               "name": "read",
               "parameters": {
@@ -3427,6 +3526,39 @@ Current date: {{date}} (UTC).",
               },
             },
             {
+              "description": "Declare existing files as final deliverables for the user. Use it when the user needs a separate file, especially Office documents, spreadsheets, and slide decks; prefer your final response when that suffices. The user opens the current files; their contents are not copied.",
+              "name": "present",
+              "parameters": {
+                "properties": {
+                  "files": {
+                    "description": "Usually the 1-2 most important deliverables; at most 4 per call.",
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "description": {
+                          "description": "Brief description for the user.",
+                          "type": "string",
+                        },
+                        "path": {
+                          "description": "Path of an existing regular file. Relative paths use the Session working directory.",
+                          "type": "string",
+                        },
+                      },
+                      "required": [
+                        "path",
+                      ],
+                      "type": "object",
+                    },
+                    "type": "array",
+                  },
+                },
+                "required": [
+                  "files",
+                ],
+                "type": "object",
+              },
+            },
+            {
               "description": "Read a UTF-8 text file and return line-numbered content.",
               "name": "read",
               "parameters": {
@@ -4372,6 +4504,39 @@ Your working directory is /workspace. Only files under /workspace persist across
           "name": "job_output",
         },
         {
+          "description": "Declare existing files as final deliverables for the user. Use it when the user needs a separate file, especially Office documents, spreadsheets, and slide decks; prefer your final response when that suffices. The user opens the current files; their contents are not copied.",
+          "input_schema": {
+            "properties": {
+              "files": {
+                "description": "Usually the 1-2 most important deliverables; at most 4 per call.",
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "description": {
+                      "description": "Brief description for the user.",
+                      "type": "string",
+                    },
+                    "path": {
+                      "description": "Path of an existing regular file. Relative paths use the Session working directory.",
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "path",
+                  ],
+                  "type": "object",
+                },
+                "type": "array",
+              },
+            },
+            "required": [
+              "files",
+            ],
+            "type": "object",
+          },
+          "name": "present",
+        },
+        {
           "description": "Read a UTF-8 text file and return line-numbered content.",
           "input_schema": {
             "properties": {
@@ -5209,6 +5374,39 @@ Your working directory is /workspace. Only files under /workspace persist across
             "type": "object",
           },
           "name": "job_output",
+        },
+        {
+          "description": "Declare existing files as final deliverables for the user. Use it when the user needs a separate file, especially Office documents, spreadsheets, and slide decks; prefer your final response when that suffices. The user opens the current files; their contents are not copied.",
+          "input_schema": {
+            "properties": {
+              "files": {
+                "description": "Usually the 1-2 most important deliverables; at most 4 per call.",
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "description": {
+                      "description": "Brief description for the user.",
+                      "type": "string",
+                    },
+                    "path": {
+                      "description": "Path of an existing regular file. Relative paths use the Session working directory.",
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "path",
+                  ],
+                  "type": "object",
+                },
+                "type": "array",
+              },
+            },
+            "required": [
+              "files",
+            ],
+            "type": "object",
+          },
+          "name": "present",
         },
         {
           "description": "Read a UTF-8 text file and return line-numbered content.",

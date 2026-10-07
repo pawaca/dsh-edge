@@ -454,6 +454,16 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       if (url.pathname === '/api/remote.mux') {
         return this.openRemoteMux(request)
       }
+      // Deliverable cards (upstream dsh-client-ui-deliverables) ask the Host for
+      // a desktop that can open presented files in native apps. The Edge has
+      // none: answer as upstream does for such a Host, so the cards offer the
+      // sidebar preview and say native opening is unavailable.
+      if (url.pathname === '/api/present.host' && request.method === 'GET') {
+        return jsonResponse({ name: 'DSH Edge', available: false, fileManager: null })
+      }
+      if (url.pathname === '/api/present.open') {
+        return new Response('Host desktop unavailable.', { status: 409, headers: corsHeaders() })
+      }
       if (url.pathname === '/api/skills') {
         return await this.handleSkillsCrud(request)
       }
