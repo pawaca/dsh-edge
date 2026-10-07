@@ -212,20 +212,10 @@
       "reason": "FTS5 search; the Edge scans a bounded window instead.",
       "issue": 92
     },
-    "@deepseek-ai/dsh-session-stats": {
-      "status": "gap",
-      "reason": "sessionStats projection; dsh-client-ui-chat already reads it.",
-      "priority": "P2"
-    },
     "@deepseek-ai/dsh-session-telemetry-otel": {
       "status": "tracked",
       "reason": "OpenTelemetry session telemetry.",
       "issue": 94
-    },
-    "@deepseek-ai/dsh-session-turn-outline": {
-      "status": "gap",
-      "reason": "turnOutline projection; dsh-client-ui-chat already reads it.",
-      "priority": "P2"
     },
     "@deepseek-ai/dsh-shell-env": {
       "status": "not-applicable",
@@ -242,6 +232,11 @@
     "@deepseek-ai/dsh-storage-json": {
       "status": "substitute",
       "reason": "DurableObjectStorageBackend in do-storage-backend.ts."
+    },
+    "@deepseek-ai/dsh-session-turn-outline": {
+      "status": "gap",
+      "reason": "turnOutline projection; dsh-client-ui-chat already reads it. It keeps one prompt and response preview per turn with no cap, and SessionProjectionCache stores a session's projections as one Durable Object value, so a long session would outgrow the value limit; it needs a bounded or sharded Edge cache representation first.",
+      "priority": "P2"
     },
     "@deepseek-ai/dsh-subagent-fork-in-process": {
       "status": "gap",

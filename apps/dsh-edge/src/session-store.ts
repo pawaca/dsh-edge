@@ -47,6 +47,7 @@ import SessionStore, {
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SessionProjectionCache from '@deepseek-ai/dsh-session-projection-cache'
+import * as SessionStats from '@deepseek-ai/dsh-session-stats'
 import {
   foldSessionTitle,
   normalizeSessionTitle,
@@ -371,6 +372,9 @@ export class EdgeSessionStore {
     }
     await this.context.plugin(SessionStore)
     await this.context.plugin(SessionProjectionRegistry)
+    // As upstream: whole-session counts and timings, which the Web chat view
+    // reads from the session's projections.
+    await this.context.plugin(SessionStats)
     await this.context.plugin(SessionProjectionCache, {
       writeEveryEvents: 64,
       writeIntervalMs: 10_000,

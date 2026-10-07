@@ -2218,6 +2218,14 @@ try {
   const presentHost = await jsonRequest('/api/present.host')
   assert.deepEqual(presentHost.body, { name: 'DSH Edge', available: false, fileManager: null })
   assert.equal((await request(`/api/present.open?sessionId=${presentSessionId}&seq=1&index=0`, { method: 'POST' })).status, 409)
+  // Upstream's sessionStats projection, which the Web chat view reads.
+  const statsSessionId = (await rpc('session.create', {})).body.result.value.sessionId
+  for (const message of ['stats fixture one', 'stats fixture two']) await turn(statsSessionId, message)
+  const statsSummary = (await rpc('session.list', {})).body.result.value.items.find(item => item.sessionId === statsSessionId)
+  const { sessionStats } = statsSummary.projections.values
+  assert.equal(sessionStats.turns, 2, JSON.stringify(sessionStats))
+  assert.ok(sessionStats.steps >= 2 && sessionStats.llmMs > 0, JSON.stringify(sessionStats))
+  assert.equal(statsSummary.projections.values.turnOutline, undefined)
   process.stdout.write(`dsh-edge ${runtimeMode} session integration passed\n`)
 } finally {
   mock.releaseSlowResponses()
