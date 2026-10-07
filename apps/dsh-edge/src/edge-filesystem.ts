@@ -85,6 +85,10 @@ function pathType(entry: { isFile: boolean; isDirectory: boolean; isSymbolicLink
 
 export class EdgeFileSystem extends FileSystem {
   private static storage = new AsyncLocalStorage<{ vfs: EdgeVfs; cwd: string }>()
+  /** Per-target tail promise, as in upstream's LocalFileSystem: a guarded write's
+   * stat → version check → write cannot interleave with another write or edit of
+   * the same file, so one wins and the rest see its version and fail as stale. */
+  private readonly locks = new Map<string, Promise<void>>()
 
   constructor(ctx: Context) {
     super(ctx)
@@ -331,7 +335,16 @@ export class EdgeFileSystem extends FileSystem {
     }
   }
 
-  async writeText(
+  writeText(
+    target: FsTarget,
+    content: string,
+    expected?: FsWriteIntent,
+    signal?: AbortSignal,
+  ): Promise<FsWriteOutcome> {
+    return this.withLock(target.targetKey, () => this.writeTextLocked(target, content, expected, signal))
+  }
+
+  private async writeTextLocked(
     target: FsTarget,
     content: string,
     expected?: FsWriteIntent,
@@ -368,7 +381,16 @@ export class EdgeFileSystem extends FileSystem {
     }
   }
 
-  async editText(
+  editText(
+    target: FsTarget,
+    edit: FsEditRequest,
+    expected?: { version: FsVersion },
+    signal?: AbortSignal,
+  ): Promise<FsEditOutcome> {
+    return this.withLock(target.targetKey, () => this.editTextLocked(target, edit, expected, signal))
+  }
+
+  private async editTextLocked(
     target: FsTarget,
     edit: FsEditRequest,
     expected?: { version: FsVersion },
@@ -398,5 +420,16 @@ export class EdgeFileSystem extends FileSystem {
     const version = afterInfo?.version ?? versionOf(Date.now(), edited.length)
     this.ctx.emit('fs/observed', target, { kind: 'present', version }, undefined)
     return { version, before: original, after: edited }
+  }
+
+  private async withLock<T>(key: string, op: () => Promise<T>): Promise<T> {
+    const run = (this.locks.get(key) ?? Promise.resolve()).then(op, op)
+    const tail = run.then(() => undefined, () => undefined)
+    this.locks.set(key, tail)
+    try {
+      return await run
+    } finally {
+      if (this.locks.get(key) === tail) this.locks.delete(key)
+    }
   }
 }

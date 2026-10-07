@@ -172,3 +172,40 @@ describe('provider watching', () => {
     } finally { await ctx.fiber.dispose() }
   })
 })
+
+describe('guarded writes', () => {
+  it('lets one of two concurrent writes from the same version win and fails the other as stale', async () => {
+    const ctx = new Context()
+    await ctx.plugin(EdgeFileSystem)
+    const fs = ctx.fs as EdgeFileSystem
+    const files = new Map([['/workspace/shared.txt', { content: 'base\n', mtime: 1 }]])
+    let clock = 1
+    // Every call yields, so unserialized stat → check → write sequences would interleave.
+    const tick = () => new Promise(resolve => setTimeout(resolve, 0))
+    const vfs = {
+      stat: async (path: string) => {
+        await tick()
+        const file = files.get(path)
+        if (file === undefined) throw Object.assign(new Error('missing'), { code: 'ENOENT' })
+        return { size: file.content.length, mtime: file.mtime, isFile: true, isDirectory: false, isSymbolicLink: false }
+      },
+      readFile: async (path: string) => { await tick(); return files.get(path)?.content ?? '' },
+      writeFile: async (path: string, content: string) => { await tick(); files.set(path, { content, mtime: ++clock }) },
+      mkdir: async () => { await tick() },
+    }
+    try {
+      await fs.runInScope(vfs as never, '/workspace', async () => {
+        const target = await fs.resolve('shared.txt')
+        const observed = await fs.stat(target)
+        const guard = { kind: 'replaceIfVersion', version: observed!.version } as const
+        const results = await Promise.allSettled([
+          fs.writeText(target, 'first\n', guard),
+          fs.editText(target, { oldString: 'base', newString: 'second', replaceAll: false }, { version: observed!.version }),
+        ])
+        expect(results[0].status).toBe('fulfilled')
+        expect(results[1]).toMatchObject({ status: 'rejected', reason: { code: 'FS_STALE_VERSION' } })
+        expect(files.get('/workspace/shared.txt')?.content).toBe('first\n')
+      })
+    } finally { await ctx.fiber.dispose() }
+  })
+})
