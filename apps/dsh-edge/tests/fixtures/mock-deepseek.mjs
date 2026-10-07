@@ -28,6 +28,7 @@ export async function startMockDeepSeek(port = 0) {
   const requests = []
   const searchRequests = []
   const slowResponseReleases = []
+  let rateLimitedOnce = 0
   let origin
   const server = createServer((request, response) => {
     if (request.method === 'GET' && request.url === '/requests') {
@@ -135,6 +136,13 @@ export async function startMockDeepSeek(port = 0) {
       const toolResults = messages.slice(latestUserIndex + 1)
         .filter(message => message.role === 'tool')
       const hasToolResult = toolResults.length > 0
+
+      // One 429 with Retry-After, then a normal answer: exercises dsh-llm-retry.
+      if (prompt === 'rate limited once' && rateLimitedOnce++ === 0) {
+        response.writeHead(429, { 'content-type': 'application/json', 'retry-after': '1' })
+        response.end(JSON.stringify({ type: 'error', error: { type: 'rate_limit_error', message: 'mock rate limit' } }))
+        return
+      }
 
       if (prompt.startsWith('[SCHEDULE REMINDER')) {
         sendEvents(response, [
@@ -522,6 +530,8 @@ export async function startMockDeepSeek(port = 0) {
         const hasReleasedContinuation = messages.some(message =>
           message.role === 'assistant' && messageText(message) === 'released-history-ok')
         text = hasReleasedContinuation ? 'released-history-ok' : 'released-history-missing'
+      } else if (prompt === 'rate limited once') {
+        text = 'retry-finished'
       } else if (prompt.includes('history')) {
         const hasPriorAnswer = messages.some(message =>
           message.role === 'assistant' && message.content === 'remembered-alpha')

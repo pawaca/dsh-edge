@@ -56,6 +56,7 @@ import SessionTitleService from '@deepseek-ai/dsh-session-title'
 import * as FirstPromptTitle from '@deepseek-ai/dsh-session-title-first-prompt-llm'
 import BasicCompactionEngine from '@deepseek-ai/dsh-compaction-basic'
 import * as RepeatToolReminder from '@deepseek-ai/dsh-repeat-tool-reminder'
+import * as LlmRetry from '@deepseek-ai/dsh-llm-retry'
 import ToolResultPruner from '@deepseek-ai/dsh-compaction-tool-result-pruner'
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import * as SpillPolicy from '@deepseek-ai/dsh-spill-policy'
@@ -424,6 +425,11 @@ export class EdgeSessionStore {
     // AgentRegistry has zero inject deps — register early so SessionController
     // finds ctx.agents when it activates.
     await this.context.plugin(AgentRegistry)
+    // As in upstream's base bundle: retry a transient model-request failure
+    // (rate limit, server, timeout, transport, empty response) at the failed
+    // step, durably logged before each backoff. The DeepSeek provider's
+    // default normal-mode policy applies: five retries, 0.5–10 s backoff.
+    await this.context.plugin(LlmRetry)
     // ctx.userQuestions: the upstream answerer waterfall tools and plan mode
     // ask through. The browser answers it over the forwarded `$events` stream.
     await this.context.plugin(UserQuestionService)

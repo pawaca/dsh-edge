@@ -178,11 +178,6 @@
       "status": "not-applicable",
       "reason": "Upstream design-verification adapter; the Edge uses dsh-llm-deepseek."
     },
-    "@deepseek-ai/dsh-llm-retry": {
-      "status": "gap",
-      "reason": "Retries failed model requests at durable step boundaries; without it a transient network error or rate limit fails the turn.",
-      "priority": "P1"
-    },
     "@deepseek-ai/dsh-mcp-resources": {
       "status": "gap",
       "priority": "P2",
