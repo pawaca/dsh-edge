@@ -1379,7 +1379,9 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       const result = ns === 'workspaceFiles'
         ? await this.withWorkspaceFileScope(invoke)
         : typeof args.agentId === 'string'
-          ? await this.withAgentControl(SessionId(args.agentId), invoke)
+          ? startsGoalRound(ns, method)
+            ? await this.withAgentTurn(SessionId(args.agentId), invoke)
+            : await this.withAgentControl(SessionId(args.agentId), invoke)
           : await invoke()
       // Only endpoints no registered controller serves fall back to the Edge
       // API; validation and business failures surface as the gateway reported
@@ -1415,6 +1417,53 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       this.mainDriving = false
       this.kickMain()
     }
+  }
+
+  /**
+   * Run an agent-scoped call that may arm a goal inside a claimed turn. Upstream's
+   * goal round driver queues the goal's next round from within the call, so the
+   * round then runs in the turn's workspace scope, under the main slot and its
+   * deadline, with its events published like any turn's. The call's result
+   * returns as soon as the call settles; the turn continues while rounds run.
+   */
+  private async withAgentTurn<T>(sessionId: SessionId, invoke: () => Promise<T>): Promise<T> {
+    if (this.activeTurns.get(sessionId)?.agent !== undefined) return invoke()
+    if (this.mainDriving || this.activeTurns.size > 0) throw new EdgeSessionStoreError('BUSY', 'The main slot is occupied; retry this command after the current turn.')
+    this.mainDriving = true
+    let claimed: Awaited<ReturnType<typeof this.claimTurn>>
+    try {
+      claimed = await this.claimTurn(sessionId)
+    } catch (error) {
+      this.mainDriving = false
+      this.kickMain()
+      throw error
+    }
+    const { commandTimeoutPolicy } = resolveEdgeDeploymentConfig(this.env)
+    let settle!: (outcome: { ok: true; value: T } | { ok: false; error: unknown }) => void
+    const outcome = new Promise<{ ok: true; value: T } | { ok: false; error: unknown }>(resolve => { settle = resolve })
+    const timer = setTimeout(() => {
+      claimed.turn.cancelRequested = true
+      claimed.handle.agent.cancel({ kind: 'user' })
+    }, MAIN_RUN_TIMEOUT_MS)
+    void this.runClaimedTurn({
+      claimed,
+      commandTimeoutPolicy,
+      mode: 'queue',
+      content: [],
+      start: async () => {
+        try { settle({ ok: true, value: await invoke() }) } catch (error) { settle({ ok: false, error }) }
+      },
+    }).catch((error: unknown) => {
+      settle({ ok: false, error })
+      console.error('dsh-edge: an agent-scoped turn failed.', error)
+    }).finally(() => {
+      clearTimeout(timer)
+      this.mainDriving = false
+      this.kickMain()
+    })
+    const result = await outcome
+    if (!result.ok) throw result.error
+    return result.value
   }
 
   private publishSessionEvent(sessionId: SessionId, event: SessionEvent): void {
@@ -1828,6 +1877,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     rpcId?: RpcId
     clientTimeZone?: string
     publish?: (event: SessionEvent) => void | Promise<void>
+    start?: () => Promise<void>
   }): Promise<void> {
     const { sessionId, turn, handle } = input.claimed
     try {
@@ -1883,6 +1933,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     onAdmitted?: (admit: EdgeAgentPromptAdmitter) => void
     onClosing?: () => void
     onTurnStart?: (seq: number) => void
+    start?: () => Promise<void>
   }): Promise<void> {
     const workspace = await this.workspace()
     const edgeFs = this.sessions.filesystem()
@@ -1911,6 +1962,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       ...input.onAdmitted === undefined ? {} : { onAdmitted: input.onAdmitted },
       ...input.onClosing === undefined ? {} : { onClosing: input.onClosing },
       ...input.onTurnStart === undefined ? {} : { onTurnStart: input.onTurnStart },
+      ...input.start === undefined ? {} : { start: input.start },
       publish: input.publish,
       publishQueue: input.publishQueue,
     })
@@ -1955,6 +2007,15 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       status: this.activeTurns.has(session.id) ? 'running' as const : 'idle' as const,
     }
   }
+}
+
+/**
+ * Agent-scoped calls that can arm a goal: creating or resuming one, and commands
+ * (upstream `/goal <objective>` and `/goal resume`).
+ */
+function startsGoalRound(ns: string, method: string): boolean {
+  return (ns === 'goals' && (method === 'create' || method === 'resume'))
+    || (ns === 'commands' && method === 'execute')
 }
 
 async function* emptyUplink(): AsyncIterable<unknown> {}

@@ -76,6 +76,7 @@ import * as GoalRoundDriver from '@deepseek-ai/dsh-goal-round-driver'
 import GoalService from '@deepseek-ai/dsh-goal'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
 import * as CommandCompact from '@deepseek-ai/dsh-command-compact'
+import * as CommandGoal from '@deepseek-ai/dsh-command-goal'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
 import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
 import PluginInventoryGateway from '@deepseek-ai/dsh-host-plugin-inventory'
@@ -297,6 +298,9 @@ export class EdgeSessionCwdConflictError extends Error {
  * Edge-facing facade over the same SessionStore + SessionPersistence services
  * used by upstream. Durable Object SQL is visible only to the backend plugin.
  */
+/** How long a turn waits for upstream's goal round driver to start a pending round (it first stores the session). */
+const GOAL_ROUND_START_WAIT_MS = 30_000
+
 export class EdgeSessionStore {
   private readonly context = new Context()
   private readonly shells = new EdgeShellBindings()
@@ -668,8 +672,11 @@ export class EdgeSessionStore {
     // tool touches into nested directories.
     await this.context.plugin(AgentInstructions, { maxBytes: 65_536, dshHome: '/.dsh' })
     await this.context.plugin(GoalRoundDriver)
-    // As upstream: /compact compacts the session's history now.
+    // As upstream: /compact compacts the session's history now; /goal shows,
+    // sets, edits, pauses, resumes, or clears the session's goal. A command
+    // that arms a goal runs inside a turn, so its rounds do too (instance.ts).
     await this.context.plugin(CommandCompact)
+    await this.context.plugin(CommandGoal)
     // Upstream estimates 4 bytes per token (50,000 bytes became 12,500 tokens); keep the Edge's 32 KiB budget.
     await this.context.plugin(SpillPolicy, { maxInlineTokens: 8_192 })
     await installEdgeWebSearch(this.context, config.searchBaseURL)
@@ -2087,6 +2094,13 @@ export class EdgeSessionStore {
     afterFollowup?: () => void
     onAdmitted?: (admit: EdgeAgentPromptAdmitter) => void
     onClosing?: () => void
+    /**
+     * Runs in place of admitting `content`, inside this turn's workspace scope
+     * and event delivery: an agent-scoped call (resuming a goal, a command)
+     * whose effects may start the agent. The turn then lasts until the agent
+     * is idle with no goal round pending.
+     */
+    start?: () => Promise<void>
   }): Promise<void> {
     const { sessions } = await this.services()
     const { agent } = input
@@ -2138,21 +2152,30 @@ export class EdgeSessionStore {
     )
 
     try {
-      const admitted = admission.admit({
-        ...input.message === undefined ? {} : { message: input.message },
-        mode: input.mode,
-        content: input.content,
-        ...input.rpcId === undefined ? {} : { rpcId: input.rpcId },
-        ...input.clientTimeZone === undefined
-          ? {}
-          : { clientTimeZone: input.clientTimeZone },
-      })
-      input.afterFollowup?.()
-      await admitted
-      input.onAdmitted?.(admission.admit)
+      if (input.start === undefined) {
+        const admitted = admission.admit({
+          ...input.message === undefined ? {} : { message: input.message },
+          mode: input.mode,
+          content: input.content,
+          ...input.rpcId === undefined ? {} : { rpcId: input.rpcId },
+          ...input.clientTimeZone === undefined
+            ? {}
+            : { clientTimeZone: input.clientTimeZone },
+        })
+        input.afterFollowup?.()
+        await admitted
+        input.onAdmitted?.(admission.admit)
+      } else {
+        await input.start()
+        if (agent.status !== 'idle' || this.goalRoundPending(agent)) input.onAdmitted?.(admission.admit)
+      }
       while (true) {
         await agent.whenIdle()
         if (agent.status !== 'idle') continue
+        // Upstream's goal round driver queues the next round once the agent
+        // is idle. Keep the turn open for it, so every round runs in this
+        // turn's workspace scope, deadline, and event delivery.
+        if (this.goalRoundPending(agent) && await this.goalRoundStarted(agent)) continue
         input.onClosing?.()
         break
       }
@@ -2173,6 +2196,48 @@ export class EdgeSessionStore {
       }
       this.turnPublishedAgents.delete(agent)
     }
+  }
+
+  /** Whether upstream's goal round driver is about to queue a round for this agent. */
+  private goalRoundPending(agent: Agent): boolean {
+    if (this.context.agents.get(agent.id) !== agent) return false
+    try {
+      const goal = this.context.goals.get(agent)
+      return goal !== undefined && goal.phase === 'active' && goal.activation === 'armed'
+        && goal.roundsStarted < goal.maxGoalRounds
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * Wait for the pending goal round to start the agent. Resolves false when
+   * the goal stops being pending first, or when the driver does not start the
+   * round within GOAL_ROUND_START_WAIT_MS (its failures disarm the goal).
+   */
+  private goalRoundStarted(agent: Agent): Promise<boolean> {
+    return new Promise(resolve => {
+      const disposers: (() => void)[] = []
+      const timer = setTimeout(() => {
+        console.warn('dsh-edge: a pending goal round did not start; the turn ends without it.')
+        finish(false)
+      }, GOAL_ROUND_START_WAIT_MS)
+      const settle = () => {
+        if (agent.status !== 'idle') return finish(true)
+        if (!this.goalRoundPending(agent)) return finish(false)
+      }
+      const finish = (started: boolean) => {
+        clearTimeout(timer)
+        for (const dispose of disposers.splice(0)) dispose()
+        resolve(started)
+      }
+      disposers.push(
+        this.context.on('agent/status', ({ agent: subject }) => { if (subject === agent) settle() }),
+        this.context.on('goal/activation-changed', ({ sessionId }) => { if (sessionId === agent.id) settle() }),
+        this.context.on('session/event', (session, event) => { if (session === agent.session && event.type === 'goal/change') settle() }),
+      )
+      settle()
+    })
   }
 
   async readEventPage(

@@ -868,6 +868,11 @@ try {
     description: 'Compact older conversation history',
     name: 'compact',
   }, {
+    definitionId: '@deepseek-ai/dsh-command-goal',
+    description: 'Set or view the goal for a long-running task',
+    input: { attachments: true, hint: '[<objective>|clear|edit <objective>|pause|resume]' },
+    name: 'goal',
+  }, {
     definitionId: '@deepseek-ai/dsh-plan-mode',
     name: 'plan',
     description: 'Enter or leave plan mode',
@@ -1113,7 +1118,7 @@ try {
     args: { agentId: protocolSessionId },
   })
   assert.equal(commandCatalog.body.result.ok, true)
-  assert.deepEqual(commandCatalog.body.result.value.map(command => command.name), ['compact', 'plan'])
+  assert.deepEqual(commandCatalog.body.result.value.map(command => command.name), ['compact', 'goal', 'plan'])
   assert.equal(commandCatalog.response.headers.get('access-control-allow-origin'), '*')
   assert.doesNotMatch(
     commandCatalog.response.headers.get('access-control-expose-headers') ?? '',
@@ -2208,6 +2213,54 @@ try {
   // Upstream saves the session before the command answers, so the summary is already stored.
   const storedSummary = await request(`/api/sessions/${commandSessionId}/events?after=${compacted.sourceEventSeq - 1}&limit=1`)
   assert.equal(parseEvents(await storedSummary.text())[0]?.seq, compacted.sourceEventSeq)
+  // Upstream's goal round driver queues each round once the agent is idle. A
+  // round must run inside an Edge turn (workspace scope, deadline, event
+  // delivery), whether the model created the goal during a turn or a Typert
+  // call armed it outside one, on a warm agent or after a restart.
+  const goalRoundResults = events => events
+    .filter(event => event.type === 'tool/result' && /^call_goal_(round|write)_/u.test(event.data.message.toolCallId))
+  const assertGoalRound = (label, events) => {
+    const results = goalRoundResults(events)
+    assert.equal(results.length, 2, `${label}: ${JSON.stringify(events.map(event => event.type))}`)
+    for (const result of results) assert.equal(result.data.message.isError, false, `${label}: ${toolResultText(result)}`)
+    assert.ok(!events.some(event => event.type === 'turn/end' && event.data.reason.kind === 'error'), label)
+  }
+  const goalStored = async id => {
+    const deadline = Date.now() + 20_000
+    while (true) {
+      const events = parseEvents(await (await request(`/api/sessions/${id}/events?limit=256`)).text())
+      // The mock completes the goal in its first round; a one-round goal may also end blocked at its limit.
+      if (events.some(event => event.type === 'goal/change' && ['block', 'complete'].includes(event.data.operation))) return events
+      if (Date.now() >= deadline) throw new Error(`goal round did not finish: ${JSON.stringify(events.map(event => event.type))}`)
+      await new Promise(resolve => { setTimeout(resolve, 200) })
+    }
+  }
+  const modelGoalSessionId = (await rpc('session.create', {})).body.result.value.sessionId
+  assertGoalRound('model-created goal, turn stream', await turn(modelGoalSessionId, 'set a goal fixture'))
+  // Upstream /goal answers without a model turn when it sets nothing, and its
+  // `/goal <objective>` arms a goal whose round runs inside the command's turn.
+  const goalCommandSessionId = (await rpc('session.create', {})).body.result.value.sessionId
+  const goalCommand = async line => {
+    const response = await rpc('commands/execute', { args: { agentId: goalCommandSessionId, line, submittedAttachments: [] } })
+    assert.equal(response.body.result.ok, true, JSON.stringify(response.body))
+    return response.body.result.value.result
+  }
+  const goalUsage = 'Usage: /goal [<objective>|clear|edit <objective>|pause|resume]'
+  assert.deepEqual(await goalCommand('/goal'), { kind: 'success', text: `No goal is currently set.\n${goalUsage}` })
+  assert.deepEqual(await goalCommand('/goal pause'), { kind: 'error', text: `No goal is currently set; /goal pause requires one. ${goalUsage}` })
+  assert.equal((await goalCommand('/goal write the goal marker')).kind, 'success')
+  assertGoalRound('/goal command', await goalStored(goalCommandSessionId))
+  for (const [label, restart] of [['warm agent', false], ['after a restart', true]]) {
+    const goalSessionId = (await rpc('session.create', {})).body.result.value.sessionId
+    await turn(goalSessionId, `plain turn before a goal, ${label}`)
+    if (restart) {
+      await worker.stop()
+      worker = await startWorker()
+    }
+    const created = await typertRpc('goals', 'create', { agentId: goalSessionId, request: { objective: `goal fixture, ${label}`, maxGoalRounds: 1 } })
+    assert.equal(created.body.result.ok, true, JSON.stringify(created.body))
+    assertGoalRound(`Typert-created goal, ${label}`, await goalStored(goalSessionId))
+  }
   process.stdout.write(`dsh-edge ${runtimeMode} session integration passed\n`)
 } finally {
   mock.releaseSlowResponses()
