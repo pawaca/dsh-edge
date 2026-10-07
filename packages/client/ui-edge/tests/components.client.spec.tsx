@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { EdgeSettingsSection } from '../src/client/EdgeSettingsSection.tsx'
 import type { EdgeSettingsSectionProps } from '../src/client/EdgeSettingsSection.tsx'
 import { en } from '../src/client/locales.ts'
+import { EdgePluginSettingsTab } from '../src/client/EdgePluginSettingsTab.tsx'
 import type { EdgeSettingsState } from '../src/client/store.ts'
 
 afterEach(cleanup)
@@ -159,5 +160,33 @@ describe('Edge settings section', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
     expect(load).toHaveBeenCalledTimes(2)
     expect(signOut).toHaveBeenCalledOnce()
+  })
+})
+
+describe('EdgePluginSettingsTab', () => {
+  afterEach(cleanup)
+  const t = (key: keyof typeof en) => en[key]
+
+  it('says when no plugin offers settings', () => {
+    render(<EdgePluginSettingsTab t={t} renderSlot={() => null} usePluginSettingsItems={select => select([])} />)
+    expect(screen.getByText(en.pluginSettingsEmpty)).toBeTruthy()
+  })
+
+  it('renders each card as its title, summary, then settings page', () => {
+    const calls: Array<[string, string]> = []
+    render(<EdgePluginSettingsTab
+      t={t}
+      usePluginSettingsItems={select => select([{ id: 'agent-loop', label: 'Agent loop' }, { id: 'web-search', label: 'Web search' }])}
+      renderSlot={(_name, props, options) => {
+        calls.push([options.only, props.view])
+        return <span>{`${options.only}:${props.view}`}</span>
+      }}
+    />)
+    expect(screen.getByRole('heading', { name: 'Agent loop' })).toBeTruthy()
+    expect(screen.getByText('web-search:page')).toBeTruthy()
+    expect(calls).toEqual([
+      ['agent-loop', 'summary'], ['agent-loop', 'page'],
+      ['web-search', 'summary'], ['web-search', 'page'],
+    ])
   })
 })

@@ -49,6 +49,12 @@ export interface EdgeSettingsRegisterOptions<T> {
   base?: Partial<T>
   /** Reject a resolved value the schema cannot express as invalid; refuses the write. */
   validate?: (value: T) => void
+  /**
+   * Drop a stored section that no longer validates (one an older release
+   * accepted) instead of rejecting registration, so a stale override cannot
+   * keep the runtime, and the settings page that would clear it, from starting.
+   */
+  discardInvalidSection?: boolean
 }
 
 interface Watcher {
@@ -99,12 +105,22 @@ export class EdgeSettings extends Service {
     const ns = parseNamespace(name)
     if (this.registrations.has(ns)) throw new Error(`settings namespace "${ns}" is already registered`)
     const validate = options?.validate as ((value: unknown) => void) | undefined
+    let resolved: unknown
+    try {
+      resolved = resolve(schema as z<unknown>, options?.base, this.section(ns), validate)
+    } catch (error) {
+      if (options?.discardInvalidSection !== true || this.section(ns) === undefined) throw error
+      // The section may hold a credential (an endpoint with a password), so log only the namespace.
+      this.ctx.logger.warn('settings: discarded the stored "%s" section, which no longer validates', ns)
+      resolved = resolve(schema as z<unknown>, options.base, undefined, validate)
+      this.discardSection(ns)
+    }
     const registration: Registration = {
       ns,
       schema: schema as z<unknown>,
       base: options?.base,
       ...validate === undefined ? {} : { validate },
-      resolved: deepFreeze(resolve(schema as z<unknown>, options?.base, this.section(ns), validate)),
+      resolved: deepFreeze(resolved),
       revision: 0,
       watchers: new Set(),
     }
@@ -241,6 +257,26 @@ export class EdgeSettings extends Service {
       this.pending.add(segment)
       void segment.finally(() => this.pending.delete(segment))
     }
+  }
+
+  /**
+   * Remove one namespace's stored section, queued behind any pending write.
+   * The section is ignored in memory either way; if storage refuses the
+   * removal, the warning says so and the next start discards it again.
+   */
+  private discardSection(ns: SettingsNamespace): void {
+    const { [ns]: _discarded, ...document } = this.document
+    this.document = document
+    const run = this.writes.catch(() => undefined).then(async () => {
+      const { [ns]: _stale, ...current } = this.document
+      await this.config.storage.put(SETTINGS_DOCUMENT_KEY, current)
+    }).catch((error: unknown) => {
+      this.ctx.logger.warn('settings: could not remove the stored "%s" section; it stays ignored and is removed again on the next start', ns)
+      this.ctx.logger.warn(error)
+    })
+    this.writes = run
+    this.pending.add(run)
+    void run.finally(() => this.pending.delete(run))
   }
 
   private section(ns: SettingsNamespace): Record<string, unknown> | undefined {

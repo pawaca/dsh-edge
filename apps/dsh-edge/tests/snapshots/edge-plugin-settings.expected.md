@@ -1,0 +1,40 @@
+- dialog "Settings":
+  - navigation:
+    - text: Settings
+    - button "General"
+    - button "Models"
+    - button "Built-in plugins"
+    - button "Agent presets"
+    - button "MCP Connectors"
+    - button "DSH Edge"
+  - button "Close"
+  - heading "Built-in plugins" [level=2]
+  - paragraph: Inspect the plugins this deployment ships.
+  - tablist "Plugin views":
+    - tab "Plugin list"
+    - tab "Settings" [selected]
+  - tabpanel "Settings":
+    - heading "Agent loop" [level=3]
+    - paragraph: Control how the Agent dispatches tool calls.
+    - text: Parallel tool calls
+    - textbox "Parallel tool calls":
+      - /placeholder: ""
+      - text: "10"
+    - paragraph: Upper bound on parallel-safe calls running at once within one step.
+    - button "Save" [disabled]
+    - heading "Web search" [level=3]
+    - paragraph: Set up the DeepSeek search provider.
+    - text: API key A key is configured.
+    - textbox "API key"
+    - paragraph: Stored outside the settings file. Leave blank to keep the current key.
+    - text: Endpoint
+    - textbox "Endpoint":
+      - /placeholder: ""
+      - text: https://api.deepseek.com/anthropic/v1
+    - paragraph: Leave blank to use the provider default.
+    - text: Max searches per request
+    - textbox "Max searches per request":
+      - /placeholder: ""
+      - text: "5"
+    - paragraph: How many times one request may search before it must answer.
+    - button "Save" [disabled]

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { apply, downloadWorkspaceFile, inject } from '../src/client/index.ts'
 import { EdgeSettingsSection } from '../src/client/EdgeSettingsSection.tsx'
+import { EdgePluginSettingsTab, type EdgePluginSettingsInjected } from '../src/client/EdgePluginSettingsTab.tsx'
 
 type RemoteResult = { ok: true; value: { opened: true } } | { ok: false; error: { code: string; message: string } }
 
@@ -32,6 +33,8 @@ function fakeContext(session: object | undefined) {
     locale: {
       register: registerLocale,
       bind: () => (key: string) => key === 'nav' ? 'DSH Edge' : key,
+      getSnapshot: () => ({ revision: 1 }),
+      subscribe: () => () => {},
     },
     slots: {
       inject: (_name: string, callback: () => unknown) => {
@@ -44,6 +47,9 @@ function fakeContext(session: object | undefined) {
         entries.push({ options, component })
         return () => {}
       },
+      entries: (name: string) => entries.filter(e => e.options.name === name),
+      getVersion: (name: string) => entries.filter(e => e.options.name === name).length,
+      subscribe: () => () => {},
     },
   }
   return { ctx, entries, registerLocale, disposers }
@@ -75,6 +81,24 @@ describe('ui-edge apply', () => {
     // occupant of a `single` hole would fail the composition loud.
     const flowNames = entries.map(e => e.options.name).filter(name => String(name).endsWith('directoryFlow'))
     expect(flowNames).toEqual([])
+  })
+
+  it('hosts the plugins.item cards in a Built-in plugins tab', () => {
+    const { ctx, entries } = fakeContext(undefined)
+    apply(ctx as never)
+    const tab = entries.find(e => e.component === EdgePluginSettingsTab)
+    if (tab === undefined) throw new Error('Edge plugin settings tab was not registered')
+    expect(tab.options).toMatchObject({
+      name: 'settings.plugins.tab',
+      id: 'edge-plugin-settings',
+      children: { 'plugins.item': { kind: 'list', scope: 'root' } },
+    })
+    expect((tab.options.label as () => string)()).toBe('pluginSettingsTab')
+    const injected = tab.options.inject?.() as EdgePluginSettingsInjected
+    expect(injected.hooks.pluginSettingsItems.getSnapshot()).toEqual([])
+    // An upstream card registering into the slot appears in the list, label resolved.
+    ctx.slots.register({ name: 'plugins.item', id: 'agent-loop', label: () => 'Agent loop' }, () => null)
+    expect(injected.hooks.pluginSettingsItems.getSnapshot()).toEqual([{ id: 'agent-loop', label: 'Agent loop' }])
   })
 
   it('passes a settled upstream open through untouched', async () => {

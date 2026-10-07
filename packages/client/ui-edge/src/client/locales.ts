@@ -105,6 +105,8 @@ export const en = {
   mcpToolsLabel: 'Tools',
   mcpRead: 'read',
   mcpWrite: 'write',
+  pluginSettingsTab: 'Settings',
+  pluginSettingsEmpty: 'No built-in plugin offers settings on this deployment.',
 } as const
 
 /** Locale keys shared by the English source and translated Edge settings copy. */
@@ -217,4 +219,6 @@ export const zh: Record<EdgeSettingsKey, string> = {
   mcpToolsLabel: '工具',
   mcpRead: '读取',
   mcpWrite: '写入',
+  pluginSettingsTab: '设置',
+  pluginSettingsEmpty: '本部署没有可配置的内置插件。',
 }

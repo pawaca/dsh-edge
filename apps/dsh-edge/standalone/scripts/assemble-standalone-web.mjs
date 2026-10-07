@@ -49,22 +49,26 @@ const edgeExcludedPackages = new Set([
   // PTY terminal, DeepSeek account sign-in (the Edge authenticates with an
   // API key), and runtime plugin management. The settings pages below mount
   // inside the plugin manager and edit upstream plugin configuration the Edge
-  // composes in code.
+  // composes in code. The agent-loop and web-search pages ship instead: the
+  // Edge serves their namespaces and hosts their cards in Built-in plugins.
   '@deepseek-ai/dsh-client-product-analytics',
   '@deepseek-ai/dsh-api-terminal-controller',
   '@deepseek-ai/dsh-client-ui-sidebar-terminal',
   '@deepseek-ai/dsh-client-ui-settings-account',
   '@deepseek-ai/dsh-client-ui-plugin-manager',
   '@deepseek-ai/dsh-client-ui-settings-shell',
-  '@deepseek-ai/dsh-client-ui-settings-agent-loop',
   '@deepseek-ai/dsh-client-ui-settings-subagent',
-  '@deepseek-ai/dsh-client-ui-settings-web-search',
   // Browser halves of host features the Edge declines: the session-log upload
   // preference and the permission-preset picker, which would only render errors.
   '@deepseek-ai/dsh-client-ui-settings-session-log',
   '@deepseek-ai/dsh-client-ui-permission-presets',
 ])
 const shellStaticPackages = new Set(['@deepseek-ai/dsh-client-ui-primitives'])
+// The shipped settings cards wait on the plugin manager, whose page declares
+// `plugins.item`; on the Edge, dsh-edge-client-ui declares that slot instead.
+const edgeInjectSubstitutes = new Map([
+  ['@deepseek-ai/dsh-client-ui-plugin-manager', 'dsh-edge-client-ui'],
+])
 const assetSecurityHeaders = `/*
   Content-Security-Policy: frame-ancestors 'none'
   X-Frame-Options: DENY
@@ -143,7 +147,9 @@ async function copyBundle(record, pkg, entries) {
     id: pkg.name,
     url: `/plugins/${pkg.name}/client.js?rev=${rev}`,
     rev,
-    ...(Array.isArray(declaration.inject) ? { inject: declaration.inject } : {}),
+    ...(Array.isArray(declaration.inject)
+      ? { inject: declaration.inject.map(name => edgeInjectSubstitutes.get(name) ?? name) }
+      : {}),
     ...(declaration.immediately === true ? { immediately: true } : {}),
     ...(Array.isArray(declaration.external) && declaration.external.length > 0
       ? { external: declaration.external }

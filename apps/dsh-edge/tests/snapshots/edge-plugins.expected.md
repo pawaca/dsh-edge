@@ -10,7 +10,11 @@
   - button "Close"
   - heading "Built-in plugins" [level=2]
   - paragraph: Inspect the plugins this deployment ships.
-  - text: Search plugins
-  - searchbox "Search plugins"
-  - button "Global plugins"
-  - paragraph: Shared by the system and every session ·132 plugins
+  - tablist "Plugin views":
+    - tab "Plugin list" [selected]
+    - tab "Settings"
+  - tabpanel "Plugin list":
+    - text: Search plugins
+    - searchbox "Search plugins"
+    - button "Global plugins"
+    - paragraph: Shared by the system and every session ·134 plugins
