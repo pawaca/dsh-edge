@@ -265,7 +265,7 @@ describe('legacy Edge cancellation migration', () => {
       expect((await readAll(persistence, SessionId('session-v0-1-3'))).meta.version).toBe(SESSION_FORMAT_VERSION)
       expect(storage.sql.exec("SELECT count(*) AS n FROM sqlite_master WHERE name = 'dsh_session_events_migrating'").toArray()).toEqual([{ n: 0 }])
     } finally { await ctx.fiber.dispose(); storage.close() }
-  })
+  }, 30_000) // The 100,000-row case seeds and migrates real SQLite rows; Windows runners take over 5 s.
 
   it('restores the original table if the compact table swap fails, then retries', async () => {
     const storage = cancelledStorage('cancelled by the user')
