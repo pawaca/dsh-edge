@@ -1,11 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { minimatch } from 'minimatch'
-import { apply, GREP_MAX_COLLECTED_CHARS, GREP_MAX_COLLECTED_MATCHES, SEARCH_MAX_ENTRIES } from '../src/edge-fs-search.ts'
+import { apply, GREP_MAX_COLLECTED_CHARS, GREP_MAX_COLLECTED_MATCHES, GREP_MAX_FILE_BYTES, SEARCH_MAX_ENTRIES } from '../src/edge-fs-search.ts'
 
 type Tool = {
   name: string
   execute: (args: Record<string, unknown>, exec: unknown) => Promise<unknown>
-  output: { render: (args: unknown, value: never) => Array<{ text: string }> }
+  output: { render: (args: unknown, value: never) => Array<{ text: string }>; presentationMeta: (args: unknown, value: never) => unknown }
 }
 
 /** An in-memory stand-in for the workspace VFS: files carry content and mtime; directories are implied. */
@@ -13,26 +12,41 @@ function workspace(files: Record<string, string | { content: string; mtime: numb
   const entries = new Map(Object.entries(files).map(([path, value], index) =>
     [path, typeof value === 'string' ? { content: value, mtime: index + 1 } : value]))
   const isDirectory = (path: string) => [...entries.keys()].some(file => file.startsWith(`${path}/`))
+  const calls = { stat: 0, readdir: 0 }
+  const encoder = new TextEncoder()
   return {
+    calls,
+    /** Replace a file's content without its listing noticing, as a concurrent writer would. */
+    replace(path: string, content: string) { entries.get(path)!.content = content },
     async stat(path: string) {
+      calls.stat++
       const file = entries.get(path)
       if (file !== undefined) return { size: file.content.length, mtime: file.mtime, isFile: true, isDirectory: false, isSymbolicLink: false }
       if (isDirectory(path)) return { size: 0, mtime: 0, isFile: false, isDirectory: true, isSymbolicLink: false }
       throw Object.assign(new Error('missing'), { code: 'ENOENT' })
     },
-    async readFile(path: string) { return entries.get(path)!.content },
-    async find(directory: string, _pattern: undefined, options: { exclude: string[]; limit: number }) {
-      const found = new Map<string, 'file' | 'dir'>()
-      for (const file of [...entries.keys()].sort()) {
-        if (!file.startsWith(`${directory}/`)) continue
-        const parts = file.slice(directory.length + 1).split('/')
-        for (let depth = 1; depth <= parts.length; depth++) {
-          const relative = parts.slice(0, depth).join('/')
-          if (options.exclude.some(glob => minimatch(relative, glob, { dot: true }))) break
-          found.set(`${directory}/${relative}`, depth === parts.length ? 'file' : 'dir')
-        }
+    async readdir(directory: string) {
+      calls.readdir++
+      const children = new Map<string, { size: number; mtime: number; isFile: boolean; isDirectory: boolean }>()
+      for (const [path, file] of entries) {
+        if (!path.startsWith(`${directory}/`)) continue
+        const [name, ...rest] = path.slice(directory.length + 1).split('/')
+        children.set(name!, rest.length === 0
+          ? { size: file.content.length, mtime: file.mtime, isFile: true, isDirectory: false }
+          : { size: 0, mtime: 0, isFile: false, isDirectory: true })
       }
-      return [...found].slice(0, options.limit).map(([path, type]) => ({ path, type }))
+      return [...children].reverse().map(([name, info]) => ({ name, ...info }))
+    },
+    async readFile(path: string) {
+      const bytes = encoder.encode(entries.get(path)!.content)
+      let offset = 0
+      return new ReadableStream<Uint8Array>({
+        pull(controller) {
+          if (offset >= bytes.byteLength) return controller.close()
+          controller.enqueue(bytes.slice(offset, offset + 65_536))
+          offset += 65_536
+        },
+      })
     },
   }
 }
@@ -63,6 +77,7 @@ function tools(vfs: ReturnType<typeof workspace>, cwd = '/workspace') {
   return {
     run: (name: string, args: Record<string, unknown>) => registered.get(name)!.execute(args, exec),
     render: (name: string, value: unknown) => registered.get(name)!.output.render({}, value as never)[0]!.text,
+    meta: (name: string, value: unknown) => registered.get(name)!.output.presentationMeta({}, value as never),
   }
 }
 
@@ -95,6 +110,15 @@ describe('glob over the workspace VFS', () => {
     const search = tools(workspace({ '/workspace/[x].ts': 'a', '/workspace/b.ts': 'b' }))
     expect(await search.run('glob', { pattern: '\\[x\\].ts' })).toEqual({ root: '.', paths: ['[x].ts'] })
     expect(await search.run('glob', { pattern: '[]ab].ts' })).toEqual({ root: '.', paths: ['b.ts'] })
+  })
+
+  it('sorts by the mtime its directory listing reports, without a stat per file', async () => {
+    const vfs = workspace(Object.fromEntries(Array.from({ length: 50 }, (_, index) =>
+      [`/workspace/d${String(index % 5)}/f${String(index)}.txt`, { content: '', mtime: 100 - index }])))
+    const result = await tools(vfs).run('glob', { pattern: '*.txt' }) as { paths: string[] }
+    expect(result.paths[0]).toBe('d4/f49.txt')
+    expect(result.paths).toHaveLength(50)
+    expect(vfs.calls).toEqual({ stat: 1, readdir: 6 })
   })
 
   it('refuses a walk beyond its entry cap', async () => {
@@ -137,6 +161,24 @@ describe('grep over the workspace VFS', () => {
     const started = Date.now()
     expect(await search.run('grep', { pattern: '^(a+)+$' })).toEqual({ matches: [] })
     expect(Date.now() - started).toBeLessThan(5_000)
+  })
+
+  it('stops reading a file once its bytes pass the size cap', async () => {
+    const vfs = workspace({ '/workspace/grow.txt': 'hit\n' })
+    const search = tools(vfs)
+    vfs.replace('/workspace/grow.txt', `hit\n${'x'.repeat(GREP_MAX_FILE_BYTES)}`)
+    expect(await search.run('grep', { pattern: 'hit' })).toEqual({ matches: [] })
+  })
+
+  it('caps search-card metadata even when every match is in one file', async () => {
+    const line = 'hit'.padEnd(1_900, 'x')
+    const search = tools(workspace({ '/workspace/one.txt': `${line}\n`.repeat(250) }))
+    const value = await search.run('grep', { pattern: 'hit' })
+    const meta = search.meta('grep', value) as { files: Array<{ matches: unknown[] }>; truncated: boolean; total: number }
+    expect(new TextEncoder().encode(JSON.stringify(meta)).byteLength).toBeLessThanOrEqual(65_536)
+    expect(meta.truncated).toBe(true)
+    expect(meta.total).toBe(250)
+    expect(meta.files[0]!.matches.length).toBeGreaterThan(0)
   })
 
   it('refuses to hold more matched text than its cap', async () => {

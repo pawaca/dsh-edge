@@ -6,13 +6,16 @@
  * same tool names, parameter and output schemas, result rendering, search-card
  * metadata, and formatted-result spill, and replaces only the ripgrep run:
  *
- * - files come from the workspace's own tree walk, skipping VCS metadata as
- *   upstream's argv does, and, for `grep`, hidden entries as ripgrep's
- *   defaults do; `.gitignore` files are not applied;
+ * - files come from a walk of the workspace's directories (one `readdir`
+ *   per directory, which also yields each file's size and mtime), skipping
+ *   VCS metadata as upstream's argv does and, for `grep`, hidden entries as
+ *   ripgrep's defaults do; `.gitignore` files are not applied;
  * - globs use minimatch with ripgrep's rule that a pattern with no `/`
  *   matches the basename at any depth;
  * - `grep` patterns compile with re2js, the linear-time RE2 engine just-bash
- *   already ships, so a pathological pattern cannot stall the Durable Object.
+ *   already ships, so a pathological pattern cannot stall the Durable Object;
+ * - every cap (entries walked, bytes read per file, matches and their text
+ *   kept) is enforced while the work happens, not from an earlier snapshot.
  *
  * Helpers upstream exports are imported; the few it does not (match retention,
  * search-card metadata, the direct-call check) are copied from its 0.2.0-rc.2
@@ -51,14 +54,14 @@ export const name = 'edge-fs-search'
 export const inject = ['tools', 'systemPrompt', 'fs']
 
 /**
- * Entries one search may walk (files and directories). The walk reads the
- * VFS's SQLite tables synchronously, so the cap bounds how long a search over
- * a huge tree holds the Durable Object.
+ * Entries one search may walk (files and directories). Each listed entry is a
+ * SQLite row the Durable Object reads, so the cap bounds both the time a
+ * search holds the Durable Object and the rows it reads.
  */
 export const SEARCH_MAX_ENTRIES = 20_000
 /** Matches one `grep` may collect; upstream's equivalent is its 20 MB raw-output cap. */
 export const GREP_MAX_COLLECTED_MATCHES = 20_000
-/** Files larger than this are skipped by `grep`, like a binary file. */
+/** `grep` stops reading a file past this many bytes and skips it, like a binary file. */
 export const GREP_MAX_FILE_BYTES = 4 * 1024 * 1024
 /**
  * Characters of matched lines one `grep` may hold, upstream's 20 MB raw-output
@@ -67,8 +70,14 @@ export const GREP_MAX_FILE_BYTES = 4 * 1024 * 1024
  */
 export const GREP_MAX_COLLECTED_CHARS = RAW_OUTPUT_MAX_BYTES
 
-const VCS_EXCLUDE_GLOBS = GLOB_VCS_EXCLUDES.map(entry => `**/${entry}`)
-const HIDDEN_EXCLUDE_GLOB = '**/.*'
+const VCS_NAMES = new Set(GLOB_VCS_EXCLUDES)
+const skipVcs = (name: string) => VCS_NAMES.has(name)
+const skipVcsAndHidden = (name: string) => VCS_NAMES.has(name) || name.startsWith('.')
+
+interface WalkedFile {
+  readonly path: string
+  readonly mtime: number
+}
 
 interface SearchScope {
   readonly vfs: EdgeVfs
@@ -126,12 +135,11 @@ function applyGlobTool(ctx: Context): void {
       assertValidGlob('glob', input.pattern)
       const scope = await searchScope(ctx, exec, input.path)
       const root = input.path === undefined ? '.' : toWorkdirRelative(input.path, scope.workdir)
-      const files = await listFiles(scope, 'glob', VCS_EXCLUDE_GLOBS)
-      const matched = files.filter(path => globMatches(input.pattern, relativeTo(path, scope.root)))
+      const files = await listFiles(scope, 'glob', skipVcs)
+      const matched = files.filter(file => globMatches(input.pattern, relativeTo(file.path, scope.root)))
       // ripgrep's --sort=modified: oldest first, the path breaking ties.
-      const dated = await Promise.all(matched.map(async path => ({ path, mtime: (await scope.vfs.stat(path)).mtime })))
-      dated.sort((left, right) => left.mtime - right.mtime || (left.path < right.path ? -1 : left.path > right.path ? 1 : 0))
-      return { root, paths: dated.map(entry => toWorkdirRelative(entry.path, scope.workdir)) }
+      matched.sort((left, right) => left.mtime - right.mtime || (left.path < right.path ? -1 : left.path > right.path ? 1 : 0))
+      return { root, paths: matched.map(file => toWorkdirRelative(file.path, scope.workdir)) }
     },
     presentCall: presentGlobCall,
     presentResult: presentGlobResult,
@@ -217,15 +225,14 @@ function applyGrepTool(ctx: Context): void {
       }
       if (input.include !== undefined) assertValidGlob('grep', input.include)
       const scope = await searchScope(ctx, exec, input.path)
-      const files = await listFiles(scope, 'grep', [...VCS_EXCLUDE_GLOBS, HIDDEN_EXCLUDE_GLOB])
+      const files = await listFiles(scope, 'grep', skipVcsAndHidden)
       const matches: GrepMatch[] = []
       let collectedChars = 0
-      for (const path of files) {
+      for (const { path } of files) {
         if (exec.signal.aborted) throw new SearchError('grep aborted', 'SEARCH_ABORTED', { cause: exec.signal.reason })
         if (input.include !== undefined && path !== scope.root && !globMatches(input.include, relativeTo(path, scope.root))) continue
-        if ((await scope.vfs.stat(path)).size > GREP_MAX_FILE_BYTES) continue
-        const text = await scope.vfs.readFile(path, 'utf8')
-        if (text.includes('\u0000')) continue
+        const text = await readTextFile(scope.vfs, path)
+        if (text === undefined) continue
         const display = toWorkdirRelative(path, scope.workdir)
         const lines = text.split('\n')
         if (lines.at(-1) === '') lines.pop()
@@ -273,22 +280,68 @@ async function searchScope(ctx: Context, exec: ToolExecution, path: string | und
 
 /**
  * Every file under the search root (or the root itself when it is a file),
- * skipping excluded entries and everything below an excluded directory.
+ * depth-first in name order, with the mtime its directory listing reports.
+ * A skipped directory is not entered. Fails once the walk lists more than
+ * {@link SEARCH_MAX_ENTRIES} entries.
  */
-async function listFiles(scope: SearchScope, toolName: string, exclude: readonly string[]): Promise<string[]> {
+async function listFiles(scope: SearchScope, toolName: string, skip: (name: string) => boolean): Promise<WalkedFile[]> {
   let info
   try {
     info = await scope.vfs.stat(scope.root)
   } catch (error) {
     throw new SearchError(`${toolName} path not found: ${scope.root}`, 'SEARCH_FAILED', { cause: error })
   }
-  if (!info.isDirectory) return [scope.root]
-  if (scope.vfs.find === undefined) throw new SearchError(`${toolName} cannot walk this filesystem`, 'SEARCH_FAILED')
-  const entries = await scope.vfs.find(scope.root, undefined, { exclude: [...exclude], limit: SEARCH_MAX_ENTRIES + 1 })
-  if (entries.length > SEARCH_MAX_ENTRIES) {
-    throw new SearchError(`${toolName} would walk more than ${String(SEARCH_MAX_ENTRIES)} entries under ${scope.root}; narrow path`, 'SEARCH_RAW_OUTPUT_OVERFLOW')
+  if (!info.isDirectory) return [{ path: scope.root, mtime: info.mtime }]
+  const files: WalkedFile[] = []
+  let listed = 0
+  const visit = async (directory: string): Promise<void> => {
+    const entries = await scope.vfs.readdir(directory)
+    listed += entries.length
+    if (listed > SEARCH_MAX_ENTRIES) {
+      throw new SearchError(`${toolName} would walk more than ${String(SEARCH_MAX_ENTRIES)} entries under ${scope.root}; narrow path`, 'SEARCH_RAW_OUTPUT_OVERFLOW')
+    }
+    entries.sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0)
+    for (const entry of entries) {
+      if (skip(entry.name)) continue
+      const path = directory === '/' ? `/${entry.name}` : `${directory}/${entry.name}`
+      if (entry.isDirectory) await visit(path)
+      else if (entry.isFile) files.push({ path, mtime: entry.mtime })
+    }
   }
-  return entries.filter(entry => entry.type === 'file').map(entry => entry.path)
+  await visit(scope.root)
+  return files
+}
+
+/**
+ * A file's UTF-8 text, or undefined when it is binary (contains NUL) or its
+ * bytes pass {@link GREP_MAX_FILE_BYTES}: the read stops there, so a file
+ * replaced by a larger one after the walk is still never loaded whole.
+ */
+async function readTextFile(vfs: EdgeVfs, path: string): Promise<string | undefined> {
+  const reader = (await vfs.readFile(path)).getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      total += value.byteLength
+      if (total > GREP_MAX_FILE_BYTES || value.includes(0)) {
+        await reader.cancel()
+        return undefined
+      }
+      chunks.push(value)
+    }
+  } finally {
+    reader.releaseLock()
+  }
+  const bytes = new Uint8Array(total)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return new TextDecoder().decode(bytes)
 }
 
 function relativeTo(path: string, root: string): string {
@@ -384,8 +437,14 @@ function metaBytes(meta: SearchMeta): number {
 function capMetaBytes(meta: SearchMeta, maxMetaBytes: number): SearchMeta {
   if (metaBytes(meta) <= maxMetaBytes) return meta
   if (meta.shape === 'matches') {
-    const files = [...meta.files]
-    while (files.length > 1 && metaBytes({ ...meta, files, truncated: true }) > maxMetaBytes) files.pop()
+    // Edge change: upstream stops at one file, which can stay far over the cap
+    // when every match is in that file; trim its matches too.
+    const files = meta.files.map(file => ({ ...file, matches: [...file.matches] }))
+    while (metaBytes({ ...meta, files, truncated: true }) > maxMetaBytes) {
+      if (files.length > 1) files.pop()
+      else if (files[0] !== undefined && files[0].matches.length > 1) files[0].matches.pop()
+      else break
+    }
     return { ...meta, files, truncated: true }
   }
   const paths = [...meta.paths]

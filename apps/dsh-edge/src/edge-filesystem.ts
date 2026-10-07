@@ -45,11 +45,6 @@ export interface EdgeVfs {
     isDirectory: boolean
   }>>
   mkdir(path: string, options?: { recursive?: boolean }): Promise<void>
-  /** Walk a directory tree; only the workspace's own files offer it. */
-  find?(directory: string, pattern?: string, options?: { limit?: number; exclude?: string[] }): Promise<Array<{
-    path: string
-    type: 'file' | 'dir'
-  }>>
 }
 
 function resolvePath(cwd: string, path: string): string {
