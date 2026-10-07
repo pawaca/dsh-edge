@@ -231,14 +231,15 @@ function applyGrepTool(ctx: Context): void {
       for (const { path } of files) {
         throwIfAborted('grep', exec.signal)
         if (input.include !== undefined && path !== scope.root && !globMatches(input.include, relativeTo(path, scope.root))) continue
-        const text = await readTextFile(scope.vfs, path)
+        const text = await readTextFile(scope.vfs, path, exec.signal)
         if (text === undefined) continue
         const display = toWorkdirRelative(path, scope.workdir)
         const lines = text.split('\n')
         if (lines.at(-1) === '') lines.pop()
         for (const [index, raw] of lines.entries()) {
+          // ripgrep without --crlf ends lines at `\n` only: match the raw line, show it without `\r`.
+          if (!regex.test(raw)) continue
           const line = raw.endsWith('\r') ? raw.slice(0, -1) : raw
-          if (!regex.test(line)) continue
           collectedChars += line.length
           if (matches.length >= GREP_MAX_COLLECTED_MATCHES || collectedChars > GREP_MAX_COLLECTED_CHARS) {
             throw new SearchError(`grep matched more than ${String(GREP_MAX_COLLECTED_MATCHES)} lines or ${String(GREP_MAX_COLLECTED_CHARS)} characters; narrow pattern, path, or include`, 'SEARCH_RAW_OUTPUT_OVERFLOW')
@@ -326,12 +327,16 @@ async function listFiles(
  * bytes pass {@link GREP_MAX_FILE_BYTES}: the read stops there, so a file
  * replaced by a larger one after the walk is still never loaded whole.
  */
-async function readTextFile(vfs: EdgeVfs, path: string): Promise<string | undefined> {
+async function readTextFile(vfs: EdgeVfs, path: string, signal: AbortSignal): Promise<string | undefined> {
   const reader = (await vfs.readFile(path)).getReader()
   const chunks: Uint8Array[] = []
   let total = 0
   try {
     for (;;) {
+      if (signal.aborted) {
+        await reader.cancel()
+        throwIfAborted('grep', signal)
+      }
       const { done, value } = await reader.read()
       if (done) break
       total += value.byteLength
@@ -413,7 +418,8 @@ function classEnd(pattern: string, start: number, reject: (reason: string) => ne
 
 /** ripgrep glob rules: hidden names match, and a pattern with no `/` matches the basename at any depth. */
 function globMatches(pattern: string, relativePath: string): boolean {
-  return minimatch(relativePath, pattern, { dot: true, matchBase: !pattern.includes('/') })
+  // noext: gitignore-style globs have no extglobs, so `@(a|b)` is literal text.
+  return minimatch(relativePath, pattern, { dot: true, noext: true, matchBase: !pattern.includes('/') })
 }
 
 function renderGlobPaths(paths: readonly string[], spillRef?: { locator: string; retrievalHint: string }): string {

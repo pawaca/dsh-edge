@@ -135,6 +135,11 @@ describe('glob over the workspace VFS', () => {
     expect(vfs.calls.widest).toBe(SEARCH_MAX_ENTRIES + 1)
   })
 
+  it('reads gitignore-style globs literally, without extglobs', async () => {
+    const search = tools(workspace({ '/workspace/foo.ts': '', '/workspace/@(foo|bar).ts': '' }))
+    expect(await search.run('glob', { pattern: '@(foo|bar).ts' })).toEqual({ root: '.', paths: ['@(foo|bar).ts'] })
+  })
+
   it('stops walking once the call is cancelled', async () => {
     const vfs = workspace({ '/workspace/a/b.ts': '' })
     const controller = new AbortController()
@@ -169,6 +174,20 @@ describe('grep over the workspace VFS', () => {
       { path: '.env', lineNumber: 1, line: 'answer=secret' },
     ] })
     expect(search.render('grep', { matches: [] })).toBe('No matches found')
+  })
+
+  it('matches CRLF lines as ripgrep does without --crlf: the carriage return is part of the line', async () => {
+    const search = tools(workspace({ '/workspace/crlf.txt': 'foo\r\nbar\n' }))
+    expect(await search.run('grep', { pattern: 'foo$' })).toEqual({ matches: [] })
+    expect(await search.run('grep', { pattern: 'foo\\r$' })).toEqual({ matches: [{ path: 'crlf.txt', lineNumber: 1, line: 'foo' }] })
+  })
+
+  it('cancels a file read once the call is cancelled', async () => {
+    const controller = new AbortController()
+    const vfs = workspace({ '/workspace/a.txt': 'hit\n' })
+    const read = vfs.readFile.bind(vfs)
+    vfs.readFile = async (path: string) => { controller.abort(new Error('timed out')); return read(path) }
+    await expect(tools(vfs, '/workspace', controller.signal).run('grep', { pattern: 'hit' })).rejects.toMatchObject({ code: 'SEARCH_ABORTED' })
   })
 
   it('rejects a pattern RE2 cannot compile and runs a backtracking pattern in linear time', async () => {
