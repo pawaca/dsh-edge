@@ -1427,10 +1427,15 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
    * returns as soon as the call settles; the turn continues while rounds run.
    */
   private async withAgentTurn<T>(sessionId: SessionId, invoke: () => Promise<T>): Promise<T> {
-    if (this.activeTurns.get(sessionId)?.agent !== undefined) return invoke()
+    const active = this.activeTurns.get(sessionId)
+    // A turn still accepting work keeps any round the call starts. One that is
+    // closing may release its workspace and observers before the round runs,
+    // so claim a fresh turn once it has released.
+    if (active?.agent !== undefined && active.accepting) return invoke()
+    if (active !== undefined) await active.releaseComplete
     if (this.mainDriving || this.activeTurns.size > 0) throw new EdgeSessionStoreError('BUSY', 'The main slot is occupied; retry this command after the current turn.')
     this.mainDriving = true
-    let claimed: Awaited<ReturnType<typeof this.claimTurn>>
+    let claimed: { sessionId: SessionId; turn: ActiveTurn; handle: AgentHandle }
     try {
       claimed = await this.claimTurn(sessionId)
     } catch (error) {
@@ -1445,7 +1450,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       claimed.turn.cancelRequested = true
       claimed.handle.agent.cancel({ kind: 'user' })
     }, MAIN_RUN_TIMEOUT_MS)
-    void this.runClaimedTurn({
+    const turn = this.runClaimedTurn({
       claimed,
       commandTimeoutPolicy,
       mode: 'queue',
@@ -1461,6 +1466,10 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       this.mainDriving = false
       this.kickMain()
     })
+    // The turn outlives the call's response; keep the object from being
+    // evicted while its rounds run (waitUntil lasts up to 15 minutes, past the
+    // turn's 10-minute deadline).
+    this.ctx.waitUntil(turn)
     const result = await outcome
     if (!result.ok) throw result.error
     return result.value
