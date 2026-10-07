@@ -216,9 +216,8 @@
       "reason": "Host-OS process sandboxing, subprocesses, and shell environment."
     },
     "@deepseek-ai/dsh-session-checkpoint-policy": {
-      "status": "gap",
-      "reason": "Durable checkpoints before model requests and side-effecting tools. Evaluate first: the Edge drains events on session/flush, and it is not confirmed that this always precedes tool side effects.",
-      "priority": "P1"
+      "status": "substitute",
+      "reason": "Turn event delivery in session-store.ts flushes each event within 100 ms and before any client sees it. Measured without the policy: a tool call is durable while its tool runs, and its result before the next model request. Mounting the policy added 5 written rows to a plain turn and 22 to a three-tool turn. It would only close the window of under 100 ms in which a tool can start before its call is durable."
     },
     "@deepseek-ai/dsh-session-log-deepseek": {
       "status": "declined",
