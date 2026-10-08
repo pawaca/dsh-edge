@@ -36,6 +36,11 @@
       - textbox "Subagent parallelism limit":
         - /placeholder: ""
         - text: "8"
+    - region "Model selection":
+      - heading "Model selection" [level=3]
+      - text: Allow agents to choose models for Subagents
+      - switch "Allow agents to choose models for Subagents"
+      - paragraph: Subagents use configured defaults or inherit the parent agent's model. Saved model choices are retained.
     - button "Save" [disabled]
     - heading "Web search" [level=3]
     - paragraph: Set up the DeepSeek search provider.

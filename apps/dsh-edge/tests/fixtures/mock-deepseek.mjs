@@ -162,6 +162,8 @@ export async function startMockDeepSeek(port = 0) {
         ['slow-message subagent ', 'call_bg_slow', 'send_message', id => ({ agent_id: id, message: 'background child waits slow' })],
         ['interrupt subagent ', 'call_bg_interrupt', 'interrupt_agent', id => ({ agent_id: id })],
         ['fork a subagent', 'call_bg_fork', 'subagent_fork', () => ({ description: 'Fork fixture', prompt: 'background child writes three', run_in_background: false })],
+        ['list subagent models', 'call_model_list', 'list_subagent_models', () => ({})],
+        ['delegate on model ', 'call_model_delegate', 'subagent', model => ({ description: 'Model fixture', prompt: 'model child answers', run_in_background: false, provider: 'deepseek-official', model })],
       ]
       const parentStep = parentSteps.find(([prefix]) => prompt.startsWith(prefix))
       if (parentStep !== undefined) {
