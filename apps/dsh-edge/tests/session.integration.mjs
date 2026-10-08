@@ -2407,6 +2407,78 @@ try {
   const lateListed = await listedFor(skillSessionId)
   assert.ok(lateListed.includes('late-skill') && lateListed.includes('root-skill'), JSON.stringify(lateListed))
   for (const path of [projectSkill, rootSkill, lateSkill]) await request(`/api/workspace/file?path=${path}`, { method: 'DELETE' })
+  // Continuable subagents, as in upstream's standard composition: a background
+  // child runs and writes after the parent's turn returns, its settlement
+  // notice wakes the parent, which can then list, message (also after a
+  // restart, by cold resume), fork, and interrupt it.
+  const sessionEvents = async id => parseEvents(await (await request(`/api/sessions/${id}/events?limit=256`)).text())
+  const workspaceFile = async path => {
+    const response = await request(`/api/workspace/file?path=${path}`)
+    return response.status === 200 ? response.text() : undefined
+  }
+  const until = async (label, check) => {
+    for (const deadline = Date.now() + 20_000; ;) {
+      const value = await check()
+      if (value) return value
+      if (Date.now() >= deadline) throw new Error(`timed out waiting for ${label}`)
+      await new Promise(resolve => { setTimeout(resolve, 100) })
+    }
+  }
+  const resultOf = (events, callId) => events.find(event => event.type === 'tool/result' && event.data.message.toolCallId === callId)
+  const bgParent = (await rpc('session.create', {})).body.result.value.sessionId
+  const started = resultOf(await turn(bgParent, 'start a background subagent'), 'call_bg_start')
+  assert.equal(started?.data.message.isError, false, toolResultText(started))
+  const childId = /^started subagent (\S+)$/u.exec(toolResultText(started))?.[1]
+  assert.ok(childId !== undefined, toolResultText(started))
+  assert.equal(await until('the child write', () => workspaceFile('/workspace/bg-child-one.txt')), 'one')
+  assert.equal(await until('the parent wake-up write', () => workspaceFile('/workspace/bg-parent-wake-1.txt')), 'wake-1')
+  const childEvents = await sessionEvents(childId)
+  assert.equal(childEvents.find(event => event.type === 'subagent/descriptor')?.data.mode, 'continuable', JSON.stringify(childEvents.map(event => event.type)))
+  const listed = resultOf(await turn(bgParent, 'list my subagents'), 'call_bg_list')
+  assert.equal(listed?.data.message.isError, false, toolResultText(listed))
+  assert.match(toolResultText(listed), new RegExp(`${childId} \\[(inactive|running)\\] — Background fixture`, 'u'))
+  // After a restart the parent and the child resume cold: a fork seeds from the
+  // parent's durable completed turns, and a message resumes the child.
+  await worker.stop()
+  worker = await startWorker()
+  const forkedChild = resultOf(await turn(bgParent, 'fork a subagent'), 'call_bg_fork')
+  assert.equal(forkedChild?.data.message.isError, false, toolResultText(forkedChild))
+  assert.equal(await workspaceFile('/workspace/bg-child-three.txt'), 'three')
+  const forkChild = (await rpc('session.list', {})).body.result.value.items
+    .find(item => item.sessionId !== childId && item.parentSessionId === bgParent)
+  const forkEvents = await sessionEvents(forkChild?.sessionId)
+  assert.ok(forkEvents.some(event => event.type === 'user/message' && event.data.content?.some?.(block => block.text === 'start a background subagent')), JSON.stringify(forkEvents.map(event => event.type)))
+  const messaged = resultOf(await turn(bgParent, `message subagent ${childId}`), 'call_bg_send')
+  assert.equal(messaged?.data.message.isError, false, toolResultText(messaged))
+  assert.equal(await until('the resumed child write', () => workspaceFile('/workspace/bg-child-two.txt')), 'two')
+  assert.equal(await until('the second wake-up write', () => workspaceFile('/workspace/bg-parent-wake-2.txt')), 'wake-2')
+  // The Web client's subagent panel prompts a child through the same runtime,
+  // also when its parent is cold: the Edge resumes the parent, and the child's
+  // turn runs in the resident workspace's scope.
+  await worker.stop()
+  worker = await startWorker()
+  const prompted = await typertRpc('subagents', 'prompt', { request: {
+    requestId: crypto.randomUUID(), parentSessionId: bgParent, childSessionId: childId,
+    mode: 'continuable', delivery: 'queue', content: [{ type: 'text', text: 'background child writes four' }],
+  } })
+  assert.equal(prompted.body.result?.ok, true, JSON.stringify(prompted.body))
+  assert.equal(await until('the panel-prompted child write', () => workspaceFile('/workspace/bg-child-four.txt')), 'four')
+  // interrupt_agent stops a running child's turn and keeps the child.
+  const slowed = resultOf(await turn(bgParent, `slow-message subagent ${childId}`), 'call_bg_slow')
+  assert.equal(slowed?.data.message.isError, false, toolResultText(slowed))
+  await until('the child slow turn', async () => (await sessionEvents(childId)).filter(event => event.type === 'turn/start').length >= 4)
+  // As upstream, Stop on the parent leaves a running child working.
+  await request(`/api/sessions/${bgParent}/cancel`, { method: 'POST' })
+  await new Promise(resolve => { setTimeout(resolve, 500) })
+  assert.equal((await sessionEvents(childId)).filter(event => event.type === 'turn/end').length, 3)
+  const interrupted = resultOf(await turn(bgParent, `interrupt subagent ${childId}`), 'call_bg_interrupt')
+  assert.equal(interrupted?.data.message.isError, false, toolResultText(interrupted))
+  const interruptedEnd = await until('the interrupted child turn end', async () => (await sessionEvents(childId)).filter(event => event.type === 'turn/end')[3])
+  assert.notEqual(interruptedEnd.data.reason.kind, 'completed', JSON.stringify(interruptedEnd.data.reason))
+  mock.releaseSlowResponses()
+  for (const path of ['bg-child-one', 'bg-child-two', 'bg-child-three', 'bg-child-four', 'bg-parent-wake-1', 'bg-parent-wake-2', 'bg-parent-wake-3', 'bg-parent-wake-4']) {
+    await request(`/api/workspace/file?path=/workspace/${path}.txt`, { method: 'DELETE' })
+  }
   process.stdout.write(`dsh-edge ${runtimeMode} session integration passed\n`)
 } finally {
   mock.releaseSlowResponses()

@@ -1393,6 +1393,8 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       // Their upstream lookup may otherwise leave a cold Agent permanently live.
       const result = ns === 'workspaceFiles'
         ? await this.withWorkspaceFileScope(invoke)
+        : ns === 'subagents' && method === 'prompt'
+          ? await this.withSubagentPrompt(args, invoke)
         : typeof args.agentId === 'string'
           ? startsGoalRound(ns, method)
             ? await this.withAgentTurn(SessionId(args.agentId), invoke)
@@ -1418,6 +1420,27 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     const active = sessionId === undefined ? undefined : this.activeTurns.get(SessionId(sessionId))
     if (active === undefined || active.turnStartSeq === undefined || String(active.turnStartSeq) !== expected) throw new EdgeHttpError(409, 'The observed run has ended.')
     return this.controlTarget.run(active.turnId, dispatch)
+  }
+
+  /**
+   * A message the Web client's subagent panel sends to a continuable child
+   * starts the child's turn from outside any Edge turn, so it runs in the
+   * resident workspace's scope, as a child messaged from its parent's turn
+   * does. Upstream delivers it only under a live parent, so a cold parent is
+   * resumed first, as other agent-scoped calls are.
+   */
+  private async withSubagentPrompt<T>(args: Record<string, unknown>, invoke: () => Promise<T>): Promise<T> {
+    const fs = this.sessions.filesystem()
+    const scoped = async () => {
+      if (fs === undefined) return invoke()
+      const workspace = await this.workspace()
+      return fs.runInScope(workspace.fs as never, EDGE_WORKSPACE_PATH, invoke)
+    }
+    const parentSessionId = (args.request as { parentSessionId?: unknown } | undefined)?.parentSessionId
+    // A live parent needs no resume, so the call does not wait for the main slot.
+    return typeof parentSessionId === 'string' && this.sessions.liveAgent(SessionId(parentSessionId)) === undefined
+      ? this.withAgentControl(SessionId(parentSessionId), scoped)
+      : scoped()
   }
 
   private async withAgentControl<T>(sessionId: SessionId, invoke: () => Promise<T>): Promise<T> {

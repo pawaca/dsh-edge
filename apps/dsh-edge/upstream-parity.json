@@ -223,11 +223,6 @@
       "reason": "turnOutline projection; dsh-client-ui-chat already reads it. It keeps one prompt and response preview per turn with no cap, and SessionProjectionCache stores a session's projections as one Durable Object value, so a long session would outgrow the value limit; it needs a bounded or sharded Edge cache representation first.",
       "priority": "P2"
     },
-    "@deepseek-ai/dsh-subagent-fork-in-process": {
-      "status": "gap",
-      "reason": "Fork subagent backend behind the upstream subagent_fork tool; the Edge only has spawn.",
-      "priority": "P2"
-    },
     "@deepseek-ai/dsh-subprocess-local": {
       "status": "not-applicable",
       "reason": "Host-OS process sandboxing, subprocesses, and shell environment."
@@ -285,16 +280,6 @@
     "@deepseek-ai/dsh-tool-str-replace-editor": {
       "status": "declined",
       "reason": "Alternative editor tool; the Edge offers the dsh-tool-fs file tools."
-    },
-    "@deepseek-ai/dsh-tool-subagent-control": {
-      "status": "gap",
-      "reason": "send_message, interrupt_agent, and list_agents for running children; on in the upstream standard preset.",
-      "priority": "P2"
-    },
-    "@deepseek-ai/dsh-tool-subagent-control/list-agents": {
-      "status": "gap",
-      "reason": "send_message, interrupt_agent, and list_agents for running children; on in the upstream standard preset.",
-      "priority": "P2"
     },
     "@deepseek-ai/dsh-tool-subagent/model-selection-settings": {
       "status": "gap",
