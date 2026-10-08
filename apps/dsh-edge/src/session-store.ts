@@ -750,6 +750,11 @@ export class EdgeSessionStore {
         '@deepseek-ai/dsh-subagent-spawn-in-process' as string
       )
       await this.context.plugin(SpawnInProcess, { providerName: 'spawn' })
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+      const ForkInProcess = await import(
+        '@deepseek-ai/dsh-subagent-fork-in-process' as string
+      )
+      await this.context.plugin(ForkInProcess, { providerName: 'fork' })
     }
     {
       // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
@@ -761,7 +766,26 @@ export class EdgeSessionStore {
       await this.context.plugin(ToolSubagent, {
         provider: 'spawn',
         enableRunInBackground: true,
+        backgroundMode: 'continuable',
       })
+      // A second instance over the fork backend: its child starts from the
+      // parent's completed turns instead of a standalone prompt.
+      await this.context.plugin(ToolSubagent, {
+        provider: 'fork',
+        toolName: 'subagent_fork',
+        enableRunInBackground: true,
+        backgroundMode: 'continuable',
+      })
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+      const ToolSubagentControl = await import(
+        '@deepseek-ai/dsh-tool-subagent-control' as string
+      )
+      await this.context.plugin(ToolSubagentControl)
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+      const ListAgents = await import(
+        '@deepseek-ai/dsh-tool-subagent-control/list-agents' as string
+      )
+      await this.context.plugin(ListAgents)
     }
     if (config.workerLoader !== undefined) {
       // Provider-gated: each run executes in its own Dynamic Worker, so only
@@ -894,6 +918,13 @@ export class EdgeSessionStore {
   async refreshSkills(cwd: string, signal?: AbortSignal): Promise<void> {
     await this.ready
     await this.refreshWorkspaceSkills?.(cwd, signal)
+  }
+
+  /** Bind a shell to a live agent that has none, as a turn does before it runs. */
+  bindShellIfUnbound(sessionId: SessionId, shell: EdgeShell): void {
+    const agent = this.context.agents.get(sessionId)
+    if (agent === undefined || this.shells.get(agent.id) !== undefined) return
+    this.shells.bind(agent.id, shell, agent.session.header.cwd ?? '/workspace')
   }
 
   liveAgent(sessionId: SessionId): Agent | undefined {

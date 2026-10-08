@@ -96,7 +96,7 @@ import {
   type EdgeCommandTimeoutPolicy,
   type EdgeWorkspace,
 } from './workspace.ts'
-import type { EdgeShellResult } from './agent.ts'
+import type { EdgeShell, EdgeShellResult } from './agent.ts'
 import {
   MAX_MESSAGE_TEXT_BYTES,
   attachPublishedSession,
@@ -1393,6 +1393,8 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       // Their upstream lookup may otherwise leave a cold Agent permanently live.
       const result = ns === 'workspaceFiles'
         ? await this.withWorkspaceFileScope(invoke)
+        : ns === 'subagents' && method === 'prompt'
+          ? await this.withSubagentPrompt(args, invoke)
         : typeof args.agentId === 'string'
           ? startsGoalRound(ns, method)
             ? await this.withAgentTurn(SessionId(args.agentId), invoke)
@@ -1418,6 +1420,36 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     const active = sessionId === undefined ? undefined : this.activeTurns.get(SessionId(sessionId))
     if (active === undefined || active.turnStartSeq === undefined || String(active.turnStartSeq) !== expected) throw new EdgeHttpError(409, 'The observed run has ended.')
     return this.controlTarget.run(active.turnId, dispatch)
+  }
+
+  /**
+   * A message the Web client's subagent panel sends to a continuable child
+   * starts the child's turn from outside any Edge turn, so it runs in the
+   * resident workspace's scope, as a child messaged from its parent's turn
+   * does. Upstream delivers it only under a live parent, so a cold parent is
+   * resumed first, as other agent-scoped calls are.
+   */
+  private async withSubagentPrompt<T>(args: Record<string, unknown>, invoke: () => Promise<T>): Promise<T> {
+    const request = args.request as { parentSessionId?: unknown; childSessionId?: unknown } | undefined
+    const parentId = typeof request?.parentSessionId === 'string' ? SessionId(request.parentSessionId) : undefined
+    const childId = typeof request?.childSessionId === 'string' ? SessionId(request.childSessionId) : undefined
+    const fs = this.sessions.filesystem()
+    const { commandTimeoutPolicy } = resolveEdgeDeploymentConfig(this.env)
+    const scoped = async () => {
+      if (fs === undefined) return invoke()
+      const workspace = await this.workspace()
+      // As a turn does: the parent gets a shell, which a resumed child
+      // inherits, and the scope uses the child's own working directory.
+      if (parentId !== undefined) this.sessions.bindShellIfUnbound(parentId, this.workspaceShell(workspace, commandTimeoutPolicy))
+      const cwd = (childId === undefined ? undefined : await this.sessions.getApiSessionSummary(childId).then(summary => summary.cwd, () => undefined))
+        ?? (parentId === undefined ? undefined : this.sessions.liveAgent(parentId)?.session.header.cwd)
+        ?? EDGE_WORKSPACE_PATH
+      return fs.runInScope(workspace.fs as never, cwd, invoke)
+    }
+    // A live parent needs no resume, so the call does not wait for the main slot.
+    return parentId !== undefined && this.sessions.liveAgent(parentId) === undefined
+      ? this.withAgentControl(parentId, scoped)
+      : scoped()
   }
 
   private async withAgentControl<T>(sessionId: SessionId, invoke: () => Promise<T>): Promise<T> {
@@ -1956,6 +1988,19 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     }
   }
 
+  /** The shell an agent's `bash` runs through: the resident workspace under the deployment's command timeouts. */
+  private workspaceShell(workspace: EdgeWorkspace, commandTimeoutPolicy: EdgeCommandTimeoutPolicy): EdgeShell {
+    return {
+      exec: async (command, options) => this.runShellCommand(
+        workspace,
+        requireCommand(command),
+        requireWorkspacePath(options.cwd),
+        commandTimeoutPolicy,
+        options,
+      ),
+    }
+  }
+
   private async runTurn(input: {
     message?: UserMessage
     agent: Agent
@@ -1985,15 +2030,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       ...input.clientTimeZone === undefined
         ? {}
         : { clientTimeZone: input.clientTimeZone },
-      shell: {
-        exec: async (command, options) => this.runShellCommand(
-          workspace,
-          requireCommand(command),
-          requireWorkspacePath(options.cwd),
-          input.commandTimeoutPolicy,
-          options,
-        ),
-      },
+      shell: this.workspaceShell(workspace, input.commandTimeoutPolicy),
       afterFollowup: () => {
         if (input.turn.cancelRequested) this.sessions.stopAgentWork(input.agent)
       },

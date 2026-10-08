@@ -143,6 +143,54 @@ export async function startMockDeepSeek(port = 0) {
         .filter(message => message.role === 'tool')
       const hasToolResult = toolResults.length > 0
 
+      // Continuable subagents: a parent starts, lists, messages, forks, and
+      // interrupts children; a child writes a file; the parent writes one
+      // whenever a child's settlement notice wakes it.
+      const callTool = (id, name, args) => sendEvents(response, [
+        { choices: [{ delta: { role: 'assistant', content: null, reasoning_content: '' } }] },
+        { choices: [{ delta: { tool_calls: [{ index: 0, id, type: 'function', function: { name, arguments: JSON.stringify(args) } }] } }] },
+        { choices: [{ delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 8, completion_tokens: 3 } },
+      ])
+      const answer = text => sendEvents(response, [
+        { choices: [{ delta: { role: 'assistant', content: text } }] },
+        { choices: [{ delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 8, completion_tokens: 3 } },
+      ])
+      const parentSteps = [
+        ['start a background subagent', 'call_bg_start', 'subagent', () => ({ description: 'Background fixture', prompt: 'background child writes one', run_in_background: true })],
+        ['list my subagents', 'call_bg_list', 'list_agents', () => ({})],
+        ['message subagent ', 'call_bg_send', 'send_message', id => ({ agent_id: id, message: 'background child writes two' })],
+        ['slow-message subagent ', 'call_bg_slow', 'send_message', id => ({ agent_id: id, message: 'background child waits slow' })],
+        ['interrupt subagent ', 'call_bg_interrupt', 'interrupt_agent', id => ({ agent_id: id })],
+        ['fork a subagent', 'call_bg_fork', 'subagent_fork', () => ({ description: 'Fork fixture', prompt: 'background child writes three', run_in_background: false })],
+      ]
+      const parentStep = parentSteps.find(([prefix]) => prompt.startsWith(prefix))
+      if (parentStep !== undefined) {
+        const [prefix, id, name, args] = parentStep
+        if (!hasToolResult) return callTool(id, name, args(prompt.slice(prefix.length).trim()))
+        return answer(`${name}-done`)
+      }
+      if (/background child runs bash/u.test(prompt)) {
+        if (!hasToolResult) return callTool('call_bg_bash', 'bash', { command: 'printf bash > bg-child-bash.txt', description: 'Write a file from the shell' })
+        return answer('bash-done')
+      }
+      const childNote = /background child writes (one|two|three|four)/u
+      const wakeNote = /^Background subagent \S+ finished/u
+      const latestChildOrWake = messages.findLast(m => m.role === 'user' && (childNote.test(messageText(m)) || wakeNote.test(messageText(m))))
+      // The child's prompt can arrive split across user messages (its task, then
+      // the parent-id guidance), so match within the current turn's span.
+      const turnStart = messages.findLastIndex((m, index) => index < latestUserIndex && m.role === 'assistant') + 1
+      if (latestChildOrWake !== undefined && messages.indexOf(latestChildOrWake) >= turnStart) {
+        const text = messageText(latestChildOrWake)
+        const toolsAfter = messages.slice(messages.indexOf(latestChildOrWake) + 1).some(m => m.role === 'tool')
+        const wakes = messages.filter(m => m.role === 'user' && wakeNote.test(messageText(m))).length
+        const [tag, file] = wakeNote.test(text) && !childNote.test(text)
+          ? [`wake-${String(wakes)}`, `/workspace/bg-parent-wake-${String(wakes)}.txt`]
+          : [[...text.matchAll(new RegExp(childNote, 'gu'))].at(-1)[1], undefined]
+        // The panel's message writes relative to the child's working directory.
+        if (!toolsAfter) return callTool(`call_bg_write_${tag}`, 'write', { file_path: file ?? (tag === 'four' ? 'bg-child-four.txt' : `/workspace/bg-child-${tag}.txt`), content: tag })
+        return answer(`written-${tag}`)
+      }
+
       // One 429 with Retry-After, then a normal answer: exercises dsh-llm-retry.
       if (prompt === 'rate limited once' && rateLimitedOnce++ === 0) {
         response.writeHead(429, { 'content-type': 'application/json', 'retry-after': '1' })
