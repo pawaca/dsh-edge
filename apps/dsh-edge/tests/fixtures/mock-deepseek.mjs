@@ -218,6 +218,16 @@ export async function startMockDeepSeek(port = 0) {
         return
       }
 
+      // Workspace skills: load the skill the test wrote under .dsh/skills.
+      if (prompt === 'load the workspace skill' && !hasToolResult) {
+        sendEvents(response, [
+          { choices: [{ delta: { role: 'assistant', content: null, reasoning_content: '' } }] },
+          { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_workspace_skill', type: 'function', function: { name: 'skill', arguments: JSON.stringify({ name: 'workspace-demo' }) } }] } }] },
+          { choices: [{ delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 8, completion_tokens: 3 } },
+        ])
+        return
+      }
+
       if (prompt.startsWith('[SCHEDULE REMINDER')) {
         sendEvents(response, [
           { choices: [{ delta: { role: 'assistant', content: 'schedule-delivered' } }] },

@@ -213,7 +213,7 @@
     },
     "@deepseek-ai/dsh-skill-filesystem": {
       "status": "substitute",
-      "reason": "EdgeSkillProvider in edge-skill-provider.ts over Durable Object KV."
+      "reason": "edge-workspace-skills.ts discovers upstream's roots, formats, and frontmatter through the Computer workspace (refreshed per turn, since Workers have no file watching and ctx.fs exists only during a turn); EdgeSkillProvider keeps /api/skills skills in Durable Object KV."
     },
     "@deepseek-ai/dsh-spill-local": {
       "status": "substitute",

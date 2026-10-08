@@ -95,6 +95,7 @@ import { EdgeFileReferenceService, type EdgeReferenceFiles } from './edge-file-r
 import { EdgeDirectoryPicker, type EdgeDirectoryFiles } from './edge-directory-picker.ts'
 import { EdgeLoader } from './edge-plugin-loader.ts'
 import * as EdgeSkillProvider from './edge-skill-provider.ts'
+import * as EdgeWorkspaceSkills from './edge-workspace-skills.ts'
 import type { EdgeRuntimeProviderDescriptor } from './runtime-provider.ts'
 import {
   EDGE_CONTAINER_WEB_GUIDANCE,
@@ -443,6 +444,12 @@ export class EdgeSessionStore {
     await this.context.plugin(RepeatToolReminder)
     await this.context.plugin(SkillRegistry)
     await this.context.plugin(EdgeSkillProvider, { storage })
+    // As upstream dsh-skill-filesystem: SKILL.md files under the project's
+    // .dsh/skills and .agents/skills and the user roots /.dsh/skills and
+    // /.agents/skills, read through the Computer workspace.
+    await this.context.plugin(EdgeWorkspaceSkills, {
+      withFiles: read => config.withWorkspaceFiles(read as never) as never,
+    })
     await this.context.plugin(TypertRegistry)
     // The gateway installs its Remote RPC interceptor on ctx.connection; the
     // Edge seam captures it so the Durable Object can serve `$events/result`.

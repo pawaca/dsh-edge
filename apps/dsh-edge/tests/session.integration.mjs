@@ -2338,6 +2338,27 @@ try {
   assert.deepEqual(restoredOffload.map(event => event.data.targets), [[{ seq: firstImageSeq, imageIndexes: [0] }]])
   const afterRestart = await turn(offloadSessionId, 'offload fixture after restart')
   assert.equal(afterRestart.findLast(event => event.type === 'turn/end')?.data.reason.kind, 'completed', JSON.stringify(afterRestart.map(event => event.type)))
+  // Workspace skills as upstream dsh-skill-filesystem finds them: a SKILL.md
+  // under the project's .dsh/skills outranks a same-name skill stored through
+  // /api/skills, and applies from the next turn.
+  const skillFile = '/workspace/.dsh/skills/workspace-demo/SKILL.md'
+  assert.equal((await request(`/api/workspace/file?path=${skillFile}`, {
+    method: 'PUT',
+    body: '---\nname: workspace-demo\ndescription: Workspace skill fixture\n---\nWorkspace demo body from SKILL.md\n',
+  })).status, 200)
+  assert.equal((await jsonRequest('/api/skills', {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name: 'workspace-demo', description: 'Stored fixture', content: 'Stored body from /api/skills' }),
+  })).body.ok, true)
+  const skillSessionId = (await rpc('session.create', {})).body.result.value.sessionId
+  const skillEvents = await turn(skillSessionId, 'load the workspace skill')
+  const loadedSkill = skillEvents.find(event => event.type === 'tool/result' && event.data.message.toolCallId === 'call_workspace_skill')
+  assert.equal(loadedSkill?.data.message.isError, false, toolResultText(loadedSkill))
+  assert.match(toolResultText(loadedSkill), /Workspace demo body from SKILL\.md/u)
+  assert.doesNotMatch(toolResultText(loadedSkill), /Stored body/u)
+  await jsonRequest('/api/skills', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'workspace-demo' }) })
+  await request(`/api/workspace/file?path=${skillFile}`, { method: 'DELETE' })
   process.stdout.write(`dsh-edge ${runtimeMode} session integration passed\n`)
 } finally {
   mock.releaseSlowResponses()
