@@ -2369,6 +2369,23 @@ try {
   assert.doesNotMatch(toolResultText(loadedSkill), /Stored body/u)
   await jsonRequest('/api/skills', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'workspace-demo' }) })
   await request(`/api/workspace/file?path=${skillFile}`, { method: 'DELETE' })
+  // A flat skill rewritten at the same size (only its modification time differs)
+  // refreshes the cached catalog before the next turn's first step.
+  const flatSkill = '/workspace/.dsh/skills/flat-demo.md'
+  const flatBody = flag => `---\nname: flat-demo\ndescription: Flat skill fixture\ndisable-model-invocation: ${flag}\n---\nFlat demo body\n`
+  assert.equal(flatBody('yes').length, flatBody('no ').length)
+  const loadFlat = async () => {
+    const events = await turn(skillSessionId, 'load the skill flat-demo')
+    return events.find(event => event.type === 'tool/result' && event.data.message.toolCallId?.startsWith('call_skill_'))
+  }
+  assert.equal((await request(`/api/workspace/file?path=${flatSkill}`, { method: 'PUT', body: flatBody('yes') })).status, 200)
+  const hidden = await loadFlat()
+  assert.equal(hidden?.data.message.isError, true, toolResultText(hidden))
+  assert.equal((await request(`/api/workspace/file?path=${flatSkill}`, { method: 'PUT', body: flatBody('no ') })).status, 200)
+  const shown = await loadFlat()
+  assert.equal(shown?.data.message.isError, false, toolResultText(shown))
+  assert.match(toolResultText(shown), /Flat demo body/u)
+  await request(`/api/workspace/file?path=${flatSkill}`, { method: 'DELETE' })
   process.stdout.write(`dsh-edge ${runtimeMode} session integration passed\n`)
 } finally {
   mock.releaseSlowResponses()
