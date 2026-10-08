@@ -2302,6 +2302,42 @@ try {
   assert.equal(sessionStats.turns, 2, JSON.stringify(sessionStats))
   assert.ok(sessionStats.steps >= 2 && sessionStats.llmMs > 0, JSON.stringify(sessionStats))
   assert.equal(statsSummary.projections.values.turnOutline, undefined)
+  // Upstream image offload: with a one-image request budget, a second turn
+  // carrying an image marks the oldest occurrence offloaded (a durable
+  // image/offload event) and retries instead of failing the turn.
+  const offloadSessionId = (await rpc('session.create', {})).body.result.value.sessionId
+  assert.equal((await rpc('session.selectModel', { sessionId: offloadSessionId, provider: 'deepseek-official', model: 'deepseek-flash' })).body.result.ok, true)
+  const budget = await rpc('settings.update', { ns: 'llm-deepseek', patch: { maxImagesPerRequest: 1, imageOffloadCountQuantum: 1 } })
+  assert.equal(budget.body.result.ok, true, JSON.stringify(budget.body.result))
+  const offloadEvents = async () => parseEvents(await (await request(`/api/sessions/${offloadSessionId}/events?limit=256`)).text())
+  for (const [index, label] of ['first', 'second'].entries()) {
+    const prompted = await rpc('session.prompt', { sessionId: offloadSessionId, mode: 'queue', content: [
+      { type: 'text', text: `offload fixture ${label} image` },
+      { type: 'image', mediaType: 'image/png', data: imageBase64, name: `${label}.png` },
+    ] })
+    assert.equal(prompted.body.result.ok, true, JSON.stringify(prompted.body.result))
+    for (const deadline = Date.now() + 20_000; ;) {
+      const ends = (await offloadEvents()).filter(event => event.type === 'turn/end')
+      if (ends.length > index) break
+      if (Date.now() >= deadline) throw new Error(`offload fixture turn ${label} did not end`)
+      await new Promise(resolve => { setTimeout(resolve, 100) })
+    }
+  }
+  const offloaded = await offloadEvents()
+  const offloadMarks = offloaded.filter(event => event.type === 'image/offload')
+  assert.equal(offloadMarks.length, 1, JSON.stringify(offloaded.map(event => event.type)))
+  assert.deepEqual(offloaded.filter(event => event.type === 'turn/end').map(event => event.data.reason.kind), ['completed', 'completed'])
+  const firstImageSeq = offloaded.find(event => event.type === 'user/message' && event.data.content?.some?.(block => block.type === 'image'))?.seq
+  assert.deepEqual(offloadMarks[0].data.targets, [{ seq: firstImageSeq, imageIndexes: [0] }])
+  assert.equal((await rpc('settings.update', { ns: 'llm-deepseek', patch: { maxImagesPerRequest: 600, imageOffloadCountQuantum: 20 } })).body.result.ok, true)
+  // After a restart the event is read back from storage, and the cold-resumed
+  // session folds it into its surface: another turn runs normally.
+  await worker.stop()
+  worker = await startWorker()
+  const restoredOffload = (await offloadEvents()).filter(event => event.type === 'image/offload')
+  assert.deepEqual(restoredOffload.map(event => event.data.targets), [[{ seq: firstImageSeq, imageIndexes: [0] }]])
+  const afterRestart = await turn(offloadSessionId, 'offload fixture after restart')
+  assert.equal(afterRestart.findLast(event => event.type === 'turn/end')?.data.reason.kind, 'completed', JSON.stringify(afterRestart.map(event => event.type)))
   process.stdout.write(`dsh-edge ${runtimeMode} session integration passed\n`)
 } finally {
   mock.releaseSlowResponses()
