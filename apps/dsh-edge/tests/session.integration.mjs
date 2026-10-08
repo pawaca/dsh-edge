@@ -2386,6 +2386,21 @@ try {
   assert.equal(shown?.data.message.isError, false, toolResultText(shown))
   assert.match(toolResultText(shown), /Flat demo body/u)
   await request(`/api/workspace/file?path=${flatSkill}`, { method: 'DELETE' })
+  // The `/` trigger lists the skills of the session's own project root.
+  const projectSkill = '/workspace/skillproj/.dsh/skills/proj-skill/SKILL.md'
+  const rootSkill = '/workspace/.dsh/skills/root-skill/SKILL.md'
+  for (const [path, name] of [[projectSkill, 'proj-skill'], [rootSkill, 'root-skill']]) {
+    assert.equal((await request(`/api/workspace/file?path=${path}`, { method: 'PUT', body: `---\nname: ${name}\ndescription: ${name} fixture\n---\nbody\n` })).status, 200)
+  }
+  const projectSession = await rpc('session.create', { cwd: '/workspace/skillproj' })
+  assert.equal(projectSession.body.result.ok, true, JSON.stringify(projectSession.body))
+  const listedFor = async id => (await rpc('skills.list', { sessionId: id })).body.result.value.skills.map(entry => entry.name)
+  const projectListed = await listedFor(projectSession.body.result.value.sessionId)
+  assert.ok(projectListed.includes('proj-skill') && !projectListed.includes('root-skill'), JSON.stringify(projectListed))
+  const rootListed = await listedFor(skillSessionId)
+  assert.ok(rootListed.includes('root-skill') && !rootListed.includes('proj-skill'), JSON.stringify(rootListed))
+  assert.equal((await rpc('skills.list', { sessionId: 'session-missing' })).body.result.ok, false)
+  for (const path of [projectSkill, rootSkill]) await request(`/api/workspace/file?path=${path}`, { method: 'DELETE' })
   process.stdout.write(`dsh-edge ${runtimeMode} session integration passed\n`)
 } finally {
   mock.releaseSlowResponses()
