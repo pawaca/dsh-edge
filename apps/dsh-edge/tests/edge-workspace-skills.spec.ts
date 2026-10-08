@@ -156,6 +156,17 @@ describe('Edge workspace skills', () => {
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('exceeds the 65536-byte limit'))
   })
 
+  it('keeps at most MAX_FINGERPRINTS cwds, evicting the least recently used', async () => {
+    const { list, invalidate, write, startTurn } = mount({ '/workspace/.dsh/skills/one/SKILL.md': skill('one', 'b') })
+    await list('/workspace')
+    for (let i = 0; i < EdgeWorkspaceSkills.MAX_FINGERPRINTS; i += 1) await list(`/workspace/p${String(i)}`)
+    write('/workspace/.dsh/skills/one/SKILL.md', skill('one', 'changed'))
+    await startTurn('/workspace')
+    expect(invalidate).not.toHaveBeenCalled() // /workspace was evicted, so there is no cached catalog to refresh
+    await startTurn('/workspace/p0')
+    expect(invalidate).not.toHaveBeenCalled() // p0 has no skills under its own roots and the user roots did not change
+  })
+
   it('stops a scan whose lookup was cancelled', async () => {
     const { provider } = mount({ '/workspace/.dsh/skills/one/SKILL.md': skill('one', 'b') })
     const abort = new AbortController()

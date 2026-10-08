@@ -58,14 +58,21 @@ const DEFAULT_CWD = '/workspace'
 export const MAX_ENTRIES_PER_ROOT = 100
 /** Largest skill file read, as the /api/skills content limit; a larger one is skipped unread with a warning. */
 export const MAX_SKILL_FILE_BYTES = 65_536
+/** Cwds whose fingerprint is kept, as the skill registry's default catalog cache size; the least recently used is evicted. */
+export const MAX_FINGERPRINTS = 128
 
 export const name = 'edge-workspace-skills'
 export const inject = ['skills']
 
 export function apply(ctx: Context, config: EdgeWorkspaceSkillsConfig): void {
   ctx.effect(() => ctx.skills.registerProvider((control: SkillProviderControl): SkillProvider => {
-    /** Fingerprint of each cwd's roots when its catalog was last discovered. */
+    /** Hashed fingerprint of each cwd's roots when its catalog was last discovered, in least-recently-used order. */
     const fingerprints = new Map<string, string>()
+    const remember = (cwd: string, value: string) => {
+      fingerprints.delete(cwd)
+      fingerprints.set(cwd, value)
+      while (fingerprints.size > MAX_FINGERPRINTS) fingerprints.delete(fingerprints.keys().next().value!)
+    }
     /** Sessions whose turn started and whose first step has not checked the roots yet. */
     const pending = new WeakSet<object>()
     const check = async (cwd: string, signal: AbortSignal | undefined) => {
@@ -100,7 +107,7 @@ export function apply(ctx: Context, config: EdgeWorkspaceSkillsConfig): void {
       list: (options: SkillLookupOptions) => config.withFiles(async files => {
         const cwd = normalize(options.cwd ?? DEFAULT_CWD)
         const scan = await discover(ctx, files, cwd, options.signal)
-        fingerprints.set(cwd, scan.fingerprint)
+        remember(cwd, scan.fingerprint)
         return scan.candidates
       }),
       get: (candidate: SkillCandidate, options: SkillLookupOptions) => config.withFiles(files => load(ctx, files, candidate, options.signal)),
@@ -149,7 +156,19 @@ async function fingerprint(files: EdgeSkillFiles, cwd: string, signal: AbortSign
   for (const root of await skillRoots(files, cwd, signal)) {
     for (const entry of await rootEntries(files, root, signal)) parts.push(`${entry.locator.path}:${String(entry.size)}:${String(entry.mtime)}`)
   }
-  return parts.join('\n')
+  return digest(parts.join('\n'))
+}
+
+/** A short FNV-1a digest of a fingerprint; a collision at worst keeps a catalog until the next change. */
+function digest(text: string): string {
+  let a = 0x811c9dc5
+  let b = 0x01000193
+  for (let i = 0; i < text.length; i += 1) {
+    const code = text.charCodeAt(i)
+    a = Math.imul(a ^ code, 0x01000193) >>> 0
+    b = Math.imul(b ^ code, 0x5bd1e995) >>> 0
+  }
+  return `${a.toString(16)}:${b.toString(16)}:${String(text.length)}`
 }
 
 async function discover(ctx: Context, files: EdgeSkillFiles, cwd: string, signal: AbortSignal | undefined): Promise<{ candidates: SkillCandidate[], fingerprint: string }> {
@@ -179,7 +198,7 @@ async function discover(ctx: Context, files: EdgeSkillFiles, cwd: string, signal
       })
     }
   }
-  return { candidates, fingerprint: parts.join('\n') }
+  return { candidates, fingerprint: digest(parts.join('\n')) }
 }
 
 async function load(ctx: Context, files: EdgeSkillFiles, candidate: SkillCandidate, signal: AbortSignal | undefined): Promise<SkillDefinition | undefined> {
