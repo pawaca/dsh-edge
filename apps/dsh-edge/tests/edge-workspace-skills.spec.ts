@@ -55,9 +55,15 @@ function mount(tree: Record<string, string>) {
   const files = fakeFiles(tree, mtimes)
   let reads = 0
   let stats = 0
+  /** Paths whose reads fail with a non-absence error, standing in for a transient storage fault. */
+  const failing = new Set<string>()
   const counted: EdgeSkillFiles = {
     ...files,
-    readFile: async (path) => { reads += 1; return files.readFile(path) },
+    readFile: async (path) => {
+      reads += 1
+      if (failing.has(path)) throw Object.assign(new Error('storage busy'), { code: 'EIO' })
+      return files.readFile(path)
+    },
     stat: async (path) => { stats += 1; return files.stat(path) },
   }
   EdgeWorkspaceSkills.apply(ctx as never, { withFiles: read => read(counted) })
@@ -75,7 +81,7 @@ function mount(tree: Record<string, string>) {
     onEvent(session, { type: 'turn/start' })
     await preStep({ agent: { session }, signal: new AbortController().signal }, async () => ({ kind: 'enter' }))
   }
-  return { provider, list, invalidate, warn, write, startTurn, reads: () => reads, stats: () => stats, files: counted }
+  return { provider, list, invalidate, warn, write, startTurn, failing, reads: () => reads, stats: () => stats }
 }
 
 describe('Edge workspace skills', () => {
@@ -209,6 +215,21 @@ describe('Edge workspace skills', () => {
       '/workspace/.dsh/skills/fine/SKILL.md': skill('fine', 'b'),
     })
     expect((await list('/workspace')).map(c => c.name)).toEqual(['fine'])
+  })
+
+  it('reports a catalog with an unreadable file as incomplete and records no fingerprint', async () => {
+    const { provider, failing, invalidate, startTurn } = mount({
+      '/workspace/.dsh/skills/flaky/SKILL.md': skill('flaky', 'b'),
+      '/workspace/.dsh/skills/fine/SKILL.md': skill('fine', 'b'),
+    })
+    failing.add('/workspace/.dsh/skills/flaky/SKILL.md')
+    const observed = await provider.list({ cwd: '/workspace' }) as { candidates: SkillCandidate[], complete: boolean }
+    expect(observed.complete).toBe(false)
+    expect(observed.candidates.map(c => c.name)).toEqual(['fine'])
+    await startTurn('/workspace')
+    expect(invalidate).not.toHaveBeenCalled() // nothing recorded, so the next lookup simply rescans
+    failing.clear()
+    expect((await provider.list({ cwd: '/workspace' }) as SkillCandidate[]).map(c => c.name)).toEqual(['fine', 'flaky'])
   })
 
   it('clears every fingerprint when a shared root change invalidates the registry', async () => {

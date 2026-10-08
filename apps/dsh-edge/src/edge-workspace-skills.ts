@@ -111,6 +111,10 @@ export function apply(ctx: Context, config: EdgeWorkspaceSkillsConfig): void {
       list: (options: SkillLookupOptions) => config.withFiles(async files => {
         const cwd = normalize(options.cwd ?? DEFAULT_CWD)
         const scan = await discover(ctx, files, cwd, options.signal)
+        // A file that failed to read makes the catalog incomplete: the
+        // registry keeps it uncached, and no fingerprint is recorded, so the
+        // next lookup retries the file.
+        if (!scan.complete) return { candidates: scan.candidates, complete: false }
         remember(cwd, scan.fingerprint)
         return scan.candidates
       }),
@@ -176,8 +180,9 @@ function digest(text: string): string {
   return `${a.toString(16)}:${b.toString(16)}:${String(text.length)}`
 }
 
-async function discover(ctx: Context, files: EdgeSkillFiles, cwd: string, signal: AbortSignal | undefined): Promise<{ candidates: SkillCandidate[], fingerprint: string }> {
+async function discover(ctx: Context, files: EdgeSkillFiles, cwd: string, signal: AbortSignal | undefined): Promise<{ candidates: SkillCandidate[], fingerprint: string, complete: boolean }> {
   const candidates: SkillCandidate[] = []
+  let complete = true
   const parts: string[] = []
   for (const root of await skillRoots(files, cwd, signal)) {
     for (const { locator, size, mtime } of await rootEntries(files, root, signal, message => { ctx.logger.warn(message) })) {
@@ -187,6 +192,10 @@ async function discover(ctx: Context, files: EdgeSkillFiles, cwd: string, signal
         continue
       }
       const parsed = await parseSkillFile(ctx, files, locator.path, signal)
+      if (parsed === 'unreadable') {
+        complete = false
+        continue
+      }
       if (parsed === undefined) continue
       candidates.push({
         name: parsed.name,
@@ -203,13 +212,13 @@ async function discover(ctx: Context, files: EdgeSkillFiles, cwd: string, signal
       })
     }
   }
-  return { candidates, fingerprint: digest(parts.join('\n')) }
+  return { candidates, fingerprint: digest(parts.join('\n')), complete }
 }
 
 async function load(ctx: Context, files: EdgeSkillFiles, candidate: SkillCandidate, signal: AbortSignal | undefined): Promise<SkillDefinition | undefined> {
   const locator = candidate.locator as SkillLocator
   const parsed = await parseSkillFile(ctx, files, locator.path, signal)
-  if (parsed === undefined) return undefined
+  if (parsed === undefined || parsed === 'unreadable') return undefined
   return {
     name: parsed.name,
     description: parsed.description,
@@ -263,7 +272,8 @@ interface ParsedSkill {
 }
 
 /** Upstream's rules: YAML frontmatter with name and description; a malformed file is skipped with a warning. */
-async function parseSkillFile(ctx: Context, files: EdgeSkillFiles, path: string, signal: AbortSignal | undefined): Promise<ParsedSkill | undefined> {
+/** @returns the parsed skill; undefined for a missing, oversized, or malformed file; 'unreadable' when the read itself failed. */
+async function parseSkillFile(ctx: Context, files: EdgeSkillFiles, path: string, signal: AbortSignal | undefined): Promise<ParsedSkill | undefined | 'unreadable'> {
   signal?.throwIfAborted()
   let raw: string | undefined
   try {
@@ -272,8 +282,8 @@ async function parseSkillFile(ctx: Context, files: EdgeSkillFiles, path: string,
     if (isAbsent(error)) return undefined
     if (signal?.aborted === true) throw error
     // One unreadable entry is skipped, not the whole root.
-    ctx.logger.warn(`skill file ${path} ignored: it could not be read: ${messageOf(error)}`)
-    return undefined
+    ctx.logger.warn(`skill file ${path} skipped for now: it could not be read: ${messageOf(error)}`)
+    return 'unreadable'
   }
   if (raw === undefined) {
     ctx.logger.warn(`skill file ${path} ignored: it exceeds the ${String(MAX_SKILL_FILE_BYTES)}-byte limit`)
