@@ -142,7 +142,7 @@ import {
 import { installEdgeApprovalPolicy, type EdgeApprovalMode, type EdgeApprovalSettings } from './approval-policy.ts'
 import { installEdgeRuntimeSettings, type EdgeRuntimeSettings } from './runtime-settings.ts'
 import { installEdgeWebSearch } from './web-search.ts'
-import { mountAgentLoop } from './edge-plugin-settings.ts'
+import { mountAgentLoop, mountSubagentRuntime } from './edge-plugin-settings.ts'
 import { DurableEventDeliveryQueue, ImmediateFlushLimiter } from './durable-event-delivery.ts'
 
 const DEFAULT_WRITE_BATCH_MAX_DELAY_MS = 100
@@ -726,7 +726,9 @@ export class EdgeSessionStore {
       const { default: SubagentRuntime } = await import(
         '@deepseek-ai/dsh-subagent' as string
       )
-      await this.context.plugin(SubagentRuntime)
+      // Delegation depth and capacity live on the subagent namespace the
+      // Subagent settings card edits (Built-in plugins → Settings).
+      await mountSubagentRuntime(this.context, SubagentRuntime as never)
       // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
       const { TYPERT: SUBAGENT_TYPERT } = await import(
         '@deepseek-ai/dsh-subagent/typert' as string
@@ -745,9 +747,10 @@ export class EdgeSessionStore {
       const ToolSubagent = await import(
         '@deepseek-ai/dsh-tool-subagent' as string
       )
+      // The depth limit comes from the subagent namespace (default 1), so the
+      // tool sets no maxDepth of its own.
       await this.context.plugin(ToolSubagent, {
         provider: 'spawn',
-        maxDepth: 1,
         enableRunInBackground: true,
       })
     }
