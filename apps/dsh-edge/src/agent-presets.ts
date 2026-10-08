@@ -13,11 +13,16 @@
  * and prompt sections stay mounted globally; a preset only changes how one
  * agent's scope presents them.
  *
+ * Plugins that compose per agent, as upstream's delegation tool does with
+ * model selection on, mount in the composition scope: `join` places every
+ * agent's scope under it, whatever its preset.
+ *
  * As upstream, new sessions start on the `default` field of the
  * `agent-presets` settings namespace, which the Settings page writes.
  */
 
 import { Service as CordisService, type Context } from '@deepseek-ai/cordis'
+import { bindScopeParent, createScope, scopeOf, scopeParentOf } from '@deepseek-ai/dsh-scope'
 import Schema from '@deepseek-ai/schemastery'
 import { edgeSettings, type EdgeSettingsScope } from './edge-settings.ts'
 import type { SessionHeader } from '@deepseek-ai/dsh-session'
@@ -78,9 +83,12 @@ export class EdgeAgentPresets extends CordisService {
 
   private readonly composed = new WeakMap<Context, string>()
   private readonly settings: EdgeSettingsScope<AgentPresetSettings>
+  private readonly compositionKey = {}
+  private readonly composition: ReturnType<typeof createScope>
 
   constructor(ctx: Context, private readonly config: { codeRuntime: boolean }) {
     super(ctx, 'agentPresets')
+    this.composition = createScope(ctx, this.compositionKey)
     this.settings = edgeSettings(ctx).register(AGENT_PRESET_SETTINGS_NAMESPACE, AgentPresetSettingsSchema, {
       // Checked against every Edge preset rather than this deployment's offer:
       // a stored `ptc` must not fail registration after the Loader is removed.
@@ -124,6 +132,10 @@ export class EdgeAgentPresets extends CordisService {
   join(agentCtx: Context, presetId: string): void {
     const id = this.offers(presetId) ? normalizeAgentPreset(presetId) : DEFAULT_AGENT_PRESET
     this.composed.set(agentCtx, id)
+    // A child is joined twice (its own composition, then its parent's preset);
+    // its scope is placed under the composition once.
+    const scope = scopeOf(agentCtx)
+    if (scope !== undefined && scopeParentOf(scope) === undefined) bindScopeParent(scope, this.compositionKey)
     if (id === PTC_AGENT_PRESET) {
       agentCtx.tools.presentAs('ptc')
       agentCtx.tools.restrict({ deny: ['workflow'] })
@@ -138,6 +150,11 @@ export class EdgeAgentPresets extends CordisService {
     // No per-preset composition rows: the plugin inventory lists the
     // global composition and the browser boot graph instead.
     return []
+  }
+
+  /** The scoped context whose registrations every joined agent sees. */
+  compositionContext(): Context {
+    return this.composition.ctx
   }
 
   composedPreset(ctx: Context): string {

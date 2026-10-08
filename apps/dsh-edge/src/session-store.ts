@@ -143,7 +143,7 @@ import {
 import { installEdgeApprovalPolicy, type EdgeApprovalMode, type EdgeApprovalSettings } from './approval-policy.ts'
 import { installEdgeRuntimeSettings, type EdgeRuntimeSettings } from './runtime-settings.ts'
 import { installEdgeWebSearch } from './web-search.ts'
-import { mountAgentLoop, mountSubagentRuntime } from './edge-plugin-settings.ts'
+import { mountAgentLoop, mountSubagentModelSelection, mountSubagentRuntime } from './edge-plugin-settings.ts'
 import { DurableEventDeliveryQueue, ImmediateFlushLimiter } from './durable-event-delivery.ts'
 
 const DEFAULT_WRITE_BATCH_MAX_DELAY_MS = 100
@@ -761,16 +761,29 @@ export class EdgeSessionStore {
       const ToolSubagent = await import(
         '@deepseek-ai/dsh-tool-subagent' as string
       )
-      // The depth limit comes from the subagent namespace (default 1), so the
-      // tool sets no maxDepth of its own.
-      await this.context.plugin(ToolSubagent, {
+      // As upstream's Loader entry: the models subagents may choose, edited on
+      // the Subagent card. It must be live before the tools compose sessions.
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+      const { default: SubagentModelSelectionConfig } = await import(
+        '@deepseek-ai/dsh-tool-subagent/model-selection-settings' as string
+      )
+      await mountSubagentModelSelection(this.context, SubagentModelSelectionConfig as never)
+      // With model selection on, upstream composes the tool per agent, so it
+      // mounts in the preset composition that every agent joins. The depth
+      // limit comes from the subagent namespace (default 1), so the tool sets
+      // no maxDepth of its own.
+      const composition = (this.context.get('agentPresets') as EdgeAgentPresets).compositionContext()
+      await composition.plugin(ToolSubagent, {
         provider: 'spawn',
         enableRunInBackground: true,
         backgroundMode: 'continuable',
+        modelSelectionSettings: true,
       })
       // A second instance over the fork backend: its child starts from the
-      // parent's completed turns instead of a standalone prompt.
-      await this.context.plugin(ToolSubagent, {
+      // parent's completed turns instead of a standalone prompt, on the
+      // parent's model. Each selecting instance registers its own
+      // `list_subagent_models` on the agent, so only `subagent` selects.
+      await composition.plugin(ToolSubagent, {
         provider: 'fork',
         toolName: 'subagent_fork',
         enableRunInBackground: true,
@@ -2042,9 +2055,29 @@ export class EdgeSessionStore {
 
   /** Compose one Agent from its session's preset and model selection before it is published. */
   private composeAgent(agentCtx: Context, agent: Agent): void {
+    this.recordSubagentModelSelection(agent)
     const presets = this.context.get('agentPresets') as EdgeAgentPresets
     presets.join(agentCtx, sessionAgentPreset(agent.session.header))
     this.installAgentModelSelection(agentCtx, agent)
+  }
+
+  /**
+   * Upstream records the subagent model-selection setting on a session that
+   * was never seeded, before its delegation tool reaches a model request. Edge
+   * sessions start blank and are resumed on first use, which seeds them, so
+   * the Edge records it on a root session that has not run a turn yet.
+   */
+  private recordSubagentModelSelection(agent: Agent): void {
+    const settings = this.context.get('subagentModelSelection') as
+      | { current(): { enabled: boolean; allowedModels: readonly { provider: string; model: string }[] } }
+      | undefined
+    if (settings === undefined || agent.session.header.origin === 'subagent') return
+    const events = agent.session.snapshotEvents()
+    if (events.some(event => (event.type as string) === 'turn/start' || (event.type as string) === 'subagent/model-selection-policy')) return
+    const current = settings.current()
+    if (!current.enabled) return
+    const append = agent.session.append.bind(agent.session) as (type: string, data: unknown) => void
+    append('subagent/model-selection-policy', { allowedModels: current.allowedModels.map(route => ({ ...route })) })
   }
 
   /** The agent presets this deployment offers, default first. */

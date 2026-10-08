@@ -281,11 +281,6 @@
       "status": "declined",
       "reason": "Alternative editor tool; the Edge offers the dsh-tool-fs file tools."
     },
-    "@deepseek-ai/dsh-tool-subagent/model-selection-settings": {
-      "status": "gap",
-      "reason": "Opt-in setting that lets subagents pick other models (list_subagent_models), and the models section of the Subagent settings card. ToolSubagent with modelSelectionSettings: true requires a scoped preset Context, and the Edge mounts its tools on the root context; the delegation tool must move into the Edge's preset composition first. Planned for 0.24.",
-      "priority": "P3"
-    },
     "@deepseek-ai/dsh-tool-terminal": {
       "status": "tracked",
       "reason": "Persistent PTY sessions (the minimal preset needs them).",

@@ -2490,6 +2490,42 @@ try {
   for (const path of ['bg-child-four.txt', 'bg-child-bash.txt', 'README.md']) {
     await request(`/api/workspace/file?path=/workspace/bgproj/${path}`, { method: 'DELETE' })
   }
+  // Subagent model selection, off by default as upstream: the Subagent card's
+  // models section edits its namespace, a new session records the allowed
+  // routes once, and the parent may then choose one of them for a child.
+  const selectionNs = 'subagent-model-selection-settings'
+  const selectionDescribed = (await rpc('settings.describe', {})).body.result.value.namespaces.find(entry => entry.ns === selectionNs)
+  assert.deepEqual(selectionDescribed?.value, { enabled: false, allowedModels: [] })
+  const policyEvents = async id => (await sessionEvents(id)).filter(event => event.type === 'subagent/model-selection-policy')
+  const earlySession = (await rpc('session.create', {})).body.result.value.sessionId
+  assert.equal(resultOf(await turn(earlySession, 'list subagent models'), 'call_model_list')?.data.message.isError, true)
+  const refusedSelection = await rpc('settings.update', { ns: selectionNs, patch: { enabled: true, allowedModels: [] } })
+  assert.equal(refusedSelection.body.result.ok, false, JSON.stringify(refusedSelection.body.result))
+  const savedSelection = await rpc('settings.update', { ns: selectionNs, patch: { enabled: true, allowedModels: [{ provider: 'deepseek-official', model: 'deepseek-flash' }] } })
+  assert.equal(savedSelection.body.result.ok, true, JSON.stringify(savedSelection.body.result))
+  const selecting = (await rpc('session.create', {})).body.result.value.sessionId
+  assert.equal((await rpc('session.selectModel', { sessionId: selecting, provider: 'deepseek-official', model: 'deepseek-pro' })).body.result.ok, true)
+  const listedModels = resultOf(await turn(selecting, 'list subagent models'), 'call_model_list')
+  assert.equal(listedModels?.data.message.isError, false, toolResultText(listedModels))
+  assert.deepEqual((await policyEvents(selecting)).map(event => event.data.allowedModels), [[{ provider: 'deepseek-official', model: 'deepseek-flash' }]])
+  const chosen = resultOf(await turn(selecting, 'delegate on model deepseek-flash'), 'call_model_delegate')
+  assert.equal(chosen?.data.message.isError, false, toolResultText(chosen))
+  const modelChild = (await rpc('session.list', {})).body.result.value.items.find(item => item.parentSessionId === selecting)
+  const childHeaders = (await sessionEvents(modelChild?.sessionId)).filter(event => event.type === 'request/header')
+  assert.equal(childHeaders[0]?.data.header.config.model, 'deepseek-flash', JSON.stringify(childHeaders.map(event => event.data.header.config)))
+  const outside = resultOf(await turn(selecting, 'delegate on model deepseek-pro'), 'call_model_delegate')
+  assert.equal(outside?.data.message.isError, true)
+  assert.match(toolResultText(outside), /not allowed for this Session/u)
+  // A session that ran a turn before selection was on keeps its composition,
+  // as upstream applies the setting only to new sessions; a session that has
+  // the policy keeps it after a restart.
+  assert.equal(resultOf(await turn(earlySession, 'list subagent models'), 'call_model_list')?.data.message.isError, true)
+  assert.deepEqual(await policyEvents(earlySession), [])
+  await worker.stop()
+  worker = await startWorker()
+  assert.equal(resultOf(await turn(selecting, 'list subagent models'), 'call_model_list')?.data.message.isError, false)
+  assert.equal((await policyEvents(selecting)).length, 1)
+  assert.equal((await rpc('settings.update', { ns: selectionNs, patch: { enabled: false, allowedModels: [] } })).body.result.ok, true)
   process.stdout.write(`dsh-edge ${runtimeMode} session integration passed\n`)
 } finally {
   mock.releaseSlowResponses()

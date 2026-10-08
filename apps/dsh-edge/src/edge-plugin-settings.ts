@@ -58,6 +58,33 @@ export async function mountSubagentRuntime(
   return fiber
 }
 
+/** Upstream's Loader entry id for subagent model selection, and the namespace the Subagent card's models section edits. */
+export const SUBAGENT_MODEL_SELECTION_SETTINGS_NAMESPACE = 'subagent-model-selection-settings'
+
+/**
+ * Mount upstream's subagent model-selection setting on the namespace the
+ * Subagent card's models section edits, committed live as upstream's Loader
+ * entry does. Turning selection on with no allowed model is refused on save:
+ * upstream reads the setting as each new session is composed and would fail
+ * that session instead.
+ */
+export async function mountSubagentModelSelection(
+  ctx: Context,
+  SubagentModelSelectionConfig: { Config: (value: unknown) => unknown } & Parameters<Context['plugin']>[0],
+): Promise<Fiber> {
+  const scope = edgeSettings(ctx).register(SUBAGENT_MODEL_SELECTION_SETTINGS_NAMESPACE, SubagentModelSelectionConfig.Config as never, {
+    validate: value => {
+      const { enabled, allowedModels } = value as { enabled: boolean, allowedModels: readonly unknown[] }
+      if (enabled && allowedModels.length === 0) throw new Error('Choose at least one model before turning subagent model selection on.')
+    },
+    discardInvalidSection: true,
+  })
+  const fiber = ctx.plugin(SubagentModelSelectionConfig, { ...scope.get() as object } as never)
+  await fiber.await()
+  scope.watch(next => { commitVolatile(fiber, SubagentModelSelectionConfig.Config(next)) })
+  return fiber
+}
+
 /**
  * Mount DeepSeek web search on the `web-search-deepseek` namespace its settings
  * card edits. The deployment's endpoint is the base, and an endpoint saved on
