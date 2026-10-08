@@ -69,12 +69,12 @@
     "@deepseek-ai/dsh-client-ui-settings-shell": {
       "status": "gap",
       "priority": "P3",
-      "reason": "Settings card for the upstream bash tool's configuration. The card mount exists since #278, but the Edge's bash tool is its own (createEdgeBashTool, with deployment timeouts and container routing), so the card's fields must be mapped onto it first."
+      "reason": "Shell settings card: the executor's command timeout and per-stream output cap (shell namespace). The card mount exists since #278, but the Edge's bash is its own: createEdgeBashTool (agent.ts) forwards only a per-call timeoutMs, the timeout default and ceiling come from DSH_EDGE_DEFAULT/MAX_COMMAND_TIMEOUT_MS (workspace.ts), and the Direct output cap is the fixed EDGE_SHELL_OUTPUT_LIMIT_BYTES (direct-shell.ts). Restoring the card needs an Edge shell namespace that the timeout policy and both shell backends (Direct and the Isolated/container paths) read live."
     },
     "@deepseek-ai/dsh-client-ui-settings-subagent": {
       "status": "gap",
       "priority": "P3",
-      "reason": "Subagent settings card: delegation depth and capacity (subagent namespace: maxDepth, maxActiveSubagents) and the models agents may choose (subagent-model-selection namespace) on one page. Built-in plugins → Settings hosts plugins.item cards since #278, but session-store.ts mounts ToolSubagent with a fixed maxDepth of 1 that wins over a namespace value, and the Edge does not mount the model-selection settings (dsh-tool-subagent/model-selection-settings). Restoring the card needs both namespaces served, the fixed depth replaced by the subagent namespace and committed to the running tool, and the model-selection plugin mounted."
+      "reason": "Subagent settings card: delegation depth and capacity (subagent namespace: maxDepth, maxActiveSubagents) and the models agents may choose (subagent-model-selection namespace) on one page. The card mount exists since #278, but session-store.ts mounts ToolSubagent with a fixed maxDepth of 1 that wins over a namespace value and without modelSelectionSettings (default false), and the Edge does not mount dsh-tool-subagent/model-selection-settings. Restoring the card needs both namespaces served, the fixed depth replaced by the subagent namespace and committed to the running tool, ToolSubagent mounted with modelSelectionSettings: true, and the model-selection plugin mounted."
     },
     "@deepseek-ai/dsh-client-ui-sidebar-terminal": {
       "status": "tracked",
