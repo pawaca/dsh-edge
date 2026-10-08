@@ -2329,10 +2329,15 @@ try {
   assert.deepEqual(offloaded.filter(event => event.type === 'turn/end').map(event => event.data.reason.kind), ['completed', 'completed'])
   const firstImageSeq = offloaded.find(event => event.type === 'user/message' && event.data.content?.some?.(block => block.type === 'image'))?.seq
   assert.deepEqual(offloadMarks[0].data.targets, [{ seq: firstImageSeq, imageIndexes: [0] }])
-  // A cold read replays the offload from the stored log.
-  const offloadHistory = await rpc('session.history', { sessionId: offloadSessionId })
-  assert.equal(offloadHistory.body.result.ok, true)
   assert.equal((await rpc('settings.update', { ns: 'llm-deepseek', patch: { maxImagesPerRequest: 600, imageOffloadCountQuantum: 20 } })).body.result.ok, true)
+  // After a restart the event is read back from storage, and the cold-resumed
+  // session folds it into its surface: another turn runs normally.
+  await worker.stop()
+  worker = await startWorker()
+  const restoredOffload = (await offloadEvents()).filter(event => event.type === 'image/offload')
+  assert.deepEqual(restoredOffload.map(event => event.data.targets), [[{ seq: firstImageSeq, imageIndexes: [0] }]])
+  const afterRestart = await turn(offloadSessionId, 'offload fixture after restart')
+  assert.equal(afterRestart.findLast(event => event.type === 'turn/end')?.data.reason.kind, 'completed', JSON.stringify(afterRestart.map(event => event.type)))
   process.stdout.write(`dsh-edge ${runtimeMode} session integration passed\n`)
 } finally {
   mock.releaseSlowResponses()
