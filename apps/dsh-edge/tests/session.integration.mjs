@@ -2348,6 +2348,59 @@ try {
   assert.deepEqual(restoredOffload.map(event => event.data.targets), [[{ seq: firstImageSeq, imageIndexes: [0] }]])
   const afterRestart = await turn(offloadSessionId, 'offload fixture after restart')
   assert.equal(afterRestart.findLast(event => event.type === 'turn/end')?.data.reason.kind, 'completed', JSON.stringify(afterRestart.map(event => event.type)))
+  // Workspace skills as upstream dsh-skill-filesystem finds them: a SKILL.md
+  // under the project's .dsh/skills outranks a same-name skill stored through
+  // /api/skills, and applies from the next turn.
+  const skillFile = '/workspace/.dsh/skills/workspace-demo/SKILL.md'
+  assert.equal((await request(`/api/workspace/file?path=${skillFile}`, {
+    method: 'PUT',
+    body: '---\nname: workspace-demo\ndescription: Workspace skill fixture\n---\nWorkspace demo body from SKILL.md\n',
+  })).status, 200)
+  assert.equal((await jsonRequest('/api/skills', {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name: 'workspace-demo', description: 'Stored fixture', content: 'Stored body from /api/skills' }),
+  })).body.ok, true)
+  const skillSessionId = (await rpc('session.create', {})).body.result.value.sessionId
+  const skillEvents = await turn(skillSessionId, 'load the workspace skill')
+  const loadedSkill = skillEvents.find(event => event.type === 'tool/result' && event.data.message.toolCallId === 'call_workspace_skill')
+  assert.equal(loadedSkill?.data.message.isError, false, toolResultText(loadedSkill))
+  assert.match(toolResultText(loadedSkill), /Workspace demo body from SKILL\.md/u)
+  assert.doesNotMatch(toolResultText(loadedSkill), /Stored body/u)
+  await jsonRequest('/api/skills', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'workspace-demo' }) })
+  await request(`/api/workspace/file?path=${skillFile}`, { method: 'DELETE' })
+  // A flat skill rewritten at the same size (only its modification time differs)
+  // refreshes the cached catalog before the next turn's first step.
+  const flatSkill = '/workspace/.dsh/skills/flat-demo.md'
+  const flatBody = flag => `---\nname: flat-demo\ndescription: Flat skill fixture\ndisable-model-invocation: ${flag}\n---\nFlat demo body\n`
+  assert.equal(flatBody('yes').length, flatBody('no ').length)
+  const loadFlat = async () => {
+    const events = await turn(skillSessionId, 'load the skill flat-demo')
+    return events.find(event => event.type === 'tool/result' && event.data.message.toolCallId?.startsWith('call_skill_'))
+  }
+  assert.equal((await request(`/api/workspace/file?path=${flatSkill}`, { method: 'PUT', body: flatBody('yes') })).status, 200)
+  const hidden = await loadFlat()
+  assert.equal(hidden?.data.message.isError, true, toolResultText(hidden))
+  assert.equal((await request(`/api/workspace/file?path=${flatSkill}`, { method: 'PUT', body: flatBody('no ') })).status, 200)
+  const shown = await loadFlat()
+  assert.equal(shown?.data.message.isError, false, toolResultText(shown))
+  assert.match(toolResultText(shown), /Flat demo body/u)
+  await request(`/api/workspace/file?path=${flatSkill}`, { method: 'DELETE' })
+  // The `/` trigger lists the skills of the session's own project root.
+  const projectSkill = '/workspace/skillproj/.dsh/skills/proj-skill/SKILL.md'
+  const rootSkill = '/workspace/.dsh/skills/root-skill/SKILL.md'
+  for (const [path, name] of [[projectSkill, 'proj-skill'], [rootSkill, 'root-skill']]) {
+    assert.equal((await request(`/api/workspace/file?path=${path}`, { method: 'PUT', body: `---\nname: ${name}\ndescription: ${name} fixture\n---\nbody\n` })).status, 200)
+  }
+  const projectSession = await rpc('session.create', { cwd: '/workspace/skillproj' })
+  assert.equal(projectSession.body.result.ok, true, JSON.stringify(projectSession.body))
+  const listedFor = async id => (await rpc('skills.list', { sessionId: id })).body.result.value.skills.map(entry => entry.name)
+  const projectListed = await listedFor(projectSession.body.result.value.sessionId)
+  assert.ok(projectListed.includes('proj-skill') && !projectListed.includes('root-skill'), JSON.stringify(projectListed))
+  const rootListed = await listedFor(skillSessionId)
+  assert.ok(rootListed.includes('root-skill') && !rootListed.includes('proj-skill'), JSON.stringify(rootListed))
+  assert.equal((await rpc('skills.list', { sessionId: 'session-missing' })).body.result.ok, false)
+  for (const path of [projectSkill, rootSkill]) await request(`/api/workspace/file?path=${path}`, { method: 'DELETE' })
   process.stdout.write(`dsh-edge ${runtimeMode} session integration passed\n`)
 } finally {
   mock.releaseSlowResponses()

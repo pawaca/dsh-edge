@@ -58,7 +58,7 @@ import {
 } from '@deepseek-ai/dsh-settings'
 import type { MessageId } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
-import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
+import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { isUserInvocable } from '@deepseek-ai/dsh-skill'
 import { edgeSystemPrompt } from './agent.ts'
 import { normalizeAgentPreset, PTC_AGENT_PRESET } from './agent-presets.ts'
@@ -634,10 +634,21 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
     },
 
     skills: {
-      async list(request: RpcRequest<SessionListPayload>) {
+      async list(request: RpcRequest<{ sessionId?: string }>, signal?: AbortSignal) {
         const registry = await runtime.sessions.skillRegistry()
         if (registry === undefined) return ok(request, { skills: [] })
-        const skills = (await registry.list({ cwd: '/workspace' })).filter(isUserInvocable)
+        // Workspace skills depend on the session's cwd (its project root), so
+        // the `/` trigger lists what that session's agent would see.
+        const sessionId = typeof request.payload?.sessionId === 'string' ? SessionId(request.payload.sessionId) : undefined
+        let cwd = '/workspace'
+        if (sessionId !== undefined) {
+          try {
+            cwd = (await runtime.sessions.getApiSessionSummary(sessionId)).cwd ?? cwd
+          } catch (error) {
+            return sessionFailure(request, error, sessionId)
+          }
+        }
+        const skills = (await registry.list({ cwd, ...signal === undefined ? {} : { signal } })).filter(isUserInvocable)
         return ok(request, {
           skills: skills.map(skill => ({
             name: skill.name,
