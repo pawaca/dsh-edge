@@ -39,7 +39,7 @@ import { parse } from 'yaml'
 /** The subset of the Computer workspace filesystem skill discovery reads. */
 export interface EdgeSkillFiles {
   readdir(path: string, options?: { limit?: number }): Promise<readonly { name: string, isFile: boolean, isDirectory: boolean, size: number, mtime: number }[]>
-  stat(path: string): Promise<{ size: number, mtime: number }>
+  stat(path: string): Promise<{ size: number, mtime: number, isFile: boolean }>
   readFile(path: string): Promise<ReadableStream<Uint8Array>>
 }
 
@@ -83,7 +83,9 @@ export function apply(ctx: Context, config: EdgeWorkspaceSkillsConfig): void {
       try {
         const current = await config.withFiles(files => fingerprint(files, cwd, signal))
         if (current === known || fingerprints.get(cwd) !== known) return
-        fingerprints.delete(cwd)
+        // invalidate() clears every cwd's catalog, so every recorded
+        // fingerprint is stale with it; each catalog then rebuilds once.
+        fingerprints.clear()
         control.invalidate()
       } catch (error) {
         if (!control.signal.aborted && signal?.aborted !== true) ctx.logger.warn(`workspace skill roots for ${cwd} could not be checked: ${messageOf(error)}`)
@@ -138,13 +140,14 @@ async function rootEntries(files: EdgeSkillFiles, root: SkillRoot, signal: Abort
     if (entry.isDirectory) {
       const locator = { path: join(root.path, entry.name, 'SKILL.md'), directory: join(root.path, entry.name) }
       signal?.throwIfAborted()
-      let stat: { size: number, mtime: number } | undefined
+      let stat: { size: number, mtime: number, isFile: boolean } | undefined
       try {
         stat = await files.stat(locator.path)
       } catch (error) {
         if (!isAbsent(error)) throw error
       }
-      if (stat !== undefined) entries.push({ locator, size: stat.size, mtime: stat.mtime })
+      // A bundle whose SKILL.md is not a regular file holds no skill.
+      if (stat?.isFile === true) entries.push({ locator, size: stat.size, mtime: stat.mtime })
     } else if (entry.isFile && entry.name.endsWith('.md')) {
       entries.push({ locator: { path: join(root.path, entry.name), directory: root.path }, size: entry.size, mtime: entry.mtime })
     }
@@ -267,7 +270,10 @@ async function parseSkillFile(ctx: Context, files: EdgeSkillFiles, path: string,
     raw = await readBounded(files, path, signal)
   } catch (error) {
     if (isAbsent(error)) return undefined
-    throw error
+    if (signal?.aborted === true) throw error
+    // One unreadable entry is skipped, not the whole root.
+    ctx.logger.warn(`skill file ${path} ignored: it could not be read: ${messageOf(error)}`)
+    return undefined
   }
   if (raw === undefined) {
     ctx.logger.warn(`skill file ${path} ignored: it exceeds the ${String(MAX_SKILL_FILE_BYTES)}-byte limit`)

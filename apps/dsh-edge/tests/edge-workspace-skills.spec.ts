@@ -22,7 +22,7 @@ function fakeFiles(tree: Record<string, string>, mtimes: Map<string, number> = n
     },
     stat: async (path) => {
       if (!exists(path)) throw Object.assign(new Error(`no such file: ${path}`), { code: 'ENOENT' })
-      return { size: tree[path]?.length ?? 0, mtime: mtimes.get(path) ?? 0 }
+      return { size: tree[path]?.length ?? 0, mtime: mtimes.get(path) ?? 0, isFile: path in tree }
     },
     readFile: async (path) => {
       const value = tree[path]
@@ -201,6 +201,25 @@ describe('Edge workspace skills', () => {
     const deep = `/workspace/${Array.from({ length: 200 }, (_, i) => `d${String(i)}`).join('/')}`
     await list(deep)
     expect(stats()).toBeLessThanOrEqual(EdgeWorkspaceSkills.MAX_PROJECT_ROOT_DEPTH + 1)
+  })
+
+  it('skips a bundle whose SKILL.md is a directory, keeping the other skills', async () => {
+    const { list } = mount({
+      '/workspace/.dsh/skills/odd/SKILL.md/inner.txt': 'x',
+      '/workspace/.dsh/skills/fine/SKILL.md': skill('fine', 'b'),
+    })
+    expect((await list('/workspace')).map(c => c.name)).toEqual(['fine'])
+  })
+
+  it('clears every fingerprint when a shared root change invalidates the registry', async () => {
+    const { list, invalidate, write, startTurn } = mount({ '/.dsh/skills/shared/SKILL.md': skill('shared', 'b') })
+    await list('/workspace/a')
+    await list('/workspace/b')
+    write('/.dsh/skills/shared/SKILL.md', skill('shared', 'changed'))
+    await startTurn('/workspace/a')
+    expect(invalidate).toHaveBeenCalledTimes(1)
+    await startTurn('/workspace/b')
+    expect(invalidate).toHaveBeenCalledTimes(1) // b's catalog was already cleared; it rebuilds on its next lookup
   })
 
   it('stops a scan whose lookup was cancelled', async () => {
