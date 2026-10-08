@@ -90,7 +90,7 @@ async function publishedPackageAliases() {
     .map(escapeRegExpLiteral)
     .join('|')
   const specifierPattern = new RegExp(
-    `['"]((?:${scopePattern})\/[^'"]+|(?:just-bash|fast-png|jpeg-js|acorn|sucrase|minimatch|re2js)(?:\/[^'"]*)?)['"]`,
+    `['"]((?:${scopePattern})\/[^'"]+|(?:just-bash|fast-png|jpeg-js|acorn|sucrase|minimatch|re2js|yaml)(?:\/[^'"]*)?)['"]`,
     'g',
   )
   for (const path of await sourceFiles(join(appDirectory, 'src'))) {
@@ -243,6 +243,8 @@ async function requirePublishedDependencyInputs(metafilePath) {
       || path.includes('/sucrase/') || path.includes('sucrase@')
       || path.includes('/minimatch/') || path.includes('minimatch@')
       || path.includes('/re2js/') || path.includes('re2js@')
+      // Exact segments: a bare 'yaml@' would also match js-yaml.
+      || path.includes('/node_modules/yaml/') || path.includes('/.pnpm/yaml@')
     if (isPinnedRuntimeDependency
       && !path.includes('/apps/dsh-edge/standalone/node_modules/')) {
       throw new Error(`Standalone Worker resolved a runtime dependency outside its lock: ${path}`)

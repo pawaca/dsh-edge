@@ -4,9 +4,13 @@
  * Upstream reads skill roots with node:fs (or ctx.fs, which on the Edge exists
  * only during a turn) and keeps catalogs current with chokidar watches, which
  * Workers do not have. The Edge scans the same roots, formats, and frontmatter
- * through the Computer workspace, which answers inside and outside a turn, and
- * refreshes the catalog when a turn starts: a skill added, edited, or removed
- * applies from the next turn, and lookups between turns reuse one scan.
+ * through the Computer workspace, which answers inside and outside a turn. In
+ * place of file watches, each discovery records a fingerprint of the roots
+ * (entry names, sizes, and modification times, plus each bundle's SKILL.md);
+ * before a turn's first step in a cwd with a cached catalog, the provider
+ * rereads only that metadata and invalidates the catalog if it changed. A skill added,
+ * edited, or removed applies from the next turn, an unchanged turn reads no
+ * skill contents, and lookups between turns reuse one scan.
  *
  * Roots and ranks follow upstream (lower wins a duplicate name):
  *   100 <projectRoot>/.dsh/skills    200 <projectRoot>/.agents/skills
@@ -31,8 +35,8 @@ import { parse } from 'yaml'
 
 /** The subset of the Computer workspace filesystem skill discovery reads. */
 export interface EdgeSkillFiles {
-  readdir(path: string): Promise<readonly { name: string, isFile: boolean, isDirectory: boolean }[]>
-  stat(path: string): Promise<unknown>
+  readdir(path: string): Promise<readonly { name: string, isFile: boolean, isDirectory: boolean, size: number, mtime: number }[]>
+  stat(path: string): Promise<{ size: number, mtime: number }>
   readFile(path: string, encoding: 'utf8'): Promise<string>
 }
 
@@ -53,39 +57,101 @@ export const inject = ['skills']
 
 export function apply(ctx: Context, config: EdgeWorkspaceSkillsConfig): void {
   ctx.effect(() => ctx.skills.registerProvider((control: SkillProviderControl): SkillProvider => {
-    // Upstream refreshes on file events; the Edge refreshes once per turn.
-    const stop = ctx.on('session/event', (_session, event) => {
-      if (event.type === 'turn/start') control.invalidate()
+    /** Fingerprint of each cwd's roots when its catalog was last discovered. */
+    const fingerprints = new Map<string, string>()
+    /** Sessions whose turn started and whose first step has not checked the roots yet. */
+    const pending = new WeakSet<object>()
+    const check = async (cwd: string, signal: AbortSignal | undefined) => {
+      const known = fingerprints.get(cwd)
+      if (known === undefined) return
+      try {
+        const current = await config.withFiles(files => fingerprint(files, cwd, signal))
+        if (current === known || fingerprints.get(cwd) !== known) return
+        fingerprints.delete(cwd)
+        control.invalidate()
+      } catch (error) {
+        if (!control.signal.aborted && signal?.aborted !== true) ctx.logger.warn(`workspace skill roots for ${cwd} could not be checked: ${messageOf(error)}`)
+      }
+    }
+    // Upstream refreshes on file events. The Edge checks the roots' metadata
+    // before a turn's first step and invalidates only a catalog whose files
+    // changed, so that turn already reads the current catalog.
+    const stopTurns = ctx.on('session/event', (session, event) => {
+      if (event.type === 'turn/start') pending.add(session as object)
     })
+    const stopSteps = ctx.on('agent/pre-step', async ({ agent, signal }, next) => {
+      if (pending.has(agent.session)) {
+        pending.delete(agent.session)
+        await check(normalize(agent.session.header.cwd ?? DEFAULT_CWD), signal)
+      }
+      return next()
+    })
+    const stop = () => { stopTurns(); stopSteps() }
     control.signal.addEventListener('abort', stop, { once: true })
     return {
       name: PROVIDER_NAME,
-      list: (options: SkillLookupOptions) => config.withFiles(files => discover(ctx, files, options.cwd ?? DEFAULT_CWD)),
-      get: (candidate: SkillCandidate) => config.withFiles(files => load(ctx, files, candidate)),
+      list: (options: SkillLookupOptions) => config.withFiles(async files => {
+        const cwd = normalize(options.cwd ?? DEFAULT_CWD)
+        const scan = await discover(ctx, files, cwd, options.signal)
+        fingerprints.set(cwd, scan.fingerprint)
+        return scan.candidates
+      }),
+      get: (candidate: SkillCandidate, options: SkillLookupOptions) => config.withFiles(files => load(ctx, files, candidate, options.signal)),
     }
   }))
 }
 
-async function discover(ctx: Context, files: EdgeSkillFiles, cwd: string): Promise<SkillCandidate[]> {
-  const projectRoot = await findProjectRoot(files, cwd)
+/** The roots upstream scans for one cwd, deduplicated, in rank order. */
+async function skillRoots(files: EdgeSkillFiles, cwd: string, signal: AbortSignal | undefined): Promise<SkillRoot[]> {
+  const projectRoot = await findProjectRoot(files, cwd, signal)
   const roots: SkillRoot[] = [
     { path: join(projectRoot, '.dsh/skills'), rank: 100, source: 'project-dsh', skipSystem: false },
     { path: join(projectRoot, '.agents/skills'), rank: 200, source: 'project-agents', skipSystem: false },
     { path: '/.dsh/skills', rank: 400, source: 'user-dsh', skipSystem: true },
     { path: '/.agents/skills', rank: 500, source: 'user-agents', skipSystem: false },
   ]
+  const seen = new Set<string>()
+  return roots.filter(root => !seen.has(root.path) && seen.add(root.path))
+}
+
+/** Each root's skill entries, sorted, with the instruction file to read for each. */
+async function rootEntries(files: EdgeSkillFiles, root: SkillRoot, signal: AbortSignal | undefined): Promise<{ locator: SkillLocator, size: number, mtime: number }[]> {
+  const entries = []
+  for (const entry of [...await listRoot(files, root.path, signal)].sort((a, b) => a.name.localeCompare(b.name))) {
+    if (root.skipSystem && entry.name === '.system') continue
+    if (entry.isDirectory) {
+      const locator = { path: join(root.path, entry.name, 'SKILL.md'), directory: join(root.path, entry.name) }
+      signal?.throwIfAborted()
+      let stat: { size: number, mtime: number } | undefined
+      try {
+        stat = await files.stat(locator.path)
+      } catch (error) {
+        if (!isAbsent(error)) throw error
+      }
+      if (stat !== undefined) entries.push({ locator, size: stat.size, mtime: stat.mtime })
+    } else if (entry.isFile && entry.name.endsWith('.md')) {
+      entries.push({ locator: { path: join(root.path, entry.name), directory: root.path }, size: entry.size, mtime: entry.mtime })
+    }
+  }
+  return entries
+}
+
+/** Metadata-only fingerprint of a cwd's roots: which skill files exist, with their sizes and modification times. */
+async function fingerprint(files: EdgeSkillFiles, cwd: string, signal: AbortSignal | undefined): Promise<string> {
+  const parts: string[] = []
+  for (const root of await skillRoots(files, cwd, signal)) {
+    for (const entry of await rootEntries(files, root, signal)) parts.push(`${entry.locator.path}:${String(entry.size)}:${String(entry.mtime)}`)
+  }
+  return parts.join('\n')
+}
+
+async function discover(ctx: Context, files: EdgeSkillFiles, cwd: string, signal: AbortSignal | undefined): Promise<{ candidates: SkillCandidate[], fingerprint: string }> {
   const candidates: SkillCandidate[] = []
-  const seenRoots = new Set<string>()
-  for (const root of roots) {
-    if (seenRoots.has(root.path)) continue
-    seenRoots.add(root.path)
-    for (const entry of [...await listRoot(files, root.path)].sort((a, b) => a.name.localeCompare(b.name))) {
-      if (root.skipSystem && entry.name === '.system') continue
-      const locator: SkillLocator | undefined = entry.isDirectory
-        ? { path: join(root.path, entry.name, 'SKILL.md'), directory: join(root.path, entry.name) }
-        : entry.isFile && entry.name.endsWith('.md') ? { path: join(root.path, entry.name), directory: root.path } : undefined
-      if (locator === undefined) continue
-      const parsed = await parseSkillFile(ctx, files, locator.path)
+  const parts: string[] = []
+  for (const root of await skillRoots(files, cwd, signal)) {
+    for (const { locator, size, mtime } of await rootEntries(files, root, signal)) {
+      parts.push(`${locator.path}:${String(size)}:${String(mtime)}`)
+      const parsed = await parseSkillFile(ctx, files, locator.path, signal)
       if (parsed === undefined) continue
       candidates.push({
         name: parsed.name,
@@ -102,12 +168,12 @@ async function discover(ctx: Context, files: EdgeSkillFiles, cwd: string): Promi
       })
     }
   }
-  return candidates
+  return { candidates, fingerprint: parts.join('\n') }
 }
 
-async function load(ctx: Context, files: EdgeSkillFiles, candidate: SkillCandidate): Promise<SkillDefinition | undefined> {
+async function load(ctx: Context, files: EdgeSkillFiles, candidate: SkillCandidate, signal: AbortSignal | undefined): Promise<SkillDefinition | undefined> {
   const locator = candidate.locator as SkillLocator
-  const parsed = await parseSkillFile(ctx, files, locator.path)
+  const parsed = await parseSkillFile(ctx, files, locator.path, signal)
   if (parsed === undefined) return undefined
   return {
     name: parsed.name,
@@ -123,7 +189,8 @@ async function load(ctx: Context, files: EdgeSkillFiles, candidate: SkillCandida
   }
 }
 
-async function listRoot(files: EdgeSkillFiles, path: string) {
+async function listRoot(files: EdgeSkillFiles, path: string, signal: AbortSignal | undefined) {
+  signal?.throwIfAborted()
   try {
     return await files.readdir(path)
   } catch (error) {
@@ -132,9 +199,10 @@ async function listRoot(files: EdgeSkillFiles, path: string) {
   }
 }
 
-async function findProjectRoot(files: EdgeSkillFiles, cwd: string): Promise<string> {
+async function findProjectRoot(files: EdgeSkillFiles, cwd: string, signal: AbortSignal | undefined): Promise<string> {
   let current = normalize(cwd)
   for (;;) {
+    signal?.throwIfAborted()
     try {
       await files.stat(join(current, '.git'))
       return current
@@ -156,7 +224,8 @@ interface ParsedSkill {
 }
 
 /** Upstream's rules: YAML frontmatter with name and description; a malformed file is skipped with a warning. */
-async function parseSkillFile(ctx: Context, files: EdgeSkillFiles, path: string): Promise<ParsedSkill | undefined> {
+async function parseSkillFile(ctx: Context, files: EdgeSkillFiles, path: string, signal: AbortSignal | undefined): Promise<ParsedSkill | undefined> {
+  signal?.throwIfAborted()
   let raw: string
   try {
     raw = await files.readFile(path, 'utf8')

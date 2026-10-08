@@ -3,8 +3,8 @@ import { describe, expect, it, vi } from 'vitest'
 import * as EdgeWorkspaceSkills from '../src/edge-workspace-skills.ts'
 import type { EdgeSkillFiles } from '../src/edge-workspace-skills.ts'
 
-/** A Computer-workspace stand-in over a path → contents map; directories are implied by paths. */
-function fakeFiles(tree: Record<string, string>): EdgeSkillFiles {
+/** A Computer-workspace stand-in over a path → contents map; directories are implied by paths, and a file's mtime is its write count. */
+function fakeFiles(tree: Record<string, string>, mtimes: Map<string, number> = new Map()): EdgeSkillFiles {
   const exists = (path: string) => Object.keys(tree).some(key => key === path || key.startsWith(`${path}/`))
   return {
     readdir: async (path) => {
@@ -15,11 +15,14 @@ function fakeFiles(tree: Record<string, string>): EdgeSkillFiles {
         const [first, ...rest] = key.slice(path.length + 1).split('/')
         names.set(first!, rest.length === 0)
       }
-      return [...names].map(([name, isFile]) => ({ name, isFile, isDirectory: !isFile }))
+      return [...names].map(([name, isFile]) => {
+        const full = `${path}/${name}`
+        return { name, isFile, isDirectory: !isFile, size: isFile ? tree[full]!.length : 0, mtime: mtimes.get(full) ?? 0 }
+      })
     },
     stat: async (path) => {
       if (!exists(path)) throw Object.assign(new Error(`no such file: ${path}`), { code: 'ENOENT' })
-      return {}
+      return { size: tree[path]?.length ?? 0, mtime: mtimes.get(path) ?? 0 }
     },
     readFile: async (path) => {
       const value = tree[path]
@@ -32,21 +35,35 @@ function fakeFiles(tree: Record<string, string>): EdgeSkillFiles {
 const skill = (name: string, body: string, extra = '') => `---\nname: ${name}\ndescription: ${name} fixture\n${extra}---\n${body}\n`
 
 function mount(tree: Record<string, string>) {
+  const mtimes = new Map<string, number>()
   let factory: ((control: SkillProviderControl) => SkillProvider) | undefined
-  const handlers: ((session: unknown, event: { type: string }) => void)[] = []
+  const handlers = new Map<string, (...args: never[]) => unknown>()
   const warn = vi.fn()
   const ctx = {
     effect: (fn: () => unknown) => fn(),
-    on: (_name: string, handler: (session: unknown, event: { type: string }) => void) => { handlers.push(handler); return () => {} },
+    on: (name: string, handler: (...args: never[]) => unknown) => { handlers.set(name, handler); return () => {} },
     logger: { warn },
     skills: { registerProvider: (f: typeof factory) => { factory = f; return () => {} } },
   }
-  const files = fakeFiles(tree)
-  EdgeWorkspaceSkills.apply(ctx as never, { withFiles: read => read(files) })
+  const files = fakeFiles(tree, mtimes)
+  let reads = 0
+  const counted: EdgeSkillFiles = { ...files, readFile: async (path, encoding) => { reads += 1; return files.readFile(path, encoding) } }
+  EdgeWorkspaceSkills.apply(ctx as never, { withFiles: read => read(counted) })
   const invalidate = vi.fn()
   const provider = factory!({ signal: new AbortController().signal, invalidate })
   const list = async (cwd: string) => (await provider.list({ cwd })) as SkillCandidate[]
-  return { provider, list, invalidate, warn, emit: (type: string) => { for (const h of handlers) h({}, { type }) } }
+  const write = (path: string, contents: string) => { tree[path] = contents; mtimes.set(path, (mtimes.get(path) ?? 0) + 1) }
+  const sessions = new Map<string, { header: { cwd: string } }>()
+  /** A turn starts, then its first step runs the pre-step waterfall the provider joins. */
+  const startTurn = async (cwd: string) => {
+    const session = sessions.get(cwd) ?? { header: { cwd } }
+    sessions.set(cwd, session)
+    const onEvent = handlers.get('session/event') as (session: unknown, event: { type: string }) => void
+    const preStep = handlers.get('agent/pre-step') as (input: unknown, next: () => Promise<unknown>) => Promise<unknown>
+    onEvent(session, { type: 'turn/start' })
+    await preStep({ agent: { session }, signal: new AbortController().signal }, async () => ({ kind: 'enter' }))
+  }
+  return { provider, list, invalidate, warn, write, startTurn, reads: () => reads }
 }
 
 describe('Edge workspace skills', () => {
@@ -96,11 +113,29 @@ describe('Edge workspace skills', () => {
     expect(warn).toHaveBeenCalledTimes(5)
   })
 
-  it('refreshes the catalog when a turn starts, not on every lookup', () => {
-    const { invalidate, emit } = mount({})
-    emit('step/start')
+  it('invalidates at a turn start only when the skill files changed, reading no contents when they did not', async () => {
+    const { list, invalidate, write, startTurn, reads } = mount({ '/workspace/.dsh/skills/one/SKILL.md': skill('one', 'first') })
+    await startTurn('/workspace')
+    expect(invalidate).not.toHaveBeenCalled() // nothing cached for this cwd yet
+    await list('/workspace')
+    const readsAfterScan = reads()
+    await startTurn('/workspace')
     expect(invalidate).not.toHaveBeenCalled()
-    emit('turn/start')
+    expect(reads()).toBe(readsAfterScan)
+    write('/workspace/.dsh/skills/one/SKILL.md', skill('one', 'edited body'))
+    await startTurn('/workspace')
     expect(invalidate).toHaveBeenCalledTimes(1)
+    expect(reads()).toBe(readsAfterScan)
+    await list('/workspace')
+    write('/workspace/.dsh/skills/two.md', skill('two', 'added'))
+    await startTurn('/workspace')
+    expect(invalidate).toHaveBeenCalledTimes(2)
+  })
+
+  it('stops a scan whose lookup was cancelled', async () => {
+    const { provider } = mount({ '/workspace/.dsh/skills/one/SKILL.md': skill('one', 'b') })
+    const abort = new AbortController()
+    abort.abort()
+    await expect(provider.list({ cwd: '/workspace', signal: abort.signal })).rejects.toThrow()
   })
 })
