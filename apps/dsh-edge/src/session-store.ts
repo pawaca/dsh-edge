@@ -59,6 +59,7 @@ import * as RepeatToolReminder from '@deepseek-ai/dsh-repeat-tool-reminder'
 import * as LlmRetry from '@deepseek-ai/dsh-llm-retry'
 import * as SessionCheckpointPolicy from '@deepseek-ai/dsh-session-checkpoint-policy'
 import ToolResultPruner from '@deepseek-ai/dsh-compaction-tool-result-pruner'
+import * as ImageOffload from '@deepseek-ai/dsh-compaction-image-offload'
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import * as SpillPolicy from '@deepseek-ai/dsh-spill-policy'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -388,6 +389,10 @@ export class EdgeSessionStore {
     await this.context.plugin(TokenMeter)
     await this.context.plugin(BasicCompactionEngine)
     await this.context.plugin(ToolResultPruner)
+    // As upstream: when a request's images exceed the route budget, mark the
+    // oldest occurrences offloaded (an image/offload event) and retry, instead
+    // of ending the turn with IMAGE_OFFLOAD_REQUIRED.
+    await this.context.plugin(ImageOffload)
     await this.context.plugin(SessionTitleService, {
       fallbackMaxWords: 8,
       fallbackMaxBytes: MAX_TITLE_BYTES,

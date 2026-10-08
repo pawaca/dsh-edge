@@ -81,11 +81,6 @@
       "reason": "/feedback and the sessionFeedback Remote behind the Web session feedback dialog; the Edge only has message feedback. The package stores an anonymous user id through node:fs under the Harness home, which Workers cannot persist, so the Edge needs its own id store first.",
       "priority": "P2"
     },
-    "@deepseek-ai/dsh-compaction-image-offload": {
-      "status": "gap",
-      "priority": "P2",
-      "reason": "Offloads images when an image-capable route rejects a request as over its image budget; the default model now accepts images."
-    },
     "@deepseek-ai/dsh-cordis-client-runner": {
       "status": "not-applicable",
       "reason": "Runtime plugin loading (Creator mode); Workers cannot import packages at runtime."
