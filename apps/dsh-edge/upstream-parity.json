@@ -74,7 +74,7 @@
     "@deepseek-ai/dsh-client-ui-settings-subagent": {
       "status": "gap",
       "priority": "P3",
-      "reason": "Settings card for the subagent tool's configuration. Built-in plugins → Settings now hosts upstream plugins.item cards (#278), so it needs only a settings namespace for the subagent tool, as #278 added for the agent loop."
+      "reason": "Settings card for the subagent tool's configuration. Built-in plugins → Settings now hosts upstream plugins.item cards (#278), but session-store.ts mounts ToolSubagent with fixed options (maxDepth 1, enableRunInBackground), which take precedence over a namespace value. It needs a settings namespace whose values replace those options, committed to the running tool as #278 does for the agent loop."
     },
     "@deepseek-ai/dsh-client-ui-sidebar-terminal": {
       "status": "tracked",
