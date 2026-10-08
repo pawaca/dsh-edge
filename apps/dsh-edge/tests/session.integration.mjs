@@ -2195,6 +2195,16 @@ try {
   assert.equal(afterSave['agent-loop'].maxParallelToolCalls, 2)
   assert.equal(afterSave['web-search-deepseek'].maxUses, 2)
   assert.equal(afterSave['web-search-deepseek'].baseURL, searchBase)
+  // The Subagent card's limits edit the subagent runtime's namespace (upstream defaults).
+  const subagentSettings = async () => (await rpc('settings.describe', {})).body.result.value.namespaces
+    .find(entry => entry.ns === 'subagent')?.value
+  assert.deepEqual(await subagentSettings(), { maxDepth: 1, maxActiveSubagents: 8 })
+  assert.equal((await rpc('settings.update', { ns: 'subagent', patch: { maxDepth: 2, maxActiveSubagents: 4 } })).body.result.ok, true)
+  assert.deepEqual(await subagentSettings(), { maxDepth: 2, maxActiveSubagents: 4 })
+  assert.equal((await rpc('settings.update', { ns: 'subagent', patch: { maxActiveSubagents: 0 } })).body.result.ok, false)
+  assert.equal((await rpc('settings.update', { ns: 'subagent', patch: { maxDepth: 1, maxActiveSubagents: 8 } })).body.result.ok, true)
+  // Model selection is not served yet, so the card shows only its limits.
+  assert.equal((await rpc('settings.describe', {})).body.result.value.namespaces.some(entry => entry.ns === 'subagent-model-selection'), false)
   // Upstream's /compact runs through the command runtime; a fresh session has nothing to compact.
   const commandSessionId = (await rpc('session.create', {})).body.result.value.sessionId
   const runCommand = async line => {

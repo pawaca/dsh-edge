@@ -473,6 +473,15 @@
     ]
   },
   {
+    "id": "@deepseek-ai/dsh-client-ui-settings-subagent",
+    "inject": [
+      "@deepseek-ai/dsh-client-locale",
+      "@deepseek-ai/dsh-client-ui-settings",
+      "dsh-edge-client-ui",
+      "@deepseek-ai/dsh-api-remotes"
+    ]
+  },
+  {
     "id": "@deepseek-ai/dsh-client-ui-settings-web-search",
     "inject": [
       "@deepseek-ai/dsh-client-locale",
