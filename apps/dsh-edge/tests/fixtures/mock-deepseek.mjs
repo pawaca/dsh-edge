@@ -169,6 +169,10 @@ export async function startMockDeepSeek(port = 0) {
         if (!hasToolResult) return callTool(id, name, args(prompt.slice(prefix.length).trim()))
         return answer(`${name}-done`)
       }
+      if (/background child runs bash/u.test(prompt)) {
+        if (!hasToolResult) return callTool('call_bg_bash', 'bash', { command: 'printf bash > bg-child-bash.txt', description: 'Write a file from the shell' })
+        return answer('bash-done')
+      }
       const childNote = /background child writes (one|two|three|four)/u
       const wakeNote = /^Background subagent \S+ finished/u
       const latestChildOrWake = messages.findLast(m => m.role === 'user' && (childNote.test(messageText(m)) || wakeNote.test(messageText(m))))
@@ -182,7 +186,8 @@ export async function startMockDeepSeek(port = 0) {
         const [tag, file] = wakeNote.test(text) && !childNote.test(text)
           ? [`wake-${String(wakes)}`, `/workspace/bg-parent-wake-${String(wakes)}.txt`]
           : [[...text.matchAll(new RegExp(childNote, 'gu'))].at(-1)[1], undefined]
-        if (!toolsAfter) return callTool(`call_bg_write_${tag}`, 'write', { file_path: file ?? `/workspace/bg-child-${tag}.txt`, content: tag })
+        // The panel's message writes relative to the child's working directory.
+        if (!toolsAfter) return callTool(`call_bg_write_${tag}`, 'write', { file_path: file ?? (tag === 'four' ? 'bg-child-four.txt' : `/workspace/bg-child-${tag}.txt`), content: tag })
         return answer(`written-${tag}`)
       }
 

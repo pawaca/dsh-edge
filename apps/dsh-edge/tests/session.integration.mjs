@@ -2425,7 +2425,9 @@ try {
     }
   }
   const resultOf = (events, callId) => events.find(event => event.type === 'tool/result' && event.data.message.toolCallId === callId)
-  const bgParent = (await rpc('session.create', {})).body.result.value.sessionId
+  // The parent works in a project directory, which its children inherit.
+  assert.equal((await request('/api/workspace/file?path=/workspace/bgproj/README.md', { method: 'PUT', body: 'bg\n' })).status, 200)
+  const bgParent = (await rpc('session.create', { cwd: '/workspace/bgproj' })).body.result.value.sessionId
   const started = resultOf(await turn(bgParent, 'start a background subagent'), 'call_bg_start')
   assert.equal(started?.data.message.isError, false, toolResultText(started))
   const childId = /^started subagent (\S+)$/u.exec(toolResultText(started))?.[1]
@@ -2462,22 +2464,31 @@ try {
     mode: 'continuable', delivery: 'queue', content: [{ type: 'text', text: 'background child writes four' }],
   } })
   assert.equal(prompted.body.result?.ok, true, JSON.stringify(prompted.body))
-  assert.equal(await until('the panel-prompted child write', () => workspaceFile('/workspace/bg-child-four.txt')), 'four')
+  assert.equal(await until('the panel-prompted child write', () => workspaceFile('/workspace/bgproj/bg-child-four.txt')), 'four')
+  const promptedBash = await typertRpc('subagents', 'prompt', { request: {
+    requestId: crypto.randomUUID(), parentSessionId: bgParent, childSessionId: childId,
+    mode: 'continuable', delivery: 'queue', content: [{ type: 'text', text: 'background child runs bash' }],
+  } })
+  assert.equal(promptedBash.body.result?.ok, true, JSON.stringify(promptedBash.body))
+  assert.equal(await until('the panel-prompted child shell write', () => workspaceFile('/workspace/bgproj/bg-child-bash.txt')), 'bash')
   // interrupt_agent stops a running child's turn and keeps the child.
   const slowed = resultOf(await turn(bgParent, `slow-message subagent ${childId}`), 'call_bg_slow')
   assert.equal(slowed?.data.message.isError, false, toolResultText(slowed))
-  await until('the child slow turn', async () => (await sessionEvents(childId)).filter(event => event.type === 'turn/start').length >= 4)
+  await until('the child slow turn', async () => (await sessionEvents(childId)).filter(event => event.type === 'turn/start').length >= 5)
   // As upstream, Stop on the parent leaves a running child working.
   await request(`/api/sessions/${bgParent}/cancel`, { method: 'POST' })
   await new Promise(resolve => { setTimeout(resolve, 500) })
-  assert.equal((await sessionEvents(childId)).filter(event => event.type === 'turn/end').length, 3)
+  assert.equal((await sessionEvents(childId)).filter(event => event.type === 'turn/end').length, 4)
   const interrupted = resultOf(await turn(bgParent, `interrupt subagent ${childId}`), 'call_bg_interrupt')
   assert.equal(interrupted?.data.message.isError, false, toolResultText(interrupted))
-  const interruptedEnd = await until('the interrupted child turn end', async () => (await sessionEvents(childId)).filter(event => event.type === 'turn/end')[3])
+  const interruptedEnd = await until('the interrupted child turn end', async () => (await sessionEvents(childId)).filter(event => event.type === 'turn/end')[4])
   assert.notEqual(interruptedEnd.data.reason.kind, 'completed', JSON.stringify(interruptedEnd.data.reason))
   mock.releaseSlowResponses()
-  for (const path of ['bg-child-one', 'bg-child-two', 'bg-child-three', 'bg-child-four', 'bg-parent-wake-1', 'bg-parent-wake-2', 'bg-parent-wake-3', 'bg-parent-wake-4']) {
+  for (const path of ['bg-child-one', 'bg-child-two', 'bg-child-three', 'bg-parent-wake-1', 'bg-parent-wake-2', 'bg-parent-wake-3', 'bg-parent-wake-4', 'bg-parent-wake-5']) {
     await request(`/api/workspace/file?path=/workspace/${path}.txt`, { method: 'DELETE' })
+  }
+  for (const path of ['bg-child-four.txt', 'bg-child-bash.txt', 'README.md']) {
+    await request(`/api/workspace/file?path=/workspace/bgproj/${path}`, { method: 'DELETE' })
   }
   process.stdout.write(`dsh-edge ${runtimeMode} session integration passed\n`)
 } finally {

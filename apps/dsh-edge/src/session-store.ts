@@ -920,6 +920,13 @@ export class EdgeSessionStore {
     await this.refreshWorkspaceSkills?.(cwd, signal)
   }
 
+  /** Bind a shell to a live agent that has none, as a turn does before it runs. */
+  bindShellIfUnbound(sessionId: SessionId, shell: EdgeShell): void {
+    const agent = this.context.agents.get(sessionId)
+    if (agent === undefined || this.shells.get(agent.id) !== undefined) return
+    this.shells.bind(agent.id, shell, agent.session.header.cwd ?? '/workspace')
+  }
+
   liveAgent(sessionId: SessionId): Agent | undefined {
     const { agents } = this.context
     return agents.get(sessionId)
