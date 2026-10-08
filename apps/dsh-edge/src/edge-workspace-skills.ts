@@ -7,9 +7,10 @@
  * through the Computer workspace, which answers inside and outside a turn. In
  * place of file watches, each discovery records a fingerprint of the roots
  * (entry names, sizes, and modification times, plus each bundle's SKILL.md);
- * before a turn's first step in a cwd with a cached catalog, the provider
- * rereads only that metadata and invalidates the catalog if it changed. A skill added,
- * edited, or removed applies from the next turn, an unchanged turn reads no
+ * before a turn's first step in a cwd with a cached catalog, and before the `/`
+ * menu lists a session's skills, the provider rereads only that metadata and
+ * invalidates the catalog if it changed. A skill added, edited, or removed
+ * applies from the next turn or menu listing, an unchanged turn reads no
  * skill contents, and lookups between turns reuse one scan. Each root is read
  * up to MAX_ENTRIES_PER_ROOT entries, so a turn's check costs at most four
  * listings and that many stats per root whatever the roots hold, and a skill
@@ -46,7 +47,12 @@ export interface EdgeSkillFiles {
 export interface EdgeWorkspaceSkillsConfig {
   /** Run one read against the Durable Object's Computer workspace. */
   withFiles<T>(read: (files: EdgeSkillFiles) => Promise<T>): Promise<T>
+  /** Receives the freshness check while the provider is registered, and undefined once it is not. */
+  onRefresh?(refresh: EdgeSkillRefresh | undefined): void
 }
+
+/** Recheck a cwd's skill roots and invalidate its cached catalog if they changed. */
+export type EdgeSkillRefresh = (cwd: string, signal?: AbortSignal) => Promise<void>
 
 interface SkillRoot { path: string, rank: number, source: string, skipSystem: boolean }
 interface SkillLocator { path: string, directory: string }
@@ -104,7 +110,10 @@ export function apply(ctx: Context, config: EdgeWorkspaceSkillsConfig): void {
       }
       return next()
     })
-    const stop = () => { stopTurns(); stopSteps() }
+    // The `/` menu lists a session's skills outside any turn, and the client
+    // keeps that list for the session, so it gets the same check first.
+    config.onRefresh?.((cwd, signal) => check(normalize(cwd), signal))
+    const stop = () => { stopTurns(); stopSteps(); config.onRefresh?.(undefined) }
     control.signal.addEventListener('abort', stop, { once: true })
     return {
       name: PROVIDER_NAME,
