@@ -39,6 +39,25 @@ export async function mountAgentLoop(ctx: Context): Promise<Fiber> {
   return fiber
 }
 
+/** Upstream's Loader entry id for the subagent runtime, and the namespace the Subagent card's limits edit. */
+export const SUBAGENT_SETTINGS_NAMESPACE = 'subagent'
+
+/**
+ * Mount the subagent runtime on the `subagent` namespace: delegation depth
+ * (maxDepth, default 1) and resident continuable children (maxActiveSubagents,
+ * default 8), both committed live as upstream's Loader entry does.
+ */
+export async function mountSubagentRuntime(
+  ctx: Context,
+  SubagentRuntime: { Config: (value: unknown) => unknown } & Parameters<Context['plugin']>[0],
+): Promise<Fiber> {
+  const scope = edgeSettings(ctx).register(SUBAGENT_SETTINGS_NAMESPACE, SubagentRuntime.Config as never, { discardInvalidSection: true })
+  const fiber = ctx.plugin(SubagentRuntime, { ...scope.get() as object } as never)
+  await fiber.await()
+  scope.watch(next => { commitVolatile(fiber, SubagentRuntime.Config(next)) })
+  return fiber
+}
+
 /**
  * Mount DeepSeek web search on the `web-search-deepseek` namespace its settings
  * card edits. The deployment's endpoint is the base, and an endpoint saved on

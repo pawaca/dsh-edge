@@ -22,6 +22,21 @@
       - text: "10"
     - paragraph: Upper bound on parallel-safe calls running at once within one step.
     - button "Save" [disabled]
+    - heading "Subagent" [level=3]
+    - paragraph: Set Subagent recursion depth, count, and models.
+    - region "Limits":
+      - heading "Limits" [level=3]
+      - text: Maximum recursion depth
+      - button "About maximum recursion depth"
+      - textbox "Maximum recursion depth":
+        - /placeholder: ""
+        - text: "1"
+      - text: Subagent parallelism limit
+      - button "About the Subagent parallelism limit"
+      - textbox "Subagent parallelism limit":
+        - /placeholder: ""
+        - text: "8"
+    - button "Save" [disabled]
     - heading "Web search" [level=3]
     - paragraph: Set up the DeepSeek search provider.
     - text: API key A key is configured.
