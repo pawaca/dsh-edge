@@ -7,7 +7,7 @@ import type { EdgeSkillFiles } from '../src/edge-workspace-skills.ts'
 function fakeFiles(tree: Record<string, string>, mtimes: Map<string, number> = new Map()): EdgeSkillFiles {
   const exists = (path: string) => Object.keys(tree).some(key => key === path || key.startsWith(`${path}/`))
   return {
-    readdir: async (path) => {
+    readdir: async (path, options) => {
       if (!exists(path) || path in tree) throw Object.assign(new Error(`no such file: ${path}`), { code: 'ENOENT' })
       const names = new Map<string, boolean>()
       for (const key of Object.keys(tree)) {
@@ -15,7 +15,7 @@ function fakeFiles(tree: Record<string, string>, mtimes: Map<string, number> = n
         const [first, ...rest] = key.slice(path.length + 1).split('/')
         names.set(first!, rest.length === 0)
       }
-      return [...names].map(([name, isFile]) => {
+      return [...names].sort(([a], [b]) => a.localeCompare(b)).slice(0, options?.limit).map(([name, isFile]) => {
         const full = `${path}/${name}`
         return { name, isFile, isDirectory: !isFile, size: isFile ? tree[full]!.length : 0, mtime: mtimes.get(full) ?? 0 }
       })
@@ -130,6 +130,19 @@ describe('Edge workspace skills', () => {
     write('/workspace/.dsh/skills/two.md', skill('two', 'added'))
     await startTurn('/workspace')
     expect(invalidate).toHaveBeenCalledTimes(2)
+  })
+
+  it('reads at most MAX_ENTRIES_PER_ROOT entries from a root, warning once per discovery', async () => {
+    const tree: Record<string, string> = {}
+    for (let i = 0; i < EdgeWorkspaceSkills.MAX_ENTRIES_PER_ROOT + 5; i += 1) {
+      const name = `skill-${String(i).padStart(3, '0')}`
+      tree[`/workspace/.dsh/skills/${name}.md`] = skill(name, 'b')
+    }
+    const { list, warn, startTurn } = mount(tree)
+    expect(await list('/workspace')).toHaveLength(EdgeWorkspaceSkills.MAX_ENTRIES_PER_ROOT)
+    expect(warn).toHaveBeenCalledTimes(1)
+    await startTurn('/workspace')
+    expect(warn).toHaveBeenCalledTimes(1)
   })
 
   it('stops a scan whose lookup was cancelled', async () => {

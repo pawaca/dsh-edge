@@ -10,7 +10,9 @@
  * before a turn's first step in a cwd with a cached catalog, the provider
  * rereads only that metadata and invalidates the catalog if it changed. A skill added,
  * edited, or removed applies from the next turn, an unchanged turn reads no
- * skill contents, and lookups between turns reuse one scan.
+ * skill contents, and lookups between turns reuse one scan. Each root is read
+ * up to MAX_ENTRIES_PER_ROOT entries, so a turn's check costs at most four
+ * listings and that many stats per root whatever the roots hold.
  *
  * Roots and ranks follow upstream (lower wins a duplicate name):
  *   100 <projectRoot>/.dsh/skills    200 <projectRoot>/.agents/skills
@@ -35,7 +37,7 @@ import { parse } from 'yaml'
 
 /** The subset of the Computer workspace filesystem skill discovery reads. */
 export interface EdgeSkillFiles {
-  readdir(path: string): Promise<readonly { name: string, isFile: boolean, isDirectory: boolean, size: number, mtime: number }[]>
+  readdir(path: string, options?: { limit?: number }): Promise<readonly { name: string, isFile: boolean, isDirectory: boolean, size: number, mtime: number }[]>
   stat(path: string): Promise<{ size: number, mtime: number }>
   readFile(path: string, encoding: 'utf8'): Promise<string>
 }
@@ -51,6 +53,8 @@ interface SkillLocator { path: string, directory: string }
 /** Upstream's provider name, so skill rows and invocations read the same as upstream. */
 const PROVIDER_NAME = 'filesystem'
 const DEFAULT_CWD = '/workspace'
+/** Entries read from one skill root; a root holding more is cut off with a warning. */
+export const MAX_ENTRIES_PER_ROOT = 100
 
 export const name = 'edge-workspace-skills'
 export const inject = ['skills']
@@ -115,9 +119,9 @@ async function skillRoots(files: EdgeSkillFiles, cwd: string, signal: AbortSigna
 }
 
 /** Each root's skill entries, sorted, with the instruction file to read for each. */
-async function rootEntries(files: EdgeSkillFiles, root: SkillRoot, signal: AbortSignal | undefined): Promise<{ locator: SkillLocator, size: number, mtime: number }[]> {
+async function rootEntries(files: EdgeSkillFiles, root: SkillRoot, signal: AbortSignal | undefined, warn: (message: string) => void = () => {}): Promise<{ locator: SkillLocator, size: number, mtime: number }[]> {
   const entries = []
-  for (const entry of [...await listRoot(files, root.path, signal)].sort((a, b) => a.name.localeCompare(b.name))) {
+  for (const entry of [...await listRoot(files, root.path, signal, warn)].sort((a, b) => a.name.localeCompare(b.name))) {
     if (root.skipSystem && entry.name === '.system') continue
     if (entry.isDirectory) {
       const locator = { path: join(root.path, entry.name, 'SKILL.md'), directory: join(root.path, entry.name) }
@@ -149,7 +153,7 @@ async function discover(ctx: Context, files: EdgeSkillFiles, cwd: string, signal
   const candidates: SkillCandidate[] = []
   const parts: string[] = []
   for (const root of await skillRoots(files, cwd, signal)) {
-    for (const { locator, size, mtime } of await rootEntries(files, root, signal)) {
+    for (const { locator, size, mtime } of await rootEntries(files, root, signal, message => { ctx.logger.warn(message) })) {
       parts.push(`${locator.path}:${String(size)}:${String(mtime)}`)
       const parsed = await parseSkillFile(ctx, files, locator.path, signal)
       if (parsed === undefined) continue
@@ -189,10 +193,13 @@ async function load(ctx: Context, files: EdgeSkillFiles, candidate: SkillCandida
   }
 }
 
-async function listRoot(files: EdgeSkillFiles, path: string, signal: AbortSignal | undefined) {
+async function listRoot(files: EdgeSkillFiles, path: string, signal: AbortSignal | undefined, warn: (message: string) => void) {
   signal?.throwIfAborted()
   try {
-    return await files.readdir(path)
+    const entries = await files.readdir(path, { limit: MAX_ENTRIES_PER_ROOT + 1 })
+    if (entries.length <= MAX_ENTRIES_PER_ROOT) return entries
+    warn(`skill root ${path} holds more than ${String(MAX_ENTRIES_PER_ROOT)} entries; only the first ${String(MAX_ENTRIES_PER_ROOT)} are read`)
+    return entries.slice(0, MAX_ENTRIES_PER_ROOT)
   } catch (error) {
     if (isAbsent(error)) return []
     throw error
