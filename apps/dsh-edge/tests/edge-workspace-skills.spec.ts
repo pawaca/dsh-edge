@@ -27,7 +27,14 @@ function fakeFiles(tree: Record<string, string>, mtimes: Map<string, number> = n
     readFile: async (path) => {
       const value = tree[path]
       if (value === undefined) throw Object.assign(new Error(`no such file: ${path}`), { code: 'ENOENT' })
-      return value
+      const bytes = new TextEncoder().encode(value)
+      // Small chunks, so a size limit is enforced while the stream is consumed.
+      return new ReadableStream<Uint8Array>({
+        start(controller) {
+          for (let i = 0; i < bytes.length; i += 4096) controller.enqueue(bytes.slice(i, i + 4096))
+          controller.close()
+        },
+      })
     },
   }
 }
@@ -47,7 +54,12 @@ function mount(tree: Record<string, string>) {
   }
   const files = fakeFiles(tree, mtimes)
   let reads = 0
-  const counted: EdgeSkillFiles = { ...files, readFile: async (path, encoding) => { reads += 1; return files.readFile(path, encoding) } }
+  let stats = 0
+  const counted: EdgeSkillFiles = {
+    ...files,
+    readFile: async (path) => { reads += 1; return files.readFile(path) },
+    stat: async (path) => { stats += 1; return files.stat(path) },
+  }
   EdgeWorkspaceSkills.apply(ctx as never, { withFiles: read => read(counted) })
   const invalidate = vi.fn()
   const provider = factory!({ signal: new AbortController().signal, invalidate })
@@ -63,7 +75,7 @@ function mount(tree: Record<string, string>) {
     onEvent(session, { type: 'turn/start' })
     await preStep({ agent: { session }, signal: new AbortController().signal }, async () => ({ kind: 'enter' }))
   }
-  return { provider, list, invalidate, warn, write, startTurn, reads: () => reads }
+  return { provider, list, invalidate, warn, write, startTurn, reads: () => reads, stats: () => stats, files: counted }
 }
 
 describe('Edge workspace skills', () => {
@@ -165,6 +177,30 @@ describe('Edge workspace skills', () => {
     expect(invalidate).not.toHaveBeenCalled() // /workspace was evicted, so there is no cached catalog to refresh
     await startTurn('/workspace/p0')
     expect(invalidate).not.toHaveBeenCalled() // p0 has no skills under its own roots and the user roots did not change
+  })
+
+  it('enforces the byte limit while reading, even if a file grew after it was listed', async () => {
+    const { provider, warn } = mount({ '/workspace/.dsh/skills/grow/SKILL.md': skill('grow', 'small') })
+    const [candidate] = await provider.list({ cwd: '/workspace' }) as SkillCandidate[]
+    expect(candidate?.name).toBe('grow')
+    // The file grows after discovery: loading it reads past the limit and stops.
+    const tree = { '/workspace/.dsh/skills/grow/SKILL.md': skill('grow', 'y'.repeat(EdgeWorkspaceSkills.MAX_SKILL_FILE_BYTES)) }
+    const grown = fakeFiles(tree)
+    let factory: ((control: SkillProviderControl) => SkillProvider) | undefined
+    EdgeWorkspaceSkills.apply({
+      effect: (fn: () => unknown) => fn(), on: () => () => {}, logger: { warn },
+      skills: { registerProvider: (f: typeof factory) => { factory = f; return () => {} } },
+    } as never, { withFiles: read => read(grown) })
+    const loader = factory!({ signal: new AbortController().signal, invalidate: () => {} })
+    expect(await loader.get(candidate!, {})).toBeUndefined()
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('exceeds the 65536-byte limit'))
+  })
+
+  it('checks at most MAX_PROJECT_ROOT_DEPTH ancestors for .git', async () => {
+    const { list, stats } = mount({})
+    const deep = `/workspace/${Array.from({ length: 200 }, (_, i) => `d${String(i)}`).join('/')}`
+    await list(deep)
+    expect(stats()).toBeLessThanOrEqual(EdgeWorkspaceSkills.MAX_PROJECT_ROOT_DEPTH + 1)
   })
 
   it('stops a scan whose lookup was cancelled', async () => {

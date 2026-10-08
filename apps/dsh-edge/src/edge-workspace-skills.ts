@@ -40,7 +40,7 @@ import { parse } from 'yaml'
 export interface EdgeSkillFiles {
   readdir(path: string, options?: { limit?: number }): Promise<readonly { name: string, isFile: boolean, isDirectory: boolean, size: number, mtime: number }[]>
   stat(path: string): Promise<{ size: number, mtime: number }>
-  readFile(path: string, encoding: 'utf8'): Promise<string>
+  readFile(path: string): Promise<ReadableStream<Uint8Array>>
 }
 
 export interface EdgeWorkspaceSkillsConfig {
@@ -60,6 +60,8 @@ export const MAX_ENTRIES_PER_ROOT = 100
 export const MAX_SKILL_FILE_BYTES = 65_536
 /** Cwds whose fingerprint is kept, as the skill registry's default catalog cache size; the least recently used is evicted. */
 export const MAX_FINGERPRINTS = 128
+/** Ancestors checked for `.git` above the cwd; a deeper cwd is its own project root, as when none is found. */
+export const MAX_PROJECT_ROOT_DEPTH = 32
 
 export const name = 'edge-workspace-skills'
 export const inject = ['skills']
@@ -203,13 +205,6 @@ async function discover(ctx: Context, files: EdgeSkillFiles, cwd: string, signal
 
 async function load(ctx: Context, files: EdgeSkillFiles, candidate: SkillCandidate, signal: AbortSignal | undefined): Promise<SkillDefinition | undefined> {
   const locator = candidate.locator as SkillLocator
-  signal?.throwIfAborted()
-  try {
-    if ((await files.stat(locator.path)).size > MAX_SKILL_FILE_BYTES) return undefined
-  } catch (error) {
-    if (isAbsent(error)) return undefined
-    throw error
-  }
   const parsed = await parseSkillFile(ctx, files, locator.path, signal)
   if (parsed === undefined) return undefined
   return {
@@ -241,7 +236,7 @@ async function listRoot(files: EdgeSkillFiles, path: string, signal: AbortSignal
 
 async function findProjectRoot(files: EdgeSkillFiles, cwd: string, signal: AbortSignal | undefined): Promise<string> {
   let current = normalize(cwd)
-  for (;;) {
+  for (let depth = 0; depth <= MAX_PROJECT_ROOT_DEPTH; depth += 1) {
     signal?.throwIfAborted()
     try {
       await files.stat(join(current, '.git'))
@@ -249,9 +244,10 @@ async function findProjectRoot(files: EdgeSkillFiles, cwd: string, signal: Abort
     } catch {
       // keep walking up
     }
-    if (current === '/') return normalize(cwd)
+    if (current === '/') break
     current = current.slice(0, current.lastIndexOf('/')) || '/'
   }
+  return normalize(cwd)
 }
 
 interface ParsedSkill {
@@ -266,12 +262,16 @@ interface ParsedSkill {
 /** Upstream's rules: YAML frontmatter with name and description; a malformed file is skipped with a warning. */
 async function parseSkillFile(ctx: Context, files: EdgeSkillFiles, path: string, signal: AbortSignal | undefined): Promise<ParsedSkill | undefined> {
   signal?.throwIfAborted()
-  let raw: string
+  let raw: string | undefined
   try {
-    raw = await files.readFile(path, 'utf8')
+    raw = await readBounded(files, path, signal)
   } catch (error) {
     if (isAbsent(error)) return undefined
     throw error
+  }
+  if (raw === undefined) {
+    ctx.logger.warn(`skill file ${path} ignored: it exceeds the ${String(MAX_SKILL_FILE_BYTES)}-byte limit`)
+    return undefined
   }
   let parsed: { data: Record<string, unknown>, body: string } | undefined
   try {
@@ -311,6 +311,36 @@ async function parseSkillFile(ctx: Context, files: EdgeSkillFiles, path: string,
     ...isRecord(metadata) ? { metadata } : {},
     content: parsed.body.trim(),
   }
+}
+
+/**
+ * Read a skill file as UTF-8, stopping once it passes MAX_SKILL_FILE_BYTES:
+ * the limit holds even if the file grew after its size was listed.
+ * @returns the text, or undefined when the file is over the limit.
+ */
+async function readBounded(files: EdgeSkillFiles, path: string, signal: AbortSignal | undefined): Promise<string | undefined> {
+  const reader = (await files.readFile(path)).getReader()
+  const chunks: Uint8Array[] = []
+  let length = 0
+  try {
+    for (;;) {
+      signal?.throwIfAborted()
+      const next = await reader.read()
+      if (next.done) break
+      length += next.value.byteLength
+      if (length > MAX_SKILL_FILE_BYTES) return undefined
+      chunks.push(next.value)
+    }
+  } finally {
+    await reader.cancel().catch(() => undefined)
+  }
+  const bytes = new Uint8Array(length)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return new TextDecoder().decode(bytes)
 }
 
 export function parseFrontmatter(raw: string): { data: Record<string, unknown>, body: string } | undefined {

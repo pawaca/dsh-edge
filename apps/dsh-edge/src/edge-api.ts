@@ -634,7 +634,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
     },
 
     skills: {
-      async list(request: RpcRequest<{ sessionId?: string }>) {
+      async list(request: RpcRequest<{ sessionId?: string }>, signal?: AbortSignal) {
         const registry = await runtime.sessions.skillRegistry()
         if (registry === undefined) return ok(request, { skills: [] })
         // Workspace skills depend on the session's cwd (its project root), so
@@ -648,7 +648,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
             return sessionFailure(request, error, sessionId)
           }
         }
-        const skills = (await registry.list({ cwd })).filter(isUserInvocable)
+        const skills = (await registry.list({ cwd, ...signal === undefined ? {} : { signal } })).filter(isUserInvocable)
         return ok(request, {
           skills: skills.map(skill => ({
             name: skill.name,
