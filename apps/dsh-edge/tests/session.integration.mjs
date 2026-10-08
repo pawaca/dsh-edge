@@ -2400,7 +2400,13 @@ try {
   const rootListed = await listedFor(skillSessionId)
   assert.ok(rootListed.includes('root-skill') && !rootListed.includes('proj-skill'), JSON.stringify(rootListed))
   assert.equal((await rpc('skills.list', { sessionId: 'session-missing' })).body.result.ok, false)
-  for (const path of [projectSkill, rootSkill]) await request(`/api/workspace/file?path=${path}`, { method: 'DELETE' })
+  // A skill written after that listing appears in the next one without a turn
+  // in between: the `/` listing rechecks the roots before the cached catalog.
+  const lateSkill = '/workspace/.dsh/skills/late-skill/SKILL.md'
+  assert.equal((await request(`/api/workspace/file?path=${lateSkill}`, { method: 'PUT', body: '---\nname: late-skill\ndescription: late-skill fixture\n---\nbody\n' })).status, 200)
+  const lateListed = await listedFor(skillSessionId)
+  assert.ok(lateListed.includes('late-skill') && lateListed.includes('root-skill'), JSON.stringify(lateListed))
+  for (const path of [projectSkill, rootSkill, lateSkill]) await request(`/api/workspace/file?path=${path}`, { method: 'DELETE' })
   process.stdout.write(`dsh-edge ${runtimeMode} session integration passed\n`)
 } finally {
   mock.releaseSlowResponses()

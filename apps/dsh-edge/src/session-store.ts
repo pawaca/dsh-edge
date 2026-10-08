@@ -328,6 +328,7 @@ export class EdgeSessionStore {
   private approvalScope?: EdgeSettingsScope<EdgeApprovalSettings>
   private runtimeScope?: EdgeSettingsScope<EdgeRuntimeSettings>
   private mcpToolManager?: McpToolManager
+  private refreshWorkspaceSkills: EdgeWorkspaceSkills.EdgeSkillRefresh | undefined
   private readonly doStorage: DurableObjectStorage
   private readonly ready: Promise<void>
 
@@ -449,6 +450,7 @@ export class EdgeSessionStore {
     // /.agents/skills, read through the Computer workspace.
     await this.context.plugin(EdgeWorkspaceSkills, {
       withFiles: read => config.withWorkspaceFiles(read as never) as never,
+      onRefresh: refresh => { this.refreshWorkspaceSkills = refresh },
     })
     await this.context.plugin(TypertRegistry)
     // The gateway installs its Remote RPC interceptor on ctx.connection; the
@@ -886,6 +888,12 @@ export class EdgeSessionStore {
   async skillRegistry(): Promise<SkillRegistry | undefined> {
     await this.ready
     try { return this.context.skills } catch { return undefined }
+  }
+
+  /** Recheck a cwd's workspace skill files so a listing outside a turn sees current skills. */
+  async refreshSkills(cwd: string, signal?: AbortSignal): Promise<void> {
+    await this.ready
+    await this.refreshWorkspaceSkills?.(cwd, signal)
   }
 
   liveAgent(sessionId: SessionId): Agent | undefined {

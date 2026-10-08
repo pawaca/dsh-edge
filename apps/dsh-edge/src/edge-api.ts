@@ -648,6 +648,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
             return sessionFailure(request, error, sessionId)
           }
         }
+        await runtime.sessions.refreshSkills(cwd, signal)
         const skills = (await registry.list({ cwd, ...signal === undefined ? {} : { signal } })).filter(isUserInvocable)
         return ok(request, {
           skills: skills.map(skill => ({
