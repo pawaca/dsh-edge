@@ -145,6 +145,17 @@ describe('Edge workspace skills', () => {
     expect(warn).toHaveBeenCalledTimes(1)
   })
 
+  it('skips a skill file over MAX_SKILL_FILE_BYTES without reading it', async () => {
+    const big = skill('big', 'x'.repeat(EdgeWorkspaceSkills.MAX_SKILL_FILE_BYTES))
+    const { list, warn, reads } = mount({
+      '/workspace/.dsh/skills/big/SKILL.md': big,
+      '/workspace/.dsh/skills/small.md': skill('small', 'fits'),
+    })
+    expect((await list('/workspace')).map(c => c.name)).toEqual(['small'])
+    expect(reads()).toBe(1)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('exceeds the 65536-byte limit'))
+  })
+
   it('stops a scan whose lookup was cancelled', async () => {
     const { provider } = mount({ '/workspace/.dsh/skills/one/SKILL.md': skill('one', 'b') })
     const abort = new AbortController()

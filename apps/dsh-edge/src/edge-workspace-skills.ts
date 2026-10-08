@@ -12,7 +12,8 @@
  * edited, or removed applies from the next turn, an unchanged turn reads no
  * skill contents, and lookups between turns reuse one scan. Each root is read
  * up to MAX_ENTRIES_PER_ROOT entries, so a turn's check costs at most four
- * listings and that many stats per root whatever the roots hold.
+ * listings and that many stats per root whatever the roots hold, and a skill
+ * file over MAX_SKILL_FILE_BYTES is skipped without being read.
  *
  * Roots and ranks follow upstream (lower wins a duplicate name):
  *   100 <projectRoot>/.dsh/skills    200 <projectRoot>/.agents/skills
@@ -55,6 +56,8 @@ const PROVIDER_NAME = 'filesystem'
 const DEFAULT_CWD = '/workspace'
 /** Entries read from one skill root; a root holding more is cut off with a warning. */
 export const MAX_ENTRIES_PER_ROOT = 100
+/** Largest skill file read, as the /api/skills content limit; a larger one is skipped unread with a warning. */
+export const MAX_SKILL_FILE_BYTES = 65_536
 
 export const name = 'edge-workspace-skills'
 export const inject = ['skills']
@@ -155,6 +158,10 @@ async function discover(ctx: Context, files: EdgeSkillFiles, cwd: string, signal
   for (const root of await skillRoots(files, cwd, signal)) {
     for (const { locator, size, mtime } of await rootEntries(files, root, signal, message => { ctx.logger.warn(message) })) {
       parts.push(`${locator.path}:${String(size)}:${String(mtime)}`)
+      if (size > MAX_SKILL_FILE_BYTES) {
+        ctx.logger.warn(`skill file ${locator.path} ignored: ${String(size)} bytes exceeds the ${String(MAX_SKILL_FILE_BYTES)}-byte limit`)
+        continue
+      }
       const parsed = await parseSkillFile(ctx, files, locator.path, signal)
       if (parsed === undefined) continue
       candidates.push({
@@ -177,6 +184,13 @@ async function discover(ctx: Context, files: EdgeSkillFiles, cwd: string, signal
 
 async function load(ctx: Context, files: EdgeSkillFiles, candidate: SkillCandidate, signal: AbortSignal | undefined): Promise<SkillDefinition | undefined> {
   const locator = candidate.locator as SkillLocator
+  signal?.throwIfAborted()
+  try {
+    if ((await files.stat(locator.path)).size > MAX_SKILL_FILE_BYTES) return undefined
+  } catch (error) {
+    if (isAbsent(error)) return undefined
+    throw error
+  }
   const parsed = await parseSkillFile(ctx, files, locator.path, signal)
   if (parsed === undefined) return undefined
   return {
