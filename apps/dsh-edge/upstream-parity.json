@@ -69,12 +69,12 @@
     "@deepseek-ai/dsh-client-ui-settings-shell": {
       "status": "gap",
       "priority": "P3",
-      "reason": "Settings pages that mount inside the plugin manager and edit upstream plugin configuration the Edge composes in code; they need an Edge mount point first."
+      "reason": "Settings card for the upstream bash tool's configuration. The card mount exists since #278, but the Edge's bash tool is its own (createEdgeBashTool, with deployment timeouts and container routing), so the card's fields must be mapped onto it first."
     },
     "@deepseek-ai/dsh-client-ui-settings-subagent": {
       "status": "gap",
       "priority": "P3",
-      "reason": "Settings pages that mount inside the plugin manager and edit upstream plugin configuration the Edge composes in code; they need an Edge mount point first."
+      "reason": "Settings card for the subagent tool's configuration. Built-in plugins → Settings now hosts upstream plugins.item cards (#278), so it needs only a settings namespace for the subagent tool, as #278 added for the agent loop."
     },
     "@deepseek-ai/dsh-client-ui-sidebar-terminal": {
       "status": "tracked",
