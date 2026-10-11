@@ -3,6 +3,7 @@ import { LIGHT_SHELL_MISSES, LIGHT_SHELL_MISS_SETUP } from './fixtures/light-she
 import { LIGHT_SHELL_SAMPLES, LIGHT_SHELL_SETUP } from './fixtures/light-shell-samples.mjs'
 import { lightShellCouldNotRun } from '../src/light-shell-fallback.ts'
 import { createHmac } from 'node:crypto'
+import { createRequire } from 'node:module'
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -10,6 +11,8 @@ import { DatabaseSync } from 'node:sqlite'
 import { unstable_dev } from 'wrangler'
 import WebSocket from 'ws'
 import { expandAssistantStream } from '@deepseek-ai/dsh-llm'
+// The archive reader is the exporter's own zip library (a dependency of the package).
+const { unzipSync } = createRequire(import.meta.resolve('@deepseek-ai/dsh-session-log-export'))('fflate')
 import {
   workerArtifactPath,
   writePrebuiltModeWranglerConfig,
@@ -868,6 +871,10 @@ try {
     description: 'Compact older conversation history',
     name: 'compact',
   }, {
+    definitionId: '@deepseek-ai/dsh-session-log-export',
+    description: 'Download this Session log as a ZIP archive',
+    name: 'export',
+  }, {
     definitionId: '@deepseek-ai/dsh-command-feedback',
     description: 'Record feedback about this session',
     input: { hint: '<text>' },
@@ -1124,7 +1131,7 @@ try {
     args: { agentId: protocolSessionId },
   })
   assert.equal(commandCatalog.body.result.ok, true)
-  assert.deepEqual(commandCatalog.body.result.value.map(command => command.name), ['compact', 'feedback', 'goal', 'plan'])
+  assert.deepEqual(commandCatalog.body.result.value.map(command => command.name), ['compact', 'export', 'feedback', 'goal', 'plan'])
   assert.equal(commandCatalog.response.headers.get('access-control-allow-origin'), '*')
   assert.doesNotMatch(
     commandCatalog.response.headers.get('access-control-expose-headers') ?? '',
@@ -1847,6 +1854,25 @@ try {
   })
   assert.equal(crossSessionRead.body.result.ok, false)
   assert.equal(crossSessionRead.body.result.error.details.reason, 'ATTACHMENT_NOT_REFERENCED')
+  // Upstream's session log download: a ZIP of the stored log and the images it references.
+  const exported = await request(`/api/session.export?sessionId=${imageSessionId}&includeDescendants=false`)
+  assert.equal(exported.status, 200)
+  assert.equal(exported.headers.get('content-type'), 'application/zip')
+  assert.match(exported.headers.get('content-disposition') ?? '', new RegExp(`filename="dsh-session-${imageSessionId}\\.zip"`, 'u'))
+  const archive = unzipSync(new Uint8Array(await exported.arrayBuffer()))
+  const logEntry = Object.keys(archive).find(name => !name.includes('/'))
+  assert.ok(logEntry !== undefined, JSON.stringify(Object.keys(archive)))
+  const exportedLog = new TextDecoder().decode(archive[logEntry]).trim().split('\n').map(line => JSON.parse(line))
+  assert.equal(exportedLog[0].type, 'session')
+  assert.equal(exportedLog[0].id, imageSessionId)
+  assert.ok(exportedLog.some(entry => entry.type === 'user/message'), JSON.stringify(exportedLog.map(entry => entry.type)))
+  const mediaEntry = Object.keys(archive).find(name => name.startsWith('media/'))
+  assert.ok(mediaEntry !== undefined, JSON.stringify(Object.keys(archive)))
+  assert.equal(Buffer.from(archive[mediaEntry]).toString('base64'), imageBase64)
+  assert.equal((await request(`/api/session.export?sessionId=${imageSessionId}`, { method: 'HEAD' })).status, 200)
+  assert.equal((await request('/api/session.export?sessionId=session-missing')).status, 404)
+  assert.equal((await request('/api/session.export')).status, 400)
+  assert.equal((await request(`/api/session.export?sessionId=${imageSessionId}&includeDescendants=maybe`)).status, 400)
   const incompatibleModel = await rpc('session.selectModel', {
     sessionId: imageSessionId,
     provider: 'deepseek-official',
@@ -2225,6 +2251,9 @@ try {
   assert.deepEqual(await runCommand('/compact now'), { kind: 'error', text: 'Usage: /compact (no arguments)' })
   // Upstream's /feedback logs one feedback/record event and names an anonymous
   // user id, which falls back to a random UUID where the Harness home is not writable.
+  // Upstream's /export asks the Web client to download the log; it takes no argument.
+  assert.deepEqual(await runCommand('/export'), { kind: 'success', text: 'Session log download requested.' })
+  assert.deepEqual(await runCommand('/export now'), { kind: 'error', text: 'The Web /export command does not accept a path.' })
   assert.deepEqual(await runCommand('/feedback'), { kind: 'error', text: 'Feedback text is required. Usage: /feedback <text>' })
   const feedbackAck = await runCommand('/feedback  works well ')
   assert.equal(feedbackAck.kind, 'success', JSON.stringify(feedbackAck))
@@ -2508,6 +2537,11 @@ try {
   assert.equal(coldParent.projections.values.turnOutline, undefined)
   const forkedChild = resultOf(await turn(bgParent, 'fork a subagent'), 'call_bg_fork')
   assert.equal(forkedChild?.data.message.isError, false, toolResultText(forkedChild))
+  // The same download with subagents adds each child's own log.
+  const exportedTree = unzipSync(new Uint8Array(await (await request(`/api/session.export?sessionId=${bgParent}&includeDescendants=true`)).arrayBuffer()))
+  const childFolder = `subagents/${childId.replace(/[^A-Za-z0-9_-]/gu, '_')}/`
+  assert.ok(Object.keys(exportedTree).some(name => name.startsWith(childFolder)), JSON.stringify(Object.keys(exportedTree)))
+  assert.ok(Object.keys(exportedTree).filter(name => name.startsWith('subagents/')).length >= 2, JSON.stringify(Object.keys(exportedTree)))
   // Once the session is loaded it folds those rows from its log.
   const loadedParent = (await rpc('session.list', {})).body.result.value.items.find(item => item.sessionId === bgParent)
   assert.equal(loadedParent.projections.kind, 'sequenced', JSON.stringify(loadedParent.projections))

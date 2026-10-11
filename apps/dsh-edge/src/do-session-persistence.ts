@@ -1283,6 +1283,19 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
     ).toArray()[0]
   }
 
+  /**
+   * The UTF-8 bytes of a session's stored event payloads, read without
+   * parsing them. A full read of the log costs several times this in heap, so
+   * the session log export refuses a log above its budget first.
+   */
+  eventBytes(id: SessionId): number {
+    return this.storage.sql.exec<{ bytes: number }>(
+      `SELECT COALESCE(SUM(LENGTH(CAST(data AS BLOB))), 0) AS bytes
+       FROM dsh_session_events WHERE session_id = ?`,
+      id,
+    ).one().bytes
+  }
+
   private eventRows(id: SessionId, fromSeq: number): EventRow[] {
     const startSeq = fromSeq === 0 ? 0 : (this.storage.sql.exec<{ seq: number }>(
       `SELECT MAX(seq) AS seq FROM dsh_session_events

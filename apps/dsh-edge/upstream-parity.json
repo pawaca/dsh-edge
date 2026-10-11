@@ -177,11 +177,6 @@
       "status": "declined",
       "reason": "Attaches session logs or the plugin inventory to official DeepSeek API requests. On by default upstream; declined on the Edge for privacy."
     },
-    "@deepseek-ai/dsh-session-log-export": {
-      "status": "gap",
-      "priority": "P2",
-      "reason": "Session-log export. Nothing blocks it on Workers: it reads through traceSession and session persistence, which the Edge serves, and compresses with the pure-JS fflate; the Edge sessionLog endpoint still answers that export is unavailable."
-    },
     "@deepseek-ai/dsh-session-persistence-jsonl": {
       "status": "substitute",
       "reason": "DurableObjectSessionPersistence in do-session-persistence.ts over Durable Object SQLite."

@@ -858,12 +858,6 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
       host: (_request: RpcRequest<SessionListPayload>, _signal: AbortSignal) => emptyFrames(),
     },
 
-    downloads: {
-      sessionLog: () => Promise.resolve(new Response('Session export is unavailable on Edge.', {
-        status: 501,
-      })),
-    },
-
     respond: () => Promise.resolve({ accepted: false, reason: 'not-pending' }),
   }
 

@@ -27,6 +27,7 @@ import {
 } from './edge-rpc-types.ts'
 import { callEdgeApi, dispatchEdgeApi } from './edge-api-dispatch.ts'
 import { typertRpcResponse, type TypertRpcResult } from './edge-typert-connection.ts'
+import { SESSION_LOG_EXPORT_PATH } from '@deepseek-ai/dsh-session-log-export'
 import { createUserMessage, freezeMessage, MessageId, type UserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
@@ -468,6 +469,9 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       }
       if (url.pathname === '/api/present.open') {
         return new Response('Host desktop unavailable.', { status: 409, headers: corsHeaders() })
+      }
+      if (url.pathname === SESSION_LOG_EXPORT_PATH && (request.method === 'GET' || request.method === 'HEAD')) {
+        return await this.exportSessionLog(request, url)
       }
       if (url.pathname === '/api/skills') {
         return await this.handleSkillsCrud(request)
@@ -1419,6 +1423,23 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         error: remoteFailureOf(error),
       } })
     }
+  }
+
+  /**
+   * Upstream's session log download, behind the size guard: the exporter holds
+   * a whole log in memory, so a log the Durable Object could not package is
+   * refused with a 413 rather than risking the object. A request the exporter
+   * would reject as malformed is passed to it for its own 400.
+   */
+  private async exportSessionLog(request: Request, url: URL): Promise<Response> {
+    const handler = this.sessions.sessionLogExportHandler(request.method)
+    if (handler === undefined) throw new EdgeHttpError(404, 'Session log export is not available.')
+    const sessionId = url.searchParams.get('sessionId')
+    const descendants = url.searchParams.get('includeDescendants')
+    if (sessionId !== null && sessionId !== '' && (descendants === null || descendants === 'true' || descendants === 'false')) {
+      await this.sessions.assertSessionLogExportable(SessionId(sessionId), descendants === 'true', request.signal)
+    }
+    return await handler(request)
   }
 
   /** Both HTTP spellings bind controls to the same observed run before dispatch. */
