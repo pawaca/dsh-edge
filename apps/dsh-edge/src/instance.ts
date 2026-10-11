@@ -1037,7 +1037,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     command: string,
     cwd: string,
     timeoutPolicy: EdgeCommandTimeoutPolicy,
-    options: { timeoutMs?: number; signal?: AbortSignal; requestContainer?: boolean },
+    options: { timeoutMs?: number; signal?: AbortSignal; requestContainer?: boolean; env?: Readonly<Record<string, string>> },
   ): Promise<EdgeShellResult> {
     const container = this.containerBackend()
     const policy = this.sessions.runtimeSettings().bashRouting
@@ -1047,12 +1047,12 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       ...options.requestContainer === true ? { requestContainer: true } : {},
     })
     if (container === undefined) {
-      return executeWorkspaceCommand(workspace, command, cwd, timeoutPolicy, options.timeoutMs, options.signal)
+      return executeWorkspaceCommand(workspace, command, cwd, timeoutPolicy, options.timeoutMs, options.signal, undefined, false, undefined, options.env)
     }
     if (route === 'light' && policy !== 'auto') {
       // A forced light policy never reruns, so it needs no miss signals and no turns.
       const result = await executeWorkspaceCommand(
-        workspace, command, cwd, timeoutPolicy, options.timeoutMs, options.signal,
+        workspace, command, cwd, timeoutPolicy, options.timeoutMs, options.signal, undefined, false, undefined, options.env,
       )
       return { ...result, runtime: 'light' }
     }
@@ -1111,7 +1111,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     command: string,
     cwd: string,
     timeoutPolicy: EdgeCommandTimeoutPolicy,
-    options: { timeoutMs?: number; signal?: AbortSignal },
+    options: { timeoutMs?: number; signal?: AbortSignal; env?: Readonly<Record<string, string>> },
     onDetached?: (settled: Promise<void>) => void,
   ): Promise<{ result: EdgeShellResult; unchanged: boolean; crossedBoundary: boolean }> {
     // Reject invalid input and cancellation before cwd is created.
@@ -1123,7 +1123,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     const before = workspaceRevision(this.ctx.storage.sql)
     const boundaryMark = this.boundary.mark()
     const result = await executeWorkspaceCommand(
-      workspace, command, cwd, timeoutPolicy, options.timeoutMs, options.signal, undefined, true, onDetached,
+      workspace, command, cwd, timeoutPolicy, options.timeoutMs, options.signal, undefined, true, onDetached, options.env,
     )
     return {
       result,
@@ -1137,7 +1137,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     command: string,
     cwd: string,
     timeoutPolicy: EdgeCommandTimeoutPolicy,
-    options: { timeoutMs?: number; signal?: AbortSignal },
+    options: { timeoutMs?: number; signal?: AbortSignal; env?: Readonly<Record<string, string>> },
     backend: string,
   ): Promise<EdgeShellResult> {
     // Waiting for a slot spends the command's timeout; the command then gets
@@ -1165,7 +1165,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     try {
       const result = await executeWorkspaceCommand(
         workspace, command, cwd, timeoutPolicy, Math.max(1, budgetMs - queuedMs), options.signal, backend,
-        false, (late) => { lingering = late },
+        false, (late) => { lingering = late }, options.env,
       )
       return { ...result, runtime: 'container', queuedMs }
     } finally {

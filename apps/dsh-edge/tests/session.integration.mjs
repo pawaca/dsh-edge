@@ -2240,6 +2240,16 @@ try {
   assert.deepEqual(await feedbackEvents(coldFeedbackSession), [{ text: 'slow replies', category: 'service-stability' }])
   const missingFeedback = await typertRpc('sessionFeedback', 'record', { request: { sessionId: 'session-missing', text: 'x' } })
   assert.equal(missingFeedback.body.result.ok, false, JSON.stringify(missingFeedback.body))
+  // Upstream's DSH_* shell variables reach bash commands, and only declared
+  // keys do: none of the Worker's own environment (secrets included) leaks.
+  const shellEnvSession = (await rpc('session.create', {})).body.result.value.sessionId
+  await turn(shellEnvSession, 'print the shell env')
+  const shellEnvFile = async path => (await request(`/api/workspace/file?path=${path}`)).text()
+  assert.equal(await shellEnvFile('/workspace/shell-env.txt'), `1|${shellEnvSession}|/.dsh`)
+  const shellEnvAll = await shellEnvFile('/workspace/shell-env-all.txt')
+  assert.match(shellEnvAll, /^DSH_SESSION_ID=/mu)
+  assert.doesNotMatch(shellEnvAll, /DEEPSEEK|ACCESS_KEY|DSH_EDGE_/u)
+  for (const path of ['/workspace/shell-env.txt', '/workspace/shell-env-all.txt']) await request(`/api/workspace/file?path=${path}`, { method: 'DELETE' })
   // With history, /compact makes a model request for the summary and stores it like a turn's events.
   // Each prompt outweighs the summary's fixed framing, so the summary is smaller than what it replaces.
   for (const label of ['one', 'two']) await turn(commandSessionId, `compact fixture ${label}: ${'padding words '.repeat(600)}`)
