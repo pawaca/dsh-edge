@@ -78,6 +78,7 @@ import * as AgentInstructions from '@deepseek-ai/dsh-agent-instructions'
 import * as GoalRoundDriver from '@deepseek-ai/dsh-goal-round-driver'
 import GoalService from '@deepseek-ai/dsh-goal'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
+import * as CommandFeedback from '@deepseek-ai/dsh-command-feedback'
 import * as CommandCompact from '@deepseek-ai/dsh-command-compact'
 import * as CommandGoal from '@deepseek-ai/dsh-command-goal'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
@@ -492,6 +493,14 @@ export class EdgeSessionStore {
       '@deepseek-ai/dsh-commands/typert' as string
     )
     this.context.typert.register(COMMANDS_TYPERT as never)
+    // Upstream /feedback and the sessionFeedback Remote behind the Web session
+    // feedback dialog; both append one log-only feedback/record event.
+    await this.context.plugin(CommandFeedback)
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    const { TYPERT: COMMAND_FEEDBACK_TYPERT } = await import(
+      '@deepseek-ai/dsh-command-feedback/typert' as string
+    )
+    this.context.typert.register(COMMAND_FEEDBACK_TYPERT as never)
     // SessionPersistence + WorkspaceRegistry before SessionController so it
     // finds ctx.workspaceRegistry on first tick.
     await this.context.plugin(DurableObjectSessionPersistence, { storage }).await()
@@ -2091,6 +2100,12 @@ export class EdgeSessionStore {
   async agentPresetRows(): Promise<EdgeAgentPresetRow[]> {
     await this.services()
     return (this.context.get('agentPresets') as EdgeAgentPresets).rows()
+  }
+
+  /** Persist a live session's appended events now; upstream logs some events (session feedback) without flushing. */
+  async flushLiveSession(id: SessionId): Promise<void> {
+    const live = this.context.sessions.get(id)
+    if (live !== undefined) await this.context.sessions.flush(live)
   }
 
   /**

@@ -1395,6 +1395,14 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         ? await this.withWorkspaceFileScope(invoke)
         : ns === 'subagents' && method === 'prompt'
           ? await this.withSubagentPrompt(args, invoke)
+        // Session feedback appends to the session, which may be cold, and
+        // upstream does not flush that append; the Edge persists it at once.
+        : ns === 'sessionFeedback' && method === 'record' && typeof feedbackSessionId(args) === 'string'
+          ? await this.withAgentControl(SessionId(feedbackSessionId(args)!), async () => {
+            const recorded = await invoke()
+            await this.sessions.flushLiveSession(SessionId(feedbackSessionId(args)!))
+            return recorded
+          })
         : typeof args.agentId === 'string'
           ? startsGoalRound(ns, method)
             ? await this.withAgentTurn(SessionId(args.agentId), invoke)
@@ -2201,4 +2209,12 @@ function resolveReplayLimit(url: URL): number {
     )
   }
   return limit
+}
+
+/** The session a `sessionFeedback/record` call names: `{ request: { sessionId } }`. */
+function feedbackSessionId(args: Record<string, unknown>): string | undefined {
+  const request = args.request
+  if (typeof request !== 'object' || request === null) return undefined
+  const sessionId = (request as { sessionId?: unknown }).sessionId
+  return typeof sessionId === 'string' ? sessionId : undefined
 }

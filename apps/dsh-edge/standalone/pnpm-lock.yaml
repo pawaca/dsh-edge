@@ -107,6 +107,9 @@ importers:
       '@deepseek-ai/dsh-command-compact':
         specifier: 0.2.0-rc.2
         version: 0.2.0-rc.2(bf2ec4e19792e9d3d25b0118ca6bee49)
+      '@deepseek-ai/dsh-command-feedback':
+        specifier: 0.2.0-rc.2
+        version: 0.2.0-rc.2(ef9690bc40e240f53a623a1cf4de419f)
       '@deepseek-ai/dsh-command-goal':
         specifier: 0.2.0-rc.2
         version: 0.2.0-rc.2(4a51243aa70c7a008e2c81f889065055)

@@ -868,6 +868,11 @@ try {
     description: 'Compact older conversation history',
     name: 'compact',
   }, {
+    definitionId: '@deepseek-ai/dsh-command-feedback',
+    description: 'Record feedback about this session',
+    input: { hint: '<text>' },
+    name: 'feedback',
+  }, {
     definitionId: '@deepseek-ai/dsh-command-goal',
     description: 'Set or view the goal for a long-running task',
     input: { attachments: true, hint: '[<objective>|clear|edit <objective>|pause|resume]' },
@@ -1119,7 +1124,7 @@ try {
     args: { agentId: protocolSessionId },
   })
   assert.equal(commandCatalog.body.result.ok, true)
-  assert.deepEqual(commandCatalog.body.result.value.map(command => command.name), ['compact', 'goal', 'plan'])
+  assert.deepEqual(commandCatalog.body.result.value.map(command => command.name), ['compact', 'feedback', 'goal', 'plan'])
   assert.equal(commandCatalog.response.headers.get('access-control-allow-origin'), '*')
   assert.doesNotMatch(
     commandCatalog.response.headers.get('access-control-expose-headers') ?? '',
@@ -2215,6 +2220,26 @@ try {
   }
   assert.deepEqual(await runCommand('/compact'), { kind: 'success', text: 'No compactable history yet.' })
   assert.deepEqual(await runCommand('/compact now'), { kind: 'error', text: 'Usage: /compact (no arguments)' })
+  // Upstream's /feedback logs one feedback/record event and names an anonymous
+  // user id, which falls back to a random UUID where the Harness home is not writable.
+  assert.deepEqual(await runCommand('/feedback'), { kind: 'error', text: 'Feedback text is required. Usage: /feedback <text>' })
+  const feedbackAck = await runCommand('/feedback  works well ')
+  assert.equal(feedbackAck.kind, 'success', JSON.stringify(feedbackAck))
+  assert.match(feedbackAck.text, new RegExp(`^Feedback recorded for session ${commandSessionId}\nAnonymous user: [0-9a-f-]{36}\.$`, 'u'))
+  const feedbackEvents = async id => parseEvents(await (await request(`/api/sessions/${id}/events?limit=256`)).text())
+    .filter(event => event.type === 'feedback/record').map(event => event.data)
+  assert.deepEqual(await feedbackEvents(commandSessionId), [{ text: 'works well' }])
+  // The Web session feedback dialog records through the sessionFeedback Remote,
+  // also on a session no agent has loaded yet.
+  const coldFeedbackSession = (await rpc('session.create', {})).body.result.value.sessionId
+  const recorded = await typertRpc('sessionFeedback', 'record', { request: {
+    sessionId: coldFeedbackSession, text: 'slow replies', category: 'service-stability',
+  } })
+  // The gateway frames the Remote's own result, as on upstream's wire.
+  assert.deepEqual(recorded.body.result, { ok: true, value: { ok: true, value: { recorded: true } } })
+  assert.deepEqual(await feedbackEvents(coldFeedbackSession), [{ text: 'slow replies', category: 'service-stability' }])
+  const missingFeedback = await typertRpc('sessionFeedback', 'record', { request: { sessionId: 'session-missing', text: 'x' } })
+  assert.equal(missingFeedback.body.result.ok, false, JSON.stringify(missingFeedback.body))
   // With history, /compact makes a model request for the summary and stores it like a turn's events.
   // Each prompt outweighs the summary's fixed framing, so the summary is smaller than what it replaces.
   for (const label of ['one', 'two']) await turn(commandSessionId, `compact fixture ${label}: ${'padding words '.repeat(600)}`)
