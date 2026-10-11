@@ -372,4 +372,20 @@ describe('session_projcache over the Durable Object backend', () => {
     expect(Object.keys(reopened.domain.table('sessions').get(SessionId('session-a'))!.rows).sort()).toEqual(['contextPressure', 'sessionStats'])
     await reopened.domain.close()
   })
+
+  it('trims a record an earlier release stored with the growing rows when it loads', async () => {
+    const storage = createMockStorage()
+    const row = (val: unknown) => ({ ver: 1, seq: 1, val })
+    const stored = {
+      identity: { createdAt: 1000, isSeeded: false },
+      rows: { turnOutline: row({ turns: [], draft: '' }), contextBreakdown: row({ nodes: [], breakdown: {} }), sessionStats: row({ turns: 2 }) },
+    }
+    storage.store.set('dsh-kv:session_projcache:__version__', 3)
+    storage.store.set('dsh-kv:session_projcache:sessions:session-old', { ...stored, identity: { ...stored.identity } })
+    const { domain } = await openProjectionCache(storage, { recordBounds: { [PROJECTION_CACHE_UNIT]: boundProjectionCacheRecord } })
+    expect(Object.keys(domain.table('sessions').get(SessionId('session-old'))!.rows)).toEqual(['sessionStats'])
+    // Reading writes nothing: the stored record is replaced by the session's next cache write.
+    expect(Object.keys((storage.store.get('dsh-kv:session_projcache:sessions:session-old') as typeof stored).rows)).toHaveLength(3)
+    await domain.close()
+  })
 })
