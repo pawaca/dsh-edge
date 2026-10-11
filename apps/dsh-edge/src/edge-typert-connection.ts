@@ -50,9 +50,33 @@ export function typertRpcResponse(rpcId: string, result: TypertRpcResult): Respo
   return new Response(parts)
 }
 
+/** One HTTP route an upstream plugin registers on the connection (`connection.fetch.register`). */
+export interface EdgeFetchRoute {
+  readonly path: string
+  readonly methods: readonly string[]
+  readonly requestBody?: string
+  readonly fetch: (request: Request) => Promise<Response>
+}
+
 /** Minimal `ctx.connection` surface consumed by the upstream gateway on Workers. */
 export class EdgeTypertConnection extends Service {
   private interceptor: TypertRpcInterceptor | undefined
+  private readonly routes = new Map<string, EdgeFetchRoute>()
+
+  /**
+   * Upstream plugins that serve plain HTTP (the session log download) register
+   * a route here; the Durable Object's request handler dispatches it, since a
+   * Worker has no upstream web server to mount it on.
+   */
+  readonly fetch = {
+    register: (route: EdgeFetchRoute): (() => void) => {
+      if (this.routes.has(route.path)) throw new Error(`dsh-edge: a fetch route is already registered at ${JSON.stringify(route.path)}`)
+      this.routes.set(route.path, route)
+      return () => {
+        if (this.routes.get(route.path) === route) this.routes.delete(route.path)
+      }
+    },
+  }
 
   readonly rpc = {
     intercept: (
@@ -72,6 +96,12 @@ export class EdgeTypertConnection extends Service {
 
   constructor(ctx: Context) {
     super(ctx, 'connection')
+  }
+
+  /** The handler registered for this path that serves this method, if any. */
+  route(path: string, method: string): EdgeFetchRoute['fetch'] | undefined {
+    const route = this.routes.get(path)
+    return route?.methods.includes(method) === true ? route.fetch : undefined
   }
 
   /** The interceptor currently registered by the gateway, if it has activated. */

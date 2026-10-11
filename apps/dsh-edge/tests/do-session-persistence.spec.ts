@@ -17,6 +17,9 @@ import SessionStore, {
 import { describe, expect, it } from 'vitest'
 import { MainSessionQueue } from '../src/main-session-queue.ts'
 import DurableObjectSessionPersistence from '../src/do-session-persistence.ts'
+import { SessionLogTooLargeError, sessionLogExportBudget, type SessionLogExportBudget } from '../src/edge-session-log-export.ts'
+
+const ROOMY_LIMITS = { bytes: Number.MAX_SAFE_INTEGER, events: Number.MAX_SAFE_INTEGER }
 async function readAll(persistence: DurableObjectSessionPersistence, id: ReturnType<typeof SessionId>) {
   const handle = await persistence.open(id, 'read')
   try {
@@ -320,6 +323,29 @@ describe('legacy Edge cancellation migration', () => {
       const restored = await readAll(persistence, SessionId('v3-titles'))
       expect(restored.meta.version).toBe(SESSION_FORMAT_VERSION)
       expect(restored.events.filter(event => event.type === 'session/title')).toHaveLength(200)
+    } finally { await ctx.fiber.dispose(); storage.close() }
+  })
+
+  it('clears a counted export size when a format migration rewrites the log', async () => {
+    const storage = cancelledStorage('cancelled by the user')
+    storage.sql.exec(`INSERT INTO dsh_sessions SELECT 'v3-counted', 3, created_at, cwd, parent_session, NULL, origin,
+      delegation_depth, 'standard', 'v3-incarnation', revision FROM dsh_sessions WHERE id = 'session-v0-1-3'`)
+    storage.sql.exec("INSERT INTO dsh_session_events (session_id,seq,type,time,data) VALUES ('v3-counted',0,'session/end-seed',1000,'{}')")
+    for (let i = 1; i <= 5; i++) storage.sql.exec(
+      'INSERT INTO dsh_session_events (session_id,seq,type,time,data) VALUES (?,?,?,?,?)',
+      'v3-counted', i, 'session/title', 1000 + i, JSON.stringify({ title: 'Legacy title', messageSeqs: [], source: { kind: 'user' } }),
+    )
+    // An earlier start of the migrated format had counted this session's log.
+    storage.sql.exec(`CREATE TABLE dsh_session_event_bytes (
+      session_id TEXT PRIMARY KEY REFERENCES dsh_sessions(id) ON DELETE CASCADE, through_seq INTEGER NOT NULL, bytes INTEGER NOT NULL) STRICT`)
+    storage.sql.exec("INSERT INTO dsh_session_event_bytes VALUES ('v3-counted', 5, 999999)")
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    try {
+      const persistence = new DurableObjectSessionPersistence(ctx, { storage: storage as never })
+      expect(storage.sql.exec<{ n: number }>("SELECT COUNT(*) AS n FROM dsh_session_event_bytes WHERE session_id = 'v3-counted'").toArray()[0]?.n).toBe(0)
+      expect((await readAll(persistence, SessionId('v3-counted'))).meta.version).toBe(SESSION_FORMAT_VERSION)
+      expect(persistence.exportSize(SessionId('v3-counted'), ROOMY_LIMITS).bytes).toBeLessThan(999_999)
     } finally { await ctx.fiber.dispose(); storage.close() }
   })
 
@@ -1339,6 +1365,135 @@ describe('durable-object bounded event pages', () => {
       await fiber.dispose()
       storage.close()
     }
+  })
+})
+
+describe('session log export size', () => {
+  async function openStore() {
+    const storage = new TestDurableObjectStorage()
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(DurableObjectSessionPersistence, { storage: storage as never })
+    return { storage, persistence: ctx.sessionPersistence as DurableObjectSessionPersistence, dispose: async () => { await fiber.dispose(); storage.close() } }
+  }
+  const titleEvent = (seq: number, title: string): SessionEvent => ({
+    type: 'session/title', seq: SessionSeq(seq), time: seq + 1, data: { title, messageSeqs: [], source: { kind: 'user' } },
+  }) as SessionEvent
+  const storageOf = (id: ReturnType<typeof SessionId>): Parameters<DurableObjectSessionPersistence['appendBatch']>[0] => ({
+    meta: { id, version: SESSION_FORMAT_VERSION, createdAt: 1, isSeeded: false },
+    inheritedEventCount: SessionLogOffset(0),
+  })
+  const storedBytes = (storage: TestDurableObjectStorage, id: ReturnType<typeof SessionId>) =>
+    (storage.sql.exec<{ data: string }>('SELECT data FROM dsh_session_events WHERE session_id = ?', id).toArray())
+      .reduce((total, row) => total + new TextEncoder().encode(row.data).byteLength, 0)
+  const scans = (storage: TestDurableObjectStorage) => storage.queries.filter(query => /SELECT seq, type, LENGTH\(CAST\(data AS BLOB\)\)/u.test(query)).length
+  const cachedRow = (storage: TestDurableObjectStorage, id: ReturnType<typeof SessionId>) =>
+    storage.sql.exec<{ through_seq: number; bytes: number }>('SELECT through_seq, bytes FROM dsh_session_event_bytes WHERE session_id = ?', id).toArray()[0]
+
+  it('counts stored UTF-8 bytes and adds only the events appended since the last count', async () => {
+    const { storage, persistence, dispose } = await openStore()
+    const id = SessionId('bytes-incremental')
+    try {
+      expect(persistence.exportSize(id, ROOMY_LIMITS)).toEqual({ bytes: 0, events: 0 })
+      await persistence.appendBatch(storageOf(id), [titleEvent(0, '中文标题'.repeat(50)), titleEvent(1, 'english title')], false)
+      expect(persistence.exportSize(id, ROOMY_LIMITS)).toEqual({ bytes: storedBytes(storage, id), events: 2 })
+      expect(scans(storage)).toBe(1)
+      // Counting again with nothing appended scans nothing: the cached total is used.
+      storage.sql.exec('UPDATE dsh_session_event_bytes SET bytes = 123456 WHERE session_id = ?', id)
+      expect(persistence.exportSize(id, ROOMY_LIMITS).bytes).toBe(123456)
+      expect(scans(storage)).toBe(1)
+      storage.sql.exec('UPDATE dsh_session_event_bytes SET bytes = ? WHERE session_id = ?', storedBytes(storage, id), id)
+      // New events add to the counted prefix.
+      await persistence.appendBatch(storageOf(id), [titleEvent(2, '再来一个标题'), titleEvent(3, 'and another')], true)
+      expect(persistence.exportSize(id, ROOMY_LIMITS)).toEqual({ bytes: storedBytes(storage, id), events: 4 })
+      expect(scans(storage)).toBe(2)
+    } finally { await dispose() }
+  })
+
+  it('stops counting once the total passes the byte limit, and resumes from where it stopped', async () => {
+    const { storage, persistence, dispose } = await openStore()
+    const id = SessionId('bytes-bounded')
+    try {
+      await persistence.appendBatch(storageOf(id), Array.from({ length: 300 }, (_, seq) => titleEvent(seq, `t${String(seq)} ${'x'.repeat(90)}`)), false)
+      const total = storedBytes(storage, id)
+      const refused = persistence.exportSize(id, { bytes: 1_000, events: ROOMY_LIMITS.events })
+      // Past the limit, so refused; a lower bound well short of the whole log, and only part of it was read.
+      expect(refused.bytes).toBeGreaterThan(1_000)
+      expect(refused.bytes).toBeLessThan(total / 2)
+      expect(cachedRow(storage, id)?.through_seq).toBeLessThan(299)
+      // Asking again with the same limit does not scan: the lower bound already exceeds it.
+      expect(persistence.exportSize(id, { bytes: 1_000, events: ROOMY_LIMITS.events }).bytes).toBe(refused.bytes)
+      expect(scans(storage)).toBe(1)
+      // A larger limit resumes after the counted prefix and reaches the exact total.
+      expect(persistence.exportSize(id, ROOMY_LIMITS).bytes).toBe(total)
+      expect(scans(storage)).toBe(2)
+    } finally { await dispose() }
+  })
+
+  it('refuses a log over the event cap without scanning it', async () => {
+    const { storage, persistence, dispose } = await openStore()
+    const id = SessionId('events-capped')
+    try {
+      await persistence.appendBatch(storageOf(id), Array.from({ length: 10 }, (_, seq) => titleEvent(seq, 't')), false)
+      expect(persistence.exportSize(id, { bytes: ROOMY_LIMITS.bytes, events: 5 })).toMatchObject({ events: 10 })
+      expect(scans(storage)).toBe(0)
+    } finally { await dispose() }
+  })
+
+  it('weighs packed chunk rows by what they expand to when read', async () => {
+    const { storage, persistence, dispose } = await openStore()
+    const id = SessionId('bytes-packed')
+    try {
+      await persistence.appendBatch(storageOf(id), [titleEvent(0, 'start')], false)
+      const packed = JSON.stringify({ turn: 1, step: 1, index: 0, dt: [1, 1], texts: ['a', 'b', 'c'] })
+      storage.sql.exec("INSERT INTO dsh_session_events (session_id, seq, type, time, data) VALUES (?, 1, 'text-chunks', 2, ?)", id, packed)
+      const plain = (storage.sql.exec<{ data: string }>("SELECT data FROM dsh_session_events WHERE session_id = ? AND seq = 0", id).toArray()[0]?.data.length ?? 0)
+      expect(persistence.exportSize(id, ROOMY_LIMITS).bytes).toBe(plain + packed.length * 16)
+    } finally { await dispose() }
+  })
+
+  it('recounts a log that is now shorter than its counted prefix, and clears the count when events are repaired', async () => {
+    const { storage, persistence, dispose } = await openStore()
+    const id = SessionId('bytes-rewritten')
+    try {
+      await persistence.appendBatch(storageOf(id), [titleEvent(0, 'a'.repeat(400)), titleEvent(1, 'b'.repeat(400)), titleEvent(2, 'c')], false)
+      expect(persistence.exportSize(id, ROOMY_LIMITS).bytes).toBe(storedBytes(storage, id))
+      storage.sql.exec('DELETE FROM dsh_session_events WHERE session_id = ? AND seq >= 1', id)
+      expect(persistence.exportSize(id, ROOMY_LIMITS).bytes).toBe(storedBytes(storage, id))
+      expect(storage.sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM dsh_session_event_bytes').toArray()[0]?.n).toBe(1)
+      // A torn tail is deleted by the repair, which clears the count so it is not trusted afterwards.
+      await persistence.appendBatch(storageOf(id), [titleEvent(1, 'torn'), titleEvent(2, 'tail')], true)
+      persistence.exportSize(id, ROOMY_LIMITS)
+      storage.sql.exec("UPDATE dsh_session_events SET data = '{' WHERE session_id = ? AND seq = 2", id)
+      await persistence.repairTornTail(id, SessionLogOffset(0))
+      expect(storage.sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM dsh_session_event_bytes').toArray()[0]?.n).toBe(0)
+      expect(persistence.exportSize(id, ROOMY_LIMITS).bytes).toBe(storedBytes(storage, id))
+    } finally { await dispose() }
+  })
+
+  it('refuses a read-access read over the export request\'s budget, and only inside that request', async () => {
+    const { persistence, dispose } = await openStore()
+    const id = SessionId('bytes-budget')
+    try {
+      await persistence.appendBatch(storageOf(id), [titleEvent(0, 'x'.repeat(2_000))], false)
+      const budget: SessionLogExportBudget = { limits: { bytes: 1_000, events: 1_000 } }
+      const refused = await sessionLogExportBudget.run(budget, async () => {
+        await using handle = await persistence.open(id, 'read')
+        return await handle.read().catch((error: unknown) => error)
+      })
+      expect(refused).toBeInstanceOf(SessionLogTooLargeError)
+      expect(budget.refused).toBe(refused)
+      expect(budget.refused?.size.bytes).toBeGreaterThan(1_000)
+      // Within the budget, and outside any export request, reads are untouched.
+      const roomy: SessionLogExportBudget = { limits: { bytes: 1_000_000, events: 1_000 } }
+      const events = await sessionLogExportBudget.run(roomy, async () => {
+        await using handle = await persistence.open(id, 'read')
+        return (await handle.read()).events
+      })
+      expect(events).toHaveLength(1)
+      expect(roomy.refused).toBeUndefined()
+      expect((await readAll(persistence, id)).events).toHaveLength(1)
+    } finally { await dispose() }
   })
 })
 

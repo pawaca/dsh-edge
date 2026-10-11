@@ -4,6 +4,7 @@ import { initializeSchedules } from './schedule-store.ts'
 import { initializeMainQueue, acknowledgeMainInputs } from './main-session-queue.ts'
 import { Context } from '@deepseek-ai/cordis'
 import { decodeStorageRecord, packChunkRuns } from './chunk-rows.ts'
+import { enforceSessionLogExportBudget } from './edge-session-log-export.ts'
 import {
   SESSION_FORMAT_VERSION,
   SessionLogOffset,
@@ -257,6 +258,9 @@ class DurableObjectSessionHandle implements SessionHandle {
     if (this.closed) throw new SessionHandleClosedError(this.id, 'read')
     options?.signal?.throwIfAborted()
     const fromSeq = offset ?? 0
+    // A session log export checks its byte budget here, in the same synchronous
+    // step as the read below, so no append can slip between the check and the read.
+    if (this.access === 'read') enforceSessionLogExportBudget(this.id, limits => this.backend.exportSize(this.id, limits))
     const rows = this.backend.eventRowsFrom(this.id, fromSeq)
     const scanned = scanRows(rows, fromSeq)
     let preserved = scanned.preserved
@@ -440,6 +444,8 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
         `UPDATE dsh_sessions SET version = ?, seed_length = ?, revision = revision + 1 WHERE id = ?`,
         prepared.version, prepared.seedLength, id,
       )
+      // The events are rewritten below, so the counted export size no longer holds.
+      this.storage.sql.exec('DELETE FROM dsh_session_event_bytes WHERE session_id = ?', id)
       if (eventTable === 'dsh_session_events_migrating') {
         for (const record of prepared.packed) this.insertStorageRecord(id, record, eventTable)
         return
@@ -821,6 +827,7 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
         throw new Error('Cannot automatically repair a torn inbox event; input receipt state may already be committed.')
       }
       this.storage.sql.exec('DELETE FROM dsh_session_events WHERE session_id = ? AND seq >= ?', id, tornFrom)
+      this.storage.sql.exec('DELETE FROM dsh_session_event_bytes WHERE session_id = ?', id)
       this.storage.sql.exec('UPDATE dsh_sessions SET revision = revision + 1 WHERE id = ?', id)
       const header = this.rowFor(id)
       if (header === undefined) throw new Error(`session ${id} disappeared during repair`)
@@ -1064,6 +1071,13 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
         title_time INTEGER,
         title_data TEXT
       ) STRICT`)
+      // The session log export's size check: stored event bytes counted up to a
+      // `seq`, so a later check adds only the events appended since (see `exportSize`).
+      this.storage.sql.exec(`CREATE TABLE IF NOT EXISTS dsh_session_event_bytes (
+        session_id TEXT PRIMARY KEY REFERENCES dsh_sessions(id) ON DELETE CASCADE,
+        through_seq INTEGER NOT NULL,
+        bytes INTEGER NOT NULL
+      ) STRICT`)
       return `durable-object:store:${storeId}`
     })
   }
@@ -1283,6 +1297,60 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
     ).toArray()[0]
   }
 
+  /**
+   * What a session's log holds, for the session log export's memory budget:
+   * its logical event count (`MAX(seq) + 1`, free) and its stored event bytes,
+   * counted no further than `limits` allows.
+   *
+   * The byte count is kept incrementally: the first call scans the log from its
+   * start and remembers the last `seq` it counted, and later calls add only the
+   * events appended since, so checking a log repeatedly never rescans its
+   * history. The scan stops as soon as the total passes `limits.bytes`, because
+   * a refusal needs no more, and the total is then a lower bound that stays
+   * beyond the limit (counting resumes from the remembered `seq` only while it
+   * is not). A log over the event cap is refused without any scan. Packed chunk
+   * rows (legacy `assistant/chunk` runs) expand into one event per chunk when
+   * read, so they count at {@link PACKED_ROW_EXPANSION} times their stored
+   * size. Whatever rewrites stored events clears the entry (`migrateSession`,
+   * `repairTornTail`), and a log now shorter than its counted prefix is
+   * recounted. Synchronous, so no append can interleave with the count.
+   */
+  exportSize(id: SessionId, limits: { readonly bytes: number; readonly events: number }): { bytes: number; events: number } {
+    const sql = this.storage.sql
+    const last = sql.exec<{ seq: number | null }>(
+      'SELECT MAX(seq) AS seq FROM dsh_session_events WHERE session_id = ?',
+      id,
+    ).toArray()[0]?.seq ?? null
+    if (last === null) return { bytes: 0, events: 0 }
+    const events = last + 1
+    const stored = sql.exec<{ through_seq: number; bytes: number }>(
+      'SELECT through_seq, bytes FROM dsh_session_event_bytes WHERE session_id = ?',
+      id,
+    ).toArray()[0]
+    const counted = stored !== undefined && stored.through_seq <= last ? stored : undefined
+    let through = counted?.through_seq ?? -1
+    let bytes = counted?.bytes ?? 0
+    if (events > limits.events || bytes > limits.bytes || through === last) return { bytes, events }
+    for (const row of sql.exec<{ seq: number; type: string; bytes: number }>(
+      `SELECT seq, type, LENGTH(CAST(data AS BLOB)) AS bytes
+       FROM dsh_session_events WHERE session_id = ? AND seq > ? ORDER BY seq`,
+      id,
+      through,
+    )) {
+      bytes += PACKED_ROW_TYPES.has(row.type) ? row.bytes * PACKED_ROW_EXPANSION : row.bytes
+      through = row.seq
+      if (bytes > limits.bytes) break
+    }
+    sql.exec(
+      `INSERT INTO dsh_session_event_bytes (session_id, through_seq, bytes) VALUES (?, ?, ?)
+       ON CONFLICT(session_id) DO UPDATE SET through_seq = excluded.through_seq, bytes = excluded.bytes`,
+      id,
+      through,
+      bytes,
+    )
+    return { bytes, events }
+  }
+
   private eventRows(id: SessionId, fromSeq: number): EventRow[] {
     const startSeq = fromSeq === 0 ? 0 : (this.storage.sql.exec<{ seq: number }>(
       `SELECT MAX(seq) AS seq FROM dsh_session_events
@@ -1481,6 +1549,13 @@ function blankRowToHeader(row: BlankSessionRow): SessionHeader {
 }
 
 const PACKED_ROW_TYPES = new Set(['text-chunks', 'reasoning-chunks', 'tool-call-chunks'])
+
+/**
+ * How many times its stored size a packed chunk row weighs once read: a row
+ * keeps each chunk as a short string and a time offset (about 9 bytes for a
+ * 4-character chunk), and read back each chunk is a full event of about 135.
+ */
+const PACKED_ROW_EXPANSION = 16
 
 function rowToEvents(row: EventRow): SessionEvent[] {
   const isPacked = PACKED_ROW_TYPES.has(row.type)

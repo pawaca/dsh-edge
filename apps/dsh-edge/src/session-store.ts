@@ -81,6 +81,8 @@ import * as GoalRoundDriver from '@deepseek-ai/dsh-goal-round-driver'
 import GoalService from '@deepseek-ai/dsh-goal'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
 import * as CommandFeedback from '@deepseek-ai/dsh-command-feedback'
+import * as SessionLogExport from '@deepseek-ai/dsh-session-log-export'
+import { assertSessionLogExportable } from './edge-session-log-export.ts'
 import * as ShellEnv from '@deepseek-ai/dsh-shell-env'
 import * as CommandCompact from '@deepseek-ai/dsh-command-compact'
 import * as CommandGoal from '@deepseek-ai/dsh-command-goal'
@@ -512,6 +514,11 @@ export class EdgeSessionStore {
     // collected, never the Worker's own environment; /.dsh is where the Edge
     // keeps user-global Harness files (/.dsh/AGENTS.md).
     await this.context.plugin(ShellEnv, { dshHome: EDGE_DSH_HOME })
+    // Upstream's session log download: the /export command and the
+    // /api/session.export route behind the Web session header's download item.
+    // The route registers on the Edge connection seam; the Durable Object's
+    // request handler dispatches it after the export size guard.
+    await this.context.plugin(SessionLogExport)
     // Upstream /feedback and the sessionFeedback Remote behind the Web session
     // feedback dialog; both append one log-only feedback/record event.
     await this.context.plugin(CommandFeedback)
@@ -1003,6 +1010,49 @@ export class EdgeSessionStore {
     const agent = this.context.agents.get(sessionId)
     if (agent === undefined) return undefined
     return this.context.sessionProjections.snapshot(agent.session)
+  }
+
+  /** Upstream's session log download handler for this method, once its plugin has registered the route. */
+  sessionLogExportHandler(method: string): ((request: Request) => Promise<Response>) | undefined {
+    return (this.context.get('connection') as EdgeTypertConnection | undefined)
+      ?.route(SessionLogExport.SESSION_LOG_EXPORT_PATH, method)
+  }
+
+  /** Whether a session (blank ones included) has a log the exporter can open. */
+  async sessionLogExists(id: SessionId): Promise<boolean> {
+    const { persistence } = await this.services()
+    return persistence instanceof DurableObjectSessionPersistence
+      && (persistence.hasSession(id) || persistence.readBlankSession(id) !== undefined)
+  }
+
+  /**
+   * Refuse a session log export whose logs would not fit in memory
+   * (see edge-session-log-export.ts). A session that does not exist is left to
+   * the exporter, which answers 404.
+   */
+  async assertSessionLogExportable(sessionId: SessionId, includeDescendants: boolean, signal: AbortSignal): Promise<void> {
+    const { persistence } = await this.services()
+    if (!(persistence instanceof DurableObjectSessionPersistence) || !persistence.hasSession(sessionId)) return
+    await assertSessionLogExportable({
+      flush: async (id) => {
+        const live = this.context.sessions.get(id)
+        if (live !== undefined) await this.context.sessions.flush(live)
+      },
+      size: (id, limits) => persistence.exportSize(id, limits),
+      sessionIds: async (id, include, abort) => {
+        if (!include) return [id]
+        const lineage = await this.context.sessionQuery.traceSession(id, abort)
+        const ids: SessionId[] = [id]
+        const walk = (nodes: readonly { session: { header: { id: SessionId } }; descendants: readonly unknown[] }[]): void => {
+          for (const node of nodes) {
+            ids.push(node.session.header.id)
+            walk(node.descendants as typeof nodes)
+          }
+        }
+        walk(lineage.descendants as Parameters<typeof walk>[0])
+        return ids
+      },
+    }, sessionId, includeDescendants, signal)
   }
 
   projectionCachedSnapshot(summary: { id: SessionId; header: SessionHeader }): { asOfSeq: number; values: Record<string, unknown> } | undefined {
