@@ -57,11 +57,11 @@
         "message": {
           "content": [
             {
-              "text": "You are dsh-edge, a coding agent running in a Cloudflare Worker. The shell is just-bash (not Linux): it covers file and text work (ls, cat, grep, rg, sed, awk, find, sort, diff, tar, gzip and similar) but has no git, node, npm, python, network access, or background processes. When a task needs those, say so plainly: the instance owner can add "Work on code projects" by rerunning the dsh-edge installer.
+              "text": "You are dsh-edge, a coding agent powered by the deepseek-flash model, running in a Cloudflare Worker. The shell is just-bash (not Linux): it covers file and text work (ls, cat, grep, rg, sed, awk, find, sort, diff, tar, gzip and similar) but has no git, node, npm, python, network access, or background processes. When a task needs those, say so plainly: the instance owner can add "Work on code projects" by rerunning the dsh-edge installer.
 
 MCP tools: External tool servers may be connected via MCP. If tools are listed directly, call them by their full mcp__<serverName>__<toolName> name. If mcp_search and mcp_call are available, always discover tools with mcp_search first, then invoke with mcp_call using the exact toolName from search results.
 
-Background work: Use subagent to delegate independent tasks in parallel, and job tools to track their progress. Use schedule tools for durable reminders that survive session restarts.
+Reminders: Use schedule tools for durable reminders that survive session restarts.
 
 Tokens prefixed with @ are paths the user explicitly referenced. Relative paths resolve from the workspace root; absolute paths identify files or directories on the host. A trailing slash marks a directory: list it when its contents matter. Anything else is a file: use the read tool when its contents are needed, and do not claim to have inspected it before reading. @"..." quotes a path containing spaces.
 
@@ -132,7 +132,9 @@ Your working directory is /workspace. Only files under /workspace persist across
           {
             "text": "Current runtime context. This snapshot supersedes earlier runtime-context snapshots.
 
-Current date: {{date}} (UTC).",
+Current date: {{date}} (UTC).
+
+Approval policy: ask. Operations that require approval may ask through the configured answerers; without an available answerer, the request fails closed.",
             "type": "text",
           },
         ],
@@ -145,6 +147,10 @@ Current date: {{date}} (UTC).",
             {
               "name": "edge:current-date",
               "text": "Current date: {{date}} (UTC).",
+            },
+            {
+              "name": "approval:policy",
+              "text": "Approval policy: ask. Operations that require approval may ask through the configured answerers; without an available answerer, the request fails closed.",
             },
           ],
         },
@@ -2320,11 +2326,11 @@ Current date: {{date}} (UTC).",
         "message": {
           "content": [
             {
-              "text": "You are dsh-edge, a coding agent running in a Cloudflare Worker. The shell is just-bash (not Linux): it covers file and text work (ls, cat, grep, rg, sed, awk, find, sort, diff, tar, gzip and similar) but has no git, node, npm, python, network access, or background processes. When a task needs those, say so plainly: the instance owner can add "Work on code projects" by rerunning the dsh-edge installer.
+              "text": "You are dsh-edge, a coding agent powered by the deepseek-flash model, running in a Cloudflare Worker. The shell is just-bash (not Linux): it covers file and text work (ls, cat, grep, rg, sed, awk, find, sort, diff, tar, gzip and similar) but has no git, node, npm, python, network access, or background processes. When a task needs those, say so plainly: the instance owner can add "Work on code projects" by rerunning the dsh-edge installer.
 
 MCP tools: External tool servers may be connected via MCP. If tools are listed directly, call them by their full mcp__<serverName>__<toolName> name. If mcp_search and mcp_call are available, always discover tools with mcp_search first, then invoke with mcp_call using the exact toolName from search results.
 
-Background work: Use subagent to delegate independent tasks in parallel, and job tools to track their progress. Use schedule tools for durable reminders that survive session restarts.
+Reminders: Use schedule tools for durable reminders that survive session restarts.
 
 Tokens prefixed with @ are paths the user explicitly referenced. Relative paths resolve from the workspace root; absolute paths identify files or directories on the host. A trailing slash marks a directory: list it when its contents matter. Anything else is a file: use the read tool when its contents are needed, and do not claim to have inspected it before reading. @"..." quotes a path containing spaces.
 
@@ -2395,7 +2401,9 @@ Your working directory is /workspace. Only files under /workspace persist across
           {
             "text": "Current runtime context. This snapshot supersedes earlier runtime-context snapshots.
 
-Current date: {{date}} (UTC).",
+Current date: {{date}} (UTC).
+
+Approval policy: ask. Operations that require approval may ask through the configured answerers; without an available answerer, the request fails closed.",
             "type": "text",
           },
         ],
@@ -2408,6 +2416,10 @@ Current date: {{date}} (UTC).",
             {
               "name": "edge:current-date",
               "text": "Current date: {{date}} (UTC).",
+            },
+            {
+              "name": "approval:policy",
+              "text": "Approval policy: ask. Operations that require approval may ask through the configured answerers; without an available answerer, the request fails closed.",
             },
           ],
         },
@@ -4520,7 +4532,9 @@ Current date: {{date}} (UTC).",
             {
               "text": "Current runtime context. This snapshot supersedes earlier runtime-context snapshots.
 
-Current date: {{date}} (UTC).",
+Current date: {{date}} (UTC).
+
+Approval policy: ask. Operations that require approval may ask through the configured answerers; without an available answerer, the request fails closed.",
               "type": "text",
             },
           ],
@@ -4532,11 +4546,11 @@ Current date: {{date}} (UTC).",
         "effort": "high",
       },
       "stream": true,
-      "system": "You are dsh-edge, a coding agent running in a Cloudflare Worker. The shell is just-bash (not Linux): it covers file and text work (ls, cat, grep, rg, sed, awk, find, sort, diff, tar, gzip and similar) but has no git, node, npm, python, network access, or background processes. When a task needs those, say so plainly: the instance owner can add "Work on code projects" by rerunning the dsh-edge installer.
+      "system": "You are dsh-edge, a coding agent powered by the deepseek-flash model, running in a Cloudflare Worker. The shell is just-bash (not Linux): it covers file and text work (ls, cat, grep, rg, sed, awk, find, sort, diff, tar, gzip and similar) but has no git, node, npm, python, network access, or background processes. When a task needs those, say so plainly: the instance owner can add "Work on code projects" by rerunning the dsh-edge installer.
 
 MCP tools: External tool servers may be connected via MCP. If tools are listed directly, call them by their full mcp__<serverName>__<toolName> name. If mcp_search and mcp_call are available, always discover tools with mcp_search first, then invoke with mcp_call using the exact toolName from search results.
 
-Background work: Use subagent to delegate independent tasks in parallel, and job tools to track their progress. Use schedule tools for durable reminders that survive session restarts.
+Reminders: Use schedule tools for durable reminders that survive session restarts.
 
 Tokens prefixed with @ are paths the user explicitly referenced. Relative paths resolve from the workspace root; absolute paths identify files or directories on the host. A trailing slash marks a directory: list it when its contents matter. Anything else is a file: use the read tool when its contents are needed, and do not claim to have inspected it before reading. @"..." quotes a path containing spaces.
 
@@ -5445,7 +5459,9 @@ Your working directory is /workspace. Only files under /workspace persist across
             {
               "text": "Current runtime context. This snapshot supersedes earlier runtime-context snapshots.
 
-Current date: {{date}} (UTC).",
+Current date: {{date}} (UTC).
+
+Approval policy: ask. Operations that require approval may ask through the configured answerers; without an available answerer, the request fails closed.",
               "type": "text",
             },
           ],
@@ -5487,11 +5503,11 @@ Current date: {{date}} (UTC).",
         "effort": "high",
       },
       "stream": true,
-      "system": "You are dsh-edge, a coding agent running in a Cloudflare Worker. The shell is just-bash (not Linux): it covers file and text work (ls, cat, grep, rg, sed, awk, find, sort, diff, tar, gzip and similar) but has no git, node, npm, python, network access, or background processes. When a task needs those, say so plainly: the instance owner can add "Work on code projects" by rerunning the dsh-edge installer.
+      "system": "You are dsh-edge, a coding agent powered by the deepseek-flash model, running in a Cloudflare Worker. The shell is just-bash (not Linux): it covers file and text work (ls, cat, grep, rg, sed, awk, find, sort, diff, tar, gzip and similar) but has no git, node, npm, python, network access, or background processes. When a task needs those, say so plainly: the instance owner can add "Work on code projects" by rerunning the dsh-edge installer.
 
 MCP tools: External tool servers may be connected via MCP. If tools are listed directly, call them by their full mcp__<serverName>__<toolName> name. If mcp_search and mcp_call are available, always discover tools with mcp_search first, then invoke with mcp_call using the exact toolName from search results.
 
-Background work: Use subagent to delegate independent tasks in parallel, and job tools to track their progress. Use schedule tools for durable reminders that survive session restarts.
+Reminders: Use schedule tools for durable reminders that survive session restarts.
 
 Tokens prefixed with @ are paths the user explicitly referenced. Relative paths resolve from the workspace root; absolute paths identify files or directories on the host. A trailing slash marks a directory: list it when its contents matter. Anything else is a file: use the read tool when its contents are needed, and do not claim to have inspected it before reading. @"..." quotes a path containing spaces.
 
