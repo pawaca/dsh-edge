@@ -2436,6 +2436,17 @@ try {
   assert.equal(await until('the child write', () => workspaceFile('/workspace/bg-child-one.txt')), 'one')
   assert.equal(await until('the parent wake-up write', () => workspaceFile('/workspace/bg-parent-wake-1.txt')), 'wake-1')
   const childEvents = await sessionEvents(childId)
+  // The child sees upstream's delegation statement and the date as runtime
+  // context, and both agents name their model in the persona.
+  const wireText = body => JSON.stringify([body.system ?? '', body.messages])
+  const childRequest = mock.requests.find(body => JSON.stringify(body.messages?.[0] ?? '').includes('background child writes one'))
+  assert.ok(childRequest !== undefined)
+  assert.match(wireText(childRequest), /You are a delegated subagent/u)
+  assert.match(wireText(childRequest), /Approval prompts are disabled in this session/u)
+  assert.match(wireText(childRequest), /Current date: \w+, \d{4}-\d{2}-\d{2}/u)
+  for (const body of [childRequest, mock.requests.find(body => body.tools?.length > 0 && wireText(body).includes('start a background subagent'))]) {
+    assert.match(wireText(body), /You are dsh-edge, a coding agent powered by the [\w.-]+ model, running in a Cloudflare Worker\./u)
+  }
   assert.equal(childEvents.find(event => event.type === 'subagent/descriptor')?.data.mode, 'continuable', JSON.stringify(childEvents.map(event => event.type)))
   const listed = resultOf(await turn(bgParent, 'list my subagents'), 'call_bg_list')
   assert.equal(listed?.data.message.isError, false, toolResultText(listed))

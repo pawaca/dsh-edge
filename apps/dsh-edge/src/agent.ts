@@ -21,14 +21,13 @@ const CONTAINER_SHELL = 'Commands start in just-bash, a fast lightweight shell f
 const EDGE_SYSTEM_PROMPT_TOOLS = 'MCP tools: External tool servers may be connected via MCP. '
   + 'If tools are listed directly, call them by their full mcp__<serverName>__<toolName> name. '
   + 'If mcp_search and mcp_call are available, always discover tools with mcp_search first, then invoke with mcp_call using the exact toolName from search results.\n\n'
-  + 'Background work: Use subagent to delegate independent tasks in parallel, '
-  + 'and job tools to track their progress. '
-  + 'Use schedule tools for durable reminders that survive session restarts.'
+  + 'Reminders: Use schedule tools for durable reminders that survive session restarts.'
 
 /** The persona prefix for a deployment whose bash layer runs on `shell`. */
 export function edgeSystemPrompt(shell: EdgeRuntimeProviderDescriptor['shell']): string {
-  // No {{model}}: a model switch would change the prompt and store it again.
-  return 'You are dsh-edge, a coding agent running in a Cloudflare Worker. '
+  // {{model}} as in upstream's presets: with other providers the model must
+  // know which model it is, and a model switch already starts a new cache.
+  return 'You are dsh-edge, a coding agent powered by the {{model}} model, running in a Cloudflare Worker. '
     + (shell === 'linux-container' ? CONTAINER_SHELL : LIGHT_SHELL)
     + '\n\n' + EDGE_SYSTEM_PROMPT_TOOLS
 }

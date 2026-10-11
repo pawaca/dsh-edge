@@ -176,7 +176,8 @@ describe('dsh-edge native agent runtime', () => {
     expect(EDGE_SYSTEM_PROMPT).toContain('just-bash')
     expect(EDGE_SYSTEM_PROMPT).toContain('mcp__<serverName>__<toolName>')
     expect(EDGE_SYSTEM_PROMPT).toContain('mcp_search')
-    expect(EDGE_SYSTEM_PROMPT).toContain('subagent')
+    // Subagents are continuable and not jobs; upstream's tool sections guide them.
+    expect(EDGE_SYSTEM_PROMPT).not.toMatch(/subagent|job tools/u)
     expect(EDGE_SYSTEM_PROMPT).toContain('schedule')
     const shells = new EdgeShellBindings()
     expect(createEdgeBashTool(shells, 'just-bash-isolated').description)
@@ -224,7 +225,7 @@ describe('dsh-edge native agent runtime', () => {
     expect(EDGE_SYSTEM_PROMPT).toContain('has no git, node, npm, python')
     expect(EDGE_SYSTEM_PROMPT).toContain('"Work on code projects"')
     for (const prompt of [EDGE_SYSTEM_PROMPT, container]) {
-      expect(prompt.startsWith('You are dsh-edge, a coding agent running in a Cloudflare Worker. ')).toBe(true)
+      expect(prompt.startsWith('You are dsh-edge, a coding agent powered by the {{model}} model, running in a Cloudflare Worker. ')).toBe(true)
       expect(prompt.endsWith('survive session restarts.')).toBe(true)
     }
   })

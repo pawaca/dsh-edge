@@ -659,21 +659,15 @@ export class EdgeSessionStore {
     await this.context.plugin(ApiRemotes)
     await this.context.plugin(ApprovalService, { policy: 'ask' })
     // Upstream runtime context becomes a durable user-role snapshot whenever
-    // it changes. Edge keeps only the current date, which changes once a day,
-    // and only for root sessions: a subagent gets its task from a parent that
-    // knows the date. Approval is enforced by its pre-execute listener, and
-    // subagent delegation context would rewrite snapshots as children start and end.
+    // it changes. Next to upstream's approval policy and, in a child's own
+    // scope, its fixed delegation statement, Edge adds the current date, which
+    // changes once a day; children get it too, since a spawned child does not
+    // see its parent's history.
     this.ownerTimeZone = await storage.get<string>(EdgeSessionStore.OWNER_TIME_ZONE_KEY)
     this.context.systemPrompt.context({
       name: EDGE_CURRENT_DATE_CONTEXT,
       order: 100,
-      text: ({ agent }) => agent === undefined || !this.context.agents.roots().includes(agent)
-        ? ''
-        : edgeCurrentDate(new Date(), this.ownerTimeZone),
-    })
-    this.context.on('system-prompt/assemble', async (_assembly, _context, next) => {
-      const assembly = await next()
-      return { ...assembly, contexts: assembly.contexts.filter(context => context.name === EDGE_CURRENT_DATE_CONTEXT) }
+      text: ({ agent }) => agent === undefined ? '' : edgeCurrentDate(new Date(), this.ownerTimeZone),
     })
     this.mcpToolManager = installEdgeMcpServers(this.context, storage)
     this.approvalScope = installEdgeApprovalPolicy(this.context, {
