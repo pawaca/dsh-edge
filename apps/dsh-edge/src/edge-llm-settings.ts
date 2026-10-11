@@ -9,11 +9,16 @@
  * deployment's values as `base`, names the provider's fiber as that entry, and
  * commits each saved change into the references the running provider holds, as
  * the Loader does for a volatile-only update.
+ *
+ * Other providers are configured as upstream does it: `dsh-llm-pi-ai` on the
+ * `llm-pi-ai` namespace, one profile per provider route, edited on the same
+ * Models page, with each provider's API key kept by the credentials service.
  */
-import type { Context, Fiber } from '@deepseek-ai/cordis'
+import { Context, type Fiber } from '@deepseek-ai/cordis'
 import { deepEqual, updateVolatile, volatileEntries } from '@deepseek-ai/cosmokit'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
 import * as dshLlmDeepseekApiKey from '@deepseek-ai/dsh-llm-deepseek-api-key'
+import * as dshLlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { upgradeLegacyDeepSeekBaseURL } from './deepseek.ts'
 import { edgeSettings } from './edge-settings.ts'
 
@@ -52,15 +57,91 @@ export async function mountDeepSeekProvider(ctx: Context, base: Record<string, u
   scope.watch(next => commitVolatile(fiber, dshLlmDeepseekApiKey.Config(next as never)))
 }
 
+/** Upstream's Loader entry id for the pi-ai provider routes, and their settings namespace. */
+export const PI_AI_SETTINGS_NAMESPACE = 'llm-pi-ai'
+
+/**
+ * Mount upstream's pi-ai provider routes on the namespace the Models page
+ * edits. No route is configured by default. A save is refused when a route's
+ * Base URL is not an HTTP(S) URL without credentials, as DEEPSEEK_BASE_URL is,
+ * or when the provider itself cannot serve it (its Loader `internal/config`
+ * check); a section that no longer passes is dropped on start instead of
+ * failing the instance.
+ */
+export async function mountPiAiProvider(ctx: Context): Promise<Fiber> {
+  let fiber: Fiber | undefined
+  const scope = edgeSettings(ctx).register(PI_AI_SETTINGS_NAMESPACE, dshLlmPiAi.Config as never, {
+    validate: value => {
+      const { providers } = value as { providers?: Record<string, { baseURL?: unknown }> }
+      for (const [provider, profile] of Object.entries(providers ?? {})) {
+        if (typeof profile.baseURL === 'string') requireProviderBaseURL(provider, profile.baseURL)
+      }
+      if (fiber !== undefined) {
+        // The provider's own check, as the Loader runs it: on the running
+        // fiber, which its `internal/config` listener compares against.
+        const candidate = structuredClone(value)
+        fiber.ctx.waterfall(fiber.ctx.fiber, 'internal/config', candidate, () => candidate)
+      }
+    },
+    discardInvalidSection: true,
+  })
+  const stop = ctx.on('internal/plugin', (candidate) => {
+    const named = candidate as Fiber & { entry?: { options: { id: string } } }
+    if (candidate.runtime?.callback === dshLlmPiAi.apply && named.entry === undefined) {
+      named.entry = { options: { id: PI_AI_SETTINGS_NAMESPACE } }
+    }
+  })
+  try {
+    fiber = ctx.plugin(dshLlmPiAi, structuredClone(scope.get()) as never)
+  } finally {
+    stop()
+  }
+  await fiber.await()
+  const mounted = fiber
+  // Settings values are frozen, and the schema resolves the provider dict in
+  // place, so each resolution gets its own copy.
+  scope.watch(next => commitVolatile(mounted, dshLlmPiAi.Config(structuredClone(next) as never)))
+  return mounted
+}
+
+/** A provider Base URL must be HTTP(S) without credentials, as DEEPSEEK_BASE_URL must. */
+export function requireProviderBaseURL(provider: string, value: string): void {
+  let parsed: URL
+  try {
+    parsed = new URL(value)
+  } catch {
+    throw new Error(`The Base URL of provider "${provider}" must be a valid HTTP(S) URL.`)
+  }
+  if ((parsed.protocol !== 'http:' && parsed.protocol !== 'https:') || parsed.username.length > 0 || parsed.password.length > 0) {
+    throw new Error(`The Base URL of provider "${provider}" must be an HTTP(S) URL without credentials.`)
+  }
+}
+
 /**
  * Commit a parsed candidate's live values into a running fiber's references.
  * @param fiber - the provider's fiber; its parsed config holds the references the provider reads.
  * @param candidate - the same schema's parse of the new resolved settings.
  */
-export function commitVolatile(fiber: Pick<Fiber, 'config'>, candidate: unknown): void {
+export function commitVolatile(fiber: Pick<Fiber, 'config' | 'ctx'>, candidate: unknown): void {
+  const paths: (string | number)[][] = []
   for (const { path, ref } of volatileEntries(fiber.config)) {
     const source = path.reduce<unknown>((value, key) => Reflect.get(value as object, key), candidate)
-    if (!deepEqual(ref.get(), (source as typeof ref).get(), true)) updateVolatile(ref, source as typeof ref)
+    if (deepEqual(ref.get(), (source as typeof ref).get(), true)) continue
+    updateVolatile(ref, source as typeof ref)
+    paths.push([...path] as (string | number)[])
+  }
+  if (paths.length === 0) return
+  // As the Loader does after a volatile-only update: tell the plugin itself
+  // which values changed, so it can re-register what derives from them. The
+  // plugin's listeners belong to its running fiber (`fiber.ctx.fiber`), which
+  // is not the handle `ctx.plugin()` returned.
+  const owner = fiber.ctx.fiber
+  const self = Object.create(fiber.ctx) as Context
+  ;(self as unknown as Record<symbol, unknown>)[Context.filter] = (candidate: Context) => candidate.fiber === owner
+  try {
+    ;(fiber.ctx.emit as (thisArg: Context, name: string, ...args: unknown[]) => void)(self, 'loader/volatile-update', paths)
+  } catch (error) {
+    fiber.ctx.logger.warn(error)
   }
 }
 

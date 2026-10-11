@@ -3,7 +3,7 @@ import LlmRuntime from '@deepseek-ai/dsh-llm'
 import { describe, expect, it } from 'vitest'
 import { EdgeSettings, SETTINGS_DOCUMENT_KEY, edgeSettings } from '../src/edge-settings.ts'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
-import { DEEPSEEK_SETTINGS_NAMESPACE, explained, mountDeepSeekProvider } from '../src/edge-llm-settings.ts'
+import { DEEPSEEK_SETTINGS_NAMESPACE, PI_AI_SETTINGS_NAMESPACE, explained, mountDeepSeekProvider, mountPiAiProvider, requireProviderBaseURL } from '../src/edge-llm-settings.ts'
 
 function memoryStorage(): DurableObjectStorage {
   const store = new Map<string, unknown>()
@@ -104,5 +104,75 @@ describe('DeepSeek provider settings', () => {
     const settings = edgeSettings(ctx)
     await expect(settings.update(DEEPSEEK_SETTINGS_NAMESPACE, { maxTokens: 0 })).rejects.toThrow()
     expect(settings.describe().find(entry => entry.ns === DEEPSEEK_SETTINGS_NAMESPACE)?.value).toMatchObject({ maxTokens: 4096 })
+  })
+
+  it('applies a saved retry policy to the running provider route', async () => {
+    const ctx = await mounted()
+    expect(ctx.llm.providerRetryPolicy('deepseek-official')).toMatchObject({ mode: 'normal', maxRetries: 5 })
+    // The provider re-registers its route on the Loader's volatile-update notice.
+    await edgeSettings(ctx).update(DEEPSEEK_SETTINGS_NAMESPACE, { retryPolicy: { mode: 'normal', maxRetries: 2 } })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(ctx.llm.providerRetryPolicy('deepseek-official')).toMatchObject({ mode: 'normal', maxRetries: 2 })
+  })
+})
+
+async function mountedWithRoutes(storage = memoryStorage()) {
+  const ctx = new Context()
+  await ctx.plugin(LlmRuntime)
+  await ctx.plugin(EdgeSettings, { storage })
+  await mountPiAiProvider(ctx)
+  return ctx
+}
+
+const MOCK_ROUTE = {
+  displayName: 'Mock OpenAI',
+  api: 'openai-completions',
+  baseURL: 'https://llm.example.com/v1',
+  apiKeyEnv: 'MOCK_OPENAI_API_KEY',
+  models: [{ id: 'mock-gpt', name: 'Mock GPT' }],
+}
+
+describe('third-party provider routes', () => {
+  it('starts with no route and lists upstream\'s configurable providers on the Models page', async () => {
+    const ctx = await mountedWithRoutes()
+    expect(edgeSettings(ctx).describe().find(entry => entry.ns === PI_AI_SETTINGS_NAMESPACE)?.value).toEqual({ providers: {} })
+    expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual([])
+    const directory = ctx.llm.listConfigurableProviders()
+    expect(directory.length).toBeGreaterThan(10)
+    expect(directory.every(entry => entry.settingsNs === PI_AI_SETTINGS_NAMESPACE)).toBe(true)
+    expect(directory.map(entry => entry.provider)).toContain('openrouter')
+  })
+
+  it('serves a saved route without a restart and keeps it after one', async () => {
+    const storage = memoryStorage()
+    const ctx = await mountedWithRoutes(storage)
+    await edgeSettings(ctx).update(PI_AI_SETTINGS_NAMESPACE, { providers: { 'mock-openai': MOCK_ROUTE } })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(['mock-openai'])
+    expect((await ctx.llm.listModels('mock-openai')).map(model => model.id)).toEqual(['mock-gpt'])
+
+    await ctx.fiber.dispose()
+    const restarted = await mountedWithRoutes(storage)
+    expect(restarted.llm.listProviders().map(provider => provider.id)).toEqual(['mock-openai'])
+  })
+
+  it('refuses a Base URL with credentials and a route the provider cannot serve', async () => {
+    const ctx = await mountedWithRoutes()
+    const settings = edgeSettings(ctx)
+    await expect(settings.update(PI_AI_SETTINGS_NAMESPACE, { providers: { 'mock-openai': { ...MOCK_ROUTE, baseURL: 'https://user:secret@llm.example.com/v1' } } }))
+      .rejects.toThrow('without credentials')
+    // pi-ai has no catalog for this id, so without a Base URL it cannot serve it.
+    await expect(settings.update(PI_AI_SETTINGS_NAMESPACE, { providers: { 'mock-openai': { api: 'openai-completions', models: [{ id: 'mock-gpt' }] } } }))
+      .rejects.toThrow()
+    expect(settings.describe().find(entry => entry.ns === PI_AI_SETTINGS_NAMESPACE)?.value).toEqual({ providers: {} })
+    expect(ctx.llm.listProviders()).toEqual([])
+  })
+
+  it('accepts only HTTP(S) Base URLs without credentials', () => {
+    expect(() => { requireProviderBaseURL('a', 'https://openrouter.ai/api/v1') }).not.toThrow()
+    expect(() => { requireProviderBaseURL('a', 'http://gateway.internal:8080/v1?tenant=x') }).not.toThrow()
+    expect(() => { requireProviderBaseURL('a', 'ftp://example.com') }).toThrow('without credentials')
+    expect(() => { requireProviderBaseURL('a', 'https://k:@example.com') }).toThrow('without credentials')
+    expect(() => { requireProviderBaseURL('a', 'not a url') }).toThrow('valid HTTP(S) URL')
   })
 })

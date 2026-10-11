@@ -115,11 +115,19 @@ export async function startMockDeepSeek(port = 0) {
       })
       return
     }
-    if (request.method !== 'POST' || (request.url !== '/v1/messages' && request.url !== '/chat/completions')) {
+    // Model discovery for a third-party provider route (OpenAI-compatible list).
+    const pathname = new URL(request.url, 'http://mock.invalid').pathname
+    if (request.method === 'GET' && pathname === '/models') {
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.end(JSON.stringify({ object: 'list', data: [{ id: 'mock-gpt', object: 'model', owned_by: 'mock' }, { id: 'mock-gpt-mini', object: 'model', owned_by: 'mock' }] }))
+      return
+    }
+    // SDKs for third-party providers may add a query string (Anthropic's adds `?beta=true`).
+    if (request.method !== 'POST' || (pathname !== '/v1/messages' && pathname !== '/chat/completions')) {
       response.writeHead(404).end()
       return
     }
-    const legacyWire = request.url === '/chat/completions'
+    const legacyWire = pathname === '/chat/completions'
 
     let source = ''
     request.setEncoding('utf8')

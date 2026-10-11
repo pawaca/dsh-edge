@@ -5,10 +5,12 @@ packages:
 linkWorkspacePackages: false
 
 allowBuilds:
+  '@google/genai': false
   '@mongodb-js/zstd': false
   esbuild: true
   lefthook: true
   node-liblzma: false
+  protobufjs: false
   workerd: true
 
 minimumReleaseAgeExclude:
