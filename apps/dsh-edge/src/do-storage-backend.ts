@@ -118,6 +118,8 @@ class DurableObjectKvUnit implements KvUnit {
     private readonly descriptor: KvUnitDescriptor,
     /** The stamp records without a sidecar stamp inherit. */
     private readonly legacyVersion: number,
+    /** Rewrites a record before it is stored; see {@link DurableObjectStorageBackendOptions.recordBounds}. */
+    private readonly boundRecord?: EdgeRecordBound,
   ) {
     this.perRecord = descriptor.layout === 'per-record'
     this.acceptedVersions = new Set([descriptor.version, ...descriptor.compatibleVersions ?? []])
@@ -196,8 +198,9 @@ class DurableObjectKvUnit implements KvUnit {
     return { tables, global: this.isReadable(globalStamp) ? global : null }
   }
 
-  async putRecord(table: string, key: string, value: unknown): Promise<void> {
+  async putRecord(table: string, key: string, record: unknown): Promise<void> {
     this.assertOpen()
+    const value = this.boundRecord === undefined ? record : this.boundRecord(table, record)
     const active = recordKey(this.descriptor.name, table, key)
     if (!this.perRecord) {
       await this.storage.put(active, value)
@@ -264,12 +267,27 @@ class DurableObjectKvUnit implements KvUnit {
  * Durable Object `ctx.storage`. Each domain is a KV unit; all keys
  * are prefixed with `dsh-kv:` to coexist with the existing DO schema.
  */
+/** Rewrites one record of a unit before it is stored, keeping it within the Durable Object value limit. */
+export type EdgeRecordBound = (table: string, record: unknown) => unknown
+
+export interface DurableObjectStorageBackendOptions {
+  /**
+   * Per-unit record bounds, keyed by unit name. A bound may only drop data
+   * its domain can rebuild (such as a derived cache row): the stored record
+   * then differs from what the domain holds in memory until the next open.
+   */
+  readonly recordBounds?: Readonly<Record<string, EdgeRecordBound>>
+}
+
 export class DurableObjectStorageBackend implements StorageBackend {
   private readonly openUnits = new Set<string>()
 
   readonly kv: KvFacet
 
-  constructor(private readonly storage: DurableObjectStorage) {
+  constructor(
+    private readonly storage: DurableObjectStorage,
+    private readonly options: DurableObjectStorageBackendOptions = {},
+  ) {
     this.kv = {
       open: async (descriptor: KvUnitDescriptor): Promise<KvUnit> => {
         if (this.openUnits.has(descriptor.name)) {
@@ -301,7 +319,7 @@ export class DurableObjectStorageBackend implements StorageBackend {
         }
 
         this.openUnits.add(descriptor.name)
-        const unit = new DurableObjectKvUnit(this.storage, descriptor, legacyVersion)
+        const unit = new DurableObjectKvUnit(this.storage, descriptor, legacyVersion, this.options.recordBounds?.[descriptor.name])
         const originalClose = unit.close.bind(unit)
         unit.close = async () => {
           this.openUnits.delete(descriptor.name)

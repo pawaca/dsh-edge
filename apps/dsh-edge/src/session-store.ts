@@ -47,7 +47,7 @@ import SessionStore, {
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SessionProjectionCache from '@deepseek-ai/dsh-session-projection-cache'
-import { boundProjectionCacheWrites } from './edge-projection-cache.ts'
+import { boundProjectionCacheRecord, PROJECTION_CACHE_UNIT } from './edge-projection-cache.ts'
 import * as SessionStats from '@deepseek-ai/dsh-session-stats'
 import * as SessionTurnOutline from '@deepseek-ai/dsh-session-turn-outline'
 import {
@@ -368,7 +368,9 @@ export class EdgeSessionStore {
     await this.context.plugin(EdgeSettings, { storage })
     await DurableObjectStorageBackend.migrateWorkspaceKeys(storage)
     await DurableObjectStorageBackend.repairEpoch0Timestamps(storage)
-    const storageBackend = new DurableObjectStorageBackend(storage)
+    const storageBackend = new DurableObjectStorageBackend(storage, {
+      recordBounds: { [PROJECTION_CACHE_UNIT]: boundProjectionCacheRecord },
+    })
     await this.context.plugin(Storage)
     this.context.effect(() => {
       const dispose = this.context.storage.backend.register('durable-object', storageBackend)
@@ -397,15 +399,14 @@ export class EdgeSessionStore {
     // reads from the session's projections.
     await this.context.plugin(SessionStats)
     // As upstream: the turnOutline projection the Web chat view's turn list
-    // reads. Each entry is capped (about 400 bytes serialized); the cache
-    // bound above leaves the outline out of a session's cached record once it
-    // nears the Durable Object value limit, so the other projections keep saving.
+    // reads. Each entry is capped (about 400 bytes serialized); the storage
+    // backend's projection cache bound leaves the outline out of a session's
+    // cached record near the Durable Object value limit (edge-projection-cache.ts).
     await this.context.plugin(SessionTurnOutline)
     await this.context.plugin(SessionProjectionCache, {
       writeEveryEvents: 64,
       writeIntervalMs: 10_000,
     })
-    boundProjectionCacheWrites(this.context.get('sessionProjectionCache') as never)
     await this.context.plugin(TokenMeter)
     await this.context.plugin(BasicCompactionEngine)
     await this.context.plugin(ToolResultPruner)

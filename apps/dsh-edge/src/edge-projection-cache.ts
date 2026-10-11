@@ -1,16 +1,24 @@
 /**
- * Keep upstream's per-session projection cache value within the Durable
+ * Keep upstream's per-session projection cache record within the Durable
  * Object limit.
  *
  * `SessionProjectionCache` stores every projection row of a session in one
- * record, and a SQLite-backed Durable Object accepts at most 2 MB per key and
- * value. The turn outline is the only row that grows with the session (about
- * 400 bytes per turn), so past several thousand turns the whole record would
- * stop saving and every cached projection (goal, todos, stats, title) would go
- * stale. Over the budget, the outline row is left out instead: the other rows
- * stay current, cold reads serve no outline, and an activated session refolds
- * the outline from its event log, which upstream's restore does for a missing row.
+ * record of its `session_projcache` storage unit, and a SQLite-backed Durable
+ * Object accepts at most 2 MB per key and value. The turn outline is the only
+ * row that grows with the session (about 400 bytes per turn), so past several
+ * thousand turns the whole record would stop saving and every cached
+ * projection (goal, todos, stats, title) would go stale. Over the budget, the
+ * outline row is left out of the stored record instead: the other rows stay
+ * current, cold reads serve no outline, and an activated session refolds the
+ * outline from its event log, as upstream's restore does for a missing row.
+ *
+ * The bound runs in the Edge storage backend (`recordBounds`), the seam every
+ * write of the unit passes through.
  */
+
+/** Upstream's projection cache storage unit and its record table. */
+export const PROJECTION_CACHE_UNIT = 'session_projcache'
+const PROJECTION_CACHE_TABLE = 'sessions'
 
 /** Serialized-size budget for one cached record, below the 2 MB Durable Object limit. */
 export const PROJECTION_CACHE_BUDGET_BYTES = 1.5 * 1024 * 1024
@@ -32,12 +40,11 @@ export function boundProjectionCacheRows(
   return bounded
 }
 
-interface ProjectionCacheWriter {
-  put(id: unknown, identity: unknown, rows: Readonly<Record<string, unknown>>): Promise<void>
-}
-
-/** Route every cache write (soft flushes and cold-read write-backs) through {@link boundProjectionCacheRows}. */
-export function boundProjectionCacheWrites(cache: ProjectionCacheWriter): void {
-  const put = cache.put.bind(cache)
-  cache.put = (id, identity, rows) => put(id, identity, boundProjectionCacheRows(rows))
+/** The `recordBounds` entry for {@link PROJECTION_CACHE_UNIT}: bound each session record's rows. */
+export function boundProjectionCacheRecord(table: string, record: unknown): unknown {
+  if (table !== PROJECTION_CACHE_TABLE || typeof record !== 'object' || record === null) return record
+  const { rows } = record as { rows?: unknown }
+  if (typeof rows !== 'object' || rows === null) return record
+  const bounded = boundProjectionCacheRows(rows as Record<string, unknown>)
+  return bounded === rows ? record : { ...record, rows: bounded }
 }
