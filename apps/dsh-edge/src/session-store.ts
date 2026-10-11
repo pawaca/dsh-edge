@@ -249,6 +249,8 @@ function requireAttachmentBucket(bucket: R2Bucket | undefined): R2Bucket {
 /** Upstream session-list and subscription metadata derived from live or stored sessions. */
 export interface EdgeApiSessionSummary {
   id: SessionId
+  /** The stored header, whose lifecycle identity selects the session's cached projections. Not sent to clients. */
+  header: SessionHeader
   title: string | null
   createdAt: number
   lastPromptAt: number | null
@@ -1003,12 +1005,13 @@ export class EdgeSessionStore {
     return this.context.sessionProjections.snapshot(agent.session)
   }
 
-  projectionCachedSnapshot(summary: { id: SessionId; createdAt: number; cwd?: string }): { asOfSeq: number; values: Record<string, unknown> } | undefined {
+  projectionCachedSnapshot(summary: { id: SessionId; header: SessionHeader }): { asOfSeq: number; values: Record<string, unknown> } | undefined {
     const cache = this.context.get('sessionProjectionCache') as SessionProjectionCache | undefined
     if (cache === undefined) return undefined
-    const session = this.context.sessions.get(summary.id)
-    const header = session?.header ?? { id: summary.id, createdAt: summary.createdAt, ...summary.cwd === undefined ? {} : { cwd: summary.cwd } }
-    return cache.cachedSnapshot(header as never)
+    // The cache matches a record to its session by the header's lifecycle
+    // identity (format version, creation, cwd, seeding), so it needs the whole
+    // stored header; a partial one never matches a cold session.
+    return cache.cachedSnapshot(this.context.sessions.get(summary.id)?.header ?? summary.header)
   }
 
 
@@ -2840,6 +2843,7 @@ function summarizeApiLive(
     event.type === 'user/message' && event.data.source.kind === 'user')
   return {
     id: header.id,
+    header,
     title: foldSessionTitle(events)?.title ?? null,
     createdAt: header.createdAt,
     lastPromptAt: prompt?.time ?? null,
@@ -2892,6 +2896,7 @@ function summarizeApiStored(stored: {
 }): EdgeApiSessionSummary {
   return {
     id: stored.meta.id,
+    header: stored.meta,
     title: stored.titleEvent === undefined
       ? null
       : foldSessionTitle([stored.titleEvent])?.title ?? null,

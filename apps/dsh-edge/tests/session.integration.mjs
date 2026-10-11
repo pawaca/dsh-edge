@@ -1210,7 +1210,10 @@ try {
   const restoredBlank = restoredBlankList.body.result.value.items
     .find(item => item.sessionId === protocolSessionId)
   assert.equal(restoredBlank.blank, true)
-  assert.equal(restoredBlank.projections.asOfSeq, protocolSummary.projections.asOfSeq)
+  // A cold session lists its cached projections (#313); the cache's own
+  // watermark may lag the log but never leads it.
+  assert.equal(restoredBlank.projections.kind, 'cached', JSON.stringify(restoredBlank.projections))
+  assert.ok(restoredBlank.projections.asOfSeq <= protocolSummary.projections.asOfSeq, JSON.stringify(restoredBlank.projections))
   const restoredSessionModels = await rpc('session.models', { sessionId: protocolSessionId })
   assert.deepEqual(restoredSessionModels.body.result.value.current, {
     provider: 'deepseek-official',
@@ -2496,6 +2499,10 @@ try {
   // parent's durable completed turns, and a message resumes the child.
   await worker.stop()
   worker = await startWorker()
+  // A session no agent has loaded yet lists its cached projections (#313).
+  const coldParent = (await rpc('session.list', {})).body.result.value.items.find(item => item.sessionId === bgParent)
+  assert.equal(coldParent.projections.kind, 'cached', JSON.stringify(coldParent.projections))
+  assert.ok(coldParent.projections.values.sessionStats?.turns >= 2, JSON.stringify(coldParent.projections.values.sessionStats))
   const forkedChild = resultOf(await turn(bgParent, 'fork a subagent'), 'call_bg_fork')
   assert.equal(forkedChild?.data.message.isError, false, toolResultText(forkedChild))
   assert.equal(await workspaceFile('/workspace/bg-child-three.txt'), 'three')
