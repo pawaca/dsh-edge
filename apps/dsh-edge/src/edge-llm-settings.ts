@@ -72,9 +72,10 @@ export async function mountPiAiProvider(ctx: Context): Promise<Fiber> {
   let fiber: Fiber | undefined
   const scope = edgeSettings(ctx).register(PI_AI_SETTINGS_NAMESPACE, dshLlmPiAi.Config as never, {
     validate: value => {
-      const { providers } = value as { providers?: Record<string, { baseURL?: unknown }> }
+      const { providers } = value as { providers?: Record<string, { baseURL?: unknown, headers?: Record<string, unknown> }> }
       for (const [provider, profile] of Object.entries(providers ?? {})) {
         if (typeof profile.baseURL === 'string') requireProviderBaseURL(provider, profile.baseURL)
+        requireNonCredentialHeaders(provider, profile.headers)
       }
       if (fiber !== undefined) {
         // The provider's own check, as the Loader runs it: on the running
@@ -102,6 +103,23 @@ export async function mountPiAiProvider(ctx: Context): Promise<Fiber> {
   // place, so each resolution gets its own copy.
   scope.watch(next => commitVolatile(mounted, dshLlmPiAi.Config(structuredClone(next) as never)))
   return mounted
+}
+
+/**
+ * Header names that carry a credential. The settings document is stored and
+ * described in plain text, while credentials belong to the credentials service
+ * (a route's `apiKeyEnv`, which the provider sends as its Authorization or
+ * `x-api-key` header), so a route may not carry one in `headers`.
+ */
+const CREDENTIAL_HEADER = /^(authorization|proxy-authorization|cookie)$|auth|key|token|secret|passw|session|signature/iu
+
+/** Refuse a route header that would keep a credential in the settings document. */
+export function requireNonCredentialHeaders(provider: string, headers: Record<string, unknown> | undefined): void {
+  for (const name of Object.keys(headers ?? {})) {
+    if (CREDENTIAL_HEADER.test(name)) {
+      throw new Error(`The header "${name}" of provider "${provider}" looks like a credential; enter the provider's API key in its key field instead, which keeps it out of the settings.`)
+    }
+  }
 }
 
 /** A provider Base URL must be HTTP(S) without credentials, as DEEPSEEK_BASE_URL must. */
