@@ -117,6 +117,13 @@ const index = await readFile(join(webRoot, 'index.html'), 'utf8')
 if (!index.includes('window.__ModuleLoader__=')) {
   throw new Error('Standalone Web shell omitted the upstream module-loader bootstrap facade.')
 }
+// Workers Static Assets serves the shell without a charset, so the browser
+// must find the declaration in the first 1024 bytes, or it decodes the page
+// and its classic plugin scripts as Windows-1252.
+const charsetOffset = Buffer.from(index, 'utf8').indexOf('<meta charset="utf-8"')
+if (charsetOffset < 0 || charsetOffset + 64 > 1024) {
+  throw new Error(`Standalone Web shell declares its charset at byte ${String(charsetOffset)}; it must be within the first 1024 bytes.`)
+}
 if (!OWNER_HOST_DECLARATION.test(index)) {
   throw new Error('Standalone Web shell does not declare the browser transport as host-owning (__DSH_TRANSPORT__.ownsHost).')
 }
