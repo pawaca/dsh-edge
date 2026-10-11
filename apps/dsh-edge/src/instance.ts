@@ -1397,10 +1397,14 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
           ? await this.withSubagentPrompt(args, invoke)
         // Session feedback appends to the session, which may be cold, and
         // upstream does not flush that append; the Edge persists it at once.
+        // Once appended it is recorded: a failed flush leaves it to the next
+        // save rather than inviting a duplicate resubmission.
         : ns === 'sessionFeedback' && method === 'record' && typeof feedbackSessionId(args) === 'string'
           ? await this.withAgentControl(SessionId(feedbackSessionId(args)!), async () => {
             const recorded = await invoke()
-            await this.sessions.flushLiveSession(SessionId(feedbackSessionId(args)!))
+            await this.sessions.flushLiveSession(SessionId(feedbackSessionId(args)!)).catch((error: unknown) => {
+              console.error('dsh-edge: session feedback stays queued for the next save.', error)
+            })
             return recorded
           })
         : typeof args.agentId === 'string'
