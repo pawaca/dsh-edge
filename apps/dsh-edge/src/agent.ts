@@ -279,5 +279,7 @@ function formatExecution(result: Omit<EdgeShellResult, 'executionId'>): string {
   const detached = result.detached === true
     ? '\n[cancelled; the shell had not stopped the command yet, so it may still finish in the background]'
     : ''
-  return output + truncated + timedOut + suffix + where + detached || '(no output)'
+  // The exit status comes last, as upstream's bash tool writes it: the Web
+  // client reads it only from the final line and shows a failure without it.
+  return output + truncated + timedOut + where + detached + suffix || '(no output)'
 }

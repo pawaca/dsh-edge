@@ -207,6 +207,14 @@ describe('dsh-edge native agent runtime', () => {
     expect(render({ exitCode: 127, runtime: 'container' })).not.toContain('rerun with linux')
     expect(render({ exitCode: 0, status: 'completed', stdout: 'ok', runtime: 'container', queuedMs: 3_000 }))
       .toContain('[ran in the Linux container after waiting 3s for a free slot]')
+    // The Web client (dsh-client-ui-tool parseExitStatus) reads the exit code
+    // only from the final line, so every note comes before it.
+    const clientExitCode = (text: string) => /\n\[exit code: (\d+)\]$/u.exec(text)?.[1]
+    expect(clientExitCode(render({ exitCode: 2, stderr: 'boom\n', runtime: 'container' }))).toBe('2')
+    expect(clientExitCode(render({ exitCode: 2, runtime: 'container', retriedFromLight: true, queuedMs: 3_000 }))).toBe('2')
+    expect(clientExitCode(render({ exitCode: 127, runtime: 'light', lightShellMiss: true }))).toBe('127')
+    expect(clientExitCode(render({ exitCode: 130, runtime: 'container', detached: true }))).toBe('130')
+    expect(clientExitCode(render({ exitCode: 0, status: 'completed', stdout: 'ok', runtime: 'container' }))).toBeUndefined()
     expect(properties(createEdgeBashTool(shells, 'just-bash-isolated'))).not.toContain('linux')
     const container = edgeSystemPrompt('linux-container')
     expect(container).toContain('Commands start in just-bash')

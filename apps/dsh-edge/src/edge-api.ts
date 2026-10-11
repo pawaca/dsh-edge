@@ -680,7 +680,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
           }
           if (error instanceof EdgeSessionStoreError && error.code === 'PRESET_LOCKED') {
             return fail(request, {
-              code: 'agent-preset-locked',
+              code: 'agent-preset/locked',
               message: error.message,
               details: { sessionId: agentId, agentPreset },
             })
@@ -1147,7 +1147,7 @@ function presetNotFound<P, T>(
   available: readonly string[],
 ): RpcResponse<T> {
   return fail(request, {
-    code: 'agent-preset-not-found',
+    code: 'agent-preset/not-found',
     message: `Agent preset "${agentPreset}" is not available in this Edge instance.`,
     details: { agentPreset, available: [...available] },
   })
