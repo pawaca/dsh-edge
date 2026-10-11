@@ -1,2 +1,3 @@
-export function parseWranglerGzipBytes(output: string): number
-export function requireGzipBudget(output: string, maxBytes: number): number
+export const WORKER_SIZE_LIMIT_BYTES: number
+export function parseWranglerUploadSizes(output: string): { bytes: number, gzipBytes: number }
+export function requireWorkerSizeLimit(output: string, maxBytes?: number): { bytes: number, gzipBytes: number }

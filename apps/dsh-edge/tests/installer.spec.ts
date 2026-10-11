@@ -37,7 +37,8 @@ import {
   wranglerDeployArgs,
   wranglerProcessInvocation,
 } from '../scripts/install.mjs'
-import { parseWranglerGzipBytes, requireGzipBudget } from '../scripts/bundle-size.mjs'
+import { parseWranglerUploadSizes, requireWorkerSizeLimit, WORKER_SIZE_LIMIT_BYTES } from '../scripts/bundle-size.mjs'
+import { profileDurationMs, STARTUP_BUDGET_MS } from '../scripts/check-startup.mjs'
 import {
   renderPrebuiltModeWranglerConfig,
   containerImageReference,
@@ -515,14 +516,24 @@ describe('dsh-edge installer primitives', () => {
     }), { appDirectory: '/app', assetsDirectory: '' })).toThrow('non-empty')
   })
 
-  it('enforces the direct Worker compressed-size budget', () => {
+  it('enforces Cloudflare\'s uncompressed Worker size limit, reporting gzip for reference', () => {
     const output = 'Total Upload: 2148.37 KiB / gzip: 592.39 KiB'
-    expect(parseWranglerGzipBytes(output)).toBe(Math.ceil(592.39 * 1024))
-    expect(requireGzipBudget(output, 900 * 1024)).toBe(Math.ceil(592.39 * 1024))
-    expect(() => requireGzipBudget(
-      'Total Upload: 3913.70 KiB / gzip: 1004.80 KiB',
-      900 * 1024,
-    )).toThrow('exceeds')
+    const sizes = { bytes: Math.ceil(2148.37 * 1024), gzipBytes: Math.ceil(592.39 * 1024) }
+    expect(parseWranglerUploadSizes(output)).toEqual(sizes)
+    expect(requireWorkerSizeLimit(output)).toEqual(sizes)
+    expect(WORKER_SIZE_LIMIT_BYTES).toBe(64 * 1024 * 1024)
+    // A large compressed size alone never fails: only the uncompressed size counts.
+    expect(requireWorkerSizeLimit('Total Upload: 9.50 MiB / gzip: 4.10 MiB').bytes).toBe(Math.ceil(9.5 * 1024 * 1024))
+    expect(() => requireWorkerSizeLimit('Total Upload: 65.00 MiB / gzip: 12.00 MiB')).toThrow('exceeds')
+    expect(() => requireWorkerSizeLimit('Total Upload: 3913.70 KiB / gzip: 1004.80 KiB', 900 * 1024)).toThrow('exceeds')
+    expect(() => parseWranglerUploadSizes('no size here')).toThrow('upload size')
+  })
+
+  it('reads the startup duration from a Worker startup profile, under Cloudflare\'s 1 s limit', () => {
+    expect(profileDurationMs({ startTime: 1_000_000, endTime: 1_152_500 })).toBe(152.5)
+    expect(STARTUP_BUDGET_MS).toBeLessThan(1000)
+    expect(() => profileDurationMs({ startTime: 5, endTime: 1 })).toThrow('valid start and end')
+    expect(() => profileDurationMs({})).toThrow('valid start and end')
   })
 
   it('parses structured deployment metadata and the temporary claim URL', () => {

@@ -252,7 +252,7 @@ Direct mode is lighter isolation than a separate Worker; do not expose the singl
 - Isolated preserves that shell core and replaces the unreachable Direct backend with a fail-closed module. Each artifact therefore carries only its selected command runtime.
 - The installer generates a private mode-specific config, points it at the selected artifact, and uploads with `no_bundle`. The user's machine does not rebuild dsh-edge or resolve Harness packages into a new Worker.
 - Container mode deploys the isolated artifact with `docker.io/pawaca/dsh-edge-computer:<version>`, which the release workflow builds from `container/Dockerfile` and pushes once per version before npm publication. Installing it needs no local Docker; `pnpm dev:container` and `pnpm test:container` build the Dockerfile locally and do.
-- CI starts the Direct artifact from an installed tarball and rejects gzip output above 900 KiB, preserving headroom below the 1 MiB anonymous temporary-account limit.
+- CI starts the Direct artifact from an installed tarball. Bundling rejects a Worker above Cloudflare's 64 MiB uncompressed limit (Cloudflare has no compressed-size limit, temporary accounts included), and CI profiles each artifact's startup against Cloudflare's 1 s startup limit.
 
 ### Install and upgrade
 
@@ -304,7 +304,7 @@ The installer asks in this order: account, Worker name, then what to change. Eve
 - If upload succeeds but handoff fails, a recovery card prints the active owner key and all known URLs before the command exits unsuccessfully.
 - Installation uploads directly through Wrangler; it does not create or bind a GitHub repository, Cloudflare Builds project, or source-build pipeline.
 
-Contributors working from a checkout can reproduce the two release artifacts locally with `pnpm --filter dsh-edge bundle:direct` and `pnpm --filter dsh-edge bundle:isolated`. The first command also enforces the compressed-size budget.
+Contributors working from a checkout can reproduce the two release artifacts locally with `pnpm --filter dsh-edge bundle:direct` and `pnpm --filter dsh-edge bundle:isolated`. Both commands enforce Cloudflare's 64 MiB uncompressed Worker size limit (Cloudflare has no compressed-size limit), and `pnpm --filter dsh-edge check:startup` profiles the promoted artifacts' startup against Cloudflare's 1 s startup limit.
 
 Contributors can replay the complete Free temporary-account journey without a key or network call. This example runs the shipped bin, real prompts, Wrangler subprocess, structured deployment-output parsing, public-activation observation, and final handoff while replacing the external Cloudflare boundaries:
 
