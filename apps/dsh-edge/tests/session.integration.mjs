@@ -2526,6 +2526,61 @@ try {
   assert.equal(resultOf(await turn(selecting, 'list subagent models'), 'call_model_list')?.data.message.isError, false)
   assert.equal((await policyEvents(selecting)).length, 1)
   assert.equal((await rpc('settings.update', { ns: selectionNs, patch: { enabled: false, allowedModels: [] } })).body.result.ok, true)
+  // Third-party providers, as upstream's Models page configures them through
+  // dsh-llm-pi-ai: a draft endpoint lists its models, a saved route serves
+  // turns at once over its own protocol with its key from the credentials
+  // service, the latest pick becomes the new-session default, and both the
+  // routes and keys survive a restart.
+  const piAiNs = 'llm-pi-ai'
+  const piAiDescribed = (await rpc('settings.describe', {})).body.result.value.namespaces.find(entry => entry.ns === piAiNs)
+  assert.deepEqual(piAiDescribed?.value, { providers: {} })
+  const directory = (await typertRpc('llm', 'listConfigurableProviders', {})).body.result
+  assert.equal(directory.ok, true, JSON.stringify(directory))
+  assert.ok(directory.value.some(entry => entry.provider === 'openrouter' && entry.settingsNs === piAiNs), JSON.stringify(directory.value.slice(0, 3)))
+  const draft = (await typertRpc('llm', 'discoverModels', { settingsNs: piAiNs, request: { baseURL: mock.url, api: 'openai-completions', apiKey: 'sk-draft-0123456789' } })).body.result
+  assert.deepEqual(draft.value?.map(model => model.id), ['mock-gpt', 'mock-gpt-mini'], JSON.stringify(draft))
+  const routes = {
+    'mock-openai': { displayName: 'Mock OpenAI', api: 'openai-completions', baseURL: mock.url, apiKeyEnv: 'MOCK_OPENAI_API_KEY', models: [{ id: 'mock-gpt', name: 'Mock GPT' }] },
+    'mock-anthropic': { displayName: 'Mock Anthropic', api: 'anthropic-messages', baseURL: mock.url, apiKeyEnv: 'MOCK_ANTHROPIC_API_KEY', models: [{ id: 'mock-claude', name: 'Mock Claude' }] },
+  }
+  const credentialedRoute = await rpc('settings.update', { ns: piAiNs, patch: { providers: { 'mock-openai': { ...routes['mock-openai'], baseURL: 'https://user:secret@llm.example.com/v1' } } } })
+  assert.equal(credentialedRoute.body.result.ok, false)
+  assert.match(credentialedRoute.body.result.error.message, /without credentials/u)
+  assert.equal((await rpc('settings.update', { ns: piAiNs, patch: { providers: routes } })).body.result.ok, true)
+  for (const ref of ['MOCK_OPENAI_API_KEY', 'MOCK_ANTHROPIC_API_KEY']) {
+    assert.equal((await rpc('credentials.set', { ref, value: `sk-${ref.toLowerCase()}-0123456789` })).body.result.ok, true)
+  }
+  const liveProviders = (await typertRpc('llm', 'listProviders', {})).body.result.value.map(provider => provider.id)
+  assert.deepEqual(liveProviders, ['deepseek-official', 'mock-openai', 'mock-anthropic'])
+  const runOn = async (sessionId, provider, model) => {
+    const before = (await (await fetch(`${mock.url}/requests`)).json()).length
+    const events = await turn(sessionId, 'hello')
+    const sent = (await (await fetch(`${mock.url}/requests`)).json()).slice(before).map(body => body.model)
+    assert.equal(events.find(event => event.type === 'turn/end')?.data.reason.kind, 'completed', JSON.stringify(events.find(event => event.type === 'turn/end')?.data))
+    assert.deepEqual(events.find(event => event.type === 'request/header')?.data.header.config, { provider, model })
+    assert.ok(sent.includes(model), JSON.stringify(sent))
+  }
+  const routeSessions = {}
+  for (const [provider, model] of [['mock-openai', 'mock-gpt'], ['mock-anthropic', 'mock-claude']]) {
+    const sessionId = (await rpc('session.create', {})).body.result.value.sessionId
+    assert.equal((await rpc('session.selectModel', { sessionId, provider, model })).body.result.ok, true)
+    await runOn(sessionId, provider, model)
+    routeSessions[provider] = sessionId
+  }
+  // A subagent runs on its parent's third-party route.
+  const thirdPartyDelegation = await turn(routeSessions['mock-openai'], 'delegate to a subagent please')
+  assert.equal(thirdPartyDelegation.find(event => event.type === 'turn/end')?.data.reason.kind, 'completed')
+  const thirdPartyChild = (await rpc('session.list', {})).body.result.value.items.find(item => item.parentSessionId === routeSessions['mock-openai'])
+  const thirdPartyChildHeader = (await sessionEvents(thirdPartyChild?.sessionId)).find(event => event.type === 'request/header')
+  assert.deepEqual(thirdPartyChildHeader?.data.header.config, { provider: 'mock-openai', model: 'mock-gpt' })
+  // As upstream, the latest pick is the new-session default.
+  await runOn((await rpc('session.create', {})).body.result.value.sessionId, 'mock-anthropic', 'mock-claude')
+  await worker.stop()
+  worker = await startWorker()
+  await runOn(routeSessions['mock-openai'], 'mock-openai', 'mock-gpt')
+  // Leave DeepSeek as the default for anything after this.
+  const resetDefault = (await rpc('session.create', {})).body.result.value.sessionId
+  assert.equal((await rpc('session.selectModel', { sessionId: resetDefault, provider: 'deepseek-official', model: 'deepseek-flash' })).body.result.ok, true)
   process.stdout.write(`dsh-edge ${runtimeMode} session integration passed\n`)
 } finally {
   mock.releaseSlowResponses()

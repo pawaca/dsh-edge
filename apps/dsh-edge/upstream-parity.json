@@ -133,10 +133,6 @@
       "status": "declined",
       "reason": "DeepSeek account sign-in; the Edge authenticates with the deployment API key."
     },
-    "@deepseek-ai/dsh-llm-pi-ai": {
-      "status": "not-applicable",
-      "reason": "Upstream design-verification adapter; the Edge uses dsh-llm-deepseek."
-    },
     "@deepseek-ai/dsh-mcp-resources": {
       "status": "gap",
       "priority": "P2",

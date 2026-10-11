@@ -3,7 +3,7 @@ import LlmRuntime from '@deepseek-ai/dsh-llm'
 import { describe, expect, it } from 'vitest'
 import { EdgeSettings, SETTINGS_DOCUMENT_KEY, edgeSettings } from '../src/edge-settings.ts'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
-import { DEEPSEEK_SETTINGS_NAMESPACE, explained, mountDeepSeekProvider } from '../src/edge-llm-settings.ts'
+import { DEEPSEEK_SETTINGS_NAMESPACE, PI_AI_SETTINGS_NAMESPACE, explained, mountDeepSeekProvider, mountPiAiProvider, requireAllowedHeaders, requireProviderBaseURL, requireRouteCredentialName } from '../src/edge-llm-settings.ts'
 
 function memoryStorage(): DurableObjectStorage {
   const store = new Map<string, unknown>()
@@ -104,5 +104,120 @@ describe('DeepSeek provider settings', () => {
     const settings = edgeSettings(ctx)
     await expect(settings.update(DEEPSEEK_SETTINGS_NAMESPACE, { maxTokens: 0 })).rejects.toThrow()
     expect(settings.describe().find(entry => entry.ns === DEEPSEEK_SETTINGS_NAMESPACE)?.value).toMatchObject({ maxTokens: 4096 })
+  })
+
+  it('applies a saved retry policy to the running provider route', async () => {
+    const ctx = await mounted()
+    expect(ctx.llm.providerRetryPolicy('deepseek-official')).toMatchObject({ mode: 'normal', maxRetries: 5 })
+    // The provider re-registers its route on the Loader's volatile-update notice.
+    await edgeSettings(ctx).update(DEEPSEEK_SETTINGS_NAMESPACE, { retryPolicy: { mode: 'normal', maxRetries: 2 } })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(ctx.llm.providerRetryPolicy('deepseek-official')).toMatchObject({ mode: 'normal', maxRetries: 2 })
+  })
+})
+
+async function mountedWithRoutes(storage = memoryStorage()) {
+  const ctx = new Context()
+  await ctx.plugin(LlmRuntime)
+  await ctx.plugin(EdgeSettings, { storage })
+  await mountPiAiProvider(ctx)
+  return ctx
+}
+
+const MOCK_ROUTE = {
+  displayName: 'Mock OpenAI',
+  api: 'openai-completions',
+  baseURL: 'https://llm.example.com/v1',
+  apiKeyEnv: 'MOCK_OPENAI_API_KEY',
+  models: [{ id: 'mock-gpt', name: 'Mock GPT' }],
+}
+
+describe('third-party provider routes', () => {
+  it('starts with no route and lists upstream\'s configurable providers on the Models page', async () => {
+    const ctx = await mountedWithRoutes()
+    expect(edgeSettings(ctx).describe().find(entry => entry.ns === PI_AI_SETTINGS_NAMESPACE)?.value).toEqual({ providers: {} })
+    expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual([])
+    const directory = ctx.llm.listConfigurableProviders()
+    expect(directory.length).toBeGreaterThan(10)
+    expect(directory.every(entry => entry.settingsNs === PI_AI_SETTINGS_NAMESPACE)).toBe(true)
+    expect(directory.map(entry => entry.provider)).toContain('openrouter')
+  })
+
+  it('serves a saved route without a restart and keeps it after one', async () => {
+    const storage = memoryStorage()
+    const ctx = await mountedWithRoutes(storage)
+    await edgeSettings(ctx).update(PI_AI_SETTINGS_NAMESPACE, { providers: { 'mock-openai': MOCK_ROUTE } })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(['mock-openai'])
+    expect((await ctx.llm.listModels('mock-openai')).map(model => model.id)).toEqual(['mock-gpt'])
+
+    await ctx.fiber.dispose()
+    const restarted = await mountedWithRoutes(storage)
+    expect(restarted.llm.listProviders().map(provider => provider.id)).toEqual(['mock-openai'])
+  })
+
+  it('refuses a Base URL with credentials and a route the provider cannot serve', async () => {
+    const ctx = await mountedWithRoutes()
+    const settings = edgeSettings(ctx)
+    await expect(settings.update(PI_AI_SETTINGS_NAMESPACE, { providers: { 'mock-openai': { ...MOCK_ROUTE, baseURL: 'https://user:secret@llm.example.com/v1' } } }))
+      .rejects.toThrow('without credentials')
+    // pi-ai has no catalog for this id, so without a Base URL it cannot serve it.
+    await expect(settings.update(PI_AI_SETTINGS_NAMESPACE, { providers: { 'mock-openai': { api: 'openai-completions', models: [{ id: 'mock-gpt' }] } } }))
+      .rejects.toThrow()
+    expect(settings.describe().find(entry => entry.ns === PI_AI_SETTINGS_NAMESPACE)?.value).toEqual({ providers: {} })
+    expect(ctx.llm.listProviders()).toEqual([])
+  })
+
+  it('keeps credentials out of route headers and reserved key names', async () => {
+    const ctx = await mountedWithRoutes()
+    const settings = edgeSettings(ctx)
+    // Any header outside the allowlist is refused, whatever its name suggests.
+    for (const name of ['Authorization', 'x-api-key', 'cf-aig-authorization', 'X-Credential', 'Cookie']) {
+      await expect(settings.update(PI_AI_SETTINGS_NAMESPACE, { providers: { 'mock-openai': { ...MOCK_ROUTE, headers: { [name]: 'Bearer sk-secret' } } } }))
+        .rejects.toThrow('may not send the header')
+    }
+    // A third-party route may not read DeepSeek's key or another feature's credential.
+    for (const apiKeyEnv of ['DEEPSEEK_API_KEY', 'MCP_TOKEN_GITHUB', 'DSH_EDGE_ACCESS_KEY']) {
+      await expect(settings.update(PI_AI_SETTINGS_NAMESPACE, { providers: { 'mock-openai': { ...MOCK_ROUTE, apiKeyEnv } } }))
+        .rejects.toThrow('belongs to DeepSeek or another Edge feature')
+    }
+    // Nor omit its key name, which would make pi-ai look in the deployment's environment.
+    const { apiKeyEnv: _omitted, ...withoutKeyName } = MOCK_ROUTE
+    await expect(settings.update(PI_AI_SETTINGS_NAMESPACE, { providers: { 'mock-openai': withoutKeyName } }))
+      .rejects.toThrow('needs its own API key name')
+    expect(settings.describe().find(entry => entry.ns === PI_AI_SETTINGS_NAMESPACE)?.value).toEqual({ providers: {} })
+    // OpenRouter's attribution headers and a route's own key name stay allowed.
+    await settings.update(PI_AI_SETTINGS_NAMESPACE, { providers: { 'mock-openai': { ...MOCK_ROUTE, headers: { 'HTTP-Referer': 'https://edge.example.com', 'X-Title': 'dsh-edge' } } } })
+    expect(() => { requireAllowedHeaders('a', undefined) }).not.toThrow()
+    expect(() => { requireRouteCredentialName('a', 'OPENROUTER_API_KEY') }).not.toThrow()
+    expect(() => { requireRouteCredentialName('a', '') }).toThrow('needs its own API key name')
+  })
+
+  it('refuses a route id another provider already serves', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(EdgeSettings, { storage: memoryStorage() })
+    await mountDeepSeekProvider(ctx, { baseURL: 'https://api.deepseek.com/anthropic', maxTokens: 4096 })
+    await mountPiAiProvider(ctx)
+    const settings = edgeSettings(ctx)
+    await expect(settings.update(PI_AI_SETTINGS_NAMESPACE, { providers: { 'deepseek-official': MOCK_ROUTE } }))
+      .rejects.toThrow('already served by another model provider')
+    // A route this namespace already serves can still be edited.
+    await settings.update(PI_AI_SETTINGS_NAMESPACE, { providers: { 'mock-openai': MOCK_ROUTE } })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    await settings.update(PI_AI_SETTINGS_NAMESPACE, { providers: { 'mock-openai': { ...MOCK_ROUTE, displayName: 'Renamed' } } })
+    expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(['deepseek-official', 'mock-openai'])
+  })
+
+  it('accepts only HTTP(S) Base URLs without credentials', () => {
+    expect(() => { requireProviderBaseURL('a', 'https://openrouter.ai/api/v1') }).not.toThrow()
+    expect(() => { requireProviderBaseURL('a', 'http://gateway.internal:8080/v1') }).not.toThrow()
+    expect(() => { requireProviderBaseURL('a', 'ftp://example.com') }).toThrow('without credentials')
+    expect(() => { requireProviderBaseURL('a', 'https://k:@example.com') }).toThrow('without credentials')
+    // A signed gateway URL keeps its token in the query or fragment.
+    expect(() => { requireProviderBaseURL('a', 'https://gateway.example/v1?token=secret') }).toThrow('a query, or a fragment')
+    expect(() => { requireProviderBaseURL('a', 'https://gateway.example/v1#secret') }).toThrow('a query, or a fragment')
+    expect(() => { requireProviderBaseURL('a', 'https://gateway.example/v1?') }).toThrow('a query, or a fragment')
+    expect(() => { requireProviderBaseURL('a', 'not a url') }).toThrow('valid HTTP(S) URL')
   })
 })

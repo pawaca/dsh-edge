@@ -140,7 +140,7 @@ curl -b /tmp/dsh-edge-cookie -N -X POST -H 'content-type: application/json' \
 | --- | --- | --- | --- |
 | DeepSeek transport | Fetch、SSE 解析、wire translation 和 retry metadata | 复用 | 每个请求构造一个上游 `DeepSeekAdapter`；其兼容的 Node API 由 `nodejs_compat` 提供。 |
 | Provider attribution | 用 Node `createRequire` 加载 package version | 完成可移植修复后复用 | 静态导入 package metadata，让 bundler 保留同一个版本来源，运行时不再依赖 `import.meta.url`。 |
-| LLM protocol | DSH messages、content blocks、stream chunks、tool calls、usage 和 finish reasons | 复用 | 由上游 `LlmRuntime` 和 `ReactLoopAgent` 组装、流式处理并记录 model exchange。 |
+| LLM protocol | DSH messages、content blocks、stream chunks、tool calls、usage 和 finish reasons | 复用 | 由上游 `LlmRuntime` 和 `ReactLoopAgent` 组装、流式处理并记录 model exchange。 DeepSeek 由 `dsh-llm-deepseek-api-key`（`llm-deepseek`）提供。其他服务商与上游一样在"设置 → Models"页面添加，通过 `dsh-llm-pi-ai`（`llm-pi-ai`）接入：支持 OpenAI chat completions、OpenAI responses 和 Anthropic messages 协议，Base URL 可以是任意不带账号密码、查询参数或片段的 HTTP(S) 地址（OpenRouter、Cloudflare Workers AI 或 AI Gateway、自建网关），并可从端点发现模型。保存的路由无需重启即可用于对话，可以在模型菜单中选择，可以作为新会话的默认模型，也可以给子 agent 使用。依赖本地登录或读取本地凭据文件的服务商（GitHub Copilot、OpenAI Codex，以及通过本地凭据使用的 Amazon Bedrock 或 Google Vertex）不提供。 |
 | Agent loop | 由 Cordis 组合、带 hooks、guards、sessions 和 tools 的 `ReactLoopAgent` | 复用 | 通过 `AgentRegistry` 创建和冷恢复 agent。上下文压缩、token 计量、工具结果修剪、自动 session 标题生成、重复工具调用提醒（连续 3、5、8 次完全相同的调用时提醒）、模型请求重试（遇到限流、服务端错误、超时、网络错误或空响应时，在同一轮内最多重试 5 次，等待 0.5–10 秒，或按服务端的 `Retry-After`），以及持久化检查点（每次模型请求、每次顶层工具调用和每一步之前先保存 session 日志），作为上游 cordis 插件运行。上游的 `/compact` 命令（`dsh-command-compact`）按需压缩会话历史。 |
 | Bash tool | Node subprocess、sandbox、terminal 和 job services | 在原生 tool seam 上适配 | 注册上游 `ToolDefinition`，但通过配置的 Computer workspace backend 和 just-bash 执行其 body。默认 direct backend 在 owner Durable Object 内运行，启用 hardened interpreter limits 且不提供网络命令；添加 `LOADER` binding 后会选择 Computer 的 isolated Worker Shell backend。原生 tool cancellation 会通过 Computer execution handle 发送 `SIGINT`。部署配置提供明确的默认 timeout 与调用方可选值上限，`timedOut` 则独立于 exit 与 cancellation status 报告 deadline。不支持原生二进制、后台进程、PTY 和任意 Linux 行为。 |
 | Workspace filesystem | 本地 filesystem services 和 host paths | 适配 | 在 owner 基于 SQLite 的 Durable Object VFS 中保存 `/workspace`。 |
@@ -209,6 +209,8 @@ Cloudflare static assets -> upstream Web shell + client plugin graph
 ## API key 边界
 
 `DEEPSEEK_API_KEY` 可以在部署时作为 Worker secret 设置，也可以之后通过 Settings → Models 页面输入。Edge credential provider 先查 Durable Object KV，再降级到 Worker 环境变量；解析值保持请求级作用域，绝不写入 session event 或 response。首尾空白会被移除；空白值视为未配置。
+
+其他服务商的 API key 也在同一个 Models 页面填写，按该服务商路由所指定的凭据名（例如 `OPENROUTER_API_KEY`）存入 Durable Object KV。这些 key 不从 Worker 变量读取：只有 `DEEPSEEK_API_KEY` 为了兼容 Models 页面出现之前的部署而保留这一兜底。路由的附加请求头以明文存在设置文档里，所以只接受不会携带密钥的请求头：`HTTP-Referer`、`Referer`、`X-Title`、`OpenAI-Organization`、`OpenAI-Project` 和 `anthropic-beta`。需要第二个认证头的网关（例如开启认证的 Cloudflare AI Gateway 所需的 `cf-aig-authorization`）暂时无法配置。路由的 key 名不能使用属于 DeepSeek 或其他 Edge 功能的名字（`DEEPSEEK_*`、`MCP_TOKEN_*`、`DSH_EDGE_*`），因此部署的 DeepSeek 密钥不会被发到其他地址。每个路由都必须有自己的 key 名：没有的话，pi-ai 会到进程环境里找 key，而 Workers 会把部署的 secret 暴露在那里。
 
 | 变量 | 用途与校验 |
 | --- | --- |

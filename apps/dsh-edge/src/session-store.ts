@@ -109,7 +109,7 @@ import {
   type EdgeShell,
 } from './agent.ts'
 import { DeepSeekFileStore } from '@deepseek-ai/dsh-llm-deepseek'
-import { mountDeepSeekProvider } from './edge-llm-settings.ts'
+import { mountDeepSeekProvider, mountPiAiProvider } from './edge-llm-settings.ts'
 import { DurableObjectUploadIndex } from './do-upload-index.ts'
 import {
   EdgeDoAttachmentStore,
@@ -379,6 +379,12 @@ export class EdgeSessionStore {
     } catch (error) {
       console.error('dsh-edge: LLM provider plugin failed to initialize; model operations will be unavailable.', error)
     }
+    try {
+      // Providers other than DeepSeek, configured on the Models page as upstream does.
+      await mountPiAiProvider(this.context)
+    } catch (error) {
+      console.error('dsh-edge: the provider routes on the Models page failed to initialize; DeepSeek remains available.', error)
+    }
     await this.context.plugin(SessionStore)
     await this.context.plugin(SessionProjectionRegistry)
     // As upstream: whole-session counts and timings, which the Web chat view
@@ -584,6 +590,13 @@ export class EdgeSessionStore {
       },
       stateVersion: 1,
     } as never)
+    // Upstream's provider Remotes behind the Models page: the configurable
+    // provider directory, live providers, and model discovery for a draft route.
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    const { TYPERT: LLM_TYPERT } = await import(
+      '@deepseek-ai/dsh-llm/typert' as string
+    )
+    this.context.typert.register(LLM_TYPERT as never)
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
     const { TYPERT: SESSION_CONTROLLER_TYPERT } = await import(
       '@deepseek-ai/dsh-api-session-controller/typert' as string
