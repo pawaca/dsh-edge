@@ -179,6 +179,10 @@ export async function startMockDeepSeek(port = 0) {
         if (!hasToolResult) return callTool(id, name, args(prompt.slice(prefix.length).trim()))
         return answer(`${name}-done`)
       }
+      if (/print the shell env/u.test(prompt)) {
+        if (!hasToolResult) return callTool('call_shell_env', 'bash', { command: 'printf \'%s|%s|%s\' "$DSH_SHELL" "$DSH_SESSION_ID" "$DSH_HOME" > shell-env.txt && env > shell-env-all.txt', description: 'Print the Harness shell variables' })
+        return answer('shell-env-done')
+      }
       if (/background child runs bash/u.test(prompt)) {
         if (!hasToolResult) return callTool('call_bg_bash', 'bash', { command: 'printf bash > bg-child-bash.txt', description: 'Write a file from the shell' })
         return answer('bash-done')

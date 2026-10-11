@@ -167,6 +167,8 @@ export async function executeWorkspaceCommand(
    * command holds its slot until then.
    */
   onDetached?: (settled: Promise<void>) => void,
+  /** Extra environment variables for the command (upstream's `DSH_*` shell env). */
+  env?: Readonly<Record<string, string>>,
 ): Promise<EdgeShellResult> {
   const effectiveTimeoutMs = resolveCommandTimeoutMs(timeoutPolicy, timeoutMs)
   signal?.throwIfAborted()
@@ -194,6 +196,7 @@ export async function executeWorkspaceCommand(
     cwd,
     timeoutMs: effectiveTimeoutMs,
     ...backend === undefined ? {} : { backend },
+    ...env === undefined ? {} : { env: { ...env } },
   })
   let started: Awaited<typeof starting> | typeof GRACE_EXPIRED
   try {

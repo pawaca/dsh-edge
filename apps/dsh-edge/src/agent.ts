@@ -123,6 +123,8 @@ export interface EdgeShell {
     signal?: AbortSignal
     /** Run in the Linux container regardless of routing (container deployments only). */
     requestContainer?: boolean
+    /** Upstream's per-execution `DSH_*` variables (`ctx.shellEnv.collect()`). */
+    env?: Readonly<Record<string, string>>
   }): Promise<EdgeShellResult>
 }
 
@@ -158,6 +160,8 @@ export function createEdgeBashTool(
   bindings: EdgeShellBindings,
   shell: EdgeRuntimeProviderDescriptor['shell'] = 'just-bash-direct',
   maxTimeoutMs?: number,
+  /** Upstream's `shellEnv.collect`, as upstream bash passes it to every command. */
+  collectEnv?: (exec: Parameters<ToolDefinition['execute']>[1]) => Readonly<Record<string, string>>,
 ): ToolDefinition {
   return defineTool({
     name: 'bash',
@@ -234,6 +238,7 @@ export function createEdgeBashTool(
         cwd: args.workdir ?? cwd,
         ...args.timeoutMs === undefined ? {} : { timeoutMs: args.timeoutMs },
         ...(args as { linux?: boolean }).linux === true ? { requestContainer: true } : {},
+        ...collectEnv === undefined ? {} : { env: collectEnv(exec) },
         signal: exec.signal,
       })
       // A cancelled call's result is replaced by the upstream cancellation

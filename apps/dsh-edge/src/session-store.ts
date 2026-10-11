@@ -79,6 +79,7 @@ import * as GoalRoundDriver from '@deepseek-ai/dsh-goal-round-driver'
 import GoalService from '@deepseek-ai/dsh-goal'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
 import * as CommandFeedback from '@deepseek-ai/dsh-command-feedback'
+import * as ShellEnv from '@deepseek-ai/dsh-shell-env'
 import * as CommandCompact from '@deepseek-ai/dsh-command-compact'
 import * as CommandGoal from '@deepseek-ai/dsh-command-goal'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
@@ -199,6 +200,8 @@ const MAX_SEARCH_EVENTS_PER_SESSION = 512
 const MAX_SEARCH_STORED_BYTES_PER_SESSION = 256 * 1_024
 const EDGE_PROVIDER = 'deepseek-official'
 const EDGE_CURRENT_DATE_CONTEXT = 'edge:current-date'
+/** The Harness home on the Edge: the workspace VFS has no user home directory. */
+const EDGE_DSH_HOME = '/.dsh'
 const DEFAULT_EDGE_MODEL = 'deepseek-flash'
 const AGENT_DEFAULT_MODEL_KEY = 'dsh-edge:agent-default-model'
 const MESSAGE_TYPES = new Set<SessionEvent['type']>(['user/message', 'assistant/message'])
@@ -493,6 +496,11 @@ export class EdgeSessionStore {
       '@deepseek-ai/dsh-commands/typert' as string
     )
     this.context.typert.register(COMMANDS_TYPERT as never)
+    // Upstream's DSH_* shell variables (DSH_SHELL, DSH_SESSION_ID, DSH_HOME),
+    // which upstream bash passes to every command. Only declared keys are
+    // collected, never the Worker's own environment; /.dsh is where the Edge
+    // keeps user-global Harness files (/.dsh/AGENTS.md).
+    await this.context.plugin(ShellEnv, { dshHome: EDGE_DSH_HOME })
     // Upstream /feedback and the sessionFeedback Remote behind the Web session
     // feedback dialog; both append one log-only feedback/record event.
     await this.context.plugin(CommandFeedback)
@@ -842,7 +850,7 @@ export class EdgeSessionStore {
       agent.ctx.effect(() => release, 'dsh-edge: subagent shell binding')
     })
     this.context.effect(
-      () => this.context.tools.register(createEdgeBashTool(this.shells, config.shell, config.maxCommandTimeoutMs)),
+      () => this.context.tools.register(createEdgeBashTool(this.shells, config.shell, config.maxCommandTimeoutMs, exec => this.context.shellEnv.collect(exec))),
       'dsh-edge: bash tool',
     )
     if (config.onLateSessionEvent !== undefined) {

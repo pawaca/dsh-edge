@@ -196,11 +196,6 @@
       "reason": "OpenTelemetry session telemetry; the exporter uses a Node HTTP transport loaded through createRequire, which needs a fetch-based replacement on Workers.",
       "issue": 94
     },
-    "@deepseek-ai/dsh-shell-env": {
-      "status": "gap",
-      "priority": "P3",
-      "reason": "An in-memory registry of DSH_* environment variables that upstream bash and skill execution read; pure JavaScript, not a sandbox."
-    },
     "@deepseek-ai/dsh-skill-filesystem": {
       "status": "substitute",
       "reason": "edge-workspace-skills.ts discovers upstream's roots, formats, and frontmatter through the Computer workspace (refreshed per turn, since Workers have no file watching and ctx.fs exists only during a turn); EdgeSkillProvider keeps /api/skills skills in Durable Object KV."
