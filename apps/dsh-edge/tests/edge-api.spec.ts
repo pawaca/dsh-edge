@@ -66,6 +66,7 @@ function summary(
 ): EdgeApiSessionSummary {
   return {
     id,
+    header: { id, version: 4, createdAt: 1, cwd: '/workspace', isSeeded: false } as EdgeApiSessionSummary['header'],
     title: null,
     createdAt: 1,
     lastPromptAt: null,
