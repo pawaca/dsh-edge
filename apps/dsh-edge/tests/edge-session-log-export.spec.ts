@@ -1,6 +1,15 @@
 import { SessionId } from '@deepseek-ai/dsh-session'
+import { streamSessionLogZip } from '@deepseek-ai/dsh-session-log-export'
 import { describe, expect, it, vi } from 'vitest'
-import { assertSessionLogExportable, MAX_SESSION_LOG_EXPORT_BYTES, type SessionLogExportSources } from '../src/edge-session-log-export.ts'
+import {
+  assertSessionLogExportable,
+  enforceSessionLogExportBudget,
+  MAX_SESSION_LOG_EXPORT_BYTES,
+  sessionLogExportBudget,
+  SessionLogTooLargeError,
+  type SessionLogExportBudget,
+  type SessionLogExportSources,
+} from '../src/edge-session-log-export.ts'
 import { EdgeHttpError } from '../src/http.ts'
 
 const MIB = 1024 * 1024
@@ -54,5 +63,51 @@ describe('session log export guard', () => {
     const controller = new AbortController()
     controller.abort()
     await expect(assertSessionLogExportable(sources({ [root]: 1 }), root, false, controller.signal)).rejects.toThrow()
+  })
+
+  describe('read budget inside the real upstream exporter', () => {
+    // The exporter reads each subagent log from a stream callback that starts inside
+    // the request but runs after the handler has returned, so the budget must travel
+    // through the stream's async continuations. This runs upstream's own
+    // `streamSessionLogZip` with a persistence whose read enforces the budget the way
+    // the Edge's does.
+    const run = (withBudget: boolean) => {
+      const budget: SessionLogExportBudget = { limitBytes: 1_000 }
+      const deps = {
+        sessionQuery: { traceSession: () => Promise.resolve({ descendants: [{ session: { header: { id: child } }, descendants: [] }] }) },
+        sessionPersistence: {
+          open: (id: ReturnType<typeof SessionId>) => Promise.resolve({
+            header: { version: 4, id, createdAt: 1, isSeeded: false },
+            read: () => {
+              enforceSessionLogExportBudget(id, () => 5_000)
+              return Promise.resolve({ events: [] })
+            },
+            close: () => Promise.resolve(),
+          }),
+        },
+        attachments: {},
+        sessions: undefined,
+      }
+      const start = () => streamSessionLogZip(deps as never, '{"type":"session"}\n', root, true, 6, new AbortController().signal)
+      const stream = withBudget ? sessionLogExportBudget.run(budget, start) : start()
+      // Drained after run() returned: the subagent read happens later.
+      const drained = (async () => {
+        const reader = stream.getReader()
+        for (;;) if ((await reader.read()).done) return 'completed' as const
+      })().catch((error: unknown) => error)
+      return { budget, drained }
+    }
+
+    it('refuses an over-budget subagent log read while the archive streams', async () => {
+      const { budget, drained } = run(true)
+      expect(await drained).toBeInstanceOf(SessionLogTooLargeError)
+      expect(budget.refused?.sessionId).toBe(child)
+    })
+
+    it('does not touch the same export outside a budgeted request', async () => {
+      const { budget, drained } = run(false)
+      expect(await drained).toBe('completed')
+      expect(budget.refused).toBeUndefined()
+    })
   })
 })

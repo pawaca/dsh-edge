@@ -324,6 +324,29 @@ describe('legacy Edge cancellation migration', () => {
     } finally { await ctx.fiber.dispose(); storage.close() }
   })
 
+  it('clears a counted export size when a format migration rewrites the log', async () => {
+    const storage = cancelledStorage('cancelled by the user')
+    storage.sql.exec(`INSERT INTO dsh_sessions SELECT 'v3-counted', 3, created_at, cwd, parent_session, NULL, origin,
+      delegation_depth, 'standard', 'v3-incarnation', revision FROM dsh_sessions WHERE id = 'session-v0-1-3'`)
+    storage.sql.exec("INSERT INTO dsh_session_events (session_id,seq,type,time,data) VALUES ('v3-counted',0,'session/end-seed',1000,'{}')")
+    for (let i = 1; i <= 5; i++) storage.sql.exec(
+      'INSERT INTO dsh_session_events (session_id,seq,type,time,data) VALUES (?,?,?,?,?)',
+      'v3-counted', i, 'session/title', 1000 + i, JSON.stringify({ title: 'Legacy title', messageSeqs: [], source: { kind: 'user' } }),
+    )
+    // An earlier start of the migrated format had counted this session's log.
+    storage.sql.exec(`CREATE TABLE dsh_session_event_bytes (
+      session_id TEXT PRIMARY KEY REFERENCES dsh_sessions(id) ON DELETE CASCADE, through_seq INTEGER NOT NULL, bytes INTEGER NOT NULL) STRICT`)
+    storage.sql.exec("INSERT INTO dsh_session_event_bytes VALUES ('v3-counted', 5, 999999)")
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    try {
+      const persistence = new DurableObjectSessionPersistence(ctx, { storage: storage as never })
+      expect(storage.sql.exec<{ n: number }>("SELECT COUNT(*) AS n FROM dsh_session_event_bytes WHERE session_id = 'v3-counted'").toArray()[0]?.n).toBe(0)
+      expect((await readAll(persistence, SessionId('v3-counted'))).meta.version).toBe(SESSION_FORMAT_VERSION)
+      expect(persistence.eventBytes(SessionId('v3-counted'))).toBeLessThan(999_999)
+    } finally { await ctx.fiber.dispose(); storage.close() }
+  })
+
   it('reads subagent children for every outdated session in one scan', async () => {
     const storage = cancelledStorage('cancelled by the user')
     const clone = (id: string, parent: string | null) => {

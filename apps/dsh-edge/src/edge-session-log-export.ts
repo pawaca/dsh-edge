@@ -56,7 +56,14 @@ export function sessionLogTooLargeResponse(error: SessionLogTooLargeError, reque
  */
 export interface SessionLogExportBudget {
   readonly limitBytes: number
-  /** Set when a read was refused, so the request can answer 413 instead of the exporter's generic 500. */
+  /**
+   * Set when a read was refused. For the root log, which the exporter reads
+   * before it returns a response, the request answers 413 instead of the
+   * exporter's generic 500. A subagent log is read while the archive streams,
+   * after the 200 headers are sent, so a refusal there can only end the stream;
+   * the HEAD preflight checks every log first, so that needs a log that grew
+   * between the preflight and the download.
+   */
   refused?: SessionLogTooLargeError
 }
 
