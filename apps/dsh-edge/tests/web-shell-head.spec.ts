@@ -3,6 +3,7 @@ import { runInNewContext } from 'node:vm'
 import {
   OWNER_HOST_DECLARATION,
   WEB_SHELL_HEAD_SCRIPT,
+  hoistCharsetMeta,
   injectOwnerSessionGuard,
 } from '../standalone/scripts/web-shell-head.mjs'
 
@@ -70,5 +71,18 @@ describe('web shell head script', () => {
     expect(OWNER_HOST_DECLARATION.test(html)).toBe(true)
     const headless: string = injectOwnerSessionGuard('<p>no head</p>')
     expect(headless.startsWith('<script>')).toBe(true)
+  })
+
+  it('moves the charset declaration ahead of the long head injections', () => {
+    const template = '<!doctype html>\n<html lang="en">\n  <head>\n    <meta charset="utf-8" />\n    <title>x</title>\n  </head><body></body></html>'
+    const injected = injectOwnerSessionGuard(template.replace('<head>', `<head>${'<link rel="preload" as="script" href="/p.js">'.repeat(100)}`))
+    const charsetByte = (html: string) => new TextEncoder().encode(html.slice(0, html.indexOf('<meta charset'))).length
+    expect(charsetByte(injected)).toBeGreaterThan(1024)
+    const hoisted = hoistCharsetMeta(injected)
+    expect(hoisted.indexOf('<meta charset="utf-8" />')).toBe(hoisted.indexOf('<head>') + '<head>'.length)
+    expect(charsetByte(hoisted)).toBeLessThan(1024)
+    expect(hoisted.match(/<meta charset/gu)).toHaveLength(1)
+    expect(OWNER_HOST_DECLARATION.test(hoisted)).toBe(true)
+    expect(() => hoistCharsetMeta('<html><head></head></html>')).toThrow('no <meta charset>')
   })
 })

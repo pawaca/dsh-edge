@@ -57,3 +57,23 @@ export function injectOwnerSessionGuard(html) {
     ? `${script}${html}`
     : `${html.slice(0, head + 6)}${script}${html.slice(head + 6)}`
 }
+
+/**
+ * Move the document's `<meta charset>` to the start of `<head>`. A browser
+ * reads the encoding declaration only from the first 1024 bytes, and the boot
+ * injections that precede it are far longer; Workers Static Assets serves the
+ * shell as `text/html` without a charset, so a late declaration leaves the
+ * page (and every classic plugin script it loads) decoded as Windows-1252,
+ * which shows each non-ASCII character as mojibake ("·" as "Â·").
+ * @param {string} html - the assembled index document.
+ * @returns {string} the document with its charset declaration first in `<head>`.
+ */
+export function hoistCharsetMeta(html) {
+  const meta = /<meta\s+charset=["']?[\w-]+["']?\s*\/?>/iu.exec(html)
+  if (meta === null) throw new Error('The assembled Web shell has no <meta charset> declaration.')
+  const without = `${html.slice(0, meta.index)}${html.slice(meta.index + meta[0].length)}`
+  const head = /<head(?:\s[^>]*)?>/iu.exec(without)
+  if (head === null) throw new Error('The assembled Web shell has no <head> element.')
+  const at = head.index + head[0].length
+  return `${without.slice(0, at)}${meta[0]}${without.slice(at)}`
+}

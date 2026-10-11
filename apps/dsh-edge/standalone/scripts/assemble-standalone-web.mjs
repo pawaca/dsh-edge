@@ -7,7 +7,7 @@ import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { ClientModuleRegistry, bootInjections, orderByModuleGraph } from '@deepseek-ai/dsh-client-modules'
 import { renderIndexInjections } from '@deepseek-ai/dsh-host-webserver'
-import { injectOwnerSessionGuard } from './web-shell-head.mjs'
+import { hoistCharsetMeta, injectOwnerSessionGuard } from './web-shell-head.mjs'
 
 const standaloneRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const appRoot = resolve(standaloneRoot, '..')
@@ -224,7 +224,7 @@ async function main() {
   const indexPath = join(outputRoot, 'index.html')
   const index = await readFile(indexPath, 'utf8')
   const bootstrappedIndex = renderIndexInjections(index, bootInjections(graph))
-  await writeFile(indexPath, injectOwnerSessionGuard(bootstrappedIndex))
+  await writeFile(indexPath, hoistCharsetMeta(injectOwnerSessionGuard(bootstrappedIndex)))
   await writeFile(join(outputRoot, '_headers'), assetSecurityHeaders)
   console.log(
     `Assembled ${entries.length} published upstream client plugins in ${relative(repoRoot, outputRoot)} (rev ${graph.rev}).`,

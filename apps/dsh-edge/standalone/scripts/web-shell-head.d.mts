@@ -6,3 +6,6 @@ export const OWNER_HOST_DECLARATION: RegExp
 
 /** Inject the head script into an assembled index document. */
 export function injectOwnerSessionGuard(html: string): string
+
+/** Move the document's `<meta charset>` to the start of `<head>`, within the first 1024 bytes a browser reads it from. */
+export function hoistCharsetMeta(html: string): string
