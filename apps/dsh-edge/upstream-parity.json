@@ -3,7 +3,7 @@
   "packages": {
     "@deepseek-ai/cordis-plugin-timer": {
       "status": "not-applicable",
-      "reason": "No upstream package the Edge mounts injects the timer service."
+      "reason": "No package the Edge mounts injects the timer service; mount it once a ported plugin needs it."
     },
     "@deepseek-ai/dsh-agent-default-model": {
       "status": "substitute",
@@ -23,20 +23,21 @@
     },
     "@deepseek-ai/dsh-api-account-controller": {
       "status": "declined",
-      "reason": "DeepSeek account sign-in; the Edge authenticates with the deployment API key."
+      "reason": "DeepSeek account sign-in. The Edge authenticates with the deployment API key, and the sign-in callback accepts only localhost."
     },
     "@deepseek-ai/dsh-api-terminal-controller": {
       "status": "tracked",
       "issue": 99,
-      "reason": "Persistent PTY sessions (the minimal preset needs them)."
+      "reason": "Persistent PTY sessions (the minimal preset needs them). dsh-terminal is pure JavaScript; the blocker is the ctx.subprocess seam (spawnTerminal) the Edge does not serve. A Container deployment could serve it once the image adds a PTY sidecar, since computerd 0.3.1 has no PTY."
     },
     "@deepseek-ai/dsh-attachment-local": {
       "status": "substitute",
       "reason": "EdgeR2AttachmentStore and EdgeDoAttachmentStore in edge-attachment-store.ts."
     },
     "@deepseek-ai/dsh-authorization": {
-      "status": "declined",
-      "reason": "Human-in-the-loop credential flows; in the reference only DeepSeek account sign-in uses them."
+      "status": "gap",
+      "priority": "P3",
+      "reason": "Human-in-the-loop credential flows used by DeepSeek account sign-in and by dsh-llm-pi-ai subscription providers. Device-code flows (such as GitHub Copilot) need only outbound fetch and look feasible on Workers (not yet verified against the source); flows that need a localhost callback do not."
     },
     "@deepseek-ai/dsh-bash-sandbox": {
       "status": "not-applicable",
@@ -44,27 +45,27 @@
     },
     "@deepseek-ai/dsh-client-hmr": {
       "status": "not-applicable",
-      "reason": "Development-only hot reload."
+      "reason": "Client hot reload, which upstream Web also mounts; the Edge client plugin graph is fixed at build time."
     },
     "@deepseek-ai/dsh-client-ui-cordis": {
       "status": "not-applicable",
-      "reason": "Runtime plugin loading (Creator mode); Workers cannot import packages at runtime."
+      "reason": "Creator-mode client UI; it needs the host plugin loader and runner services the Edge does not serve, and the Edge client plugin graph is fixed at build time."
     },
     "@deepseek-ai/dsh-client-ui-permission-presets": {
       "status": "declined",
-      "reason": "Sandbox mode and approval-level presets; not needed for the single-owner deployment."
+      "reason": "Agent autonomy presets (read-only, workspace write, full access), independent of how many users an instance has. It throws when the shell does not report a sandboxMode, which the Edge shells do not; a read-only mode may be revisited."
     },
     "@deepseek-ai/dsh-client-ui-plugin-manager": {
       "status": "not-applicable",
-      "reason": "Runtime plugin loading (Creator mode); Workers cannot import packages at runtime."
+      "reason": "Plugin installation UI (Creator mode); it needs dsh-plugin-manager, which installs with pnpm and reloads through the Loader."
     },
     "@deepseek-ai/dsh-client-ui-settings-account": {
       "status": "declined",
-      "reason": "DeepSeek account sign-in; the Edge authenticates with the deployment API key."
+      "reason": "DeepSeek account sign-in. The Edge authenticates with the deployment API key, and the sign-in callback accepts only localhost."
     },
     "@deepseek-ai/dsh-client-ui-settings-session-log": {
       "status": "declined",
-      "reason": "Attach session logs or the plugin inventory to official DeepSeek API requests; opt-in upstream and a privacy decision."
+      "reason": "Attaches session logs or the plugin inventory to official DeepSeek API requests. On by default upstream; declined on the Edge for privacy."
     },
     "@deepseek-ai/dsh-client-ui-settings-shell": {
       "status": "gap",
@@ -74,20 +75,20 @@
     "@deepseek-ai/dsh-client-ui-sidebar-terminal": {
       "status": "tracked",
       "issue": 99,
-      "reason": "Persistent PTY sessions (the minimal preset needs them)."
+      "reason": "Persistent PTY sessions (the minimal preset needs them). dsh-terminal is pure JavaScript; the blocker is the ctx.subprocess seam (spawnTerminal) the Edge does not serve. A Container deployment could serve it once the image adds a PTY sidecar, since computerd 0.3.1 has no PTY."
     },
     "@deepseek-ai/dsh-command-feedback": {
       "status": "gap",
-      "reason": "/feedback and the sessionFeedback Remote behind the Web session feedback dialog; the Edge only has message feedback. The package stores an anonymous user id through node:fs under the Harness home, which Workers cannot persist, so the Edge needs its own id store first.",
-      "priority": "P2"
+      "priority": "P2",
+      "reason": "/feedback and the sessionFeedback Remote behind the Web session feedback dialog. It records one session event; its anonymous user id (dsh-anonymous-user-id) falls back to a random UUID when the Harness home file cannot be read or written, so it can be mounted as is."
     },
     "@deepseek-ai/dsh-cordis-client-runner": {
       "status": "not-applicable",
-      "reason": "Runtime plugin loading (Creator mode); Workers cannot import packages at runtime."
+      "reason": "Creator-mode client runner; it depends on the host plugin loader and runner services the Edge does not serve."
     },
     "@deepseek-ai/dsh-cordis-host-runner": {
       "status": "not-applicable",
-      "reason": "Runtime plugin loading (Creator mode); Workers cannot import packages at runtime."
+      "reason": "Runs model-written plugin definitions with node:vm and new Function, which Workers do not allow; upstream no longer offers model-generated tool definitions."
     },
     "@deepseek-ai/dsh-credentials-local": {
       "status": "substitute",
@@ -95,15 +96,16 @@
     },
     "@deepseek-ai/dsh-deepseek-account-platform": {
       "status": "declined",
-      "reason": "DeepSeek account sign-in; the Edge authenticates with the deployment API key."
+      "reason": "DeepSeek account sign-in. The Edge authenticates with the deployment API key, and the sign-in callback accepts only localhost."
     },
     "@deepseek-ai/dsh-deepseek-llm-api-extensions": {
       "status": "declined",
-      "reason": "Attach session logs or the plugin inventory to official DeepSeek API requests; opt-in upstream and a privacy decision."
+      "reason": "Attaches session logs or the plugin inventory to official DeepSeek API requests. On by default upstream; declined on the Edge for privacy."
     },
     "@deepseek-ai/dsh-experimental-browser-use-stagehand-native": {
-      "status": "not-applicable",
-      "reason": "Drives a local Chromium process."
+      "status": "gap",
+      "priority": "P3",
+      "reason": "Stagehand browser tools. Upstream launches a local Chromium, but the package also connects to a remote browser through cdpEndpoint, so an Edge provider over Cloudflare Browser Rendering may be possible (not yet verified)."
     },
     "@deepseek-ai/dsh-experimental-tool-agent-team": {
       "status": "declined",
@@ -114,8 +116,8 @@
       "reason": "EdgeFileReferenceService in edge-file-reference.ts over the Computer VFS."
     },
     "@deepseek-ai/dsh-fs-sandbox": {
-      "status": "not-applicable",
-      "reason": "Host-OS process sandboxing, subprocesses, and shell environment."
+      "status": "declined",
+      "reason": "Policy and in-process path restrictions behind the permission presets, not a host sandbox. Mounted alone it would tell the model a session is read-only while the Edge does not enforce it; declined with the permission presets."
     },
     "@deepseek-ai/dsh-host-directory-picker-auto": {
       "status": "substitute",
@@ -131,25 +133,26 @@
     },
     "@deepseek-ai/dsh-llm-deepseek-account": {
       "status": "declined",
-      "reason": "DeepSeek account sign-in; the Edge authenticates with the deployment API key."
+      "reason": "DeepSeek account sign-in. The Edge authenticates with the deployment API key, and the sign-in callback accepts only localhost."
     },
     "@deepseek-ai/dsh-mcp-resources": {
       "status": "gap",
       "priority": "P2",
-      "reason": "MCP resource discovery and reads; the Edge MCP manager serves tools only."
+      "reason": "MCP resource discovery and reads. The package is a registry; the Edge MCP manager holds MCP SDK Clients and must forward resources/list, resources/templates/list, and resources/read, after deciding how external resource content enters the model context."
     },
     "@deepseek-ai/dsh-office-to-pdf": {
-      "status": "not-applicable",
-      "reason": "Office conversion through a native LibreOffice build on the host."
+      "status": "gap",
+      "priority": "P2",
+      "reason": "Office-to-PDF conversion behind the document preview panel the Edge client already ships (it now shows the service as unavailable). Upstream runs a native LibreOffice build on the host; Container deployments could run LibreOffice in the Linux container."
     },
     "@deepseek-ai/dsh-otel": {
       "status": "tracked",
       "issue": 94,
-      "reason": "Shared OTLP reporting channels behind OpenTelemetry session telemetry."
+      "reason": "Shared OTLP reporting channels; the exporter uses a Node HTTP transport loaded through createRequire, which needs a fetch-based replacement on Workers."
     },
     "@deepseek-ai/dsh-permission-presets": {
       "status": "declined",
-      "reason": "Sandbox mode and approval-level presets; not needed for the single-owner deployment."
+      "reason": "Agent autonomy presets (read-only, workspace write, full access), independent of how many users an instance has. It throws when the shell does not report a sandboxMode, which the Edge shells do not; a read-only mode may be revisited."
     },
     "@deepseek-ai/dsh-persona": {
       "status": "substitute",
@@ -157,11 +160,11 @@
     },
     "@deepseek-ai/dsh-plugin-manager": {
       "status": "not-applicable",
-      "reason": "Runtime plugin loading (Creator mode); Workers cannot import packages at runtime."
+      "reason": "Runtime plugin installation (Creator mode): it installs packages with a pnpm subprocess and reloads them through the Loader and HMR, none of which the Edge has."
     },
     "@deepseek-ai/dsh-plugin-package-inventory-deepseek": {
       "status": "declined",
-      "reason": "Attach session logs or the plugin inventory to official DeepSeek API requests; opt-in upstream and a privacy decision."
+      "reason": "Attaches session logs or the plugin inventory to official DeepSeek API requests. On by default upstream; declined on the Edge for privacy."
     },
     "@deepseek-ai/dsh-ptc-runtime-node": {
       "status": "substitute",
@@ -172,17 +175,17 @@
       "reason": "Host-OS process sandboxing, subprocesses, and shell environment."
     },
     "@deepseek-ai/dsh-sandbox-policy": {
-      "status": "not-applicable",
-      "reason": "Host-OS process sandboxing, subprocesses, and shell environment."
+      "status": "declined",
+      "reason": "Policy and in-process path restrictions behind the permission presets, not a host sandbox. Mounted alone it would tell the model a session is read-only while the Edge does not enforce it; declined with the permission presets."
     },
     "@deepseek-ai/dsh-session-log-deepseek": {
       "status": "declined",
-      "reason": "Attach session logs or the plugin inventory to official DeepSeek API requests; opt-in upstream and a privacy decision."
+      "reason": "Attaches session logs or the plugin inventory to official DeepSeek API requests. On by default upstream; declined on the Edge for privacy."
     },
     "@deepseek-ai/dsh-session-log-export": {
       "status": "gap",
-      "reason": "Session-log export; the Edge sessionLog endpoint currently answers that export is unavailable.",
-      "priority": "P2"
+      "priority": "P2",
+      "reason": "Session-log export. Nothing blocks it on Workers: it reads through traceSession and session persistence, which the Edge serves, and compresses with the pure-JS fflate; the Edge sessionLog endpoint still answers that export is unavailable."
     },
     "@deepseek-ai/dsh-session-persistence-jsonl": {
       "status": "substitute",
@@ -190,17 +193,18 @@
     },
     "@deepseek-ai/dsh-session-query-sqlite": {
       "status": "tracked",
-      "reason": "FTS5 search; the Edge scans a bounded window instead.",
-      "issue": 92
+      "issue": 92,
+      "reason": "The package needs node:sqlite and its own database file; its FTS5 schema (STRICT tables plus fts5 with unicode61) can be ported to Durable Object SQLite. Until then the Edge scans a bounded window."
     },
     "@deepseek-ai/dsh-session-telemetry-otel": {
       "status": "tracked",
-      "reason": "OpenTelemetry session telemetry.",
+      "reason": "OpenTelemetry session telemetry; the exporter uses a Node HTTP transport loaded through createRequire, which needs a fetch-based replacement on Workers.",
       "issue": 94
     },
     "@deepseek-ai/dsh-shell-env": {
-      "status": "not-applicable",
-      "reason": "Host-OS process sandboxing, subprocesses, and shell environment."
+      "status": "gap",
+      "priority": "P3",
+      "reason": "An in-memory registry of DSH_* environment variables that upstream bash and skill execution read; pure JavaScript, not a sandbox."
     },
     "@deepseek-ai/dsh-skill-filesystem": {
       "status": "substitute",
@@ -216,8 +220,8 @@
     },
     "@deepseek-ai/dsh-session-turn-outline": {
       "status": "gap",
-      "reason": "turnOutline projection; dsh-client-ui-chat already reads it. It keeps one prompt and response preview per turn with no cap, and SessionProjectionCache stores a session's projections as one Durable Object value, so a long session would outgrow the value limit; it needs a bounded or sharded Edge cache representation first.",
-      "priority": "P2"
+      "priority": "P2",
+      "reason": "turnOutline projection that dsh-client-ui-chat reads. Each entry is capped (50-character prompt and 120-character response previews) and a failed cache write only leaves the cache stale; it needs a size test against the Durable Object value limit before it is mounted."
     },
     "@deepseek-ai/dsh-subprocess-local": {
       "status": "not-applicable",
@@ -225,13 +229,13 @@
     },
     "@deepseek-ai/dsh-terminal": {
       "status": "tracked",
-      "reason": "Persistent PTY sessions (the minimal preset needs them).",
-      "issue": 99
+      "issue": 99,
+      "reason": "Persistent PTY sessions (the minimal preset needs them). dsh-terminal is pure JavaScript; the blocker is the ctx.subprocess seam (spawnTerminal) the Edge does not serve. A Container deployment could serve it once the image adds a PTY sidecar, since computerd 0.3.1 has no PTY."
     },
     "@deepseek-ai/dsh-terminal-bash": {
       "status": "tracked",
-      "reason": "Persistent PTY sessions (the minimal preset needs them).",
-      "issue": 99
+      "issue": 99,
+      "reason": "Persistent PTY sessions (the minimal preset needs them). dsh-terminal is pure JavaScript; the blocker is the ctx.subprocess seam (spawnTerminal) the Edge does not serve. A Container deployment could serve it once the image adds a PTY sidecar, since computerd 0.3.1 has no PTY."
     },
     "@deepseek-ai/dsh-tool-bash": {
       "status": "substitute",
@@ -239,16 +243,16 @@
     },
     "@deepseek-ai/dsh-tool-bash-persistent": {
       "status": "tracked",
-      "reason": "Persistent PTY sessions (the minimal preset needs them).",
-      "issue": 99
+      "issue": 99,
+      "reason": "Persistent PTY sessions (the minimal preset needs them). dsh-terminal is pure JavaScript; the blocker is the ctx.subprocess seam (spawnTerminal) the Edge does not serve. A Container deployment could serve it once the image adds a PTY sidecar, since computerd 0.3.1 has no PTY."
     },
     "@deepseek-ai/dsh-tool-cordis": {
       "status": "not-applicable",
-      "reason": "Runtime plugin loading (Creator mode); Workers cannot import packages at runtime."
+      "reason": "Cordis inspection tools for Creator mode; they need the host runner services the Edge does not serve."
     },
     "@deepseek-ai/dsh-tool-cordis/host": {
       "status": "not-applicable",
-      "reason": "Runtime plugin loading (Creator mode); Workers cannot import packages at runtime."
+      "reason": "Host side of the Cordis inspection tools; it needs the host runner services the Edge does not serve."
     },
     "@deepseek-ai/dsh-tool-lsp": {
       "status": "tracked",
@@ -261,17 +265,17 @@
     },
     "@deepseek-ai/dsh-tool-pwsh-persistent": {
       "status": "not-applicable",
-      "reason": "PowerShell; upstream also disables it off Windows."
+      "reason": "Persistent PowerShell; it needs the terminal seam (ctx.subprocess) and a pwsh binary, neither of which the Edge has."
     },
     "@deepseek-ai/dsh-tool-ralph": {
       "status": "gap",
-      "reason": "ralph fresh-agent loop; upstream reserves it for explicit user requests.",
-      "priority": "P3"
+      "priority": "P3",
+      "reason": "ralph fresh-agent loop; it needs ctx.workflowEngine and ctx.subagents, which Isolated deployments serve. Upstream reserves it for explicit user requests."
     },
     "@deepseek-ai/dsh-tool-session-query": {
       "status": "gap",
-      "reason": "Opt-in upstream: five read-only session search and trace tools over ctx.sessionQuery, which the Edge already serves.",
-      "priority": "P3"
+      "priority": "P2",
+      "reason": "Five read-only session search and trace tools over ctx.sessionQuery, which the Edge already serves; it can be mounted unmodified."
     },
     "@deepseek-ai/dsh-tool-str-replace-editor": {
       "status": "declined",
@@ -279,8 +283,8 @@
     },
     "@deepseek-ai/dsh-tool-terminal": {
       "status": "tracked",
-      "reason": "Persistent PTY sessions (the minimal preset needs them).",
-      "issue": 99
+      "issue": 99,
+      "reason": "Persistent PTY sessions (the minimal preset needs them). dsh-terminal is pure JavaScript; the blocker is the ctx.subprocess seam (spawnTerminal) the Edge does not serve. A Container deployment could serve it once the image adds a PTY sidecar, since computerd 0.3.1 has no PTY."
     },
     "@deepseek-ai/dsh-tool-workspace-dependencies": {
       "status": "not-applicable",
@@ -305,7 +309,7 @@
     "@deepseek-ai/dsh-workspace-changes": {
       "status": "gap",
       "priority": "P2",
-      "reason": "Per-turn changed-file summaries and diffs; upstream captures git working-tree snapshots and file-tool edits."
+      "reason": "Per-turn changed-file summaries and diffs. The package captures host git working-tree snapshots, but the client only consumes workspaceChanges.{summary,diff}, which the Edge could serve over the Computer VFS and @cloudflare/computer/git."
     }
   },
   "wikiOmit": {
