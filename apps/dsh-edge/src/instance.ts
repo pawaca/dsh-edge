@@ -29,7 +29,7 @@ import { callEdgeApi, dispatchEdgeApi } from './edge-api-dispatch.ts'
 import { typertRpcResponse, type TypertRpcResult } from './edge-typert-connection.ts'
 import { SESSION_LOG_EXPORT_PATH, sessionLogZipFilename } from '@deepseek-ai/dsh-session-log-export'
 import {
-  MAX_SESSION_LOG_EXPORT_BYTES,
+  SESSION_LOG_EXPORT_LIMITS,
   sessionLogExportBudget,
   sessionLogTooLargeResponse,
   type SessionLogExportBudget,
@@ -1438,9 +1438,10 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
    * `includeDescendants=true` and starts the browser download only if it
    * succeeds, so the HEAD carries the check for the whole tree and answers on
    * its own: upstream's HEAD would read the entire root log just to discard it.
-   * The GET checks the root log, then runs the exporter under a byte budget that
-   * the persistence layer enforces at each log read (the race with a turn
-   * appending, and the subagent logs, which the exporter reads while streaming).
+   * The GET checks the same tree, then runs the exporter under a budget that the
+   * persistence layer enforces at each log read, which closes the race with a
+   * turn appending after the check and covers the subagent logs the exporter
+   * reads while streaming.
    * A request the exporter would reject as malformed is passed to it for its
    * own 400.
    */
@@ -1462,8 +1463,10 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         'content-disposition': `attachment; filename="${sessionLogZipFilename(id)}"`,
       } })
     }
-    await this.sessions.assertSessionLogExportable(id, false, request.signal)
-    const budget: SessionLogExportBudget = { limitBytes: MAX_SESSION_LOG_EXPORT_BYTES }
+    // The whole tree, so a subagent log that is already over the limits is refused
+    // here with a 413 rather than ending a download that has begun.
+    await this.sessions.assertSessionLogExportable(id, includeDescendants, request.signal)
+    const budget: SessionLogExportBudget = { limits: SESSION_LOG_EXPORT_LIMITS }
     const response = await sessionLogExportBudget.run(budget, () => handler(request))
     if (budget.refused !== undefined) throw sessionLogTooLargeResponse(budget.refused, id, includeDescendants)
     return response

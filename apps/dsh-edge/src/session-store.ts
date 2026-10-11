@@ -1038,7 +1038,7 @@ export class EdgeSessionStore {
         const live = this.context.sessions.get(id)
         if (live !== undefined) await this.context.sessions.flush(live)
       },
-      eventBytes: id => persistence.eventBytes(id),
+      size: (id, limits) => persistence.exportSize(id, limits),
       sessionIds: async (id, include, abort) => {
         if (!include) return [id]
         const lineage = await this.context.sessionQuery.traceSession(id, abort)

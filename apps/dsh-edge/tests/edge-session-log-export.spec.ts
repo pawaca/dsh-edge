@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   assertSessionLogExportable,
   enforceSessionLogExportBudget,
-  MAX_SESSION_LOG_EXPORT_BYTES,
+  SESSION_LOG_EXPORT_LIMITS,
   sessionLogExportBudget,
   SessionLogTooLargeError,
   type SessionLogExportBudget,
@@ -13,16 +13,17 @@ import {
 import { EdgeHttpError } from '../src/http.ts'
 
 const MIB = 1024 * 1024
+const BYTES = SESSION_LOG_EXPORT_LIMITS.bytes
 const root = SessionId('session-root')
 const child = SessionId('session-child')
 const grandchild = SessionId('session-grandchild')
 
-function sources(bytes: Record<string, number>, tree: readonly SessionId[] = [root]): SessionLogExportSources & { flushed: string[] } {
+function sources(bytes: Record<string, number>, tree: readonly SessionId[] = [root], events: Record<string, number> = {}): SessionLogExportSources & { flushed: string[] } {
   const flushed: string[] = []
   return {
     flushed,
     flush: vi.fn(async (id) => { flushed.push(String(id)) }),
-    eventBytes: id => bytes[String(id)] ?? 0,
+    size: id => ({ bytes: bytes[String(id)] ?? 0, events: events[String(id)] ?? 1 }),
     sessionIds: async (id, includeDescendants) => includeDescendants ? tree : [id],
   }
 }
@@ -35,7 +36,7 @@ describe('session log export guard', () => {
   })
 
   it('applies the budget to each log on its own, since subagents are exported one at a time', async () => {
-    const each = MAX_SESSION_LOG_EXPORT_BYTES - 1
+    const each = BYTES - 1
     const source = sources({ [root]: each, [child]: each, [grandchild]: each }, [root, child, grandchild])
     await expect(assertSessionLogExportable(source, root, true, new AbortController().signal)).resolves.toBeUndefined()
   })
@@ -45,8 +46,15 @@ describe('session log export guard', () => {
     const refused = await assertSessionLogExportable(source, root, false, new AbortController().signal).catch((error: unknown) => error)
     expect(refused).toBeInstanceOf(EdgeHttpError)
     expect(refused).toMatchObject({ status: 413 })
-    expect((refused as Error).message).toContain('this session holds 12.0 MiB')
-    expect((refused as Error).message).toContain(`at most ${String(MAX_SESSION_LOG_EXPORT_BYTES / MIB)}.0 MiB`)
+    expect((refused as Error).message).toContain('this session holds 12.0 MiB or more of events')
+    expect((refused as Error).message).toContain(`at most ${String(BYTES / MIB)}.0 MiB`)
+  })
+
+  it('refuses a log with too many events however small, naming the count', async () => {
+    const source = sources({ [root]: 10 * 1024 }, [root], { [root]: 250_000 })
+    const refused = await assertSessionLogExportable(source, root, false, new AbortController().signal).catch((error: unknown) => error)
+    expect(refused).toMatchObject({ status: 413 })
+    expect((refused as Error).message).toContain('250000 events (at most 100000 can be packaged)')
   })
 
   it('names an oversized subagent log and suggests exporting without subagents', async () => {
@@ -72,14 +80,14 @@ describe('session log export guard', () => {
     // `streamSessionLogZip` with a persistence whose read enforces the budget the way
     // the Edge's does.
     const run = (withBudget: boolean) => {
-      const budget: SessionLogExportBudget = { limitBytes: 1_000 }
+      const budget: SessionLogExportBudget = { limits: { bytes: 1_000, events: 100 } }
       const deps = {
         sessionQuery: { traceSession: () => Promise.resolve({ descendants: [{ session: { header: { id: child } }, descendants: [] }] }) },
         sessionPersistence: {
           open: (id: ReturnType<typeof SessionId>) => Promise.resolve({
             header: { version: 4, id, createdAt: 1, isSeeded: false },
             read: () => {
-              enforceSessionLogExportBudget(id, () => 5_000)
+              enforceSessionLogExportBudget(id, () => ({ bytes: 5_000, events: 1 }))
               return Promise.resolve({ events: [] })
             },
             close: () => Promise.resolve(),
