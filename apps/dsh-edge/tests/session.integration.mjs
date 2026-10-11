@@ -1003,15 +1003,16 @@ try {
     assert.deepEqual(ptcTools, ['run_code'])
     const locked = await rpc('agentPreset.select', { agentId: ptcSessionId, agentPreset: 'standard' })
     assert.equal(locked.body.result.error.code, 'agent-preset-locked')
-    // The Settings page makes a preset the default for new sessions.
-    const madeDefault = await rpc('settings.update', { ns: 'agent-presets', patch: { default: 'ptc' } })
+    // The Agent presets page makes a preset the default for new sessions, as
+    // upstream's does: through the settings Remote, on the registry's namespace.
+    const madeDefault = await typertRpc('settings', 'update', { ns: 'agent-preset-registry', patch: { selectedDefault: 'ptc' } })
     assert.equal(madeDefault.body.result.ok, true, JSON.stringify(madeDefault.body.result))
     assert.deepEqual(
       (await rpc('agentPreset.list', {})).body.result.value.presets.map(row => [row.id, row.isDefault]),
       [['standard', false], ['ptc', true]],
     )
     assert.equal((await rpc('session.create', {})).body.result.value.agentPreset, 'ptc')
-    await rpc('settings.update', { ns: 'agent-presets', patch: { default: 'standard' } })
+    await typertRpc('settings', 'update', { ns: 'agent-preset-registry', patch: { selectedDefault: 'standard' } })
     assert.equal((await rpc('session.create', {})).body.result.value.agentPreset, 'standard')
   } else {
     const refused = await rpc('session.create', { agentPreset: 'ptc' })

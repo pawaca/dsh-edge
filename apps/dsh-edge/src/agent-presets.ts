@@ -17,8 +17,9 @@
  * model selection on, mount in the composition scope: `join` places every
  * agent's scope under it, whatever its preset.
  *
- * As upstream, new sessions start on the `default` field of the
- * `agent-presets` settings namespace, which the Settings page writes.
+ * As upstream, new sessions start on the `selectedDefault` field of the
+ * `agent-preset-registry` settings namespace, which the Agent presets page
+ * writes, else on its `default`.
  */
 
 import { Service as CordisService, type Context } from '@deepseek-ai/cordis'
@@ -37,7 +38,10 @@ declare module '@deepseek-ai/dsh-session/types' {
 
 export const DEFAULT_AGENT_PRESET = 'standard'
 export const PTC_AGENT_PRESET = 'ptc'
-export const AGENT_PRESET_SETTINGS_NAMESPACE = 'agent-presets'
+/** Upstream's Loader entry id for the preset registry, and the namespace the Agent presets page writes. */
+export const AGENT_PRESET_SETTINGS_NAMESPACE = 'agent-preset-registry'
+/** The namespace releases up to 0.26.0-alpha.1 stored the owner's default preset under. */
+const LEGACY_AGENT_PRESET_SETTINGS_NAMESPACE = 'agent-presets'
 /** The id releases up to 0.18.0-alpha.2 stored for the default preset. */
 const LEGACY_DEFAULT_AGENT_PRESET = 'dsh-edge'
 
@@ -59,12 +63,18 @@ export function edgeAgentPresetIds(codeRuntime: boolean): string[] {
   return PRESET_IDS.filter(id => codeRuntime || id !== PTC_AGENT_PRESET)
 }
 
+/**
+ * As upstream's registry: `default` is the deployment's preset, and
+ * `selectedDefault` the owner's pick on the Agent presets page, which wins.
+ */
 interface AgentPresetSettings {
   default: string
+  selectedDefault?: string
 }
 
 const AgentPresetSettingsSchema = Schema.object({
   default: Schema.string().default(DEFAULT_AGENT_PRESET),
+  selectedDefault: Schema.string(),
 }) as unknown as Schema<AgentPresetSettings>
 
 /** The preset a session runs, from its durable header. */
@@ -89,12 +99,18 @@ export class EdgeAgentPresets extends CordisService {
   constructor(ctx: Context, private readonly config: { codeRuntime: boolean }) {
     super(ctx, 'agentPresets')
     this.composition = createScope(ctx, this.compositionKey)
-    this.settings = edgeSettings(ctx).register(AGENT_PRESET_SETTINGS_NAMESPACE, AgentPresetSettingsSchema, {
+    const settings = edgeSettings(ctx)
+    // Earlier releases kept the owner's pick as `default` under `agent-presets`.
+    settings.renameSection(LEGACY_AGENT_PRESET_SETTINGS_NAMESPACE, AGENT_PRESET_SETTINGS_NAMESPACE, section =>
+      typeof section.default === 'string' ? { selectedDefault: section.default } : undefined)
+    this.settings = settings.register(AGENT_PRESET_SETTINGS_NAMESPACE, AgentPresetSettingsSchema, {
       // Checked against every Edge preset rather than this deployment's offer:
       // a stored `ptc` must not fail registration after the Loader is removed.
-      validate: ({ default: id }) => {
-        if (!PRESET_IDS.includes(normalizeAgentPreset(id))) {
-          throw new Error(`Agent preset "${id}" is not available.`)
+      validate: ({ default: base, selectedDefault }) => {
+        for (const id of [base, selectedDefault]) {
+          if (id !== undefined && !PRESET_IDS.includes(normalizeAgentPreset(id))) {
+            throw new Error(`Agent preset "${id}" is not available.`)
+          }
         }
       },
     })
@@ -102,7 +118,8 @@ export class EdgeAgentPresets extends CordisService {
 
   /** The preset new sessions start on; one this deployment no longer offers reads as `standard`. */
   defaultPreset(): string {
-    const id = normalizeAgentPreset(this.settings.get().default)
+    const { default: base, selectedDefault } = this.settings.get()
+    const id = normalizeAgentPreset(selectedDefault ?? base)
     return this.offers(id) ? id : DEFAULT_AGENT_PRESET
   }
 
