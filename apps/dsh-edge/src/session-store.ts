@@ -47,6 +47,7 @@ import SessionStore, {
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SessionProjectionCache from '@deepseek-ai/dsh-session-projection-cache'
+import { boundProjectionCacheWrites } from './edge-projection-cache.ts'
 import * as SessionStats from '@deepseek-ai/dsh-session-stats'
 import * as SessionTurnOutline from '@deepseek-ai/dsh-session-turn-outline'
 import {
@@ -396,15 +397,15 @@ export class EdgeSessionStore {
     // reads from the session's projections.
     await this.context.plugin(SessionStats)
     // As upstream: the turnOutline projection the Web chat view's turn list
-    // reads. Each entry is capped (50- and 120-character previews, about 400
-    // bytes serialized), so the session's one cached projection value reaches
-    // the 2 MB Durable Object limit only after roughly 5,000 turns; past that,
-    // upstream keeps the cache stale rather than failing.
+    // reads. Each entry is capped (about 400 bytes serialized); the cache
+    // bound above leaves the outline out of a session's cached record once it
+    // nears the Durable Object value limit, so the other projections keep saving.
     await this.context.plugin(SessionTurnOutline)
     await this.context.plugin(SessionProjectionCache, {
       writeEveryEvents: 64,
       writeIntervalMs: 10_000,
     })
+    boundProjectionCacheWrites(this.context.get('sessionProjectionCache') as never)
     await this.context.plugin(TokenMeter)
     await this.context.plugin(BasicCompactionEngine)
     await this.context.plugin(ToolResultPruner)
