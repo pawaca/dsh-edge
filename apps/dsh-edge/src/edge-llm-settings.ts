@@ -122,7 +122,11 @@ export function requireNonCredentialHeaders(provider: string, headers: Record<st
   }
 }
 
-/** A provider Base URL must be HTTP(S) without credentials, as DEEPSEEK_BASE_URL must. */
+/**
+ * A provider Base URL must be HTTP(S) with no credentials, query, or fragment
+ * (a signed gateway URL would otherwise keep its token in the settings
+ * document), as DEEPSEEK_SEARCH_BASE_URL must.
+ */
 export function requireProviderBaseURL(provider: string, value: string): void {
   let parsed: URL
   try {
@@ -130,8 +134,9 @@ export function requireProviderBaseURL(provider: string, value: string): void {
   } catch {
     throw new Error(`The Base URL of provider "${provider}" must be a valid HTTP(S) URL.`)
   }
-  if ((parsed.protocol !== 'http:' && parsed.protocol !== 'https:') || parsed.username.length > 0 || parsed.password.length > 0) {
-    throw new Error(`The Base URL of provider "${provider}" must be an HTTP(S) URL without credentials.`)
+  if ((parsed.protocol !== 'http:' && parsed.protocol !== 'https:') || parsed.username.length > 0 || parsed.password.length > 0
+    || parsed.search.length > 0 || parsed.hash.length > 0 || /[?#]/u.test(value)) {
+    throw new Error(`The Base URL of provider "${provider}" must be an HTTP(S) URL without credentials, a query, or a fragment.`)
   }
 }
 

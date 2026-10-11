@@ -183,9 +183,13 @@ describe('third-party provider routes', () => {
 
   it('accepts only HTTP(S) Base URLs without credentials', () => {
     expect(() => { requireProviderBaseURL('a', 'https://openrouter.ai/api/v1') }).not.toThrow()
-    expect(() => { requireProviderBaseURL('a', 'http://gateway.internal:8080/v1?tenant=x') }).not.toThrow()
+    expect(() => { requireProviderBaseURL('a', 'http://gateway.internal:8080/v1') }).not.toThrow()
     expect(() => { requireProviderBaseURL('a', 'ftp://example.com') }).toThrow('without credentials')
     expect(() => { requireProviderBaseURL('a', 'https://k:@example.com') }).toThrow('without credentials')
+    // A signed gateway URL keeps its token in the query or fragment.
+    expect(() => { requireProviderBaseURL('a', 'https://gateway.example/v1?token=secret') }).toThrow('a query, or a fragment')
+    expect(() => { requireProviderBaseURL('a', 'https://gateway.example/v1#secret') }).toThrow('a query, or a fragment')
+    expect(() => { requireProviderBaseURL('a', 'https://gateway.example/v1?') }).toThrow('a query, or a fragment')
     expect(() => { requireProviderBaseURL('a', 'not a url') }).toThrow('valid HTTP(S) URL')
   })
 })
