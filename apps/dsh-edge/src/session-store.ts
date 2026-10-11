@@ -399,9 +399,9 @@ export class EdgeSessionStore {
     // reads from the session's projections.
     await this.context.plugin(SessionStats)
     // As upstream: the turnOutline projection the Web chat view's turn list
-    // reads. Each entry is capped (about 400 bytes serialized); the storage
-    // backend's projection cache bound leaves the outline out of a session's
-    // cached record near the Durable Object value limit (edge-projection-cache.ts).
+    // reads. It grows with the session, so the storage backend keeps it out of
+    // the persisted projection cache every start loads (edge-projection-cache.ts);
+    // a loaded session folds it from its event log.
     await this.context.plugin(SessionTurnOutline)
     await this.context.plugin(SessionProjectionCache, {
       writeEveryEvents: 64,

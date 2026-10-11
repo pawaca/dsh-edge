@@ -340,7 +340,7 @@ describe('session_projcache over the Durable Object backend', () => {
     await domain.close()
   })
 
-  it('stores a huge session record without its turn outline through the Edge bound', async () => {
+  it('stores session records without the turn outline, which grows with every turn', async () => {
     const storage = createMockStorage()
     const { domain, spec } = await openProjectionCache(storage, {
       recordBounds: { [PROJECTION_CACHE_UNIT]: boundProjectionCacheRecord },
@@ -349,12 +349,17 @@ describe('session_projcache over the Durable Object backend', () => {
     expect(spec.name).toBe(PROJECTION_CACHE_UNIT)
     const row = (val: unknown) => ({ ver: 1, seq: 1, val }) as never
     const identity = { createdAt: 1000, isSeeded: false }
+    const record = { identity, rows: { turnOutline: row(worstCaseOutline(3)), sessionStats: row({ turns: 3 }) } }
     const table = domain.table('sessions')
-    await table.put(SessionId('session-small'), { identity, rows: { turnOutline: row(worstCaseOutline(3)), sessionStats: row({ turns: 3 }) } })
-    await table.put(SessionId('session-huge'), { identity, rows: { turnOutline: row(worstCaseOutline(6_000)), sessionStats: row({ turns: 6_000 }) } })
-    const stored = (id: string) => storage.store.get(`dsh-kv:session_projcache:sessions:${id}`) as { rows: Record<string, unknown> }
-    expect(Object.keys(stored('session-small').rows).sort()).toEqual(['sessionStats', 'turnOutline'])
-    expect(Object.keys(stored('session-huge').rows)).toEqual(['sessionStats'])
+    await table.put(SessionId('session-a'), record)
+    const stored = storage.store.get('dsh-kv:session_projcache:sessions:session-a') as { identity: unknown; rows: Record<string, unknown> }
+    expect(stored).toEqual({ identity, rows: { sessionStats: record.rows.sessionStats } })
+    // The running domain still serves what it was given until the next start.
+    expect(Object.keys(table.get(SessionId('session-a'))!.rows).sort()).toEqual(['sessionStats', 'turnOutline'])
     await domain.close()
+    // After a restart the record loads without the outline and the other rows stay usable.
+    const reopened = await openProjectionCache(storage)
+    expect(reopened.domain.table('sessions').get(SessionId('session-a'))).toEqual({ identity, rows: { sessionStats: record.rows.sessionStats } })
+    await reopened.domain.close()
   })
 })
