@@ -264,6 +264,28 @@ export class EdgeSettings extends Service {
    * The section is ignored in memory either way; if storage refuses the
    * removal, the warning says so and the next start discards it again.
    */
+  /**
+   * Move the stored section of a namespace an earlier release used to its
+   * successor, once, before the successor registers. A section already stored
+   * under the successor wins; the predecessor's is removed either way.
+   * @param from - the namespace an earlier release stored.
+   * @param to - the namespace that replaces it.
+   * @param map - the successor's section for the stored one, or undefined to keep none.
+   */
+  renameSection(from: string, to: string, map: (section: Record<string, unknown>) => Record<string, unknown> | undefined): void {
+    const source = parseNamespace(from)
+    const target = parseNamespace(to)
+    if (this.registrations.has(target)) throw new Error(`settings namespace "${target}" is already registered`)
+    const stored = this.section(source)
+    if (stored === undefined) return
+    if (this.section(target) === undefined) {
+      const moved = map(stored)
+      if (moved !== undefined) this.document = { ...this.document, [target]: moved }
+    }
+    // Persists the document without the predecessor, so the moved section with it.
+    this.discardSection(source)
+  }
+
   private discardSection(ns: SettingsNamespace): void {
     const { [ns]: _discarded, ...document } = this.document
     this.document = document

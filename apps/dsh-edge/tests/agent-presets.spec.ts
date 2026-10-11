@@ -9,7 +9,7 @@ import {
   normalizeAgentPreset,
   sessionAgentPreset,
 } from '../src/agent-presets.ts'
-import { EdgeSettings } from '../src/edge-settings.ts'
+import { EdgeSettings, SETTINGS_DOCUMENT_KEY } from '../src/edge-settings.ts'
 
 const header: SessionHeader = {
   id: SessionId('session-preset'),
@@ -57,18 +57,27 @@ describe('Edge agent presets', () => {
     ])
   })
 
+  it('moves the default an earlier release stored under agent-presets', async () => {
+    const storage = memoryStorage()
+    await storage.put(SETTINGS_DOCUMENT_KEY, { 'agent-presets': { default: PTC_AGENT_PRESET } })
+    const presets = await edgePresets(true, storage)
+    expect(presets.defaultPreset()).toBe(PTC_AGENT_PRESET)
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(await storage.get(SETTINGS_DOCUMENT_KEY)).toEqual({ 'agent-preset-registry': { selectedDefault: PTC_AGENT_PRESET } })
+  })
+
   it('starts new sessions on the default the Settings page writes, as upstream', async () => {
     const root = new Context()
     const storage = memoryStorage()
     await root.plugin(EdgeSettings, { storage })
     await root.plugin(EdgeAgentPresets, { codeRuntime: true })
     const presets = root.get('agentPresets') as EdgeAgentPresets
-    await root.settings.update(AGENT_PRESET_SETTINGS_NAMESPACE, { default: PTC_AGENT_PRESET })
+    await root.settings.update(AGENT_PRESET_SETTINGS_NAMESPACE, { selectedDefault: PTC_AGENT_PRESET })
     expect(presets.defaultPreset()).toBe(PTC_AGENT_PRESET)
     expect(presets.rows().map(row => [row.id, row.isDefault]))
       .toEqual([[DEFAULT_AGENT_PRESET, false], [PTC_AGENT_PRESET, true]])
     await expect(presets.resolve()).resolves.toMatchObject({ id: PTC_AGENT_PRESET, isDefault: true })
-    await expect(root.settings.update(AGENT_PRESET_SETTINGS_NAMESPACE, { default: 'cordis' }))
+    await expect(root.settings.update(AGENT_PRESET_SETTINGS_NAMESPACE, { selectedDefault: 'cordis' }))
       .rejects.toThrow(/not available/u)
     expect(presets.defaultPreset()).toBe(PTC_AGENT_PRESET)
 
