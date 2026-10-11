@@ -77,11 +77,6 @@
       "issue": 99,
       "reason": "Persistent PTY sessions (the minimal preset needs them). dsh-terminal is pure JavaScript; the blocker is the ctx.subprocess seam (spawnTerminal) the Edge does not serve. A Container deployment could serve it once the image adds a PTY sidecar, since computerd 0.3.1 has no PTY."
     },
-    "@deepseek-ai/dsh-command-feedback": {
-      "status": "gap",
-      "priority": "P2",
-      "reason": "/feedback and the sessionFeedback Remote behind the Web session feedback dialog. It records one session event; its anonymous user id (dsh-anonymous-user-id) falls back to a random UUID when the Harness home file cannot be read or written, so it can be mounted as is."
-    },
     "@deepseek-ai/dsh-cordis-client-runner": {
       "status": "not-applicable",
       "reason": "Creator-mode client runner; it depends on the host plugin loader and runner services the Edge does not serve."
