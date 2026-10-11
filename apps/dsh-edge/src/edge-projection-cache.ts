@@ -24,16 +24,16 @@ const PROJECTION_CACHE_TABLE = 'sessions'
 export const PROJECTION_CACHE_BUDGET_BYTES = 1.5 * 1024 * 1024
 
 const TURN_OUTLINE_KEY = 'turnOutline'
-/** Below this many outline entries the record cannot approach the budget, so it is not measured. */
-const MEASURE_FROM_TURNS = 1_000
 
 /** The cached rows to store: unchanged, or without the turn outline when the record would exceed the budget. */
 export function boundProjectionCacheRows(
   rows: Readonly<Record<string, unknown>>,
   budgetBytes = PROJECTION_CACHE_BUDGET_BYTES,
 ): Readonly<Record<string, unknown>> {
-  const outline = rows[TURN_OUTLINE_KEY] as { val?: { turns?: readonly unknown[] } } | undefined
-  if ((outline?.val?.turns?.length ?? 0) < MEASURE_FROM_TURNS) return rows
+  if (!(TURN_OUTLINE_KEY in rows)) return rows
+  // The whole record is measured: other rows (subagent catalogs, todos) grow
+  // too, so a short outline can still be what pushes it over. Writes happen
+  // per turn or per 64 events, so serializing a typical few-KB record is cheap.
   // Two bytes per UTF-16 code unit bounds what storage's structured clone writes for these strings.
   if (JSON.stringify(rows).length * 2 <= budgetBytes) return rows
   const { [TURN_OUTLINE_KEY]: _omitted, ...bounded } = rows

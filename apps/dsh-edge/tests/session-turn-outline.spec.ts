@@ -27,6 +27,9 @@ describe('upstream turn outline on the Edge', () => {
     const fits = { turnOutline: row(worstCaseOutline(1_500)), sessionStats: row({ turns: 1_500 }) }
     expect(boundProjectionCacheRows(fits)).toBe(fits)
     const huge = { turnOutline: row(worstCaseOutline(6_000)), sessionStats: row({ turns: 6_000 }), goal: row({ status: 'active' }) }
+    // A short outline is left out too when other rows already fill the record.
+    const crowded = { turnOutline: row(worstCaseOutline(20)), todos: row({ items: ['待办事项'.repeat(200_000)] }) }
+    expect(Object.keys(boundProjectionCacheRows(crowded))).toEqual(['todos'])
     const bounded = boundProjectionCacheRows(huge)
     expect(Object.keys(bounded).sort()).toEqual(['goal', 'sessionStats'])
     expect(serialize(bounded).length).toBeLessThan(PROJECTION_CACHE_BUDGET_BYTES)
