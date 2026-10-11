@@ -181,11 +181,16 @@ describe('third-party provider routes', () => {
       await expect(settings.update(PI_AI_SETTINGS_NAMESPACE, { providers: { 'mock-openai': { ...MOCK_ROUTE, apiKeyEnv } } }))
         .rejects.toThrow('belongs to DeepSeek or another Edge feature')
     }
+    // Nor omit its key name, which would make pi-ai look in the deployment's environment.
+    const { apiKeyEnv: _omitted, ...withoutKeyName } = MOCK_ROUTE
+    await expect(settings.update(PI_AI_SETTINGS_NAMESPACE, { providers: { 'mock-openai': withoutKeyName } }))
+      .rejects.toThrow('needs its own API key name')
     expect(settings.describe().find(entry => entry.ns === PI_AI_SETTINGS_NAMESPACE)?.value).toEqual({ providers: {} })
     // OpenRouter's attribution headers and a route's own key name stay allowed.
     await settings.update(PI_AI_SETTINGS_NAMESPACE, { providers: { 'mock-openai': { ...MOCK_ROUTE, headers: { 'HTTP-Referer': 'https://edge.example.com', 'X-Title': 'dsh-edge' } } } })
     expect(() => { requireAllowedHeaders('a', undefined) }).not.toThrow()
     expect(() => { requireRouteCredentialName('a', 'OPENROUTER_API_KEY') }).not.toThrow()
+    expect(() => { requireRouteCredentialName('a', '') }).toThrow('needs its own API key name')
   })
 
   it('refuses a route id another provider already serves', async () => {

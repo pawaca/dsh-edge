@@ -83,7 +83,7 @@ export async function mountPiAiProvider(ctx: Context): Promise<Fiber> {
         if (taken.has(provider)) throw new Error(`The provider id "${provider}" is already served by another model provider; choose a different id.`)
         if (typeof profile.baseURL === 'string') requireProviderBaseURL(provider, profile.baseURL)
         requireAllowedHeaders(provider, profile.headers)
-        if (typeof profile.apiKeyEnv === 'string') requireRouteCredentialName(provider, profile.apiKeyEnv)
+        requireRouteCredentialName(provider, profile.apiKeyEnv)
       }
       if (fiber !== undefined) {
         // The provider's own check, as the Loader runs it: on the running
@@ -141,8 +141,15 @@ export function requireAllowedHeaders(provider: string, headers: Record<string, 
  */
 const RESERVED_CREDENTIAL_NAME = /^(DEEPSEEK_|MCP_TOKEN_|DSH_EDGE_)/u
 
-/** Refuse a route key name that would resolve another feature's credential. */
-export function requireRouteCredentialName(provider: string, name: string): void {
+/**
+ * Refuse a route without its own key name, or with one that would resolve
+ * another feature's credential. Without a key name pi-ai discovers the key
+ * from the process environment, where Workers expose the deployment's secrets.
+ */
+export function requireRouteCredentialName(provider: string, name: unknown): void {
+  if (typeof name !== 'string' || name.length === 0) {
+    throw new Error(`Provider "${provider}" needs its own API key name, under which the Models page stores its key; a route without one would look for a key in the deployment's environment.`)
+  }
   if (RESERVED_CREDENTIAL_NAME.test(name)) {
     throw new Error(`Provider "${provider}" may not use the credential "${name}", which belongs to DeepSeek or another Edge feature; give this provider its own key name.`)
   }

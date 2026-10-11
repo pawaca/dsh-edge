@@ -210,7 +210,7 @@ Cloudflare static assets -> upstream Web shell + client plugin graph
 
 `DEEPSEEK_API_KEY` 可以在部署时作为 Worker secret 设置，也可以之后通过 Settings → Models 页面输入。Edge credential provider 先查 Durable Object KV，再降级到 Worker 环境变量；解析值保持请求级作用域，绝不写入 session event 或 response。首尾空白会被移除；空白值视为未配置。
 
-其他服务商的 API key 也在同一个 Models 页面填写，按该服务商路由所指定的凭据名（例如 `OPENROUTER_API_KEY`）存入 Durable Object KV。这些 key 不从 Worker 变量读取：只有 `DEEPSEEK_API_KEY` 为了兼容 Models 页面出现之前的部署而保留这一兜底。路由的附加请求头以明文存在设置文档里，所以只接受不会携带密钥的请求头：`HTTP-Referer`、`Referer`、`X-Title`、`OpenAI-Organization`、`OpenAI-Project` 和 `anthropic-beta`。需要第二个认证头的网关（例如开启认证的 Cloudflare AI Gateway 所需的 `cf-aig-authorization`）暂时无法配置。路由的 key 名不能使用属于 DeepSeek 或其他 Edge 功能的名字（`DEEPSEEK_*`、`MCP_TOKEN_*`、`DSH_EDGE_*`），因此部署的 DeepSeek 密钥不会被发到其他地址。
+其他服务商的 API key 也在同一个 Models 页面填写，按该服务商路由所指定的凭据名（例如 `OPENROUTER_API_KEY`）存入 Durable Object KV。这些 key 不从 Worker 变量读取：只有 `DEEPSEEK_API_KEY` 为了兼容 Models 页面出现之前的部署而保留这一兜底。路由的附加请求头以明文存在设置文档里，所以只接受不会携带密钥的请求头：`HTTP-Referer`、`Referer`、`X-Title`、`OpenAI-Organization`、`OpenAI-Project` 和 `anthropic-beta`。需要第二个认证头的网关（例如开启认证的 Cloudflare AI Gateway 所需的 `cf-aig-authorization`）暂时无法配置。路由的 key 名不能使用属于 DeepSeek 或其他 Edge 功能的名字（`DEEPSEEK_*`、`MCP_TOKEN_*`、`DSH_EDGE_*`），因此部署的 DeepSeek 密钥不会被发到其他地址。每个路由都必须有自己的 key 名：没有的话，pi-ai 会到进程环境里找 key，而 Workers 会把部署的 secret 暴露在那里。
 
 | 变量 | 用途与校验 |
 | --- | --- |
