@@ -193,7 +193,9 @@ class DurableObjectKvUnit implements KvUnit {
     }
     for (const [path, entry] of values) {
       if (!this.isReadable(stamps.get(path))) continue
-      tables[entry.table]![entry.key] = entry.value
+      // Records stored by an earlier release carry rows the bound now leaves
+      // out; reading them through it keeps every record the same in memory.
+      tables[entry.table]![entry.key] = this.boundRecord === undefined ? entry.value : this.boundRecord(entry.table, entry.value)
     }
     return { tables, global: this.isReadable(globalStamp) ? global : null }
   }
@@ -273,8 +275,9 @@ export type EdgeRecordBound = (table: string, record: unknown) => unknown
 export interface DurableObjectStorageBackendOptions {
   /**
    * Per-unit record bounds, keyed by unit name. A bound may only drop data
-   * its domain can rebuild (such as a derived cache row): the stored record
-   * then differs from what the domain holds in memory until the next open.
+   * its domain can rebuild (such as a derived cache row). It applies to every
+   * record written and to every record read, so the domain's in-memory copy
+   * at start-up matches what a fresh write would store.
    */
   readonly recordBounds?: Readonly<Record<string, EdgeRecordBound>>
 }
