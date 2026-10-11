@@ -1018,6 +1018,13 @@ export class EdgeSessionStore {
       ?.route(SessionLogExport.SESSION_LOG_EXPORT_PATH, method)
   }
 
+  /** Whether a session (blank ones included) has a log the exporter can open. */
+  async sessionLogExists(id: SessionId): Promise<boolean> {
+    const { persistence } = await this.services()
+    return persistence instanceof DurableObjectSessionPersistence
+      && (persistence.hasSession(id) || persistence.readBlankSession(id) !== undefined)
+  }
+
   /**
    * Refuse a session log export whose logs would not fit in memory
    * (see edge-session-log-export.ts). A session that does not exist is left to

@@ -27,7 +27,13 @@ import {
 } from './edge-rpc-types.ts'
 import { callEdgeApi, dispatchEdgeApi } from './edge-api-dispatch.ts'
 import { typertRpcResponse, type TypertRpcResult } from './edge-typert-connection.ts'
-import { SESSION_LOG_EXPORT_PATH } from '@deepseek-ai/dsh-session-log-export'
+import { SESSION_LOG_EXPORT_PATH, sessionLogZipFilename } from '@deepseek-ai/dsh-session-log-export'
+import {
+  MAX_SESSION_LOG_EXPORT_BYTES,
+  sessionLogExportBudget,
+  sessionLogTooLargeResponse,
+  type SessionLogExportBudget,
+} from './edge-session-log-export.ts'
 import { createUserMessage, freezeMessage, MessageId, type UserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
@@ -1426,20 +1432,41 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
   }
 
   /**
-   * Upstream's session log download, behind the size guard: the exporter holds
-   * a whole log in memory, so a log the Durable Object could not package is
-   * refused with a 413 rather than risking the object. A request the exporter
-   * would reject as malformed is passed to it for its own 400.
+   * Upstream's session log download. The exporter holds a whole log in memory,
+   * so a log the Durable Object could not package is refused with a 413 rather
+   * than risking the object. The Web client sends a HEAD preflight with
+   * `includeDescendants=true` and starts the browser download only if it
+   * succeeds, so the HEAD carries the check for the whole tree and answers on
+   * its own: upstream's HEAD would read the entire root log just to discard it.
+   * The GET checks the root log, then runs the exporter under a byte budget that
+   * the persistence layer enforces at each log read (the race with a turn
+   * appending, and the subagent logs, which the exporter reads while streaming).
+   * A request the exporter would reject as malformed is passed to it for its
+   * own 400.
    */
   private async exportSessionLog(request: Request, url: URL): Promise<Response> {
     const handler = this.sessions.sessionLogExportHandler(request.method)
     if (handler === undefined) throw new EdgeHttpError(404, 'Session log export is not available.')
     const sessionId = url.searchParams.get('sessionId')
     const descendants = url.searchParams.get('includeDescendants')
-    if (sessionId !== null && sessionId !== '' && (descendants === null || descendants === 'true' || descendants === 'false')) {
-      await this.sessions.assertSessionLogExportable(SessionId(sessionId), descendants === 'true', request.signal)
+    if (sessionId === null || sessionId === '' || (descendants !== null && descendants !== 'true' && descendants !== 'false')) {
+      return await handler(request)
     }
-    return await handler(request)
+    const id = SessionId(sessionId)
+    const includeDescendants = descendants === 'true'
+    if (request.method === 'HEAD') {
+      if (!await this.sessions.sessionLogExists(id)) throw new EdgeHttpError(404, 'session not found')
+      await this.sessions.assertSessionLogExportable(id, includeDescendants, request.signal)
+      return new Response(null, { headers: {
+        'content-type': 'application/zip',
+        'content-disposition': `attachment; filename="${sessionLogZipFilename(id)}"`,
+      } })
+    }
+    await this.sessions.assertSessionLogExportable(id, false, request.signal)
+    const budget: SessionLogExportBudget = { limitBytes: MAX_SESSION_LOG_EXPORT_BYTES }
+    const response = await sessionLogExportBudget.run(budget, () => handler(request))
+    if (budget.refused !== undefined) throw sessionLogTooLargeResponse(budget.refused, id, includeDescendants)
+    return response
   }
 
   /** Both HTTP spellings bind controls to the same observed run before dispatch. */

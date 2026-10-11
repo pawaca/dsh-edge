@@ -36,6 +36,8 @@ await writePrebuiltModeWranglerConfig(runtimeMode, runtimeConfig,
     ? { r2BucketName: 'dsh-edge-integration-attachments' }
     : {})
 const mock = await startMockDeepSeek()
+/** Turns of the large-log session that the session log export refuses (about 4.4 MiB of stored events). */
+const LARGE_LOG_TURNS = 50
 let worker
 let releasedStateSeeder
 let ownerCookie
@@ -1869,7 +1871,25 @@ try {
   const mediaEntry = Object.keys(archive).find(name => name.startsWith('media/'))
   assert.ok(mediaEntry !== undefined, JSON.stringify(Object.keys(archive)))
   assert.equal(Buffer.from(archive[mediaEntry]).toString('base64'), imageBase64)
-  assert.equal((await request(`/api/session.export?sessionId=${imageSessionId}`, { method: 'HEAD' })).status, 200)
+  // The Web client's preflight is a HEAD with includeDescendants=true; the Edge answers it without reading the log.
+  const preflight = await request(`/api/session.export?sessionId=${imageSessionId}&includeDescendants=true`, { method: 'HEAD' })
+  assert.equal(preflight.status, 200)
+  assert.equal(preflight.headers.get('content-type'), 'application/zip')
+  assert.equal(preflight.headers.get('content-disposition'), `attachment; filename="dsh-session-${imageSessionId}.zip"`)
+  assert.equal((await preflight.text()), '')
+  assert.equal((await request('/api/session.export?sessionId=session-missing', { method: 'HEAD' })).status, 404)
+  // A log above the export budget (4 MiB of stored events) is refused up front, by the preflight and by a direct GET,
+  // instead of being read into the Durable Object's memory.
+  const largeLogSession = (await rpc('session.create', {})).body.result.value.sessionId
+  const largePrompt = 'large log fixture '.repeat(2_400)
+  for (let index = 0; index < LARGE_LOG_TURNS; index++) await turn(largeLogSession, `${String(index)} ${largePrompt}`)
+  const largePreflight = await request(`/api/session.export?sessionId=${largeLogSession}&includeDescendants=true`, { method: 'HEAD' })
+  assert.equal(largePreflight.status, 413)
+  const largeGet = await request(`/api/session.export?sessionId=${largeLogSession}&includeDescendants=false`)
+  assert.equal(largeGet.status, 413)
+  assert.match(await largeGet.text(), /too large to export/u)
+  // The small session next to it still exports.
+  assert.equal((await request(`/api/session.export?sessionId=${imageSessionId}&includeDescendants=false`)).status, 200)
   assert.equal((await request('/api/session.export?sessionId=session-missing')).status, 404)
   assert.equal((await request('/api/session.export')).status, 400)
   assert.equal((await request(`/api/session.export?sessionId=${imageSessionId}&includeDescendants=maybe`)).status, 400)
@@ -2022,8 +2042,9 @@ try {
   // tool-call request, its five children, and its continuation, and the
   // run_code turn adds a tool-call request and its continuation; the fork's
   // own date-context turn adds one request; the watched preview's read turn
-  // adds a tool-call request and its continuation.
-  assert.equal(turnRequests().length, runtimeMode === 'isolated' ? 36 : 27)
+  // adds a tool-call request and its continuation; the large-log export
+  // fixture adds one request for each of its 50 turns.
+  assert.equal(turnRequests().length, (runtimeMode === 'isolated' ? 36 : 27) + LARGE_LOG_TURNS)
   await worker.stop()
   worker = undefined
   const { physicalRows, writeBatches } = sessionEventStorageStats(batchedSessionId)
