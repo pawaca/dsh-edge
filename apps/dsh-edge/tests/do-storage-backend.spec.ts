@@ -1,7 +1,9 @@
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { KvUnitDescriptor } from '@deepseek-ai/dsh-storage'
 import { describe, expect, it } from 'vitest'
-import { DurableObjectStorageBackend } from '../src/do-storage-backend.ts'
+import { DurableObjectStorageBackend, type DurableObjectStorageBackendOptions } from '../src/do-storage-backend.ts'
+import { boundProjectionCacheRecord, PROJECTION_CACHE_UNIT } from '../src/edge-projection-cache.ts'
+import { worstCaseOutline } from './fixtures/turn-outline.ts'
 
 const EPOCH_0 = new Date(0).toISOString()
 const REAL_TS = '2026-05-01T12:00:00.000Z'
@@ -292,7 +294,7 @@ describe('DurableObjectStorageBackend kv unit contract', () => {
 })
 
 describe('session_projcache over the Durable Object backend', () => {
-  async function openProjectionCache(storage: DurableObjectStorage) {
+  async function openProjectionCache(storage: DurableObjectStorage, options?: DurableObjectStorageBackendOptions) {
     const { Context } = await import('@deepseek-ai/cordis')
     const { default: Storage } = await import('@deepseek-ai/dsh-storage')
     const StorageDomain = await import('@deepseek-ai/dsh-storage-domain')
@@ -302,7 +304,7 @@ describe('session_projcache over the Durable Object backend', () => {
     ctx.logger.error = (message: unknown) => { errors.push(String(message)) }
     await ctx.plugin(Storage)
     ctx.effect(() => {
-      const dispose = ctx.storage.backend.register('durable-object', new DurableObjectStorageBackend(storage))
+      const dispose = ctx.storage.backend.register('durable-object', new DurableObjectStorageBackend(storage, options))
       ctx.provide('storage.backend.durable-object', true)
       return () => { dispose() }
     }, 'test: storage backend')
@@ -336,5 +338,28 @@ describe('session_projcache over the Durable Object backend', () => {
     expect(storage.store.get('dsh-kv:session_projcache:sessions:corrupt')).toBeUndefined()
     expect([...storage.store.keys()].some(key => key.startsWith('dsh-kv:session_projcache:__backup__:sessions:corrupt:'))).toBe(true)
     await domain.close()
+  })
+
+  it('stores session records without the turn outline, which grows with every turn', async () => {
+    const storage = createMockStorage()
+    const { domain, spec } = await openProjectionCache(storage, {
+      recordBounds: { [PROJECTION_CACHE_UNIT]: boundProjectionCacheRecord },
+    })
+    // The bound is keyed by upstream's unit name; a rename upstream fails here.
+    expect(spec.name).toBe(PROJECTION_CACHE_UNIT)
+    const row = (val: unknown) => ({ ver: 1, seq: 1, val }) as never
+    const identity = { createdAt: 1000, isSeeded: false }
+    const record = { identity, rows: { turnOutline: row(worstCaseOutline(3)), sessionStats: row({ turns: 3 }) } }
+    const table = domain.table('sessions')
+    await table.put(SessionId('session-a'), record)
+    const stored = storage.store.get('dsh-kv:session_projcache:sessions:session-a') as { identity: unknown; rows: Record<string, unknown> }
+    expect(stored).toEqual({ identity, rows: { sessionStats: record.rows.sessionStats } })
+    // The running domain still serves what it was given until the next start.
+    expect(Object.keys(table.get(SessionId('session-a'))!.rows).sort()).toEqual(['sessionStats', 'turnOutline'])
+    await domain.close()
+    // After a restart the record loads without the outline and the other rows stay usable.
+    const reopened = await openProjectionCache(storage)
+    expect(reopened.domain.table('sessions').get(SessionId('session-a'))).toEqual({ identity, rows: { sessionStats: record.rows.sessionStats } })
+    await reopened.domain.close()
   })
 })

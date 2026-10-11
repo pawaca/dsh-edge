@@ -47,7 +47,9 @@ import SessionStore, {
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SessionProjectionCache from '@deepseek-ai/dsh-session-projection-cache'
+import { boundProjectionCacheRecord, PROJECTION_CACHE_UNIT } from './edge-projection-cache.ts'
 import * as SessionStats from '@deepseek-ai/dsh-session-stats'
+import * as SessionTurnOutline from '@deepseek-ai/dsh-session-turn-outline'
 import {
   foldSessionTitle,
   normalizeSessionTitle,
@@ -366,7 +368,9 @@ export class EdgeSessionStore {
     await this.context.plugin(EdgeSettings, { storage })
     await DurableObjectStorageBackend.migrateWorkspaceKeys(storage)
     await DurableObjectStorageBackend.repairEpoch0Timestamps(storage)
-    const storageBackend = new DurableObjectStorageBackend(storage)
+    const storageBackend = new DurableObjectStorageBackend(storage, {
+      recordBounds: { [PROJECTION_CACHE_UNIT]: boundProjectionCacheRecord },
+    })
     await this.context.plugin(Storage)
     this.context.effect(() => {
       const dispose = this.context.storage.backend.register('durable-object', storageBackend)
@@ -394,6 +398,11 @@ export class EdgeSessionStore {
     // As upstream: whole-session counts and timings, which the Web chat view
     // reads from the session's projections.
     await this.context.plugin(SessionStats)
+    // As upstream: the turnOutline projection the Web chat view's turn list
+    // reads. It grows with the session, so the storage backend keeps it out of
+    // the persisted projection cache every start loads (edge-projection-cache.ts);
+    // a loaded session folds it from its event log.
+    await this.context.plugin(SessionTurnOutline)
     await this.context.plugin(SessionProjectionCache, {
       writeEveryEvents: 64,
       writeIntervalMs: 10_000,
