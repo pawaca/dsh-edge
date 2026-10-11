@@ -208,11 +208,6 @@
       "status": "substitute",
       "reason": "DurableObjectStorageBackend in do-storage-backend.ts."
     },
-    "@deepseek-ai/dsh-session-turn-outline": {
-      "status": "gap",
-      "priority": "P2",
-      "reason": "turnOutline projection that dsh-client-ui-chat reads. Each entry is capped (50-character prompt and 120-character response previews) and a failed cache write only leaves the cache stale; it needs a size test against the Durable Object value limit before it is mounted."
-    },
     "@deepseek-ai/dsh-subprocess-local": {
       "status": "not-applicable",
       "reason": "Host-OS process sandboxing, subprocesses, and shell environment."

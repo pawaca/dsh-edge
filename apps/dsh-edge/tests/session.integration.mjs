@@ -2347,7 +2347,13 @@ try {
   const { sessionStats } = statsSummary.projections.values
   assert.equal(sessionStats.turns, 2, JSON.stringify(sessionStats))
   assert.ok(sessionStats.steps >= 2 && sessionStats.llmMs > 0, JSON.stringify(sessionStats))
-  assert.equal(statsSummary.projections.values.turnOutline, undefined)
+  // Upstream's turnOutline projection, which the chat view's turn list reads:
+  // one entry per turn with its turn/start seq and bounded previews.
+  const { turnOutline } = statsSummary.projections.values
+  assert.deepEqual(turnOutline.map(entry => [entry.turn, entry.prompt]), [[1, 'stats fixture one'], [2, 'stats fixture two']], JSON.stringify(turnOutline))
+  assert.ok(turnOutline.every(entry => Number.isInteger(entry.seq) && entry.response.length > 0 && entry.response.length <= 120), JSON.stringify(turnOutline))
+  const statsStarts = parseEvents(await (await request(`/api/sessions/${statsSessionId}/events?limit=256`)).text()).filter(event => event.type === 'turn/start').map(event => event.seq)
+  assert.deepEqual(turnOutline.map(entry => entry.seq), statsStarts)
   // Upstream image offload: with a one-image request budget, a second turn
   // carrying an image marks the oldest occurrence offloaded (a durable
   // image/offload event) and retries instead of failing the turn.
