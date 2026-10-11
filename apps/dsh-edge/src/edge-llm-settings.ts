@@ -72,10 +72,11 @@ export async function mountPiAiProvider(ctx: Context): Promise<Fiber> {
   let fiber: Fiber | undefined
   const scope = edgeSettings(ctx).register(PI_AI_SETTINGS_NAMESPACE, dshLlmPiAi.Config as never, {
     validate: value => {
-      const { providers } = value as { providers?: Record<string, { baseURL?: unknown, headers?: Record<string, unknown> }> }
+      const { providers } = value as { providers?: Record<string, { baseURL?: unknown, headers?: Record<string, unknown>, apiKeyEnv?: unknown }> }
       for (const [provider, profile] of Object.entries(providers ?? {})) {
         if (typeof profile.baseURL === 'string') requireProviderBaseURL(provider, profile.baseURL)
-        requireNonCredentialHeaders(provider, profile.headers)
+        requireAllowedHeaders(provider, profile.headers)
+        if (typeof profile.apiKeyEnv === 'string') requireRouteCredentialName(provider, profile.apiKeyEnv)
       }
       if (fiber !== undefined) {
         // The provider's own check, as the Loader runs it: on the running
@@ -106,19 +107,36 @@ export async function mountPiAiProvider(ctx: Context): Promise<Fiber> {
 }
 
 /**
- * Header names that carry a credential. The settings document is stored and
- * described in plain text, while credentials belong to the credentials service
- * (a route's `apiKeyEnv`, which the provider sends as its Authorization or
- * `x-api-key` header), so a route may not carry one in `headers`.
+ * Headers a route may send besides the ones the provider sets itself. The
+ * settings document is stored and described in plain text, and upstream
+ * header values are plain strings, so only headers that never carry a secret
+ * are accepted: OpenRouter's attribution headers and the OpenAI and Anthropic
+ * identifiers that select an organization, project, or beta. The provider's
+ * key belongs in its key field, which the credentials service keeps.
  */
-const CREDENTIAL_HEADER = /^(authorization|proxy-authorization|cookie)$|auth|key|token|secret|passw|session|signature/iu
+const ALLOWED_ROUTE_HEADERS = new Set(['http-referer', 'referer', 'x-title', 'openai-organization', 'openai-project', 'anthropic-beta'])
 
-/** Refuse a route header that would keep a credential in the settings document. */
-export function requireNonCredentialHeaders(provider: string, headers: Record<string, unknown> | undefined): void {
+/** Refuse a route header outside the allowlist, which could keep a credential in the settings document. */
+export function requireAllowedHeaders(provider: string, headers: Record<string, unknown> | undefined): void {
   for (const name of Object.keys(headers ?? {})) {
-    if (CREDENTIAL_HEADER.test(name)) {
-      throw new Error(`The header "${name}" of provider "${provider}" looks like a credential; enter the provider's API key in its key field instead, which keeps it out of the settings.`)
+    if (!ALLOWED_ROUTE_HEADERS.has(name.toLowerCase())) {
+      throw new Error(`Provider "${provider}" may not send the header "${name}": route headers are stored in plain text, so only HTTP-Referer, Referer, X-Title, OpenAI-Organization, OpenAI-Project, and anthropic-beta are accepted. Enter the provider's API key in its key field.`)
     }
+  }
+}
+
+/**
+ * Credential names that belong to the deployment or to other Edge features:
+ * DeepSeek's key (which also falls back to the Worker secret), MCP servers'
+ * OAuth tokens, and Edge settings. A third-party route reading one would send
+ * it to its own endpoint.
+ */
+const RESERVED_CREDENTIAL_NAME = /^(DEEPSEEK_|MCP_TOKEN_|DSH_EDGE_)/u
+
+/** Refuse a route key name that would resolve another feature's credential. */
+export function requireRouteCredentialName(provider: string, name: string): void {
+  if (RESERVED_CREDENTIAL_NAME.test(name)) {
+    throw new Error(`Provider "${provider}" may not use the credential "${name}", which belongs to DeepSeek or another Edge feature; give this provider its own key name.`)
   }
 }
 

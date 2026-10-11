@@ -3,7 +3,7 @@ import LlmRuntime from '@deepseek-ai/dsh-llm'
 import { describe, expect, it } from 'vitest'
 import { EdgeSettings, SETTINGS_DOCUMENT_KEY, edgeSettings } from '../src/edge-settings.ts'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
-import { DEEPSEEK_SETTINGS_NAMESPACE, PI_AI_SETTINGS_NAMESPACE, explained, mountDeepSeekProvider, mountPiAiProvider, requireNonCredentialHeaders, requireProviderBaseURL } from '../src/edge-llm-settings.ts'
+import { DEEPSEEK_SETTINGS_NAMESPACE, PI_AI_SETTINGS_NAMESPACE, explained, mountDeepSeekProvider, mountPiAiProvider, requireAllowedHeaders, requireProviderBaseURL, requireRouteCredentialName } from '../src/edge-llm-settings.ts'
 
 function memoryStorage(): DurableObjectStorage {
   const store = new Map<string, unknown>()
@@ -168,17 +168,24 @@ describe('third-party provider routes', () => {
     expect(ctx.llm.listProviders()).toEqual([])
   })
 
-  it('keeps credentials out of route headers', async () => {
+  it('keeps credentials out of route headers and reserved key names', async () => {
     const ctx = await mountedWithRoutes()
     const settings = edgeSettings(ctx)
-    for (const name of ['Authorization', 'x-api-key', 'cf-aig-authorization', 'X-Auth-Token', 'Cookie', 'api-secret']) {
+    // Any header outside the allowlist is refused, whatever its name suggests.
+    for (const name of ['Authorization', 'x-api-key', 'cf-aig-authorization', 'X-Credential', 'Cookie']) {
       await expect(settings.update(PI_AI_SETTINGS_NAMESPACE, { providers: { 'mock-openai': { ...MOCK_ROUTE, headers: { [name]: 'Bearer sk-secret' } } } }))
-        .rejects.toThrow('looks like a credential')
+        .rejects.toThrow('may not send the header')
+    }
+    // A third-party route may not read DeepSeek's key or another feature's credential.
+    for (const apiKeyEnv of ['DEEPSEEK_API_KEY', 'MCP_TOKEN_GITHUB', 'DSH_EDGE_ACCESS_KEY']) {
+      await expect(settings.update(PI_AI_SETTINGS_NAMESPACE, { providers: { 'mock-openai': { ...MOCK_ROUTE, apiKeyEnv } } }))
+        .rejects.toThrow('belongs to DeepSeek or another Edge feature')
     }
     expect(settings.describe().find(entry => entry.ns === PI_AI_SETTINGS_NAMESPACE)?.value).toEqual({ providers: {} })
-    // Ordinary routing headers stay allowed.
+    // OpenRouter's attribution headers and a route's own key name stay allowed.
     await settings.update(PI_AI_SETTINGS_NAMESPACE, { providers: { 'mock-openai': { ...MOCK_ROUTE, headers: { 'HTTP-Referer': 'https://edge.example.com', 'X-Title': 'dsh-edge' } } } })
-    expect(() => { requireNonCredentialHeaders('a', undefined) }).not.toThrow()
+    expect(() => { requireAllowedHeaders('a', undefined) }).not.toThrow()
+    expect(() => { requireRouteCredentialName('a', 'OPENROUTER_API_KEY') }).not.toThrow()
   })
 
   it('accepts only HTTP(S) Base URLs without credentials', () => {
