@@ -188,6 +188,22 @@ describe('third-party provider routes', () => {
     expect(() => { requireRouteCredentialName('a', 'OPENROUTER_API_KEY') }).not.toThrow()
   })
 
+  it('refuses a route id another provider already serves', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(EdgeSettings, { storage: memoryStorage() })
+    await mountDeepSeekProvider(ctx, { baseURL: 'https://api.deepseek.com/anthropic', maxTokens: 4096 })
+    await mountPiAiProvider(ctx)
+    const settings = edgeSettings(ctx)
+    await expect(settings.update(PI_AI_SETTINGS_NAMESPACE, { providers: { 'deepseek-official': MOCK_ROUTE } }))
+      .rejects.toThrow('already served by another model provider')
+    // A route this namespace already serves can still be edited.
+    await settings.update(PI_AI_SETTINGS_NAMESPACE, { providers: { 'mock-openai': MOCK_ROUTE } })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    await settings.update(PI_AI_SETTINGS_NAMESPACE, { providers: { 'mock-openai': { ...MOCK_ROUTE, displayName: 'Renamed' } } })
+    expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(['deepseek-official', 'mock-openai'])
+  })
+
   it('accepts only HTTP(S) Base URLs without credentials', () => {
     expect(() => { requireProviderBaseURL('a', 'https://openrouter.ai/api/v1') }).not.toThrow()
     expect(() => { requireProviderBaseURL('a', 'http://gateway.internal:8080/v1') }).not.toThrow()

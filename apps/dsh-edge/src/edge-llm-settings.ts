@@ -70,10 +70,17 @@ export const PI_AI_SETTINGS_NAMESPACE = 'llm-pi-ai'
  */
 export async function mountPiAiProvider(ctx: Context): Promise<Fiber> {
   let fiber: Fiber | undefined
+  /** The routes saved before this change; none while the namespace is registering. */
+  let savedRoutes = (): Record<string, unknown> => ({})
   const scope = edgeSettings(ctx).register(PI_AI_SETTINGS_NAMESPACE, dshLlmPiAi.Config as never, {
     validate: value => {
       const { providers } = value as { providers?: Record<string, { baseURL?: unknown, headers?: Record<string, unknown>, apiKeyEnv?: unknown }> }
+      // A route id another adapter already serves (DeepSeek's) would make the
+      // runtime refuse the whole registration, on save and after a restart.
+      const ours = new Set(Object.keys(savedRoutes()))
+      const taken = new Set(ctx.llm.listProviders().map(entry => entry.id).filter(id => !ours.has(id)))
       for (const [provider, profile] of Object.entries(providers ?? {})) {
+        if (taken.has(provider)) throw new Error(`The provider id "${provider}" is already served by another model provider; choose a different id.`)
         if (typeof profile.baseURL === 'string') requireProviderBaseURL(provider, profile.baseURL)
         requireAllowedHeaders(provider, profile.headers)
         if (typeof profile.apiKeyEnv === 'string') requireRouteCredentialName(provider, profile.apiKeyEnv)
@@ -87,6 +94,7 @@ export async function mountPiAiProvider(ctx: Context): Promise<Fiber> {
     },
     discardInvalidSection: true,
   })
+  savedRoutes = () => (scope.get() as { providers?: Record<string, unknown> }).providers ?? {}
   const stop = ctx.on('internal/plugin', (candidate) => {
     const named = candidate as Fiber & { entry?: { options: { id: string } } }
     if (candidate.runtime?.callback === dshLlmPiAi.apply && named.entry === undefined) {
