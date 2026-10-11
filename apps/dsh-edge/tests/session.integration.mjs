@@ -2503,8 +2503,16 @@ try {
   const coldParent = (await rpc('session.list', {})).body.result.value.items.find(item => item.sessionId === bgParent)
   assert.equal(coldParent.projections.kind, 'cached', JSON.stringify(coldParent.projections))
   assert.ok(coldParent.projections.values.sessionStats?.turns >= 2, JSON.stringify(coldParent.projections.values.sessionStats))
+  // Rows that grow with the session are not persisted, so a cold list omits them.
+  assert.equal(coldParent.projections.values.contextBreakdown, undefined)
+  assert.equal(coldParent.projections.values.turnOutline, undefined)
   const forkedChild = resultOf(await turn(bgParent, 'fork a subagent'), 'call_bg_fork')
   assert.equal(forkedChild?.data.message.isError, false, toolResultText(forkedChild))
+  // Once the session is loaded it folds those rows from its log.
+  const loadedParent = (await rpc('session.list', {})).body.result.value.items.find(item => item.sessionId === bgParent)
+  assert.equal(loadedParent.projections.kind, 'sequenced', JSON.stringify(loadedParent.projections))
+  assert.ok(loadedParent.projections.values.contextBreakdown?.messageTokens > 0, JSON.stringify(loadedParent.projections.values.contextBreakdown))
+  assert.ok(loadedParent.projections.values.turnOutline?.length >= 2, JSON.stringify(loadedParent.projections.values.turnOutline))
   assert.equal(await workspaceFile('/workspace/bg-child-three.txt'), 'three')
   const forkChild = (await rpc('session.list', {})).body.result.value.items
     .find(item => item.sessionId !== childId && item.parentSessionId === bgParent)

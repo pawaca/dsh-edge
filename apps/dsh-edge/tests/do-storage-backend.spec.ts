@@ -340,7 +340,7 @@ describe('session_projcache over the Durable Object backend', () => {
     await domain.close()
   })
 
-  it('stores session records without the turn outline, which grows with every turn', async () => {
+  it('stores session records without the rows that grow with every turn, keeping a long session\'s cache write small', async () => {
     const storage = createMockStorage()
     const { domain, spec } = await openProjectionCache(storage, {
       recordBounds: { [PROJECTION_CACHE_UNIT]: boundProjectionCacheRecord },
@@ -349,17 +349,27 @@ describe('session_projcache over the Durable Object backend', () => {
     expect(spec.name).toBe(PROJECTION_CACHE_UNIT)
     const row = (val: unknown) => ({ ver: 1, seq: 1, val }) as never
     const identity = { createdAt: 1000, isSeeded: false }
-    const record = { identity, rows: { turnOutline: row(worstCaseOutline(3)), sessionStats: row({ turns: 3 }) } }
+    // A 600-turn session: about 150 bytes of context nodes per turn plus 400 of outline.
+    const nodes = Array.from({ length: 1_800 }, (_, index) => ({ seq: index, heuristicTokens: 40, system: false }))
+    const rows = {
+      turnOutline: row(worstCaseOutline(600)),
+      contextBreakdown: row({ nodes, breakdown: { systemTokens: 1, toolsTokens: 2, messageTokens: 3 } }),
+      titleInput: row({ first: { text: '请帮我'.repeat(20_000) } }),
+      sessionStats: row({ turns: 600 }),
+      contextPressure: row({ tokens: 90_000 }),
+    }
     const table = domain.table('sessions')
-    await table.put(SessionId('session-a'), record)
+    await table.put(SessionId('session-a'), { identity, rows })
     const stored = storage.store.get('dsh-kv:session_projcache:sessions:session-a') as { identity: unknown; rows: Record<string, unknown> }
-    expect(stored).toEqual({ identity, rows: { sessionStats: record.rows.sessionStats } })
+    expect(Object.keys(stored.rows).sort()).toEqual(['contextPressure', 'sessionStats'])
+    // The cost this prevents: the record rewritten on every turn grew with the session (90 KB at 600 turns, 98% one row).
+    expect(JSON.stringify(stored).length).toBeLessThan(2_000)
     // The running domain still serves what it was given until the next start.
-    expect(Object.keys(table.get(SessionId('session-a'))!.rows).sort()).toEqual(['sessionStats', 'turnOutline'])
+    expect(Object.keys(table.get(SessionId('session-a'))!.rows)).toHaveLength(5)
     await domain.close()
-    // After a restart the record loads without the outline and the other rows stay usable.
+    // After a restart the record loads without them and the other rows stay usable.
     const reopened = await openProjectionCache(storage)
-    expect(reopened.domain.table('sessions').get(SessionId('session-a'))).toEqual({ identity, rows: { sessionStats: record.rows.sessionStats } })
+    expect(Object.keys(reopened.domain.table('sessions').get(SessionId('session-a'))!.rows).sort()).toEqual(['contextPressure', 'sessionStats'])
     await reopened.domain.close()
   })
 })
