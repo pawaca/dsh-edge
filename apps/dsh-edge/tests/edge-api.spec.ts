@@ -202,7 +202,7 @@ describe('Edge upstream API invariants', () => {
     const missing = await api.agentPresets.read(request({ agentPreset: 'missing' }))
     expect(missing.result).toMatchObject({
       ok: false,
-      error: { code: 'agent-preset/not-found' },
+      error: { code: 'agent-preset-not-found' },
     })
 
     const invalidProfile = await createEdgeApi(runtime({}, {
@@ -237,7 +237,7 @@ describe('Edge upstream API invariants', () => {
     })).sessions.create(request({ agentPreset: 'ptc' }))
     expect(refused.result).toMatchObject({
       ok: false,
-      error: { code: 'agent-preset/not-found', details: { available: ['standard'] } },
+      error: { code: 'agent-preset-not-found', details: { available: ['standard'] } },
     })
 
     // An existing session keeps its recorded preset on a retry, even once no longer offered.
@@ -261,9 +261,9 @@ describe('Edge upstream API invariants', () => {
     expect(selected.result).toEqual({ ok: true, value: 'ptc' })
     expect(selectAgentPreset).toHaveBeenCalledWith(sessionId, 'ptc')
     const locked = await api.agentPresets.select(request({ agentId: sessionId, agentPreset: 'ptc' }))
-    expect(locked.result).toMatchObject({ ok: false, error: { code: 'agent-preset/locked' } })
+    expect(locked.result).toMatchObject({ ok: false, error: { code: 'agent-preset-locked' } })
     const missing = await api.agentPresets.select(request({ agentId: sessionId, agentPreset: 'missing' }))
-    expect(missing.result).toMatchObject({ ok: false, error: { code: 'agent-preset/not-found' } })
+    expect(missing.result).toMatchObject({ ok: false, error: { code: 'agent-preset-not-found' } })
   })
 
   it('describes only the configured state of the deployment credential', async () => {
