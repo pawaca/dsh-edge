@@ -8,10 +8,9 @@ import { fileURLToPath } from 'node:url'
 import { execa } from 'execa'
 import { parse, printParseErrorCode } from 'jsonc-parser'
 import edgePackage from '../../package.json' with { type: 'json' }
-import { requireGzipBudget } from '../../scripts/bundle-size.mjs'
+import { requireWorkerSizeLimit, WORKER_SIZE_LIMIT_BYTES } from '../../scripts/bundle-size.mjs'
 import { renderParsedSourceModeWranglerConfig } from '../../scripts/wrangler-config-core.mjs'
 
-const DIRECT_GZIP_BUDGET_BYTES = 3 * 1024 * 1024
 // Additional npm scopes to recognize when building the published-package alias
 // table and the runtime-dependency lock guard below, for forks that bundle their
 // own plugin packages alongside dsh-edge's own. Comma-separated npm scopes, for
@@ -62,18 +61,17 @@ if (mode !== 'direct' && mode !== 'isolated') {
       process.exitCode = result.exitCode
     } else {
       await requirePublishedDependencyInputs(join(outputDirectory, 'bundle-meta.json'))
-      if (mode === 'direct') {
-        let bytes
-        try {
-          bytes = requireGzipBudget(output, DIRECT_GZIP_BUDGET_BYTES)
-        } catch (error) {
-          await reportLargestInputs(join(outputDirectory, 'bundle-meta.json'))
-          throw error
-        }
-        process.stdout.write(
-          `Standalone direct Worker gzip budget: ${bytes}/${DIRECT_GZIP_BUDGET_BYTES} bytes.\n`,
-        )
+      // Cloudflare limits the uncompressed size only; gzip is reported for reference.
+      let sizes
+      try {
+        sizes = requireWorkerSizeLimit(output)
+      } catch (error) {
+        await reportLargestInputs(join(outputDirectory, 'bundle-meta.json'))
+        throw error
       }
+      process.stdout.write(
+        `Standalone ${mode} Worker size: ${sizes.bytes}/${WORKER_SIZE_LIMIT_BYTES} bytes uncompressed (gzip ${sizes.gzipBytes} bytes).\n`,
+      )
       await publishArtifact(mode, join(outputDirectory, 'index.js'))
     }
   } catch (error) {

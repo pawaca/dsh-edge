@@ -57,6 +57,7 @@
     "example:install": "node examples/install-keyless.mjs",
     "install:cloudflare": "pnpm run bundle:workers && node scripts/cli.mjs install",
     "legal:write": "node scripts/legal-files.mjs write",
+    "check:startup": "node scripts/check-startup.mjs",
     "pack:verify": "node scripts/verify-packed.mjs",
     "prepack": "node scripts/legal-files.mjs verify && pnpm run bundle:workers",
     "web:build": "pnpm --dir standalone run build:web && node standalone/scripts/promote.mjs web",

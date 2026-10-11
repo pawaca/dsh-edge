@@ -4,23 +4,33 @@ const SIZE_UNITS = Object.freeze({
   MiB: 1024 * 1024,
 })
 
-/** Extract Wrangler's total compressed upload size in bytes. */
-export function parseWranglerGzipBytes(output) {
-  const match = /Total Upload:[^\n/]+\/ gzip:\s*([0-9]+(?:\.[0-9]+)?)\s*(B|KiB|MiB)/u.exec(output)
-  if (match === null) throw new Error('Wrangler did not report a compressed upload size.')
-  return Math.ceil(Number(match[1]) * SIZE_UNITS[match[2]])
+/**
+ * Cloudflare's Worker size limit: 64 MiB uncompressed on Workers Free and Paid.
+ * There is no compressed-size limit; Wrangler's gzip figure is for reference.
+ * https://developers.cloudflare.com/workers/platform/limits/
+ */
+export const WORKER_SIZE_LIMIT_BYTES = 64 * 1024 * 1024
+
+/** Extract Wrangler's total upload sizes (uncompressed and gzip) in bytes. */
+export function parseWranglerUploadSizes(output) {
+  const match = /Total Upload:\s*([0-9]+(?:\.[0-9]+)?)\s*(B|KiB|MiB)\s*\/ gzip:\s*([0-9]+(?:\.[0-9]+)?)\s*(B|KiB|MiB)/u.exec(output)
+  if (match === null) throw new Error('Wrangler did not report the upload size.')
+  return {
+    bytes: Math.ceil(Number(match[1]) * SIZE_UNITS[match[2]]),
+    gzipBytes: Math.ceil(Number(match[3]) * SIZE_UNITS[match[4]]),
+  }
 }
 
-/** Reject a compressed Worker artifact above the repository budget. */
-export function requireGzipBudget(output, maxBytes) {
+/** Reject a Worker artifact above Cloudflare's uncompressed size limit. */
+export function requireWorkerSizeLimit(output, maxBytes = WORKER_SIZE_LIMIT_BYTES) {
   if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) {
     throw new TypeError('maxBytes must be a positive safe integer.')
   }
-  const actualBytes = parseWranglerGzipBytes(output)
-  if (actualBytes > maxBytes) {
+  const sizes = parseWranglerUploadSizes(output)
+  if (sizes.bytes > maxBytes) {
     throw new Error(
-      `Direct Worker gzip size ${actualBytes} bytes exceeds the ${maxBytes}-byte budget.`,
+      `Worker size ${sizes.bytes} bytes exceeds Cloudflare's ${maxBytes}-byte uncompressed limit.`,
     )
   }
-  return actualBytes
+  return sizes
 }

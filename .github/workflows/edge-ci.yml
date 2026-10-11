@@ -58,6 +58,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Cloudflare limits a Worker's global-scope startup to 1 s of CPU; the
+      # size limit itself (64 MiB uncompressed) is checked while bundling.
+      - name: Check the Worker startup time
+        run: node apps/dsh-edge/scripts/check-startup.mjs all
+
       - name: Validate documentation
         run: pnpm run doc-sync
 

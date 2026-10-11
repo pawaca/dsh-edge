@@ -252,7 +252,7 @@ Direct 模式比独立 Worker 的隔离更轻；不要把 single-owner 部署暴
 - Isolated 保留该 shell core，并把不可达的 Direct backend 替换成 fail-closed module。因此每个 artifact 只携带所选 command runtime。
 - 安装器生成私有 mode-specific config，指向所选 artifact，并通过 `no_bundle` 上传。用户机器不会重新构建 dsh-edge，也不会把 Harness package 解析进新 Worker。
 - Container 模式部署 isolated 产物，并使用 `docker.io/pawaca/dsh-edge-computer:<version>` 镜像。该镜像由发版流程从 `container/Dockerfile` 构建，每个版本在 npm 发布前推送一次。安装时不需要本地 Docker；`pnpm dev:container` 和 `pnpm test:container` 会在本地构建 Dockerfile，因此需要。
-- CI 从已安装 tarball 启动 Direct artifact，并拒绝 gzip 后超过 900 KiB 的产物，为 Cloudflare 匿名临时账户的 1 MiB 上限保留余量。
+- CI 从已安装 tarball 启动 Direct artifact。打包时会拒绝超过 Cloudflare 未压缩 64 MiB 上限的 Worker（Cloudflare 不限制压缩后体积，临时账户也一样），CI 还会对照 Cloudflare 1 秒的启动上限检查每个产物的启动耗时。
 
 ### 安装与升级
 
@@ -304,7 +304,7 @@ npx dsh-edge upgrade
 - 上传成功但交接失败时，恢复卡片会在命令按失败退出前输出已生效 owner key 与所有已知 URL。
 - 安装直接通过 Wrangler 上传；不会创建或绑定 GitHub 仓库、Cloudflare Builds 项目或源码构建流水线。
 
-从 checkout 开发的贡献者可以用 `pnpm --filter dsh-edge bundle:direct` 和 `pnpm --filter dsh-edge bundle:isolated` 在本地复现两种 release artifact。第一条命令还会执行压缩体积预算检查。
+从 checkout 开发的贡献者可以用 `pnpm --filter dsh-edge bundle:direct` 和 `pnpm --filter dsh-edge bundle:isolated` 在本地复现两种 release artifact。两条命令都会检查 Cloudflare 未压缩 64 MiB 的 Worker 体积上限（Cloudflare 不限制压缩后体积），`pnpm --filter dsh-edge check:startup` 会对照 Cloudflare 1 秒的启动上限分析已提升产物的启动耗时。
 
 贡献者可以在没有 key 且不发起网络请求的情况下重放完整的 Free 临时账户流程。这个 example 会运行实际交付的 bin、真实 prompt、Wrangler 子进程、结构化部署输出解析、公开激活观察与最终交接，并替换外部 Cloudflare 边界：
 
