@@ -26,7 +26,7 @@ import {
   type ServerRequest,
 } from './edge-rpc-types.ts'
 import { callEdgeApi, dispatchEdgeApi } from './edge-api-dispatch.ts'
-import { typertRpcResponse } from './edge-typert-connection.ts'
+import { typertRpcResponse, type TypertRpcResult } from './edge-typert-connection.ts'
 import { createUserMessage, freezeMessage, MessageId, type UserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
@@ -1391,22 +1391,16 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       const invoke = () => interceptor.dispatch(`${ns}/${method}`, payload ?? { args }, deadline)
       // Agent-scoped commands (including /plan) use the same residency budget.
       // Their upstream lookup may otherwise leave a cold Agent permanently live.
+      // Session feedback appends to the session, which may be cold; the Edge
+      // acknowledges it only once saved, and a retry does not duplicate it.
+      const feedback = ns === 'sessionFeedback' && method === 'record' ? feedbackRequest(args) : undefined
       const result = ns === 'workspaceFiles'
         ? await this.withWorkspaceFileScope(invoke)
         : ns === 'subagents' && method === 'prompt'
           ? await this.withSubagentPrompt(args, invoke)
-        // Session feedback appends to the session, which may be cold, and
-        // upstream does not flush that append; the Edge persists it at once.
-        // Once appended it is recorded: a failed flush leaves it to the next
-        // save rather than inviting a duplicate resubmission.
-        : ns === 'sessionFeedback' && method === 'record' && typeof feedbackSessionId(args) === 'string'
-          ? await this.withAgentControl(SessionId(feedbackSessionId(args)!), async () => {
-            const recorded = await invoke()
-            await this.sessions.flushLiveSession(SessionId(feedbackSessionId(args)!)).catch((error: unknown) => {
-              console.error('dsh-edge: session feedback stays queued for the next save.', error)
-            })
-            return recorded
-          })
+        : feedback !== undefined
+          ? await this.withAgentControl(SessionId(feedback.sessionId), () =>
+            this.sessions.recordSessionFeedback(SessionId(feedback.sessionId), feedback, invoke, FEEDBACK_RECORDED))
         : typeof args.agentId === 'string'
           ? startsGoalRound(ns, method)
             ? await this.withAgentTurn(SessionId(args.agentId), invoke)
@@ -2215,10 +2209,13 @@ function resolveReplayLimit(url: URL): number {
   return limit
 }
 
-/** The session a `sessionFeedback/record` call names: `{ request: { sessionId } }`. */
-function feedbackSessionId(args: Record<string, unknown>): string | undefined {
+/** Upstream's `sessionFeedback.record` success, framed by the gateway as `invoke()` returns it. */
+const FEEDBACK_RECORDED: TypertRpcResult = { ok: true, value: { ok: true, value: { recorded: true } } }
+
+/** The request a `sessionFeedback/record` call carries: `{ request: { sessionId, text?, category? } }`. */
+function feedbackRequest(args: Record<string, unknown>): { sessionId: string; text?: unknown; category?: unknown } | undefined {
   const request = args.request
   if (typeof request !== 'object' || request === null) return undefined
-  const sessionId = (request as { sessionId?: unknown }).sessionId
-  return typeof sessionId === 'string' ? sessionId : undefined
+  const { sessionId, text, category } = request as { sessionId?: unknown; text?: unknown; category?: unknown }
+  return typeof sessionId === 'string' ? { sessionId, text, category } : undefined
 }

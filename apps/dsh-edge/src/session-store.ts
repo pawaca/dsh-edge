@@ -2102,10 +2102,43 @@ export class EdgeSessionStore {
     return (this.context.get('agentPresets') as EdgeAgentPresets).rows()
   }
 
-  /** Persist a live session's appended events now; upstream logs some events (session feedback) without flushing. */
-  async flushLiveSession(id: SessionId): Promise<void> {
+  /**
+   * Record session feedback durably and idempotently. Upstream's
+   * `sessionFeedback` Remote appends a `feedback/record` event without saving
+   * it; the Edge saves it before acknowledging, and a retry after a failed save
+   * saves the identical event still pending instead of appending a duplicate.
+   * @param record - upstream's Remote call, which appends the event.
+   * @param recorded - the result to answer when a pending event is saved instead.
+   */
+  async recordSessionFeedback<T>(
+    id: SessionId,
+    entry: { readonly text?: unknown; readonly category?: unknown },
+    record: () => Promise<T>,
+    recorded: T,
+  ): Promise<T> {
+    const pending = await this.hasUnsavedFeedback(id, entry)
+    const result = pending ? recorded : await record()
     const live = this.context.sessions.get(id)
     if (live !== undefined) await this.context.sessions.flush(live)
+    return result
+  }
+
+  /** Whether the live session's latest `feedback/record` event carries this entry and is not saved yet. */
+  private async hasUnsavedFeedback(
+    id: SessionId,
+    entry: { readonly text?: unknown; readonly category?: unknown },
+  ): Promise<boolean> {
+    const live = this.context.sessions.get(id)
+    if (live === undefined) return false
+    const latest = live.snapshotEvents().findLast(event => event.type === 'feedback/record')
+    if (latest === undefined) return false
+    // The event's shape as upstream's recordFeedback writes it.
+    const text = typeof entry.text === 'string' ? entry.text.trim() : ''
+    const expected = { ...(text === '' ? {} : { text }), ...(entry.category === undefined ? {} : { category: entry.category }) }
+    if (JSON.stringify(latest.data) !== JSON.stringify(expected)) return false
+    const { persistence } = await this.services()
+    if (!(persistence instanceof DurableObjectSessionPersistence)) return false
+    return !persistence.eventRowsFrom(id, latest.seq).some(row => row.seq === latest.seq)
   }
 
   /**
