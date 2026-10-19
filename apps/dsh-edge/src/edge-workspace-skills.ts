@@ -106,7 +106,10 @@ export function apply(ctx: Context, config: EdgeWorkspaceSkillsConfig): void {
     const stopSteps = ctx.on('agent/pre-step', async ({ agent, signal }, next) => {
       if (pending.has(agent.session)) {
         pending.delete(agent.session)
-        await check(normalize(agent.session.header.cwd ?? DEFAULT_CWD), signal)
+        // Where the session is now: `working_directory` can move it after the session began,
+        // and the upstream skill tool looks the catalog up from there.
+        const current = ctx.get('workingDirectory')?.get(agent.session) ?? agent.session.header.cwd ?? DEFAULT_CWD
+        await check(normalize(current), signal)
       }
       return next()
     })

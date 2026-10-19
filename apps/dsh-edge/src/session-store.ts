@@ -1004,6 +1004,24 @@ export class EdgeSessionStore {
     try { return this.context.skills } catch { return undefined }
   }
 
+  /**
+   * Where a session is now: the working-directory projection, from the live
+   * agent or read cold from the stored session, else the directory it started
+   * in. `working_directory` moves it after the session began.
+   */
+  async currentDirectory(id: SessionId, started: string): Promise<string> {
+    await this.ready
+    const live = this.context.agents.get(id)
+    if (live !== undefined) return this.context.workingDirectory.get(live.session)
+    try {
+      using observation = await this.context.sessionQuery.observeSession(id)
+      const current = observation.projections?.values['workingDirectory']
+      return typeof current === 'string' ? current : started
+    } catch {
+      return started
+    }
+  }
+
   /** Recheck a cwd's workspace skill files so a listing outside a turn sees current skills. */
   async refreshSkills(cwd: string, signal?: AbortSignal): Promise<void> {
     await this.ready

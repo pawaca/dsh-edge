@@ -637,13 +637,15 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
       async list(request: RpcRequest<{ sessionId?: string }>, signal?: AbortSignal) {
         const registry = await runtime.sessions.skillRegistry()
         if (registry === undefined) return ok(request, { skills: [] })
-        // Workspace skills depend on the session's cwd (its project root), so
+        // Workspace skills depend on the session's directory (its project root), so
         // the `/` trigger lists what that session's agent would see.
         const sessionId = typeof request.payload?.sessionId === 'string' ? SessionId(request.payload.sessionId) : undefined
         let cwd = '/workspace'
         if (sessionId !== undefined) {
           try {
             cwd = (await runtime.sessions.getApiSessionSummary(sessionId)).cwd ?? cwd
+            // Skills follow where the session is now, as the model's own skill lookup does.
+            cwd = await runtime.sessions.currentDirectory(sessionId, cwd)
           } catch (error) {
             return sessionFailure(request, error, sessionId)
           }
