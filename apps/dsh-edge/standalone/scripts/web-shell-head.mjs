@@ -1,7 +1,7 @@
 /**
  * Head-of-document script the Edge injects into the assembled Web shell.
  *
- * Two concerns share one parser-blocking script so both apply before any
+ * Three concerns share one parser-blocking script so all apply before any
  * upstream client plugin evaluates:
  *
  * 1. Host ownership. Upstream `dsh-client-connection` treats the page as a
@@ -14,7 +14,13 @@
  *    ownership instead of letting the hostname heuristic classify the owner
  *    as an untrusted remote viewer. `fetch` and `openStream` stay unset so the
  *    default web carrier is used.
- * 2. Owner-session guard. An owner-authentication 401 on a same-origin API
+ * 2. Owner access baseline. Upstream `dsh-api-remote-access` answers every
+ *    `useAccess()` check false until the page holds an access snapshot, and its
+ *    Host injects the owner's into the index document. The Edge serves the shell
+ *    as a static asset, and its only visitor is the cookie-authenticated owner
+ *    (the Durable Object refuses everyone else), so the shell declares the owner
+ *    baseline; without it the Web client hides every action it gates.
+ * 3. Owner-session guard. An owner-authentication 401 on a same-origin API
  *    call sends the shell to `/login` instead of leaving a dead session.
  */
 
@@ -22,6 +28,7 @@
 export const WEB_SHELL_HEAD_SCRIPT = `(() => {
   const transport = globalThis.__DSH_TRANSPORT__
   globalThis.__DSH_TRANSPORT__ = { ...(transport ?? {}), ownsHost: true }
+  globalThis.__DSH_REMOTE_ACCESS__ = { type: 'baseline', owner: true }
   const originalFetch = window.fetch.bind(window)
   let redirecting = false
   window.fetch = async (...args) => {
@@ -43,6 +50,9 @@ export const WEB_SHELL_HEAD_SCRIPT = `(() => {
 
 /** Regex the standalone verifier uses to prove the assembled shell declares host ownership. */
 export const OWNER_HOST_DECLARATION = /globalThis\.__DSH_TRANSPORT__ = \{ \.\.\.\(transport \?\? \{\}\), ownsHost: true \}/u
+
+/** Regex the standalone verifier uses to prove the assembled shell declares the owner's access baseline. */
+export const OWNER_ACCESS_DECLARATION = /globalThis\.__DSH_REMOTE_ACCESS__ = \{ type: 'baseline', owner: true \}/u
 
 /**
  * Inject the head script at the top of `<head>` (or before everything when the

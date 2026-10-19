@@ -1,11 +1,13 @@
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import { TypertGatewayService } from '@deepseek-ai/dsh-api-gateway'
+import RemoteAccess from '@deepseek-ai/dsh-api-remote-access'
 import * as ApiRemotes from '@deepseek-ai/dsh-api-remotes'
+import type { PeerScope } from '@deepseek-ai/dsh-typert-protocol'
 import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
 import UserQuestionService, { UserQuestionError } from '@deepseek-ai/dsh-user-questions'
 import { describe, expect, it } from 'vitest'
-import { EdgeTypertConnection, type TypertRpcInterceptor } from '../src/edge-typert-connection.ts'
+import { EdgeTypertConnection, type GatewayRpcInterceptor } from '../src/edge-typert-connection.ts'
 
 interface WaterfallFrame {
   type: 'waterfall'
@@ -36,6 +38,7 @@ async function harness() {
   const ctx = new Context()
   await ctx.plugin(TypertRegistry)
   await ctx.plugin(EdgeTypertConnection)
+  await ctx.plugin(RemoteAccess)
   await ctx.plugin(TypertGatewayService)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(UserQuestionService)
@@ -44,14 +47,15 @@ async function harness() {
   const agent = { id: 'session-1', session } as { id: string; session: { id: string }; ctx: Context }
   agent.ctx = ctx.extend({ agent })
   const detach = ctx.agents.enter(agent as never, undefined)
-  const interceptor = (ctx.get('connection') as EdgeTypertConnection).current()
+  const connection = ctx.get('connection') as unknown as EdgeTypertConnection
+  const interceptor = connection.current()
   if (interceptor === undefined) throw new Error('gateway did not register its interceptor')
-  const gateway = ctx.get('typertGateway') as {
-    wireStream: { open(endpoint: string, payload: unknown, uplink: AsyncIterable<unknown>, peer: undefined, signal: AbortSignal): Promise<AsyncIterable<unknown>> }
+  const gateway = ctx.get('typertGateway') as unknown as {
+    wireStream: { open(endpoint: string, payload: unknown, uplink: AsyncIterable<unknown>, peer: PeerScope, signal: AbortSignal): Promise<AsyncIterable<unknown>> }
   }
   const openEvents = async (): Promise<EventStream> => {
     const abort = new AbortController()
-    const stream = await gateway.wireStream.open('$events', { args: {} }, (async function* () {})(), undefined, abort.signal)
+    const stream = await gateway.wireStream.open('$events', { args: {} }, (async function* () {})(), connection.peer, abort.signal)
     const iterator = stream[Symbol.asyncIterator]()
     const ready = (await iterator.next()).value as { type: string; clientId: string; host: { home: string } }
     expect(ready.type).toBe('ready')
@@ -87,16 +91,33 @@ describe('EdgeTypertConnection', () => {
   it('captures the gateway interceptor for the /api path only', async () => {
     const ctx = new Context()
     await ctx.plugin(EdgeTypertConnection)
-    const seam = ctx.get('connection') as EdgeTypertConnection
+    const seam = ctx.get('connection') as unknown as EdgeTypertConnection
     expect(seam.current()).toBeUndefined()
-    const claims: TypertRpcInterceptor['claims'] = endpoint => endpoint === 'a/b'
-    const dispatch: TypertRpcInterceptor['dispatch'] = () => Promise.resolve({ ok: true, value: undefined })
+    const claims: GatewayRpcInterceptor['claims'] = endpoint => endpoint === 'a/b'
+    const dispatch: GatewayRpcInterceptor['dispatch'] = () => Promise.resolve({ ok: true, value: undefined })
     expect(() => seam.rpc.intercept('/other', claims, dispatch)).toThrow(/unsupported RPC interceptor path/)
     const release = seam.rpc.intercept('/api', claims, dispatch)
     expect(seam.current()?.claims('a/b')).toBe(true)
     expect(() => seam.rpc.intercept('/api', claims, dispatch)).toThrow(/already registered/)
     release()
     expect(seam.current()).toBeUndefined()
+    await ctx.fiber.dispose()
+  })
+
+  it('dispatches every call on behalf of the one owner Peer', async () => {
+    const ctx = new Context()
+    await ctx.plugin(EdgeTypertConnection)
+    const seam = ctx.get('connection') as unknown as EdgeTypertConnection
+    expect(seam.peer.principal).toEqual({ kind: 'owner' })
+    const seen: PeerScope[] = []
+    seam.rpc.intercept('/api', () => true, (_endpoint, _payload, _signal, peer) => {
+      seen.push(peer)
+      return Promise.resolve({ ok: true, value: undefined })
+    })
+    const signal = new AbortController().signal
+    await seam.current()!.dispatch('a/b', {}, signal)
+    await seam.current()!.dispatch('a/c', {}, signal)
+    expect(seen).toEqual([seam.peer, seam.peer])
     await ctx.fiber.dispose()
   })
 })

@@ -90,7 +90,9 @@ describe('dsh-edge assembled runtime snapshot', () => {
         .replace(/"time0":\d+/g, '"time0":0')
         .replace(/"id":"(?:edge:)?[0-9a-f-]{36}"/g, '"id":"{{messageId}}"')
         // The current-date runtime context follows the wall clock.
-        .replace(/Current date: \w+, \d{4}-\d{2}-\d{2} \(/g, 'Current date: {{date}} ('))
+        .replace(/Current date: \w+, \d{4}-\d{2}-\d{2} \(/g, 'Current date: {{date}} (')
+        // So does the time-context reading's timestamp.
+        .replace(/(Time sampled while preparing turn \d+, step \d+: )\d{4}-\d{2}-\d{2}T[\d:.]+[+-]\d{2}:\d{2}\[[^\]]+\]/g, '$1{{timestamp}}'))
       const snapshot = {
         requests: normalize(mock.requests),
         liveEvents: normalize(liveEvents),

@@ -11,8 +11,15 @@
  * pending-event correlation, and result encoding stay in
  * `@deepseek-ai/dsh-api-gateway`; {@link typertRpcResponse} frames the
  * encoded result on HTTP as the upstream Connection does.
+ *
+ * The gateway serves every call and stream on behalf of a Peer. The Durable
+ * Object authenticates the single owner before a request reaches this seam, so
+ * the seam holds the one owner Peer upstream's connection gives every
+ * authenticated browser, and binds it into each dispatch.
  */
 import { Context, Service } from '@deepseek-ai/cordis'
+import { Peer } from '@deepseek-ai/dsh-client-connection'
+import type { PeerScope } from '@deepseek-ai/dsh-typert-protocol'
 
 /** One encoded gateway result: byte values leave `null` placeholders and travel beside the JSON. */
 export type TypertRpcResult =
@@ -23,11 +30,18 @@ export type TypertRpcResult =
   }
   | { readonly ok: false; readonly error: { readonly code: string; readonly message: string; readonly details: object } }
 
-/** The RPC interceptor the gateway registers for its `/api` endpoints. */
-export interface TypertRpcInterceptor {
+/** The RPC interceptor the gateway registers for its `/api` endpoints, as the gateway dispatches. */
+export interface GatewayRpcInterceptor {
   /** Whether the gateway serves this `namespace/method` endpoint. */
   readonly claims: (endpoint: string) => boolean
-  /** Dispatch one claimed endpoint; resolves to the upstream encoded result. */
+  /** Dispatch one claimed endpoint for a Peer; resolves to the upstream encoded result. */
+  readonly dispatch: (endpoint: string, payload: unknown, signal: AbortSignal, peer: PeerScope) => Promise<TypertRpcResult>
+}
+
+/** The same interceptor with the owner Peer bound in: what the Durable Object's request handler calls. */
+export interface TypertRpcInterceptor {
+  readonly claims: GatewayRpcInterceptor['claims']
+  /** Dispatch one claimed endpoint for the owner; resolves to the upstream encoded result. */
   readonly dispatch: (endpoint: string, payload: unknown, signal: AbortSignal) => Promise<TypertRpcResult>
 }
 
@@ -61,6 +75,8 @@ export interface EdgeFetchRoute {
 /** Minimal `ctx.connection` surface consumed by the upstream gateway on Workers. */
 export class EdgeTypertConnection extends Service {
   private interceptor: TypertRpcInterceptor | undefined
+  /** The owner Peer every authenticated request and stream shares; it lives as long as this seam. */
+  readonly peer: Peer
   private readonly routes = new Map<string, EdgeFetchRoute>()
 
   /**
@@ -81,12 +97,15 @@ export class EdgeTypertConnection extends Service {
   readonly rpc = {
     intercept: (
       path: string,
-      claims: TypertRpcInterceptor['claims'],
-      dispatch: TypertRpcInterceptor['dispatch'],
+      claims: GatewayRpcInterceptor['claims'],
+      dispatch: GatewayRpcInterceptor['dispatch'],
     ): (() => void) => {
       if (path !== '/api') throw new Error(`dsh-edge: unsupported RPC interceptor path ${JSON.stringify(path)}`)
       if (this.interceptor !== undefined) throw new Error('dsh-edge: a Typert RPC interceptor is already registered')
-      const interceptor: TypertRpcInterceptor = { claims, dispatch }
+      const interceptor: TypertRpcInterceptor = {
+        claims,
+        dispatch: (endpoint, payload, signal) => dispatch(endpoint, payload, signal, this.peer),
+      }
       this.interceptor = interceptor
       return () => {
         if (this.interceptor === interceptor) this.interceptor = undefined
@@ -96,6 +115,7 @@ export class EdgeTypertConnection extends Service {
 
   constructor(ctx: Context) {
     super(ctx, 'connection')
+    this.peer = new Peer(ctx, { principal: { kind: 'owner' } })
   }
 
   /** The handler registered for this path that serves this method, if any. */

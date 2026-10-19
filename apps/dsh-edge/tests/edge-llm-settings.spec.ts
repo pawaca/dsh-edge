@@ -1,6 +1,6 @@
 import { Context } from '@deepseek-ai/cordis'
 import LlmRuntime from '@deepseek-ai/dsh-llm'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { EdgeSettings, SETTINGS_DOCUMENT_KEY, edgeSettings } from '../src/edge-settings.ts'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
 import { DEEPSEEK_SETTINGS_NAMESPACE, PI_AI_SETTINGS_NAMESPACE, explained, mountDeepSeekProvider, mountPiAiProvider, requireAllowedHeaders, requireProviderBaseURL, requireRouteCredentialName } from '../src/edge-llm-settings.ts'
@@ -21,6 +21,8 @@ async function mounted(storage = memoryStorage()) {
   return ctx
 }
 
+afterEach(() => { vi.unstubAllEnvs() })
+
 describe('DeepSeek provider settings', () => {
   it('serves the namespace the Models page reads for the DeepSeek row', async () => {
     const ctx = await mounted()
@@ -33,7 +35,15 @@ describe('DeepSeek provider settings', () => {
     expect(descriptor?.value).toMatchObject({ baseURL: 'https://api.deepseek.com/anthropic', maxTokens: 4096, apiKeyEnv: 'DEEPSEEK_API_KEY' })
   })
 
+  it('lists no models until the provider has an API key', async () => {
+    const ctx = await mounted()
+    expect(await ctx.llm.listModels('deepseek-official')).toEqual([])
+    vi.stubEnv('DEEPSEEK_API_KEY', 'sk-test')
+    expect((await ctx.llm.listModels('deepseek-official')).length).toBeGreaterThan(0)
+  })
+
   it('applies a saved change to the running provider without a restart', async () => {
+    vi.stubEnv('DEEPSEEK_API_KEY', 'sk-test')
     const storage = memoryStorage()
     const ctx = await mounted(storage)
     const before = await ctx.llm.listModels('deepseek-official')
@@ -144,6 +154,7 @@ describe('third-party provider routes', () => {
   })
 
   it('serves a saved route without a restart and keeps it after one', async () => {
+    vi.stubEnv('MOCK_OPENAI_API_KEY', 'sk-test')
     const storage = memoryStorage()
     const ctx = await mountedWithRoutes(storage)
     await edgeSettings(ctx).update(PI_AI_SETTINGS_NAMESPACE, { providers: { 'mock-openai': MOCK_ROUTE } })

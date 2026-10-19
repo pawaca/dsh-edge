@@ -3,15 +3,15 @@
  *
  * Upstream 0.2.0 moved reminders out of Session events into a Host-wide task
  * table whose runtime delivers with a process timer and a direct Agent
- * follow-up. The Edge keeps the upstream tools and pure schedule rules, stores
- * tasks in Durable Object SQLite, and delivers through its own alarm and main
- * session queue so reminders share admission, ordering, and cancellation with
- * user input.
+ * follow-up. The Edge keeps the upstream tools (`dsh-tool-schedule`) and pure
+ * schedule rules, stores tasks in Durable Object SQLite, and delivers through
+ * its own alarm and main session queue so reminders share admission, ordering,
+ * and cancellation with user input.
  */
 import { Service, type Context } from '@deepseek-ai/cordis'
 import { createUserMessage, freezeMessage, MessageId } from '@deepseek-ai/dsh-llm'
 import {
-  registerScheduleTools, createAfterScheduleRecord, createAtScheduleRecord, createEveryScheduleRecord,
+  createAfterScheduleRecord, createAtScheduleRecord, createEveryScheduleRecord,
   createDailyScheduleRecord, createWeeklyScheduleRecord, createCronScheduleRecord, decodeScheduleRecord,
   isRecurringScheduleRecord, renderReminderFraming, renderRecurringReminderBatchFraming, resolveRecurringOccurrence,
   scheduleTitle, ScheduleId, ScheduleInputError, ScheduleLogError, MAX_TITLE_LENGTH,
@@ -44,10 +44,6 @@ export class EdgeSchedule extends Service {
     super(ctx, 'schedule')
     this.storage = config.storage
     initializeSchedules(this.storage)
-    ctx.on('agent/created', ({ agent }) => {
-      if (!ctx.agents.roots().includes(agent)) return
-      agent.ctx.effect(() => registerScheduleTools(ctx, agent.ctx, agent), 'dsh-edge: schedule tools')
-    })
     // An idle Session with armed reminders refuses archive; an archiving stop
     // removes them instead of delivering into a closed Session.
     ctx.on('workspace/session-activity', async ({ sessionId }, next) => {

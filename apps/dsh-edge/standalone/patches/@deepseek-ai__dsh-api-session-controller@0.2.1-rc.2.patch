@@ -1,28 +1,28 @@
 diff --git a/lib/index.js b/lib/index.js
-index 3b8507e..e6eb90e 100644
+index 730b8a4..4317086 100644
 --- a/lib/index.js
 +++ b/lib/index.js
-@@ -5,7 +5,6 @@ import { AssistantStreamAccumulator, ReasoningEffortId, assistantStreamChunks, c
- import { canOpenNativePath, nativeFileApplications, nativeFileManager, openNativeAssociatedPath, openNativeFileApplication, revealNativePath } from "@deepseek-ai/dsh-native-command";
- import { SessionQueryError } from "@deepseek-ai/dsh-session-query";
- import { Remote, RemoteError, TypertRemoteService, remoteErrorOf } from "@deepseek-ai/dsh-typert-protocol";
+@@ -8,7 +8,6 @@ import { Remote, RemoteError, TypertRemoteService, principalOf, remoteErrorOf }
+ import { canonicalClientTimeZone } from "@deepseek-ai/dsh-util-time";
+ import { assertNever } from "@deepseek-ai/dsh-util-values";
+ import { randomUUID } from "node:crypto";
 -import { mkdir } from "node:fs/promises";
  import { installModelSelection } from "@deepseek-ai/dsh-agent";
+ import { brandString } from "@deepseek-ai/dsh-brand";
  import { credentialRef } from "@deepseek-ai/dsh-credentials";
- import { randomUUID } from "node:crypto";
-@@ -441,11 +440,6 @@ var ApiSessionAgentController = class {
- 		} catch (error) {
- 			if (!(error instanceof SessionQueryError) || error.code !== "SESSION_QUERY_SESSION_NOT_FOUND") throw error;
- 		}
+@@ -509,11 +508,6 @@ var ApiSessionAgentController = class {
+ 		return this.createAgent(brandString(`session-${randomUUID()}`), cwd, composition);
+ 	}
+ 	async createAgent(sessionId, cwd, composition) {
 -		try {
 -			await mkdir(cwd, { recursive: true });
 -		} catch (error) {
 -			throw new Error(`failed to ensure project directory "${cwd}": ${String(error)}`, { cause: error });
 -		}
- 		const composition = await this.composeAgent(presetId);
  		return (await this.ctx.agents.create({
  			sessionId,
-@@ -2858,7 +2852,8 @@ let SessionController = (() => {
+ 			agentOptions: this.agentOptions(),
+@@ -2965,7 +2959,8 @@ let SessionController = (() => {
  				await Promise.allSettled([...this.promotions]);
  			}, "session-controller.promotions");
  			this.history = new SessionHistoryController(ctx, (observation) => {
@@ -30,9 +30,9 @@ index 3b8507e..e6eb90e 100644
 +				if (internals.activateOnFollow === false) observation[Symbol.dispose]();
 +				else this.promote(observation);
  			});
- 			this.listState = new ApiSessionList(ctx);
+ 			this.listState = new ApiSessionList(ctx, resolved.listWorkSliceMs);
  			this.fileApplications = internals.fileApplications ?? nativeFileApplications;
-@@ -2874,7 +2869,7 @@ let SessionController = (() => {
+@@ -2981,7 +2976,7 @@ let SessionController = (() => {
  				ctx.emit("api-session/added", this.listState.summaryFor(session));
  			});
  			ctx.on("session/disposed", (session) => {
@@ -42,11 +42,11 @@ index 3b8507e..e6eb90e 100644
  			const publishAgentAvailability = ({ agent }) => {
  				if (ctx.sessions.get(agent.id) === agent.session) ctx.emit("api-session/added", this.listState.summaryFor(agent.session));
 diff --git a/lib/types/index.d.ts b/lib/types/index.d.ts
-index 58e6dd4..c0793b7 100644
+index 08bb851..bc4b50e 100644
 --- a/lib/types/index.d.ts
 +++ b/lib/types/index.d.ts
-@@ -25,6 +25,8 @@ export interface Config {
- }
+@@ -31,6 +31,8 @@ type ResolvedConfig = Config & {
+ };
  /** Host integrations replaceable by direct unit tests. */
  export interface SessionControllerInternals {
 +    /** Disable implicit Agent activation for runtimes that own bounded admission. */

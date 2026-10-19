@@ -27,7 +27,7 @@
   },
   {
     "package": "@deepseek-ai/dsh-api-gateway",
-    "rationale": "Defer module-level AbortController construction to first use. Cloudflare Workers disallows new AbortController() in global scope.",
+    "rationale": "Defer module-level AbortController construction to first use (`neverAbortedSignal()`); the signal has three use sites since 0.2.1, one of them on the non-owner resource path. Cloudflare Workers disallows new AbortController() in global scope.",
     "removeWhen": "The published api-gateway package initializes NEVER_ABORTED_SIGNAL lazily or moves it inside the method that uses it."
   },
   {

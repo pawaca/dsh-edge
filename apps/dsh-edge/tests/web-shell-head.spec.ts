@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { runInNewContext } from 'node:vm'
 import {
+  OWNER_ACCESS_DECLARATION,
   OWNER_HOST_DECLARATION,
   WEB_SHELL_HEAD_SCRIPT,
   hoistCharsetMeta,
@@ -12,6 +13,7 @@ interface ShellSandbox {
   location: { hostname: string; href: string; origin: string; replace: (url: string) => void }
   fetch: (...args: unknown[]) => Promise<unknown>
   __DSH_TRANSPORT__?: Record<string, unknown>
+  __DSH_REMOTE_ACCESS__?: Record<string, unknown>
   URL: typeof URL
   Request: typeof Request
   replaced: string[]
@@ -51,6 +53,10 @@ describe('web shell head script', () => {
     expect(shell.__DSH_TRANSPORT__).toEqual({ ownsHost: true })
   })
 
+  it('declares the owner access baseline the Web client needs before it shows gated actions', () => {
+    expect(runShell().__DSH_REMOTE_ACCESS__).toEqual({ type: 'baseline', owner: true })
+  })
+
   it('keeps a transport the embedding shell already declared', () => {
     const fetch = async () => new Response('ok')
     const shell = runShell({ transport: { fetch } })
@@ -69,6 +75,7 @@ describe('web shell head script', () => {
     const html = injectOwnerSessionGuard('<html><head><title>x</title></head><body></body></html>')
     expect(html.indexOf('<script>')).toBe('<html><head>'.length)
     expect(OWNER_HOST_DECLARATION.test(html)).toBe(true)
+    expect(OWNER_ACCESS_DECLARATION.test(html)).toBe(true)
     const headless: string = injectOwnerSessionGuard('<p>no head</p>')
     expect(headless.startsWith('<script>')).toBe(true)
   })

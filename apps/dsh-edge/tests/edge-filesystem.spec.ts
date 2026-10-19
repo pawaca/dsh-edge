@@ -142,6 +142,36 @@ describe('bounded VFS preview reads', () => {
   })
 })
 
+describe('the workspace root', () => {
+  const missing = () => Object.assign(new Error('no such file or directory'), { code: 'ENOENT' })
+
+  it('is a directory before anything has created it, and nothing else is', async () => {
+    const ctx = new Context()
+    await ctx.plugin(EdgeFileSystem)
+    const fs = ctx.fs as EdgeFileSystem
+    const vfs = { stat: vi.fn(() => Promise.reject(missing())) }
+    try {
+      await fs.runInScope(vfs as never, '/workspace', async () => {
+        expect(await fs.stat(await fs.resolve('/workspace'))).toMatchObject({ type: 'directory', size: 0 })
+        expect(await fs.stat(await fs.resolve('/workspace/src'))).toBeUndefined()
+        expect(await fs.stat(await fs.resolve('/elsewhere'))).toBeUndefined()
+      })
+    } finally { await ctx.fiber.dispose() }
+  })
+
+  it('reports the stored directory once it exists', async () => {
+    const ctx = new Context()
+    await ctx.plugin(EdgeFileSystem)
+    const fs = ctx.fs as EdgeFileSystem
+    const vfs = { stat: vi.fn(() => Promise.resolve({ size: 4096, mtime: 7, isFile: false, isDirectory: true, isSymbolicLink: false })) }
+    try {
+      await fs.runInScope(vfs as never, '/workspace', async () => {
+        expect(await fs.stat(await fs.resolve('/workspace'))).toMatchObject({ type: 'directory', size: 4096 })
+      })
+    } finally { await ctx.fiber.dispose() }
+  })
+})
+
 describe('provider watching', () => {
   it('invalidates a file or a directory from observed writes until closed', async () => {
     const ctx = new Context()

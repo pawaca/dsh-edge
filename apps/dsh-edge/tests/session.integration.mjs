@@ -583,8 +583,9 @@ try {
     && event.data.source.kind === 'runtime-context')
   assert.equal(runtimeContexts.length, 1)
   assert.match(runtimeContexts[0].data.content[0].text, /Current date: \w+, \d{4}-\d{2}-\d{2} \(UTC\)\./u)
+  // So is the time-context reading dsh-time-context adds as a step begins.
   const referenceMessages = referenceEvents
-    .filter(event => event.type === 'user/message' && !runtimeContexts.includes(event))
+    .filter(event => event.type === 'user/message' && !runtimeContexts.includes(event) && event.data.source.kind !== 'time-context')
     .map(event => event.data)
   assert.equal(referenceMessages.length, 2, referenceEvents.map(event => `${event.seq}:${event.type}`).join(' '))
   assert.equal(referenceMessages[0].source.kind, 'user')

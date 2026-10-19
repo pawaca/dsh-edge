@@ -66,6 +66,14 @@ function normalizeLineEndings(text: string): string {
   return text.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
 }
 
+/**
+ * The workspace root every session starts in. The VFS creates it with the
+ * first command or write, but the Edge always offers it as a directory:
+ * `dsh-working-directory` checks the session directory on every prompt, and a
+ * new deployment's first message must not fail for a folder nothing has used.
+ */
+const WORKSPACE_ROOT = '/workspace'
+
 function versionOf(mtime: number, size: number): FsVersion {
   return FsVersion(`${String(mtime)}:${String(size)}`)
 }
@@ -181,8 +189,13 @@ export class EdgeFileSystem extends FileSystem {
         size: info.size,
       }
     } catch (error) {
-      if (error instanceof Error && 'code' in error && (error as { code: string }).code === 'ENOENT') return undefined
-      throw new FsError(`cannot stat "${target.displayPath}": ${error instanceof Error ? error.message : String(error)}`, 'FS_IO_ERROR', { cause: error })
+      if (error instanceof Error && 'code' in error && (error as { code: string }).code === 'ENOENT') {
+        // An empty directory has no mtime to version; this one has never held an entry.
+        return this.processPath(target) === WORKSPACE_ROOT
+          ? { version: versionOf(0, 0), type: 'directory', size: 0 }
+          : undefined
+      }
+      throw new FsError(`cannot stat "${target.displayPath}":${error instanceof Error ? error.message : String(error)}`, 'FS_IO_ERROR', { cause: error })
     }
   }
 

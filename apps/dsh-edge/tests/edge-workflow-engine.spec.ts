@@ -50,12 +50,20 @@ class FakeSubagents extends Service {
   /** When set, a child's dispose() waits for it. */
   disposeGate: Promise<void> | undefined
 
-  async start(_provider: string, request: {
-    label?: string
-    prompt: { type: 'text', text: string }[]
+  /** The `delivery` of every activation started, in order. */
+  deliveries: string[] = []
+
+  async startActivation(spec: {
+    label: string
+    delivery: string
     signal: AbortSignal
-    outputSchema?: unknown
+    request: {
+      prompt: { type: 'text', text: string }[]
+      outputSchema?: unknown
+    }
   }) {
+    const { request, signal } = spec
+    this.deliveries.push(spec.delivery)
     this.onStart?.()
     if (this.startGate !== undefined) await this.startGate
     const settled = Promise.withResolvers<unknown>()
@@ -71,8 +79,8 @@ class FakeSubagents extends Service {
     }
     const child: FakeChild = {
       prompt: request.prompt[0]!.text,
-      label: request.label,
-      signal: request.signal,
+      label: spec.label,
+      signal,
       schema: request.outputSchema,
       disposed: false,
       finish: ({ output = '', structured, stopReason = 'completed' }) => {
@@ -85,12 +93,11 @@ class FakeSubagents extends Service {
       },
       fail: error => { if (finishOnce()) settled.reject(error) },
     }
-    request.signal.addEventListener('abort', () => { child.finish({ stopReason: 'aborted' }) }, { once: true })
+    signal.addEventListener('abort', () => { child.finish({ stopReason: 'aborted' }) }, { once: true })
     this.children.push(child)
     queueMicrotask(() => { this.auto?.(child) })
     return {
-      id: `child-${index + 1}`,
-      localAgent: undefined,
+      childId: `child-${index + 1}`,
       result: settled.promise,
       dispose: async () => {
         if (this.disposeGate !== undefined) await this.disposeGate
@@ -233,6 +240,8 @@ describe('edge workflow engine', () => {
     expect(loader.entrypointOptions[0]).toEqual({ limits: { cpuMs: 30_000 } })
     expect(loader.disposed).toBeGreaterThan(0)
     expect(subagents.children.map(child => child.label)).toEqual(['scan x', 'scan y', 'first', 'b'])
+    // The script collects each result; the parent session gets no completion notice.
+    expect(subagents.deliveries).toEqual(['caller', 'caller', 'caller', 'caller'])
     expect(subagents.children.every(child => child.disposed)).toBe(true)
     const names = events.map(event => event[0])
     expect(names[0]).toBe('workflow/start')
