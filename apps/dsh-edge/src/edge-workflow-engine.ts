@@ -39,8 +39,7 @@ import type {
 } from '@deepseek-ai/dsh-workflow'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import type { SubagentRun } from '@deepseek-ai/dsh-subagent'
+import type { SubagentActivation } from '@deepseek-ai/dsh-subagent'
 import { JsonSchemaError, assertObjectJsonSchema } from '@deepseek-ai/dsh-tools'
 import type { ObjectJsonSchema } from '@deepseek-ai/dsh-tools'
 import {
@@ -250,7 +249,7 @@ class EdgeWorkflowRun implements WorkflowRun {
   private cancelError: WorkflowError | undefined
   private graceTimer: ReturnType<typeof setTimeout> | undefined
   private readonly controller = new AbortController()
-  private readonly children = new Map<SubagentRun, Promise<void> | undefined>()
+  private readonly children = new Map<SubagentActivation, Promise<void> | undefined>()
   private pendingStarts = 0
   private readonly quiescenceWaiters: (() => void)[] = []
   private readonly liveAgents = new Map<number, WorkflowAgentInfo>()
@@ -509,7 +508,7 @@ class EdgeWorkflowRun implements WorkflowRun {
         seq,
         label,
         ...phase !== undefined ? { phase } : {},
-        childId: run.id as SessionId,
+        childId: run.childId,
       }
       this.liveAgents.set(seq, info)
       this.observer.agentStart(info)
@@ -552,24 +551,29 @@ class EdgeWorkflowRun implements WorkflowRun {
   }
 
   /** Start one child, registering it for cancellation before the script can observe it. */
-  private async startChild(prompt: string, label: string, opts: AgentOptions): Promise<SubagentRun> {
+  private async startChild(prompt: string, label: string, opts: AgentOptions): Promise<SubagentActivation> {
     this.pendingStarts += 1
-    let run: SubagentRun
+    let run: SubagentActivation
     try {
-      run = await this.ctx.subagents.start(this.provider, {
+      // `caller` delivery: the script collects the result, so the parent session gets no completion notice.
+      run = await this.ctx.subagents.startActivation({
+        provider: this.provider,
         label,
-        prompt: [{ type: 'text', text: prompt }],
-        parent: this.parent,
+        delivery: 'caller',
         signal: this.controller.signal,
-        ...opts.schema !== undefined ? { outputSchema: opts.schema } : {},
-        ...opts.provider !== undefined || opts.model !== undefined
-          ? {
-              agentOptions: {
-                ...opts.provider !== undefined ? { provider: opts.provider } : {},
-                ...opts.model !== undefined ? { model: opts.model } : {},
-              },
-            }
-          : {},
+        request: {
+          prompt: [{ type: 'text', text: prompt }],
+          parent: this.parent,
+          ...opts.schema !== undefined ? { outputSchema: opts.schema } : {},
+          ...opts.provider !== undefined || opts.model !== undefined
+            ? {
+                agentOptions: {
+                  ...opts.provider !== undefined ? { provider: opts.provider } : {},
+                  ...opts.model !== undefined ? { model: opts.model } : {},
+                },
+              }
+            : {},
+        },
       })
       // Registered before the pending count drops, so quiescence always waits for its disposal.
       this.children.set(run, undefined)
@@ -619,7 +623,7 @@ class EdgeWorkflowRun implements WorkflowRun {
   }
 
   /** Dispose one child once; concurrent callers share the same disposal. */
-  private disposeChild(run: SubagentRun): Promise<void> {
+  private disposeChild(run: SubagentActivation): Promise<void> {
     const existing = this.children.get(run)
     if (existing !== undefined) return existing
     if (!this.children.has(run)) return Promise.resolve()

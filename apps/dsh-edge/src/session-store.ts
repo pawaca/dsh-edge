@@ -93,6 +93,12 @@ import * as ApiRemotes from '@deepseek-ai/dsh-api-remotes'
 import UserQuestionService from '@deepseek-ai/dsh-user-questions'
 import PlanModeController from '@deepseek-ai/dsh-plan-mode'
 import * as ToolAskUser from '@deepseek-ai/dsh-tool-ask-user'
+import RemoteAccess from '@deepseek-ai/dsh-api-remote-access'
+import WorkingDirectory from '@deepseek-ai/dsh-working-directory'
+import * as ToolWorkingDirectory from '@deepseek-ai/dsh-tool-working-directory'
+import * as TimeContext from '@deepseek-ai/dsh-time-context'
+import * as ToolSchedule from '@deepseek-ai/dsh-tool-schedule'
+import type { PeerScope } from '@deepseek-ai/dsh-typert-protocol'
 import { EdgeTypertConnection, type TypertRpcInterceptor } from './edge-typert-connection.ts'
 import EdgeFileUploadsStub from './edge-file-uploads-stub.ts'
 import SessionReferenceResolver from '@deepseek-ai/dsh-session-reference'
@@ -206,6 +212,19 @@ const EDGE_PROVIDER = 'deepseek-official'
 const EDGE_CURRENT_DATE_CONTEXT = 'edge:current-date'
 /** The Harness home on the Edge: the workspace VFS has no user home directory. */
 const EDGE_DSH_HOME = '/.dsh'
+/** The shared agent configuration root (`/.agents/AGENTS.md`, `/.agents/skills`) beside it. */
+const EDGE_AGENTS_HOME = '/.agents'
+
+/**
+ * `dsh-agent-instructions` resolves its homes from `$DSH_HOME` and
+ * `$DSH_AGENTS_HOME` (it no longer takes them as plugin config) and otherwise
+ * from the OS home, which the Worker does not have. The layout belongs to the
+ * Edge's VFS, so deployment variables do not move it.
+ */
+function pinHarnessHomes(): void {
+  process.env['DSH_HOME'] = EDGE_DSH_HOME
+  process.env['DSH_AGENTS_HOME'] = EDGE_AGENTS_HOME
+}
 const DEFAULT_EDGE_MODEL = 'deepseek-flash'
 const AGENT_DEFAULT_MODEL_KEY = 'dsh-edge:agent-default-model'
 const MESSAGE_TYPES = new Set<SessionEvent['type']>(['user/message', 'assistant/message'])
@@ -437,8 +456,6 @@ export class EdgeSessionStore {
       personaPrefix: edgeSystemPrompt(config.shell),
       personaSuffix: EDGE_PERSONA_SUFFIX,
     })
-    this.context.systemPrompt.variable('workdir', ({ agent }) =>
-      (agent === undefined ? undefined : this.shells.get(agent.id)?.cwd ?? agent.session.header.cwd) ?? '/workspace')
     this.context.systemPrompt.section({
       name: 'tool:bash',
       order: this.context.systemPrompt.getSectionOrder('TOOL_BASH'),
@@ -479,6 +496,9 @@ export class EdgeSessionStore {
     // The gateway installs its Remote RPC interceptor on ctx.connection; the
     // Edge seam captures it so the Durable Object can serve `$events/result`.
     await this.context.plugin(EdgeTypertConnection)
+    // The gateway injects `remoteAccess` and does not start without it. The one
+    // owner Peer is never checked, so the Edge registers no non-owner policy.
+    await this.context.plugin(RemoteAccess)
     const { TypertGatewayService } = await import('@deepseek-ai/dsh-api-gateway')
     await this.context.plugin(TypertGatewayService)
     // AgentRegistry has zero inject deps — register early so SessionController
@@ -715,6 +735,12 @@ export class EdgeSessionStore {
     if (mcpSummary !== undefined) {
       this.context.systemPrompt.section({ name: 'mcp-servers', order: 50, text: mcpSummary })
     }
+    // Each session's working directory: a durable `working-directory/change`
+    // event, the current directory in the model's user context, and the
+    // directory every file tool resolves against. The fallback is the Edge's
+    // workspace root, since a Worker has no process directory.
+    await this.context.plugin(WorkingDirectory, { defaultDirectory: '/workspace' })
+    await this.context.plugin(ToolWorkingDirectory)
     await this.context.plugin(ToolFs)
     // Upstream's glob and grep, run over the workspace VFS: Workers cannot
     // spawn the ripgrep binary dsh-tool-fs-search needs.
@@ -736,7 +762,8 @@ export class EdgeSessionStore {
     // As upstream: load the AGENTS.md / CLAUDE.md chain from the project root
     // to the session cwd through ctx.fs (the workspace VFS), and follow file
     // tool touches into nested directories.
-    await this.context.plugin(AgentInstructions, { maxBytes: 65_536, dshHome: '/.dsh' })
+    pinHarnessHomes()
+    await this.context.plugin(AgentInstructions, { maxBytes: 65_536 })
     await this.context.plugin(GoalRoundDriver)
     if (config.isStopRequested !== undefined) this.disarmGoalsArmedWhileStopping(config.isStopRequested)
     // As upstream: /compact compacts the session's history now; /goal shows,
@@ -817,8 +844,6 @@ export class EdgeSessionStore {
       const composition = (this.context.get('agentPresets') as EdgeAgentPresets).compositionContext()
       await composition.plugin(ToolSubagent, {
         provider: 'spawn',
-        enableRunInBackground: true,
-        backgroundMode: 'continuable',
         modelSelectionSettings: true,
       })
       // A second instance over the fork backend: its child starts from the
@@ -828,8 +853,6 @@ export class EdgeSessionStore {
       await composition.plugin(ToolSubagent, {
         provider: 'fork',
         toolName: 'subagent_fork',
-        enableRunInBackground: true,
-        backgroundMode: 'continuable',
       })
       // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
       const ToolSubagentControl = await import(
@@ -857,6 +880,10 @@ export class EdgeSessionStore {
       await this.context.plugin(ToolWorkflow)
     }
     await this.context.plugin(EdgeSchedule, { storage })
+    // As upstream's standard presets: the reminder tools, and the clock the
+    // model reads reminders against. Subagents are refused by the tools.
+    await this.context.plugin(TimeContext)
+    await this.context.plugin(ToolSchedule)
     this.context.on('agent/created', ({ agent }) => {
       if (this.context.agents.roots().includes(agent)) return
       const parentId = agent.session.header.parentSession
@@ -868,7 +895,13 @@ export class EdgeSessionStore {
       agent.ctx.effect(() => release, 'dsh-edge: subagent shell binding')
     })
     this.context.effect(
-      () => this.context.tools.register(createEdgeBashTool(this.shells, config.shell, config.maxCommandTimeoutMs, exec => this.context.shellEnv.collect(exec))),
+      () => this.context.tools.register(createEdgeBashTool(
+        this.shells,
+        config.shell,
+        config.maxCommandTimeoutMs,
+        exec => this.context.shellEnv.collect(exec),
+        (agent, signal) => this.context.workingDirectory.ensure(agent, signal),
+      )),
       'dsh-edge: bash tool',
     )
     if (config.onLateSessionEvent !== undefined) {
@@ -969,6 +1002,24 @@ export class EdgeSessionStore {
     try { return this.context.skills } catch { return undefined }
   }
 
+  /**
+   * Where a session is now: the working-directory projection, from the live
+   * agent or read cold from the stored session, else the directory it started
+   * in. `working_directory` moves it after the session began.
+   */
+  async currentDirectory(id: SessionId, started: string): Promise<string> {
+    await this.ready
+    const live = this.context.agents.get(id)
+    if (live !== undefined) return this.context.workingDirectory.get(live.session)
+    try {
+      using observation = await this.context.sessionQuery.observeSession(id)
+      const current = observation.projections?.values['workingDirectory']
+      return typeof current === 'string' ? current : started
+    } catch {
+      return started
+    }
+  }
+
   /** Recheck a cwd's workspace skill files so a listing outside a turn sees current skills. */
   async refreshSkills(cwd: string, signal?: AbortSignal): Promise<void> {
     await this.ready
@@ -990,11 +1041,20 @@ export class EdgeSessionStore {
   typertGateway(): {
     invoke(request: { namespace: string; method: string; args: Record<string, unknown>; signal?: AbortSignal }): Promise<unknown>
     wireStream: {
-      open(endpoint: string, payload: unknown, uplink: AsyncIterable<unknown>, peer: undefined, signal: AbortSignal): Promise<AsyncIterable<unknown>>
+      open(endpoint: string, payload: unknown, uplink: AsyncIterable<unknown>, peer: PeerScope, signal: AbortSignal): Promise<AsyncIterable<unknown>>
       failure(error: unknown): { code: string; message: string; details: object }
     }
   } | undefined {
     try { return this.context.get('typertGateway') as never } catch { return undefined }
+  }
+
+  /** The owner Peer the gateway serves on behalf of, once the connection seam is mounted. */
+  ownerPeer(): PeerScope | undefined {
+    try {
+      return (this.context.get('connection') as EdgeTypertConnection | undefined)?.peer
+    } catch {
+      return undefined
+    }
   }
 
   /** The Remote RPC interceptor the upstream gateway registered on the Edge connection seam. */

@@ -1,4 +1,4 @@
-import { Context } from '@deepseek-ai/cordis'
+import { Context, Service } from '@deepseek-ai/cordis'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
@@ -13,9 +13,11 @@ import {
 import LlmRuntime from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, SessionLogOffset, type SessionEvent } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import WorkingDirectory from '@deepseek-ai/dsh-working-directory'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { describe, expect, it, vi } from 'vitest'
 import {
+  EDGE_PERSONA_SUFFIX,
   EDGE_PLAN_MODE_SECTION,
   edgeBashGuidance,
   edgeCurrentDate,
@@ -37,6 +39,9 @@ import { EdgeExecutionId } from '../src/protocol.ts'
 import { EdgeAgentPresets } from '../src/agent-presets.ts'
 import { EdgeSettings } from '../src/edge-settings.ts'
 import { createDurablePromptAdmitter, disposeAgentHandle } from '../src/session-store.ts'
+import DurableObjectSessionPersistence from '../src/do-session-persistence.ts'
+import EdgeSessionQuery from '../src/edge-session-query.ts'
+import { TestDurableObjectStorage } from './main-session-queue.spec.ts'
 
 /** Durable Object KV stand-in for the settings document. */
 function memoryStorage(): DurableObjectStorage {
@@ -168,6 +173,27 @@ describe('dsh-edge native agent runtime', () => {
     exec.mockResolvedValueOnce({ ...result, status: 'cancelled' } as never)
     await run({ command: 'sleep 1', description: 'wait' }, { agent: { id: 'agent-1' }, signal: new AbortController().signal, deferContext })
     expect(deferContext).toHaveBeenCalledOnce()
+  })
+
+  it('starts a command where working_directory moved the session, unless workdir is supplied', async () => {
+    const shells = new EdgeShellBindings()
+    const result = { executionId: 'e', status: 'completed', timedOut: false, exitCode: 0, stdout: '', stderr: '', outputTruncated: false }
+    const exec = vi.fn(async () => result)
+    shells.bind('agent-1' as never, { exec } as never, '/workspace')
+    const current = vi.fn(async () => '/workspace/proj')
+    const tool = createEdgeBashTool(shells, 'just-bash-isolated', undefined, undefined, current)
+    const run = (tool as unknown as { execute: (args: unknown, exec: unknown) => Promise<unknown> }).execute
+    const context = { agent: { id: 'agent-1' }, signal: new AbortController().signal, deferContext: vi.fn() }
+    await run({ command: 'ls', description: 'list' }, context)
+    expect(exec).toHaveBeenLastCalledWith('ls', expect.objectContaining({ cwd: '/workspace/proj' }))
+    await run({ command: 'ls', description: 'list', workdir: '/tmp' }, context)
+    expect(exec).toHaveBeenLastCalledWith('ls', expect.objectContaining({ cwd: '/tmp' }))
+  })
+
+  it('leaves the session directory to the working-directory context, which follows working_directory', () => {
+    // A directory named here would stay the starting one after a change and contradict that context.
+    expect(EDGE_PERSONA_SUFFIX).not.toMatch(/\{\{|working directory|\/workspace\/\w/iu)
+    expect(EDGE_PERSONA_SUFFIX).toContain('/workspace persist')
   })
 
   it('advertises Edge runtime constraints and MCP naming convention', () => {
@@ -454,6 +480,19 @@ describe('dsh-edge native presentation of earlier run_code history', () => {
   })
 })
 
+/**
+ * The `fs` seam the working-directory service validates directories through.
+ * These harnesses mount no workspace, so every absolute path is a directory.
+ */
+class DirectoryOnlyFs extends Service {
+  constructor(ctx: Context) { super(ctx, 'fs') }
+  resolve(path: string, options?: { cwd?: string }): Promise<string> {
+    return Promise.resolve(path.startsWith('/') ? path : `${options?.cwd ?? '/workspace'}/${path}`)
+  }
+  stat(): Promise<{ type: 'directory' }> { return Promise.resolve({ type: 'directory' }) }
+  processPath(target: string): string { return target }
+}
+
 describe('dsh-edge subagent delegation', () => {
   async function subagentHarness(replies: readonly (readonly StreamChunk[])[], shell: EdgeShell) {
     const ctx = new Context()
@@ -467,6 +506,11 @@ describe('dsh-edge subagent delegation', () => {
     await ctx.plugin(EdgeSettings, { storage: memoryStorage() })
     await ctx.plugin(EdgeAgentPresets, { codeRuntime: false })
 
+    await ctx.plugin(DirectoryOnlyFs)
+    await ctx.plugin(WorkingDirectory, { defaultDirectory: '/workspace' })
+    // Every subagent is continuable: it needs stored sessions and the query that observes them cold.
+    await ctx.plugin(DurableObjectSessionPersistence, { storage: new TestDurableObjectStorage() as never }).await()
+    await ctx.plugin(EdgeSessionQuery)
     const { default: SubagentRuntime } = await import('@deepseek-ai/dsh-subagent')
     await ctx.plugin(SubagentRuntime)
     const SpawnInProcess = await import('@deepseek-ai/dsh-subagent-spawn-in-process')
@@ -475,7 +519,6 @@ describe('dsh-edge subagent delegation', () => {
     await ctx.plugin(ToolSubagent, {
       provider: 'spawn',
       maxDepth: 1,
-      enableRunInBackground: false,
     })
 
     const adapter = new ScriptedAdapter(replies)
@@ -523,7 +566,7 @@ describe('dsh-edge subagent delegation', () => {
     }
   })
 
-  it('delegates a one-shot subagent call and returns the child output', async () => {
+  it('delegates a subagent call and starts the child', async () => {
     const subagentCallId = ToolCallId('call-subagent')
     const childReply = textReply('child result: file created', 10, 8)
     const parentFollowup = textReply('Done. The subagent created the file.', 20, 12)
@@ -614,6 +657,11 @@ describe('dsh-edge background job registry', () => {
     const ToolJobs = await import('@deepseek-ai/dsh-tool-jobs')
     await ctx.plugin(ToolJobs)
 
+    await ctx.plugin(DirectoryOnlyFs)
+    await ctx.plugin(WorkingDirectory, { defaultDirectory: '/workspace' })
+    // Every subagent is continuable: it needs stored sessions and the query that observes them cold.
+    await ctx.plugin(DurableObjectSessionPersistence, { storage: new TestDurableObjectStorage() as never }).await()
+    await ctx.plugin(EdgeSessionQuery)
     const { default: SubagentRuntime } = await import('@deepseek-ai/dsh-subagent')
     await ctx.plugin(SubagentRuntime)
     const SpawnInProcess = await import('@deepseek-ai/dsh-subagent-spawn-in-process')
@@ -622,7 +670,6 @@ describe('dsh-edge background job registry', () => {
     await ctx.plugin(ToolSubagent, {
       provider: 'spawn',
       maxDepth: 1,
-      enableRunInBackground: true,
     })
 
     const adapter = new ScriptedAdapter(replies)
@@ -668,7 +715,7 @@ describe('dsh-edge background job registry', () => {
     }
   })
 
-  it('dispatches a background subagent and collects the completion', async () => {
+  it('starts a subagent without waiting for it', async () => {
     const bgCallId = ToolCallId('call-bg-sub')
     const childReply = textReply('background result', 10, 8)
 
@@ -677,7 +724,6 @@ describe('dsh-edge background job registry', () => {
       toolReply(bgCallId, 'subagent', {
         description: 'Background task',
         prompt: 'Do something in the background',
-        run_in_background: true,
       }),
       childReply,
       textReply('The background task is running.', 15, 8),
@@ -697,7 +743,8 @@ describe('dsh-edge background job registry', () => {
       const resultText = (subagentResult!.data as {
         message: { content: { type: string; text: string }[] }
       }).message.content[0]!.text
-      expect(resultText).toMatch(/^started background subagent job subagent-/)
+      // Every subagent runs detached: the tool returns the child's id and its result arrives later as a notice.
+      expect(resultText).toMatch(/^started subagent /)
       expect(runtime.adapter.requests.length).toBeGreaterThanOrEqual(2)
       const childRequest = runtime.adapter.requests.find(r => r.sessionId !== runtime.agent.id)
       expect(childRequest).toBeDefined()

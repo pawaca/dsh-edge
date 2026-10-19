@@ -2,8 +2,9 @@
 import { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
-import { registerScheduleTools, ScheduleId, type ScheduleRecord } from '@deepseek-ai/dsh-schedule'
+import { ScheduleId, type ScheduleRecord } from '@deepseek-ai/dsh-schedule'
 import { SessionId } from '@deepseek-ai/dsh-session'
+import * as ToolSchedule from '@deepseek-ai/dsh-tool-schedule'
 import { ToolRuntime } from '@deepseek-ai/dsh-tools'
 import { afterEach, describe, expect, it } from 'vitest'
 import { MainSessionQueue, MAIN_QUEUE_BYTES } from '../src/main-session-queue.ts'
@@ -204,15 +205,24 @@ describe('Edge schedule service', () => {
 
   it('serves the upstream tools as exclusive calls bound to the agent session', async () => {
     const { ctx, tools } = await setup(true)
-    const agent = { ctx, session: { id: ALPHA } } as unknown as Agent
-    const dispose = registerScheduleTools(ctx, ctx, agent)
-    cleanup.unshift(async () => { dispose() })
+    const agent = { ctx, options: {}, session: { id: ALPHA, header: {} } } as unknown as Agent
+    await ctx.plugin(ToolSchedule)
     const signal = new AbortController().signal
     const create = tools.get('schedule_create', agent)!
     expect(tools.executionMode({ name: 'schedule_create', callId: ToolCallId('c'), arguments: {}, signal, agent })).toEqual({ kind: 'exclusive' })
     const created = await create.execute({ prompt: 'ping', title: 'Ping', after_seconds: 60 } as never, { agent, signal } as never)
     expect(created).toMatchObject({ title: 'Ping' })
     expect(await tools.get('schedule_list', agent)!.execute({} as never, { agent, signal } as never)).toHaveLength(1)
+  })
+
+  it('refuses a delegated subagent, which the Edge used to exclude by mounting for root agents only', async () => {
+    const { ctx, tools, schedule } = await setup(true)
+    await ctx.plugin(ToolSchedule)
+    const child = { ctx, options: {}, session: { id: SessionId('child'), header: { delegationDepth: 1 } } } as unknown as Agent
+    const signal = new AbortController().signal
+    const refused = await tools.get('schedule_create', child)!.execute({ prompt: 'ping', title: 'Ping', after_seconds: 60 } as never, { agent: child, signal } as never)
+    expect(refused).toMatchObject({ code: 'subagent_session' })
+    expect(await schedule.list({ sessionId: SessionId('child') })).toEqual([])
   })
 })
 

@@ -1,0 +1,64 @@
+diff --git a/lib/index.js b/lib/index.js
+index f0e7770..5f67f24 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -697,7 +697,8 @@ function rejectRemoteStreamUpgrade(socket, status) {
+ * streams use the Gateway-owned WebSocket mux.
+ * @module @deepseek-ai/dsh-api-gateway
+ */
+-const NEVER_ABORTED_SIGNAL = new AbortController().signal;
++let _neverAbortedSignal;
++function neverAbortedSignal() { return _neverAbortedSignal ??= new AbortController().signal; }
+ const DEFAULT_WEBSOCKET_HEARTBEAT_INTERVAL_MS = 2e3;
+ const DEFAULT_STREAM_INBOX_BYTES = 262144;
+ const EMPTY_ASYNC_ITERABLE = { [Symbol.asyncIterator]: () => ({ next: () => Promise.resolve({
+@@ -1173,7 +1174,7 @@ var TypertGatewayService = class extends Service {
+ 		assertExactArguments(request.args, descriptor, endpoint);
+ 		const validated = validateArguments(descriptor, request.args, endpoint);
+ 		if (request.peer.principal.kind !== "owner") {
+-			const resources = callResources(this.ctx.typert, this.resourceReaders(descriptor), descriptor, validated, request.signal ?? NEVER_ABORTED_SIGNAL);
++			const resources = callResources(this.ctx.typert, this.resourceReaders(descriptor), descriptor, validated, request.signal ?? neverAbortedSignal());
+ 			const decision = resources === void 0 ? {
+ 				kind: "deny",
+ 				reason: "resource-invalid"
+@@ -1479,7 +1480,7 @@ function remoteRequest(endpoint, payload, signal, peer) {
+ */
+ function methodSignal(request, control, stream) {
+ 	const carrier = request.signal;
+-	if (request.uplink === void 0 && !stream) return carrier ?? NEVER_ABORTED_SIGNAL;
++	if (request.uplink === void 0 && !stream) return carrier ?? neverAbortedSignal();
+ 	const joined = carrier === void 0 || carrier === control.signal ? [control.signal] : [carrier, control.signal];
+ 	return AbortSignal.any(stream ? [...joined, request.peer.signal] : joined);
+ }
+diff --git a/lib/types/index.js b/lib/types/index.js
+index 4b0e2c5..e78d96f 100644
+--- a/lib/types/index.js
++++ b/lib/types/index.js
+@@ -13,7 +13,8 @@ import z from '@deepseek-ai/schemastery';
+ import { RemoteError, isRemoteJsonValue, remoteErrorOf, remoteMethods, } from '@deepseek-ai/dsh-typert-protocol';
+ import { RemoteStreamMuxServer, rejectRemoteStreamUpgrade, } from "./stream-server.js";
+ import { REMOTE_EVENT_STREAM_ENDPOINT, REMOTE_EVENT_STREAM_READY, REMOTE_EVENT_RESULT_ENDPOINT, REMOTE_STREAM_MUX_PATH, isRemoteEventAgentId, parseRemoteEventResult, projectRemoteEventRequest, restoreRemoteEventRejection, } from "./stream-protocol.js";
+-const NEVER_ABORTED_SIGNAL = new AbortController().signal;
++let _neverAbortedSignal;
++function neverAbortedSignal() { return _neverAbortedSignal ??= new AbortController().signal; }
+ const DEFAULT_WEBSOCKET_HEARTBEAT_INTERVAL_MS = 2_000;
+ const DEFAULT_STREAM_INBOX_BYTES = 262_144;
+ const EMPTY_ASYNC_ITERABLE = {
+@@ -560,7 +561,7 @@ export class TypertGatewayService extends Service {
+         // Access precedes lookup resolution, so a refused call activates nothing.
+         // oxlint-disable-next-line typescript/no-unnecessary-condition -- other packages merge non-owner kinds into PrincipalMap.
+         if (request.peer.principal.kind !== 'owner') {
+-            const resources = callResources(this.ctx.typert, this.resourceReaders(descriptor), descriptor, validated, request.signal ?? NEVER_ABORTED_SIGNAL);
++            const resources = callResources(this.ctx.typert, this.resourceReaders(descriptor), descriptor, validated, request.signal ?? neverAbortedSignal());
+             const decision = resources === undefined
+                 ? { kind: 'deny', reason: 'resource-invalid' }
+                 : this.ctx.remoteAccess.decide({
+@@ -934,7 +935,7 @@ function remoteRequest(endpoint, payload, signal, peer) {
+ function methodSignal(request, control, stream) {
+     const carrier = request.signal;
+     if (request.uplink === undefined && !stream)
+-        return carrier ?? NEVER_ABORTED_SIGNAL;
++        return carrier ?? neverAbortedSignal();
+     const joined = carrier === undefined || carrier === control.signal ? [control.signal] : [carrier, control.signal];
+     // `AbortSignal.any` leaves each source only a weak reference to the joined signal,
+     // so per-stream joins on a Host-lifetime Peer signal accumulate nothing.

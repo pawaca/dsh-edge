@@ -4,6 +4,9 @@ export const WEB_SHELL_HEAD_SCRIPT: string
 /** Pattern the standalone verifier uses to prove the shell declares `__DSH_TRANSPORT__.ownsHost`. */
 export const OWNER_HOST_DECLARATION: RegExp
 
+/** Pattern the standalone verifier uses to prove the shell declares the owner's access baseline (`__DSH_REMOTE_ACCESS__`). */
+export const OWNER_ACCESS_DECLARATION: RegExp
+
 /** Inject the head script into an assembled index document. */
 export function injectOwnerSessionGuard(html: string): string
 

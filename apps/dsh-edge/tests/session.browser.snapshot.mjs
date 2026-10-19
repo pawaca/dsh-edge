@@ -435,7 +435,7 @@ describe('dsh-edge assembled browser snapshot', () => {
       await expect.poll(() => page.getByRole('tooltip').count()).toBe(0)
       await expect.poll(
         () => page.getByRole('button', {
-          name: 'Select model, current DeepSeek-V41-Flash, reasoning effort High',
+          name: 'Select model, current DeepSeek-V4.1-Flash, reasoning effort High',
           exact: true,
         }).count(),
         { timeout: 15_000 },

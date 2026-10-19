@@ -26,6 +26,7 @@ import {
   type ServerRequest,
 } from './edge-rpc-types.ts'
 import { callEdgeApi, dispatchEdgeApi } from './edge-api-dispatch.ts'
+import type { PeerScope } from '@deepseek-ai/dsh-typert-protocol'
 import { typertRpcResponse, type TypertRpcResult } from './edge-typert-connection.ts'
 import { SESSION_LOG_EXPORT_PATH, sessionLogZipFilename } from '@deepseek-ai/dsh-session-log-export'
 import {
@@ -913,14 +914,15 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     }
 
     const gateway = this.sessions.typertGateway()
-    if (gateway === undefined) {
+    const peer = this.sessions.ownerPeer()
+    if (gateway === undefined || peer === undefined) {
       const error = { code: 'gateway/service-unavailable', message: 'gateway not available', details: {} }
       try { socket.send(JSON.stringify({ type: 'error', streamId, error })) } catch {}
       return
     }
 
     const abort = new AbortController()
-    const done = this.pumpRemoteStream(socket, gateway, streamId, endpoint, payload, abort)
+    const done = this.pumpRemoteStream(socket, gateway, peer, streamId, endpoint, payload, abort)
       .catch(() => {})
     streams.set(streamId, { abort, done })
     void done.then(() => { if (streams.get(streamId)?.abort === abort) streams.delete(streamId) })
@@ -928,15 +930,16 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
 
   private async pumpRemoteStream(
     socket: WebSocket,
-    gateway: { wireStream: { open(endpoint: string, payload: unknown, uplink: AsyncIterable<unknown>, peer: undefined, signal: AbortSignal): Promise<AsyncIterable<unknown>>; failure(error: unknown): { code: string; message: string; details: object } } },
+    gateway: { wireStream: { open(endpoint: string, payload: unknown, uplink: AsyncIterable<unknown>, peer: PeerScope, signal: AbortSignal): Promise<AsyncIterable<unknown>>; failure(error: unknown): { code: string; message: string; details: object } } },
+    peer: PeerScope,
     streamId: string,
     endpoint: string,
     payload: unknown,
     abort: AbortController,
   ): Promise<void> {
     try {
-      // No mounted Remote endpoint declares client-to-host items; the operator's in-process peer owns the stream.
-      let source = await gateway.wireStream.open(endpoint, payload, emptyUplink(), undefined, abort.signal)
+      // No mounted Remote endpoint declares client-to-host items; the owner Peer owns the stream.
+      let source = await gateway.wireStream.open(endpoint, payload, emptyUplink(), peer, abort.signal)
       if (endpoint === 'workspaceFiles/changes') {
         const iterator = source[Symbol.asyncIterator]()
         let first = true

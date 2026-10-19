@@ -583,8 +583,9 @@ try {
     && event.data.source.kind === 'runtime-context')
   assert.equal(runtimeContexts.length, 1)
   assert.match(runtimeContexts[0].data.content[0].text, /Current date: \w+, \d{4}-\d{2}-\d{2} \(UTC\)\./u)
+  // So is the time-context reading dsh-time-context adds as a step begins.
   const referenceMessages = referenceEvents
-    .filter(event => event.type === 'user/message' && !runtimeContexts.includes(event))
+    .filter(event => event.type === 'user/message' && !runtimeContexts.includes(event) && event.data.source.kind !== 'time-context')
     .map(event => event.data)
   assert.equal(referenceMessages.length, 2, referenceEvents.map(event => `${event.seq}:${event.type}`).join(' '))
   assert.equal(referenceMessages[0].source.kind, 'user')
@@ -1539,6 +1540,8 @@ try {
   const secondSessionSummary = sessionListForCwd.body.result.value.items
     .find(item => item.sessionId === secondWorkspaceSessionId)
   assert.equal(secondSessionSummary.cwd, '/workspace/project-b')
+  // Nothing has created that directory yet, and the first prompt must still run.
+  assert.equal(assistantText(await turn(secondWorkspaceSessionId, 'first message in a new workspace')), 'remembered-alpha')
 
   // Reject session creation with invalid cwd (path traversal, outside /workspace)
   const traversalSession = await rpc('session.create', { cwd: '/workspace/../etc' })
@@ -2043,8 +2046,9 @@ try {
   // run_code turn adds a tool-call request and its continuation; the fork's
   // own date-context turn adds one request; the watched preview's read turn
   // adds a tool-call request and its continuation; the large-log export
-  // fixture adds one request for each of its 50 turns.
-  assert.equal(turnRequests().length, (runtimeMode === 'isolated' ? 36 : 27) + LARGE_LOG_TURNS)
+  // fixture adds one request for each of its 50 turns; the first message in
+  // the nested workspace adds one.
+  assert.equal(turnRequests().length, (runtimeMode === 'isolated' ? 37 : 28) + LARGE_LOG_TURNS)
   await worker.stop()
   worker = undefined
   const { physicalRows, writeBatches } = sessionEventStorageStats(batchedSessionId)

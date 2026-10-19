@@ -59,6 +59,11 @@
       "status": "not-applicable",
       "reason": "Plugin installation UI (Creator mode); it needs dsh-plugin-manager, which installs with pnpm and reloads through the Loader."
     },
+    "@deepseek-ai/dsh-client-ui-schedule": {
+      "status": "tracked",
+      "issue": 323,
+      "reason": "Host task page and Session reminder catalog (about 488 KB). It calls the `schedule` Remote namespace (catalog, list, update, delete, history), which the Edge's schedule service does not serve yet, so the Web assembly excludes it until that namespace, the startup budget, and a row-write estimate are checked."
+    },
     "@deepseek-ai/dsh-client-ui-settings-account": {
       "status": "declined",
       "reason": "DeepSeek account sign-in. The Edge authenticates with the deployment API key, and the sign-in callback accepts only localhost."
@@ -106,6 +111,10 @@
       "status": "declined",
       "reason": "Experimental Agent Teams."
     },
+    "@deepseek-ai/dsh-experimental-tool-worktree": {
+      "status": "not-applicable",
+      "reason": "Creates git worktrees through a git process; Workers cannot spawn one and the workspace VFS has no git."
+    },
     "@deepseek-ai/dsh-file-reference-local": {
       "status": "substitute",
       "reason": "EdgeFileReferenceService in edge-file-reference.ts over the Computer VFS."
@@ -113,6 +122,10 @@
     "@deepseek-ai/dsh-fs-sandbox": {
       "status": "declined",
       "reason": "Policy and in-process path restrictions behind the permission presets, not a host sandbox. Mounted alone it would tell the model a session is read-only while the Edge does not enforce it; declined with the permission presets."
+    },
+    "@deepseek-ai/dsh-harness-dev-context": {
+      "status": "declined",
+      "reason": "Names a local Harness checkout and Web GUI URL for people developing the Harness itself; the Edge has neither."
     },
     "@deepseek-ai/dsh-host-directory-picker-auto": {
       "status": "substitute",
@@ -156,6 +169,10 @@
     "@deepseek-ai/dsh-plugin-manager": {
       "status": "not-applicable",
       "reason": "Runtime plugin installation (Creator mode): it installs packages with a pnpm subprocess and reloads them through the Loader and HMR, none of which the Edge has."
+    },
+    "@deepseek-ai/dsh-plugin-market": {
+      "status": "not-applicable",
+      "reason": "Installs npm plugin packages at runtime through dsh-plugin-manager; a Worker has no writable package directory, and the Edge pins every upstream dependency to one version."
     },
     "@deepseek-ai/dsh-plugin-package-inventory-deepseek": {
       "status": "declined",
@@ -282,6 +299,11 @@
       "status": "substitute",
       "reason": "The Web client is assembled statically at build time (standalone/scripts)."
     },
+    "@deepseek-ai/dsh-web-deepseek-api": {
+      "status": "tracked",
+      "issue": 321,
+      "reason": "DeepSeek Search and Fetch API providers. Fetch would run on DeepSeek's side instead of the Worker; needs a credential and outbound-path review first."
+    },
     "@deepseek-ai/dsh-workflow-ptc": {
       "status": "substitute",
       "reason": "edge-workflow-engine.ts runs each workflow in its own Dynamic Worker (Isolated only)."
@@ -295,12 +317,15 @@
   "wikiOmit": {
     "agent-team": "Experimental Agent Teams (dsh-experimental-tool-agent-team) are declined; subagents are covered on the Subagent page.",
     "browser-use": "Drives a local Chromium process through experimental providers; Workers cannot run a browser engine.",
+    "claude-code-mods": "Bridges Claude Code hook mods into the Harness (mods, hooks.json, plugin directories); the Edge mounts no mod bridge and Workers read no local plugin directory.",
     "computer-use": "Observes and operates the local desktop; a Worker has no desktop.",
     "extensions": "Agent-defined Cordis packages installed and loaded at runtime; Workers cannot install or import packages at runtime, so the Edge composition is fixed at build time.",
     "office-to-pdf": "Office conversion through a native LibreOffice build on the host.",
     "product-telemetry": "Desktop product analytics over OTLP; the Edge excludes the client analytics plugin and mounts no exporter.",
     "ssh": "Moves the filesystem and process world to a remote host over a deployment-owned OpenSSH connection; the Edge workspace is the Durable Object VFS with an optional Linux container.",
+    "translation": "Experimental text translation through anonymous browser endpoints or paid Flash routes; the Edge mounts no translator.",
     "voice-input": "Experimental speech-to-text with local SenseVoice inference on the host.",
-    "webhook": "External deliveries that create root Sessions are not offered; GitHub webhook review sessions are tracked in #180."
+    "webhook": "External deliveries that create root Sessions are not offered; GitHub webhook review sessions are tracked in #180.",
+    "worktrees": "Experimental git worktree service and create_worktree tool; Workers cannot spawn git, so the Edge classifies the tool as not-applicable."
   }
 }

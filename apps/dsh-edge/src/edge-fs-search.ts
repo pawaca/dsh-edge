@@ -50,7 +50,7 @@ import { RE2JS } from 're2js'
 import type { EdgeFileSystem, EdgeVfs } from './edge-filesystem.ts'
 
 export const name = 'edge-fs-search'
-export const inject = ['tools', 'systemPrompt', 'fs']
+export const inject = ['tools', 'systemPrompt', 'fs', 'workingDirectory']
 
 /**
  * Entries one search may walk (files and directories). Each listed entry is a
@@ -275,7 +275,9 @@ async function searchScope(ctx: Context, exec: ToolExecution, path: string | und
   const { vfs, cwd } = fs.searchScope()
   // Normalize the session cwd (`/workspace/./a/` is accepted) so display paths compare against the
   // same spelling fs.resolve gives targets.
-  const workdir = String((await fs.resolve(exec.agent?.session.header.cwd ?? cwd, { cwd, signal: exec.signal })).targetKey)
+  // The directory `working_directory` selected, as upstream's search tool resolves it.
+  const current = exec.agent === undefined ? cwd : await ctx.workingDirectory.ensure(exec.agent, exec.signal)
+  const workdir = String((await fs.resolve(current, { cwd, signal: exec.signal })).targetKey)
   const target = await fs.resolve(path ?? workdir, { cwd: workdir, signal: exec.signal })
   return { vfs, workdir, root: String(target.targetKey) }
 }

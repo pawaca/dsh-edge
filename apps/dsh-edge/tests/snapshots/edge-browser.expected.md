@@ -20,7 +20,7 @@
 - text: {{clock}}
 - textbox "Message or run a task, / commands, @ files or sessions"
 - button "Add files or run commands"
-- button "Select model, current DeepSeek-V41-Flash, reasoning effort High": DeepSeek-V41-Flash High
+- button "Select model, current DeepSeek-V4.1-Flash, reasoning effort High": DeepSeek-V4.1-Flash 1017 High
 - button "Send message" [disabled]
 - button "1 turns 1 steps"
 - button "14 tok · Cache hit 0%": 14 tokCache hit 0%

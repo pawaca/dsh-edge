@@ -51,6 +51,8 @@ function mount(tree: Record<string, string>) {
     on: (name: string, handler: (...args: never[]) => unknown) => { handlers.set(name, handler); return () => {} },
     logger: { warn },
     skills: { registerProvider: (f: typeof factory) => { factory = f; return () => {} } },
+    // The directory `working_directory` moved sessions to, by session.
+    get: (name: string) => name === 'workingDirectory' ? { get: (session: object) => moved.get(session) } : undefined,
   }
   const files = fakeFiles(tree, mtimes)
   let reads = 0
@@ -72,6 +74,7 @@ function mount(tree: Record<string, string>) {
   const list = async (cwd: string) => (await provider.list({ cwd })) as SkillCandidate[]
   const write = (path: string, contents: string) => { tree[path] = contents; mtimes.set(path, (mtimes.get(path) ?? 0) + 1) }
   const sessions = new Map<string, { header: { cwd: string } }>()
+  const moved = new WeakMap<object, string>()
   /** A turn starts, then its first step runs the pre-step waterfall the provider joins. */
   const startTurn = async (cwd: string) => {
     const session = sessions.get(cwd) ?? { header: { cwd } }
@@ -81,7 +84,16 @@ function mount(tree: Record<string, string>) {
     onEvent(session, { type: 'turn/start' })
     await preStep({ agent: { session }, signal: new AbortController().signal }, async () => ({ kind: 'enter' }))
   }
-  return { provider, list, invalidate, warn, write, startTurn, failing, reads: () => reads, stats: () => stats }
+  /** A turn in a session that began in `started` and was moved to `current` by working_directory. */
+  const startMovedTurn = async (started: string, current: string) => {
+    const session = { header: { cwd: started } }
+    moved.set(session, current)
+    const onEvent = handlers.get('session/event') as (session: unknown, event: { type: string }) => void
+    const preStep = handlers.get('agent/pre-step') as (input: unknown, next: () => Promise<unknown>) => Promise<unknown>
+    onEvent(session, { type: 'turn/start' })
+    await preStep({ agent: { session }, signal: new AbortController().signal }, async () => ({ kind: 'enter' }))
+  }
+  return { provider, list, invalidate, warn, write, startTurn, startMovedTurn, failing, reads: () => reads, stats: () => stats }
 }
 
 describe('Edge workspace skills', () => {
@@ -148,6 +160,20 @@ describe('Edge workspace skills', () => {
     write('/workspace/.dsh/skills/two.md', skill('two', 'added'))
     await startTurn('/workspace')
     expect(invalidate).toHaveBeenCalledTimes(2)
+  })
+
+  it("checks the catalog of the directory working_directory moved the session to, not the one it started in", async () => {
+    const { list, invalidate, write, startMovedTurn } = mount({
+      '/workspace/a/.git/HEAD': 'ref',
+      '/workspace/a/.dsh/skills/one/SKILL.md': skill('one', 'first'),
+      '/workspace/b/.git/HEAD': 'ref',
+      '/workspace/b/.dsh/skills/two/SKILL.md': skill('two', 'first'),
+    })
+    await list('/workspace/b')
+    // Only project b's files change; the session began in a and moved to b.
+    write('/workspace/b/.dsh/skills/two/SKILL.md', skill('two', 'edited body'))
+    await startMovedTurn('/workspace/a', '/workspace/b')
+    expect(invalidate).toHaveBeenCalledTimes(1)
   })
 
   it('reads at most MAX_ENTRIES_PER_ROOT entries from a root, warning once per discovery', async () => {

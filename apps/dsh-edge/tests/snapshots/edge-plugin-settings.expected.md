@@ -14,14 +14,6 @@
     - tab "Plugin list"
     - tab "Settings" [selected]
   - tabpanel "Settings":
-    - heading "Agent loop" [level=3]
-    - paragraph: Control how the Agent dispatches tool calls.
-    - text: Parallel tool calls
-    - textbox "Parallel tool calls":
-      - /placeholder: ""
-      - text: "10"
-    - paragraph: Upper bound on parallel-safe calls running at once within one step.
-    - button "Save" [disabled]
     - heading "Subagent" [level=3]
     - paragraph: Set Subagent recursion depth, count, and models.
     - region "Limits":
@@ -47,14 +39,22 @@
     - text: API key A key is configured.
     - textbox "API key"
     - paragraph: Stored outside the settings file. Leave blank to keep the current key.
-    - text: Endpoint
-    - textbox "Endpoint":
+    - text: Messages API base URL
+    - textbox "Messages API base URL":
       - /placeholder: ""
       - text: https://api.deepseek.com/anthropic/v1
-    - paragraph: Leave blank to use the provider default.
+    - paragraph: Include the API prefix, such as https://api.deepseek.com/anthropic/v1. The provider appends /messages. Leave blank to restore the default.
     - text: Max searches per request
     - textbox "Max searches per request":
       - /placeholder: ""
       - text: "5"
-    - paragraph: How many times one request may search before it must answer.
+    - paragraph: How many searches the auxiliary model may run within one Messages request. Applies only to the Messages API.
+    - button "Save" [disabled]
+    - heading "Agent loop" [level=3]
+    - paragraph: Control how the Agent dispatches tool calls.
+    - text: Parallel tool calls
+    - textbox "Parallel tool calls":
+      - /placeholder: ""
+      - text: "10"
+    - paragraph: Upper bound on parallel-safe calls running at once within one step.
     - button "Save" [disabled]

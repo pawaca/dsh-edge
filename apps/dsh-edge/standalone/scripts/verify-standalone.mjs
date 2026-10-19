@@ -1,7 +1,7 @@
 /** Verify the pinned standalone dependency closure and its assembled artifacts. */
 
 import { access, readFile, readdir, stat } from 'node:fs/promises'
-import { OWNER_HOST_DECLARATION } from './web-shell-head.mjs'
+import { OWNER_ACCESS_DECLARATION, OWNER_HOST_DECLARATION } from './web-shell-head.mjs'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import edgePackage from '../../package.json' with { type: 'json' }
@@ -24,6 +24,7 @@ const excludedClientPackages = [
   '@deepseek-ai/dsh-cordis-client-runner',
   '@deepseek-ai/dsh-client-ui-cordis',
   '@deepseek-ai/dsh-session-log-export',
+  '@deepseek-ai/dsh-client-ui-schedule',
 ]
 
 for (const [name, version] of Object.entries(standalonePackage.dependencies ?? {})) {
@@ -126,6 +127,9 @@ if (charsetOffset < 0 || charsetOffset + 64 > 1024) {
 }
 if (!OWNER_HOST_DECLARATION.test(index)) {
   throw new Error('Standalone Web shell does not declare the browser transport as host-owning (__DSH_TRANSPORT__.ownsHost).')
+}
+if (!OWNER_ACCESS_DECLARATION.test(index)) {
+  throw new Error('Standalone Web shell does not declare the owner access baseline (__DSH_REMOTE_ACCESS__).')
 }
 const bootMatch = index.match(/globalThis\["__DSH_BOOT__"\] = (\{.*?\})<\/script>/s)
 if (bootMatch === null) throw new Error('Standalone Web shell has no boot manifest.')

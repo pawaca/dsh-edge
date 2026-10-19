@@ -28,6 +28,9 @@
         },
       ],
       "model": "deepseek-v4-flash",
+      "thinking": {
+        "type": "disabled",
+      },
       "tools": [
         {
           "max_uses": 5,
@@ -52,6 +55,9 @@
       },
     ],
     "model": "deepseek-v4-flash",
+    "thinking": {
+      "type": "disabled",
+    },
     "tools": [
       {
         "max_uses": 5,
@@ -114,6 +120,7 @@ Cite the relevant URLs above as markdown links in your answer.",
     "update_goal",
     "web_fetch",
     "web_search",
+    "working_directory",
     "write",
   ],
 }

@@ -65,8 +65,11 @@ function tools(vfs: ReturnType<typeof workspace>, cwd = '/workspace', signal = n
     }
     return `/${parts.join('/')}`
   }
+  // The directory `working_directory` selected; the agent's header keeps the one the session began in.
+  const directory = { current: cwd }
   const ctx = {
     systemPrompt: { section() {}, getSectionOrder() { return 0 } },
+    workingDirectory: { ensure: async () => directory.current },
     tools: { register(tool: Tool) { registered.set(tool.name, tool) }, get(name: string) { return registered.get(name) } },
     on() {},
     fs: {
@@ -77,6 +80,7 @@ function tools(vfs: ReturnType<typeof workspace>, cwd = '/workspace', signal = n
   apply(ctx as never)
   const exec = { signal, agent: { session: { header: { cwd } } } }
   return {
+    changeDirectory: (path: string) => { directory.current = path },
     run: (name: string, args: Record<string, unknown>) => registered.get(name)!.execute(args, exec),
     render: (name: string, value: unknown) => registered.get(name)!.output.render({}, value as never)[0]!.text,
     meta: (name: string, value: unknown) => registered.get(name)!.output.presentationMeta({}, value as never),
@@ -133,6 +137,15 @@ describe('glob over the workspace VFS', () => {
     const search = tools(workspace({ '/workspace/src/a.ts': '', '/data/b.ts': '' }), '/workspace/src')
     expect(await search.run('glob', { pattern: '*.ts', path: '/workspace' })).toEqual({ root: '/workspace', paths: ['a.ts'] })
     expect(await search.run('glob', { pattern: '*.ts', path: '/data' })).toEqual({ root: '/data', paths: ['/data/b.ts'] })
+  })
+
+  it('searches from the directory working_directory selected, not the one the session began in', async () => {
+    const search = tools(workspace({ '/workspace/a.ts': 'top\n', '/workspace/src/b.ts': 'deep\n' }))
+    expect(await search.run('glob', { pattern: '*.ts' })).toEqual({ root: '.', paths: ['a.ts', 'src/b.ts'] })
+    search.changeDirectory('/workspace/src')
+    expect(await search.run('glob', { pattern: '*.ts' })).toEqual({ root: '.', paths: ['b.ts'] })
+    expect(await search.run('grep', { pattern: 'deep' })).toMatchObject({ matches: [expect.objectContaining({ path: 'b.ts' })] })
+    expect(await search.run('grep', { pattern: 'top' })).toMatchObject({ matches: [] })
   })
 
   it.each(['/workspace/src/', '/workspace/./src'])('normalizes the session cwd %s before relativizing', async cwd => {

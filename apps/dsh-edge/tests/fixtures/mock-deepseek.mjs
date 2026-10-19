@@ -22,7 +22,11 @@ export function isLoopNote(message) {
       || message.content.startsWith('Repeated tool call detected:')
       // A system prompt that changed mid-session (an upgrade adding tool sections) is a
       // `system-prompt` message, which the Messages wire carries in the user role.
-      || message.content.startsWith('You are dsh-edge'))
+      || message.content.startsWith('You are dsh-edge')
+      // dsh-time-context readings and dsh-working-directory contexts and notices are injected user-role messages.
+      || message.content.startsWith('Time sampled while preparing turn')
+      || message.content.startsWith('Current working directory: ')
+      || message.content.startsWith('The working directory '))
 }
 
 /** The index of the latest user prompt in a chat request, skipping loop-owned notes. */
