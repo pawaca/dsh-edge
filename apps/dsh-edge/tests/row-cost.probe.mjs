@@ -9,9 +9,11 @@
  * statements and by the SQLite-backed key-value and alarm operations alike:
  * - SQL rows: `rows_written` / `rows_read` on every SQL span workerd records.
  * - KV and alarm writes: workerd attaches no row count to those spans, so the
- *   probe counts the operations (`put`, `delete`, `setAlarm`, `deleteAlarm`).
- *   One `put` of one key writes one row, so this is a floor for a put of
- *   several keys, and the printed count is operations, not rows.
+ *   probe counts the operations (`put`, `delete`, `setAlarm`, `deleteAlarm`),
+ *   matched by span-name suffix so a renamed prefix still counts. One `put` of
+ *   one key writes one row, so this is a floor for a put of several keys, and
+ *   the printed count is operations, not rows. The scenario arms an alarm, so
+ *   a run that sees no `setAlarm` span fails: the names have drifted.
  *
  * Run it after `pnpm run bundle:workers` in a baseline-upgrade PR. A plain
  * turn is the repeated unit, so a rise in either quantity per turn is the
@@ -77,9 +79,11 @@ async function measure(label, appDirectory) {
       sum(json_extract(attributes,'$."cloudflare.durable_object.response.rows_written"')),
       sum(json_extract(attributes,'$."cloudflare.durable_object.response.rows_read"'))
       FROM spans WHERE name = 'durable_object_storage_exec'`)
-    const [[kv]] = await query(worker, `SELECT count(*) FROM spans WHERE name IN
-      ('durable_object_storage_put','durable_object_storage_delete','durable_object_storage_setAlarm','durable_object_storage_deleteAlarm')`)
-    return { written: written ?? 0, read: read ?? 0, kv }
+    const [[kv, armed]] = await query(worker, `SELECT
+      count(*), sum(CASE WHEN name LIKE '%setAlarm' THEN 1 ELSE 0 END)
+      FROM spans WHERE name LIKE 'durable_object%'
+      AND (name LIKE '%put' OR name LIKE '%delete' OR name LIKE '%setAlarm' OR name LIKE '%deleteAlarm')`)
+    return { written: written ?? 0, read: read ?? 0, kv, armed: armed ?? 0 }
   }
   /** Run one turn and require it to complete: a failed turn would write little and pass the comparison. */
   const completeTurn = async (worker, cookie, sessionId, message) => {
@@ -114,6 +118,8 @@ async function measure(label, appDirectory) {
     await step('bash tool turn', 'run the tool')
     await step('schedule_create turn', 'schedule once 3600')
     for (let index = 9; index <= 12; index += 1) await step('plain turn', `hello ${String(index)}`)
+    // The schedule step arms an alarm; no span for it means the names above no longer match workerd's.
+    assert.ok((await totals(worker)).armed > 0, `${label}: no setAlarm span was recorded, so alarm writes are not being counted`)
     await worker.stop()
     // A new Worker process on the same persisted state is a cold resume.
     ;({ worker, cookie } = await boot('cold'))
