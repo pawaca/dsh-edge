@@ -153,3 +153,4 @@ minimumReleaseAgeExclude:
   - '@deepseek-ai/dsh-api-job-controller@0.2.1-rc.2'
   - '@deepseek-ai/dsh-client-ui-settings-general@0.2.1-rc.2'
   - '@deepseek-ai/dsh-client-ui-theme@0.2.1-rc.2'
+  - '@deepseek-ai/dsh-web-deepseek-api@0.2.1-rc.2'

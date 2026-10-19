@@ -36,6 +36,12 @@
     - button "Save" [disabled]
     - heading "Web search" [level=3]
     - paragraph: Set up the DeepSeek search provider.
+    - text: Use the new Web Search API
+    - switch "Use the new Web Search API"
+    - paragraph:
+      - text: "Off by default: search runs through DeepSeek Messages. For the new Web Search API's features and pricing, see the"
+      - link "Search & Fetch guide":
+        - /url: https://api-docs.deepseek.com/guides/search
     - text: API key A key is configured.
     - textbox "API key"
     - paragraph: Stored outside the settings file. Leave blank to keep the current key.
