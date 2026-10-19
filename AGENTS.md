@@ -52,6 +52,7 @@ An upstream-baseline PR changes `dshEdge.upstreamVersion` and both lockfiles, an
 2. Runs `pnpm run upstream-parity -- refresh` after the version bump (set `GITHUB_TOKEN` to avoid GitHub rate limits), then classifies every new reference entry until `pnpm run upstream-parity` passes. If upstream moves a reference composition, update `REFERENCE_SOURCES` in `scripts/upstream-parity.mjs`.
 3. Lists the wiki pages to add, update, or retire for the new subsystem set.
 4. Before the first release on the new baseline, builds the Workers and runs `node apps/dsh-edge/tests/upgrade-from-release.probe.mjs` with `DSH_EDGE_UPGRADE_FROM` set to the latest published release. The probe upgrades state that release created through its real API in place and must pass; fixtures alone do not cover a released format.
+5. In the same build, runs `node apps/dsh-edge/tests/row-cost.probe.mjs` with `DSH_EDGE_COST_FROM` set to the same release. It replays one scripted conversation on both builds and compares the rows each turn writes and reads as the Workers runtime counts them; a plain turn must not write more than 10 % above the release.
 
 ## Durable Object database budgets
 
