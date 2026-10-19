@@ -1,5 +1,6 @@
 /** Cloudflare-specific runtime bindings exposed through upstream DSH tool seams. */
 
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { createUserMessage, type ContextFormed } from '@deepseek-ai/dsh-llm'
 import { defineTool, type ToolDefinition } from '@deepseek-ai/dsh-tools'
@@ -162,6 +163,12 @@ export function createEdgeBashTool(
   maxTimeoutMs?: number,
   /** Upstream's `shellEnv.collect`, as upstream bash passes it to every command. */
   collectEnv?: (exec: Parameters<ToolDefinition['execute']>[1]) => Readonly<Record<string, string>>,
+  /**
+   * The session's current directory, which `working_directory` can change after
+   * the shell was bound. Each command is its own process here, so a new call
+   * starts where the session now is; without it, where the shell was bound.
+   */
+  sessionDirectory?: (agent: Agent, signal: AbortSignal) => Promise<string>,
 ): ToolDefinition {
   return defineTool({
     name: 'bash',
@@ -235,7 +242,7 @@ export function createEdgeBashTool(
       if (agent === undefined) throw new Error('dsh-edge: bash requires an initiating agent')
       const { shell, cwd } = bindings.require(agent.id)
       const result = await shell.exec(args.command, {
-        cwd: args.workdir ?? cwd,
+        cwd: args.workdir ?? await sessionDirectory?.(agent, exec.signal) ?? cwd,
         ...args.timeoutMs === undefined ? {} : { timeoutMs: args.timeoutMs },
         ...(args as { linux?: boolean }).linux === true ? { requestContainer: true } : {},
         ...collectEnv === undefined ? {} : { env: collectEnv(exec) },

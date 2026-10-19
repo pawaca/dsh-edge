@@ -1,4 +1,4 @@
-import { Context } from '@deepseek-ai/cordis'
+import { Context, Service } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { FILE_REFERENCE_PROMPT } from '@deepseek-ai/dsh-file-reference'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -39,6 +39,21 @@ async function provider(tree: Record<string, EdgeReferenceEntry[]>, maxResults?:
 }
 
 describe('EdgeFileReferenceService', () => {
+  it('lists the directory working_directory selected, not the one the session began in', async () => {
+    const { ctx, service, reads } = await provider({
+      '/workspace': [entry('top.txt')],
+      '/workspace/proj': [entry('inner.txt')],
+    })
+    class Current extends Service {
+      constructor(c: Context) { super(c, 'workingDirectory') }
+      get() { return '/workspace/proj' }
+    }
+    await ctx.plugin(Current)
+    const candidates = await service.list(agentAt('/workspace'), 'i', AbortSignal.timeout(1_000))
+    expect(candidates).toEqual([{ path: 'inner.txt', kind: 'file' }])
+    expect(reads).toEqual(['/workspace/proj'])
+  })
+
   it('lists the session working directory for a bare fragment', async () => {
     const { service, reads } = await provider({
       '/workspace': [entry('src', 'directory'), entry('README.md'), entry('.env'), entry('release.txt')],

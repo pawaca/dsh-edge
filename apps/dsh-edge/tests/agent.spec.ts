@@ -174,6 +174,21 @@ describe('dsh-edge native agent runtime', () => {
     expect(deferContext).toHaveBeenCalledOnce()
   })
 
+  it('starts a command where working_directory moved the session, unless workdir is supplied', async () => {
+    const shells = new EdgeShellBindings()
+    const result = { executionId: 'e', status: 'completed', timedOut: false, exitCode: 0, stdout: '', stderr: '', outputTruncated: false }
+    const exec = vi.fn(async () => result)
+    shells.bind('agent-1' as never, { exec } as never, '/workspace')
+    const current = vi.fn(async () => '/workspace/proj')
+    const tool = createEdgeBashTool(shells, 'just-bash-isolated', undefined, undefined, current)
+    const run = (tool as unknown as { execute: (args: unknown, exec: unknown) => Promise<unknown> }).execute
+    const context = { agent: { id: 'agent-1' }, signal: new AbortController().signal, deferContext: vi.fn() }
+    await run({ command: 'ls', description: 'list' }, context)
+    expect(exec).toHaveBeenLastCalledWith('ls', expect.objectContaining({ cwd: '/workspace/proj' }))
+    await run({ command: 'ls', description: 'list', workdir: '/tmp' }, context)
+    expect(exec).toHaveBeenLastCalledWith('ls', expect.objectContaining({ cwd: '/tmp' }))
+  })
+
   it('advertises Edge runtime constraints and MCP naming convention', () => {
     const EDGE_SYSTEM_PROMPT = edgeSystemPrompt('just-bash-isolated')
     expect(EDGE_SYSTEM_PROMPT).toContain('Cloudflare Worker')

@@ -64,7 +64,8 @@ export class EdgeFileReferenceService extends FileReferenceService {
 
   async list(agent: Agent, query: string, signal: AbortSignal): Promise<FileReferenceCandidate[]> {
     signal.throwIfAborted()
-    const root = agent.session.header.cwd ?? DEFAULT_CWD
+    // The session's current directory: `working_directory` can move it after the session began.
+    const root = this.ctx.get('workingDirectory')?.get(agent.session) ?? agent.session.header.cwd ?? DEFAULT_CWD
     const scope = splitQuery(query)
     if (scope === undefined) return []
     const directory = resolveWithin(root, scope.directory)
