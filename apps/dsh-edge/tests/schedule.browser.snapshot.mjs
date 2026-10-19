@@ -37,10 +37,12 @@ it('wakes a cold session for a durable reminder without a browser connection', a
     const send = page.getByRole('button', { name: 'Send message', exact: true })
     // The initial blank session can replace the composer during bootstrap.
     // Wait for a draft accepted by the mounted session before submitting once.
+    // 30 s like this file's other waits: a Windows release run timed out here at 15 s once
+    // after the same code had passed (run 38158053661; flake mitigation).
     await expect.poll(async () => {
       await input.fill(`schedule once ${delay}`)
       return await send.isEnabled()
-    }, { timeout: 15_000 }).toBe(true)
+    }, { timeout: 30_000 }).toBe(true)
     await send.click()
     await page.getByText('tool-finished', { exact: true }).first().waitFor({ timeout: 30_000 })
     expect(mock.requests.some(request => chatMessages(request).some(message => message.role === 'tool' && message.content?.includes('scheduledAt')))).toBe(true)
