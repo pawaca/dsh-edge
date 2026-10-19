@@ -24,7 +24,7 @@
  */
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { unstable_dev } from 'wrangler'
@@ -39,12 +39,15 @@ const OWNER_KEY = 'row-cost-probe-owner-key-32-bytes-long'
 const textOf = message => typeof message.content === 'string'
   ? message.content
   : (message.content ?? []).filter(block => block.type === 'text').map(block => block.text).join('')
+const candidatePackage = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
 const work = mkdtempSync(join(tmpdir(), 'dsh-edge-row-cost-'))
 const mock = await startMockDeepSeek()
 
 execFileSync('npm', ['pack', `dsh-edge@${from}`, '--silent'], { cwd: work, stdio: ['ignore', 'ignore', 'inherit'] })
 execFileSync('tar', ['xzf', `dsh-edge-${from}.tgz`], { cwd: work })
 const previousRoot = join(work, 'package')
+
+const identities = []
 
 /** Run the scenario on one build and return [step, rowsWritten, rowsRead] rows. */
 async function measure(label, appDirectory) {
@@ -103,6 +106,15 @@ async function measure(label, appDirectory) {
   const rows = []
   let { worker, cookie } = await boot('first')
   try {
+    // Measure what the label says: a checkout can still hold a worker promoted for an earlier baseline.
+    const health = await (await worker.fetch('/api/health', { headers: { cookie } })).json()
+    if (appDirectory === undefined) {
+      assert.equal(health.version, candidatePackage.version, 'the promoted candidate Worker is not this checkout\'s version; run pnpm run bundle:workers')
+      assert.equal(health.upstreamVersion, candidatePackage.dshEdge.upstreamVersion, 'the promoted candidate Worker runs another Harness baseline than this checkout; run pnpm run bundle:workers')
+    } else {
+      assert.equal(health.version, from, `the downloaded release reports ${String(health.version)}, not ${from}`)
+    }
+    identities.push(`${label} ${String(health.version)} on Harness ${String(health.upstreamVersion)}`)
     const post = (path, payload) => worker.fetch(path, {
       method: 'POST', headers: { 'content-type': 'application/json', cookie }, body: JSON.stringify(payload),
     })
@@ -173,6 +185,7 @@ try {
   const baseline = await measure('release', previousRoot)
   const candidate = await measure('candidate')
   const cell = ([, written, read, kv]) => `${String(written).padStart(5)} / ${String(read).padStart(5)} / ${String(kv).padEnd(3)}`
+  process.stdout.write(`measured: ${identities.join('; ')}\n`)
   process.stdout.write(`${'step'.padEnd(44)} ${`${from} sql written/read/kv`.padEnd(26)} candidate\n`)
   for (const [index, row] of baseline.entries()) {
     const next = candidate[index]
