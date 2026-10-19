@@ -66,14 +66,6 @@ function normalizeLineEndings(text: string): string {
   return text.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
 }
 
-/**
- * The workspace root every session starts in. The VFS creates it with the
- * first command or write, but the Edge always offers it as a directory:
- * `dsh-working-directory` checks the session directory on every prompt, and a
- * new deployment's first message must not fail for a folder nothing has used.
- */
-const WORKSPACE_ROOT = '/workspace'
-
 function versionOf(mtime: number, size: number): FsVersion {
   return FsVersion(`${String(mtime)}:${String(size)}`)
 }
@@ -180,7 +172,8 @@ export class EdgeFileSystem extends FileSystem {
 
   async stat(target: FsTarget, signal?: AbortSignal): Promise<FsInfo | undefined> {
     if (signal?.aborted) throw new FsError('stat aborted', 'FS_ABORTED')
-    const vfs = this.requireBinding().vfs
+    const binding = this.requireBinding()
+    const vfs = binding.vfs
     try {
       const info = await vfs.stat(this.processPath(target))
       return {
@@ -190,8 +183,13 @@ export class EdgeFileSystem extends FileSystem {
       }
     } catch (error) {
       if (error instanceof Error && 'code' in error && (error as { code: string }).code === 'ENOENT') {
-        // An empty directory has no mtime to version; this one has never held an entry.
-        return this.processPath(target) === WORKSPACE_ROOT
+        // The directory a session starts in is always offered as existing. The
+        // VFS creates it with the first command or write (a new deployment's
+        // `/workspace`, a workspace registered at a nested path), but
+        // `dsh-working-directory` checks it on every prompt, so the first
+        // message must not fail for a folder nothing has used yet. It has never
+        // held an entry, so it has no mtime to version.
+        return this.processPath(target) === resolvePath(binding.cwd, '.')
           ? { version: versionOf(0, 0), type: 'directory', size: 0 }
           : undefined
       }

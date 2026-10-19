@@ -142,19 +142,36 @@ describe('bounded VFS preview reads', () => {
   })
 })
 
-describe('the workspace root', () => {
+describe("the session's starting directory", () => {
   const missing = () => Object.assign(new Error('no such file or directory'), { code: 'ENOENT' })
 
-  it('is a directory before anything has created it, and nothing else is', async () => {
+  it.each(['/workspace', '/workspace/project-b', '/workspace/project-b/', '/workspace/./a/..'])(
+    'is a directory before anything has created it (%s), and nothing else is',
+    async start => {
+      const ctx = new Context()
+      await ctx.plugin(EdgeFileSystem)
+      const fs = ctx.fs as EdgeFileSystem
+      const vfs = { stat: vi.fn(() => Promise.reject(missing())) }
+      try {
+        await fs.runInScope(vfs as never, start, async () => {
+          expect(await fs.stat(await fs.resolve('.'))).toMatchObject({ type: 'directory', size: 0 })
+          expect(await fs.stat(await fs.resolve('src'))).toBeUndefined()
+          expect(await fs.stat(await fs.resolve('/elsewhere'))).toBeUndefined()
+          // Another session's start is not this one's: a nested workspace does not make its parent exist.
+          expect(await fs.stat(await fs.resolve('/workspace/other'))).toBeUndefined()
+        })
+      } finally { await ctx.fiber.dispose() }
+    },
+  )
+
+  it('does not make the parent of a nested start exist', async () => {
     const ctx = new Context()
     await ctx.plugin(EdgeFileSystem)
     const fs = ctx.fs as EdgeFileSystem
     const vfs = { stat: vi.fn(() => Promise.reject(missing())) }
     try {
-      await fs.runInScope(vfs as never, '/workspace', async () => {
-        expect(await fs.stat(await fs.resolve('/workspace'))).toMatchObject({ type: 'directory', size: 0 })
-        expect(await fs.stat(await fs.resolve('/workspace/src'))).toBeUndefined()
-        expect(await fs.stat(await fs.resolve('/elsewhere'))).toBeUndefined()
+      await fs.runInScope(vfs as never, '/workspace/project-b', async () => {
+        expect(await fs.stat(await fs.resolve('/workspace'))).toBeUndefined()
       })
     } finally { await ctx.fiber.dispose() }
   })
