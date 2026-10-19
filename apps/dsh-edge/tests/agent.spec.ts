@@ -17,6 +17,7 @@ import WorkingDirectory from '@deepseek-ai/dsh-working-directory'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { describe, expect, it, vi } from 'vitest'
 import {
+  EDGE_PERSONA_SUFFIX,
   EDGE_PLAN_MODE_SECTION,
   edgeBashGuidance,
   edgeCurrentDate,
@@ -187,6 +188,12 @@ describe('dsh-edge native agent runtime', () => {
     expect(exec).toHaveBeenLastCalledWith('ls', expect.objectContaining({ cwd: '/workspace/proj' }))
     await run({ command: 'ls', description: 'list', workdir: '/tmp' }, context)
     expect(exec).toHaveBeenLastCalledWith('ls', expect.objectContaining({ cwd: '/tmp' }))
+  })
+
+  it('leaves the session directory to the working-directory context, which follows working_directory', () => {
+    // A directory named here would stay the starting one after a change and contradict that context.
+    expect(EDGE_PERSONA_SUFFIX).not.toMatch(/\{\{|working directory|\/workspace\/\w/iu)
+    expect(EDGE_PERSONA_SUFFIX).toContain('/workspace persist')
   })
 
   it('advertises Edge runtime constraints and MCP naming convention', () => {

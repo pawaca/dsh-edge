@@ -87,7 +87,7 @@ create_goal may infer goal intent from a direct human request in any language. A
 
 Start independent delegations with `subagent` or `subagent_fork` together in one assistant message and continue useful work while they run.
 
-Your working directory is /workspace. Only files under /workspace persist across sessions.",
+Only files under /workspace persist across sessions.",
               "type": "text",
             },
           ],
@@ -2416,7 +2416,7 @@ create_goal may infer goal intent from a direct human request in any language. A
 
 Start independent delegations with `subagent` or `subagent_fork` together in one assistant message and continue useful work while they run.
 
-Your working directory is /workspace. Only files under /workspace persist across sessions.",
+Only files under /workspace persist across sessions.",
               "type": "text",
             },
           ],
@@ -4704,7 +4704,7 @@ create_goal may infer goal intent from a direct human request in any language. A
 
 Start independent delegations with `subagent` or `subagent_fork` together in one assistant message and continue useful work while they run.
 
-Your working directory is /workspace. Only files under /workspace persist across sessions.",
+Only files under /workspace persist across sessions.",
       "thinking": {
         "type": "enabled",
       },
@@ -5680,7 +5680,7 @@ create_goal may infer goal intent from a direct human request in any language. A
 
 Start independent delegations with `subagent` or `subagent_fork` together in one assistant message and continue useful work while they run.
 
-Your working directory is /workspace. Only files under /workspace persist across sessions.",
+Only files under /workspace persist across sessions.",
       "thinking": {
         "type": "enabled",
       },

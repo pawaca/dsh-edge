@@ -456,8 +456,6 @@ export class EdgeSessionStore {
       personaPrefix: edgeSystemPrompt(config.shell),
       personaSuffix: EDGE_PERSONA_SUFFIX,
     })
-    this.context.systemPrompt.variable('workdir', ({ agent }) =>
-      (agent === undefined ? undefined : this.shells.get(agent.id)?.cwd ?? agent.session.header.cwd) ?? '/workspace')
     this.context.systemPrompt.section({
       name: 'tool:bash',
       order: this.context.systemPrompt.getSectionOrder('TOOL_BASH'),

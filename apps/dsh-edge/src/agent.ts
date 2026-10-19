@@ -33,8 +33,13 @@ export function edgeSystemPrompt(shell: EdgeRuntimeProviderDescriptor['shell']):
     + '\n\n' + EDGE_SYSTEM_PROMPT_TOOLS
 }
 
-/** The persona suffix; `workdir` is the calling session's bound shell directory. */
-export const EDGE_PERSONA_SUFFIX = 'Your working directory is {{workdir}}. Only files under /workspace persist across sessions.'
+/**
+ * The persona suffix. It names no directory: the session's current one comes
+ * from the required `dsh-working-directory` context, which follows
+ * `working_directory`, and a second statement here would contradict it once
+ * the session moves.
+ */
+export const EDGE_PERSONA_SUFFIX = 'Only files under /workspace persist across sessions.'
 
 /** Bash guidance at the upstream `TOOL_BASH` position, with the deployment's timeout ceiling. */
 export function edgeBashGuidance(maxTimeoutMs: number): string {
