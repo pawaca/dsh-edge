@@ -8,7 +8,7 @@
  * its own alarm and main session queue so reminders share admission, ordering,
  * and cancellation with user input.
  */
-import { Service, type Context } from '@deepseek-ai/cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import { createUserMessage, freezeMessage, MessageId } from '@deepseek-ai/dsh-llm'
 import {
   createAfterScheduleRecord, createAtScheduleRecord, createEveryScheduleRecord,
@@ -17,9 +17,11 @@ import {
   scheduleTitle, ScheduleId, ScheduleInputError, ScheduleLogError, MAX_TITLE_LENGTH,
   type ScheduleRecord, type ScheduleCreateRequest, type ScheduleListRequest, type ScheduleCatalogEntry,
   type ScheduleDeleteRequest, type ScheduleDeleteResult, type ScheduleUpdateRequest, type ScheduleUpdateResult,
-  type ScheduleTimingChange,
+  type ScheduleTimingChange, type ScheduleDeliveryHistoryRequest, type ScheduleDeliveryHistoryResult,
+  type ScheduleDeliveryReceipt, type ScheduleDeliveryRecord, type DeliveryRetentionBounds,
 } from '@deepseek-ai/dsh-schedule'
 import type { SessionId } from '@deepseek-ai/dsh-session'
+import { TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import { deepEqualJson } from '@deepseek-ai/dsh-util-values'
 import { insertMainInput, MainQueueFullError, MAIN_WAKE_MS } from './main-session-queue.ts'
 import type {} from './upstream-message-sources.ts'
@@ -27,16 +29,43 @@ import type {} from './upstream-message-sources.ts'
 const MAX_ACTIVE_SCHEDULES = 128
 const MAX_ENDED_SCHEDULES = 128
 const MAX_PROMPT_BYTES = 4096
+/**
+ * Upstream's default delivery-history retention per task: the newest 200
+ * records within 30 days of the latest delivery. At most 256 tasks are kept
+ * (128 active, 128 ended), so the history holds at most 51,200 rows.
+ */
+const DELIVERY_RETENTION: DeliveryRetentionBounds = { days: 30, records: 200 }
+const DAY_MS = 86_400_000
+const MAX_HISTORY_PAGE = 100
 
 interface TaskRow extends Record<string, SqlStorageValue> {
   id: string
   session_id: string
   record: string
   active: number
+  delivery: string | null
 }
 
-/** The Edge schedule service; tools reach it as `ctx.schedule`. */
-export class EdgeSchedule extends Service {
+/**
+ * A task's delivery summary, kept on its row so a delivery adds no write there:
+ * the latest receipt and upstream's two history flags. A task stored before
+ * delivery history existed has none (`NULL`), which reads as upstream reads a
+ * task without saved history: earlier records unavailable, none pruned.
+ */
+interface DeliverySummary {
+  readonly last?: ScheduleDeliveryReceipt
+  readonly earlierUnavailable: boolean
+  readonly earlierPruned: boolean
+}
+
+const NEW_TASK_DELIVERY = JSON.stringify({ earlierUnavailable: false, earlierPruned: false } satisfies DeliverySummary)
+
+/**
+ * The Edge schedule service; tools reach it as `ctx.schedule`, and the Web task
+ * page through upstream's `schedule` Remote namespace, whose registered
+ * descriptors the gateway calls on this service by its `typertRemote` binding.
+ */
+export class EdgeSchedule extends TypertRemoteService {
   static inject = ['agents', 'tools']
   private readonly storage: DurableObjectStorage
 
@@ -53,11 +82,27 @@ export class EdgeSchedule extends Service {
       return [{ kind: 'schedule', items: active.map(record => ({ id: record.id, label: record.title })) }, ...rest]
     })
     ctx.on('workspace/session-stop', ({ sessionId }) => {
-      this.storage.transactionSync(() => {
-        this.storage.sql.exec('DELETE FROM dsh_schedule_tasks WHERE session_id = ? AND active = 1', sessionId)
+      const stopped = this.storage.transactionSync(() => {
+        const ids = this.storage.sql.exec<{ id: string }>('SELECT id FROM dsh_schedule_tasks WHERE session_id = ? AND active = 1', sessionId).toArray()
+        for (const { id } of ids) deleteTask(this.storage, sessionId, id)
         pruneScheduleRetry(this.storage, sessionId)
+        return ids.length > 0
       })
+      if (stopped) this.changed()
     })
+  }
+
+  /**
+   * Tell the Web clients the task set changed (upstream's `schedule/changed`,
+   * which the gateway forwards), after the change committed. A failing
+   * listener must not fail the change that already landed.
+   */
+  changed(): void {
+    try {
+      this.ctx.emit('schedule/changed')
+    } catch (error) {
+      console.error('dsh-edge: a schedule/changed listener failed.', error)
+    }
   }
 
   async create(sessionId: SessionId, request: ScheduleCreateRequest, signal?: AbortSignal): Promise<ScheduleRecord> {
@@ -82,10 +127,11 @@ export class EdgeSchedule extends Service {
       if (active >= MAX_ACTIVE_SCHEDULES) {
         throw new ScheduleInputError('invalid_rule', `This owner already has ${MAX_ACTIVE_SCHEDULES} active reminders; delete one before creating another.`)
       }
-      this.storage.sql.exec('INSERT INTO dsh_schedule_tasks (id,session_id,record,active,due,created) VALUES (?,?,?,1,?,?)',
-        id, sessionId, JSON.stringify(record), Date.parse(record.scheduledAt), now)
+      this.storage.sql.exec('INSERT INTO dsh_schedule_tasks (id,session_id,record,active,due,created,delivery) VALUES (?,?,?,1,?,?,?)',
+        id, sessionId, JSON.stringify(record), Date.parse(record.scheduledAt), now, NEW_TASK_DELIVERY)
       await armScheduleWake(this.storage)
     })
+    this.changed()
     return record
   }
 
@@ -94,16 +140,59 @@ export class EdgeSchedule extends Service {
   }
 
   async catalog(): Promise<ScheduleCatalogEntry[]> {
-    return this.rows('ORDER BY created, id').map(row => ({
-      ...recordOf(row), sessionId: row.session_id as SessionId, status: row.active === 1 ? 'active' as const : 'inactive' as const,
-    })).sort((a, b) => a.scheduledAt.localeCompare(b.scheduledAt) || a.id.localeCompare(b.id))
+    return this.rows('ORDER BY created, id').map((row) => {
+      const last = summaryOf(row).last
+      return {
+        ...recordOf(row), sessionId: row.session_id as SessionId, status: row.active === 1 ? 'active' as const : 'inactive' as const,
+        ...last === undefined ? {} : { lastDelivery: last },
+      }
+    }).sort((a, b) => a.scheduledAt.localeCompare(b.scheduledAt) || a.id.localeCompare(b.id))
+  }
+
+  /**
+   * One task's saved deliveries, newest first, `limit` at a time, as upstream
+   * pages them: `before` is the message id of the oldest record of the previous
+   * page, and `nextBefore` is present only while older records remain.
+   */
+  async history(request: ScheduleDeliveryHistoryRequest): Promise<ScheduleDeliveryHistoryResult> {
+    if (!Number.isSafeInteger(request.limit) || request.limit < 1 || request.limit > MAX_HISTORY_PAGE) {
+      throw new ScheduleInputError('invalid_rule', `limit must be a safe integer from 1 through ${String(MAX_HISTORY_PAGE)}.`)
+    }
+    const row = this.rows('WHERE id = ? AND session_id = ?', request.id, request.sessionId)[0]
+    if (row === undefined) return { id: request.id, code: 'schedule_not_found' }
+    let before = Number.MAX_SAFE_INTEGER
+    if (request.before !== undefined) {
+      const cursor = this.storage.sql.exec<{ seq: number }>(
+        'SELECT seq FROM dsh_schedule_deliveries WHERE session_id = ? AND task_id = ? AND message_id = ?',
+        request.sessionId, request.id, request.before).toArray()[0]
+      if (cursor === undefined) return { id: request.id, code: 'delivery_cursor_not_found' }
+      before = cursor.seq
+    }
+    const rows = this.storage.sql.exec<DeliveryRow>(
+      `SELECT message_id, scheduled_at, delivered_at, prompt FROM dsh_schedule_deliveries
+       WHERE session_id = ? AND task_id = ? AND seq < ? ORDER BY seq DESC LIMIT ?`,
+      request.sessionId, request.id, before, request.limit + 1).toArray()
+    const records = rows.slice(0, request.limit).map(deliveryRecordOf)
+    const summary = summaryOf(row)
+    return {
+      id: request.id,
+      records,
+      earlierRecordsUnavailable: summary.earlierUnavailable,
+      earlierRecordsPruned: summary.earlierPruned,
+      retention: { ...DELIVERY_RETENTION },
+      ...rows.length > request.limit ? { nextBefore: records.at(-1)!.messageId } : {},
+    }
   }
 
   async delete(request: ScheduleDeleteRequest, signal?: AbortSignal): Promise<ScheduleDeleteResult> {
     signal?.throwIfAborted()
-    const deleted = this.storage.sql.exec('DELETE FROM dsh_schedule_tasks WHERE id = ? AND session_id = ?', request.id, request.sessionId).rowsWritten > 0
+    const deleted = this.storage.transactionSync(() => {
+      if (!deleteTask(this.storage, request.sessionId, request.id)) return false
+      pruneScheduleRetry(this.storage, request.sessionId)
+      return true
+    })
     if (!deleted) return { id: request.id, deleted: false, code: 'schedule_not_found' }
-    pruneScheduleRetry(this.storage, request.sessionId)
+    this.changed()
     return { id: request.id, deleted: true }
   }
 
@@ -111,7 +200,7 @@ export class EdgeSchedule extends Service {
     signal?.throwIfAborted()
     // Read, check `expected`, and write in one transaction, so an overlapping
     // update or delete yields a conflict or not-found instead of a lost write.
-    return this.storage.transaction(async () => {
+    const result = await this.storage.transaction(async () => {
       const row = this.rows('WHERE id = ? AND session_id = ?', request.id, request.sessionId)[0]
       if (row === undefined) return { id: request.id, updated: false, code: 'schedule_not_found' } as const
       if (row.active !== 1) return { id: request.id, updated: false, code: 'schedule_ended' } as const
@@ -122,11 +211,59 @@ export class EdgeSchedule extends Service {
       await armScheduleWake(this.storage)
       return result
     })
+    if ('updated' in result && result.updated) this.changed()
+    return result
   }
 
   private rows(clause: string, ...bindings: SqlStorageValue[]): TaskRow[] {
-    return this.storage.sql.exec<TaskRow>(`SELECT id, session_id, record, active FROM dsh_schedule_tasks ${clause}`, ...bindings).toArray()
+    return this.storage.sql.exec<TaskRow>(`SELECT id, session_id, record, active, delivery FROM dsh_schedule_tasks ${clause}`, ...bindings).toArray()
   }
+}
+
+interface DeliveryRow extends Record<string, SqlStorageValue> {
+  message_id: string
+  scheduled_at: string
+  delivered_at: string
+  prompt: string
+}
+
+function deliveryRecordOf(row: DeliveryRow): ScheduleDeliveryRecord {
+  return {
+    scheduledAt: row.scheduled_at, deliveredAt: row.delivered_at, messageId: row.message_id as ScheduleDeliveryRecord['messageId'], prompt: row.prompt,
+  }
+}
+
+function summaryOf(row: Pick<TaskRow, 'delivery'>): DeliverySummary {
+  return row.delivery === null ? { earlierUnavailable: true, earlierPruned: false } : JSON.parse(row.delivery) as DeliverySummary
+}
+
+/** Remove one task and its saved deliveries; false when the session has no such task. */
+function deleteTask(storage: DurableObjectStorage, sessionId: string, id: string): boolean {
+  if (storage.sql.exec('DELETE FROM dsh_schedule_tasks WHERE session_id = ? AND id = ?', sessionId, id).rowsWritten === 0) return false
+  storage.sql.exec('DELETE FROM dsh_schedule_deliveries WHERE session_id = ? AND task_id = ?', sessionId, id)
+  return true
+}
+
+/**
+ * Save one delivery of a task and keep its history within the retention
+ * bounds, in the dispatch transaction that queued the message.
+ * @returns The task's new delivery summary, for the task update dispatch already makes.
+ */
+function recordDelivery(storage: DurableObjectStorage, sessionId: string, row: TaskRow, receipt: ScheduleDeliveryReceipt, prompt: string): string {
+  const last = storage.sql.exec<{ seq: number | null }>(
+    'SELECT MAX(seq) AS seq FROM dsh_schedule_deliveries WHERE session_id = ? AND task_id = ?', sessionId, row.id).toArray()[0]?.seq ?? null
+  const seq = (last ?? -1) + 1
+  storage.sql.exec(`INSERT INTO dsh_schedule_deliveries (session_id,task_id,seq,message_id,scheduled_at,delivered_at,prompt)
+    VALUES (?,?,?,?,?,?,?)`, sessionId, row.id, seq, receipt.messageId, receipt.scheduledAt, receipt.deliveredAt, prompt)
+  const floor = new Date(Date.parse(receipt.deliveredAt) - DELIVERY_RETENTION.days * DAY_MS).toISOString()
+  const pruned = storage.sql.exec(`DELETE FROM dsh_schedule_deliveries WHERE session_id = ? AND task_id = ?
+    AND (seq <= ? OR delivered_at < ?)`, sessionId, row.id, seq - DELIVERY_RETENTION.records, floor).rowsWritten > 0
+  const summary = summaryOf(row)
+  return JSON.stringify({
+    last: receipt,
+    earlierUnavailable: summary.earlierUnavailable || pruned,
+    earlierPruned: summary.earlierPruned || pruned,
+  } satisfies DeliverySummary)
 }
 
 function assertPromptBudget(prompt: string): void {
@@ -200,8 +337,17 @@ export function initializeSchedules(storage: DurableObjectStorage): void {
   // Earlier releases numbered reminders per session, so an id is unique only within its session.
   storage.sql.exec(`CREATE TABLE IF NOT EXISTS dsh_schedule_tasks (
     session_id TEXT NOT NULL, id TEXT NOT NULL, record TEXT NOT NULL,
-    active INTEGER NOT NULL, due INTEGER NOT NULL, created INTEGER NOT NULL,
+    active INTEGER NOT NULL, due INTEGER NOT NULL, created INTEGER NOT NULL, delivery TEXT,
     PRIMARY KEY(session_id, id))`)
+  // A table from before delivery history gains the summary column; its tasks keep NULL (see DeliverySummary).
+  const hasDelivery = storage.sql.exec<{ count: number }>(
+    "SELECT count(*) AS count FROM pragma_table_info('dsh_schedule_tasks') WHERE name = 'delivery'").toArray()[0]!.count
+  if (hasDelivery === 0) storage.sql.exec('ALTER TABLE dsh_schedule_tasks ADD COLUMN delivery TEXT')
+  // Saved deliveries in append order per task; the key is the table, so a delivery writes one row.
+  storage.sql.exec(`CREATE TABLE IF NOT EXISTS dsh_schedule_deliveries (
+    session_id TEXT NOT NULL, task_id TEXT NOT NULL, seq INTEGER NOT NULL,
+    message_id TEXT NOT NULL, scheduled_at TEXT NOT NULL, delivered_at TEXT NOT NULL, prompt TEXT NOT NULL,
+    PRIMARY KEY(session_id, task_id, seq)) WITHOUT ROWID`)
   storage.sql.exec('CREATE INDEX IF NOT EXISTS dsh_schedule_tasks_due ON dsh_schedule_tasks(active,due,session_id,created)')
   storage.sql.exec('CREATE INDEX IF NOT EXISTS dsh_schedule_tasks_session ON dsh_schedule_tasks(session_id,active)')
   storage.sql.exec('CREATE TABLE IF NOT EXISTS dsh_schedule_retry (session_id TEXT PRIMARY KEY, retry_at INTEGER NOT NULL)')
@@ -270,8 +416,9 @@ function pruneScheduleRetry(storage: DurableObjectStorage, sessionId: string): v
  */
 export function dispatchDueSchedules(storage: DurableObjectStorage, sessionId: string, now: number): boolean {
   return storage.transactionSync(() => {
-    const due = storage.sql.exec<TaskRow>(`SELECT id, session_id, record, active FROM dsh_schedule_tasks
-      WHERE session_id = ? AND active = 1 AND due <= ? ORDER BY due, created`, sessionId, now).toArray().map(recordOf)
+    const dueRows = storage.sql.exec<TaskRow>(`SELECT id, session_id, record, active, delivery FROM dsh_schedule_tasks
+      WHERE session_id = ? AND active = 1 AND due <= ? ORDER BY due, created`, sessionId, now).toArray()
+    const due = dueRows.map(recordOf)
     if (due.length === 0) return false
     const oneShot = due.find(record => !isRecurringScheduleRecord(record))
     const group = oneShot === undefined ? due : [oneShot]
@@ -285,15 +432,26 @@ export function dispatchDueSchedules(storage: DurableObjectStorage, sessionId: s
       if (error instanceof MainQueueFullError) return false
       throw error
     }
-    if (oneShot !== undefined) storage.sql.exec('UPDATE dsh_schedule_tasks SET active = 0 WHERE session_id = ? AND id = ?', sessionId, oneShot.id)
-    for (const { record, nextScheduledAt } of occurrences) {
-      if (nextScheduledAt === undefined) storage.sql.exec('UPDATE dsh_schedule_tasks SET active = 0 WHERE session_id = ? AND id = ?', sessionId, record.id)
-      else storage.sql.exec('UPDATE dsh_schedule_tasks SET record = ?, due = ? WHERE session_id = ? AND id = ?',
-        JSON.stringify({ ...record, scheduledAt: nextScheduledAt }), Date.parse(nextScheduledAt), sessionId, record.id)
+    // Each delivered task saves the delivery with the update it already gets, as upstream acknowledges
+    // a reminder once it is durably in the Session's inbox, which the main queue is.
+    const deliveredAt = new Date(now).toISOString()
+    const rowOf = (id: string) => dueRows.find(row => row.id === id)!
+    if (oneShot !== undefined) {
+      const delivery = recordDelivery(storage, sessionId, rowOf(oneShot.id),
+        { scheduledAt: oneShot.scheduledAt, deliveredAt, messageId: message.id }, oneShot.prompt)
+      storage.sql.exec('UPDATE dsh_schedule_tasks SET active = 0, delivery = ? WHERE session_id = ? AND id = ?', delivery, sessionId, oneShot.id)
     }
-    // Ended tasks answer `schedule_ended` to updates; only the newest few are kept.
-    storage.sql.exec(`DELETE FROM dsh_schedule_tasks WHERE active = 0 AND rowid NOT IN
-      (SELECT rowid FROM dsh_schedule_tasks WHERE active = 0 ORDER BY due DESC LIMIT ?)`, MAX_ENDED_SCHEDULES)
+    for (const { record, occurrenceAt, nextScheduledAt } of occurrences) {
+      const delivery = recordDelivery(storage, sessionId, rowOf(record.id),
+        { scheduledAt: occurrenceAt, deliveredAt, messageId: message.id }, record.prompt)
+      if (nextScheduledAt === undefined) storage.sql.exec('UPDATE dsh_schedule_tasks SET active = 0, delivery = ? WHERE session_id = ? AND id = ?', delivery, sessionId, record.id)
+      else storage.sql.exec('UPDATE dsh_schedule_tasks SET record = ?, due = ?, delivery = ? WHERE session_id = ? AND id = ?',
+        JSON.stringify({ ...record, scheduledAt: nextScheduledAt }), Date.parse(nextScheduledAt), delivery, sessionId, record.id)
+    }
+    // Ended tasks answer `schedule_ended` to updates; only the newest few are kept, with their history.
+    const expired = storage.sql.exec<{ session_id: string; id: string }>(
+      'SELECT session_id, id FROM dsh_schedule_tasks WHERE active = 0 ORDER BY due DESC LIMIT -1 OFFSET ?', MAX_ENDED_SCHEDULES).toArray()
+    for (const task of expired) deleteTask(storage, task.session_id, task.id)
     pruneScheduleRetry(storage, sessionId)
     return true
   })
