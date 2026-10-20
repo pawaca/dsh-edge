@@ -674,13 +674,17 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
   /**
    * A session's committed log in pages, for the session log export, which
    * packages a large log without holding it in memory. Open the session
-   * first (`open(id, 'read')` migrates an older format). The log is pinned to
-   * the rows stored when the first page is read, so events a live turn appends
-   * meanwhile are left out, as a single read would leave them out. Each page
-   * holds at most `limits.rows` rows and stops after the row that brings its
-   * stored data to `limits.characters` (a single larger row is still read whole), and
-   * like a read handle it ends at a torn tail: an unparsable row or a gap after
-   * the last committed turn. A blank session yields no page.
+   * first (`open(id, 'read')` migrates an older format). The log is pinned
+   * when the first page is read, to rows no writer rewrites while the export
+   * pages through them: every row up to the last committed turn, and after it
+   * the intact rows before a torn tail (an unparsable row or a gap), which the
+   * export ends at as a read handle does. Rows a live turn appends meanwhile lie
+   * beyond the pin; a resume that repairs the torn tail rewrites only rows
+   * from the tear on. A pinned row that no longer reads intact therefore means
+   * the log changed under the export, which fails instead of mixing two
+   * versions of it. Each page holds at most `limits.rows` rows and stops after
+   * the row that brings its stored data to `limits.characters` (a single
+   * larger row is still read whole). A blank session yields no page.
    */
   async *exportEventPages(
     id: SessionId,
@@ -697,6 +701,8 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
     ).toArray()[0]?.seq ?? null
     if (lastRow === null) return
     const lastTurnEnd = this.lastCommittedSequence(id)
+    const pinned = lastRow > lastTurnEnd ? this.lastIntactRow(id, lastTurnEnd, lastRow) : lastRow
+    if (pinned < 0) return
     let afterRow = -1
     let nextSeq = 0
     for (;;) {
@@ -704,13 +710,12 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
       const events: SessionEvent[] = []
       let rows = 0
       let characters = 0
-      let torn = false
       for (const row of this.storage.sql.exec<EventRow>(
         `SELECT seq, type, time, data, source_event_seqs, surface_op, ignorable
          FROM dsh_session_events WHERE session_id = ? AND seq > ? AND seq <= ? ORDER BY seq LIMIT ?`,
         id,
         afterRow,
-        lastRow,
+        pinned,
         limits.rows,
       )) {
         let decoded: SessionEvent[]
@@ -718,15 +723,13 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
           decoded = rowToEvents(row)
         } catch {
           if (row.seq <= lastTurnEnd) throw new Error(`corrupt session log: unparsable committed event at seq ${row.seq}`)
-          torn = true
-          break
+          throw new Error(`session log ${id} changed during export: event at seq ${row.seq} was rewritten`)
         }
         if (row.seq !== nextSeq) {
           if (row.seq <= lastTurnEnd) {
             throw new Error(`corrupt session log: seq gap in committed region (expected ${nextSeq}, got ${row.seq})`)
           }
-          torn = true
-          break
+          throw new Error(`session log ${id} changed during export: expected seq ${nextSeq}, got ${row.seq}`)
         }
         events.push(...decoded)
         nextSeq = row.seq + decoded.length
@@ -737,8 +740,40 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
       }
       signal?.throwIfAborted()
       if (events.length > 0) yield validateStoredEvents(meta, events)
-      if (torn || rows === 0 || afterRow >= lastRow) return
+      if (rows === 0 || afterRow >= pinned) {
+        // Fewer rows than were pinned: some were deleted under the export.
+        if (afterRow < pinned) throw new Error(`session log ${id} changed during export: rows after seq ${afterRow} were removed`)
+        return
+      }
     }
+  }
+
+  /**
+   * The last row before a torn tail after the last committed turn, or
+   * `lastRow` when the tail is intact; read one row at a time and kept by
+   * nothing, by the rules a read handle applies.
+   */
+  private lastIntactRow(id: SessionId, lastTurnEnd: number, lastRow: number): number {
+    let intact = lastTurnEnd
+    let nextSeq = lastTurnEnd + 1
+    for (const row of this.storage.sql.exec<EventRow>(
+      `SELECT seq, type, time, data, source_event_seqs, surface_op, ignorable
+       FROM dsh_session_events WHERE session_id = ? AND seq > ? AND seq <= ? ORDER BY seq`,
+      id,
+      lastTurnEnd,
+      lastRow,
+    )) {
+      let count: number
+      try {
+        count = rowToEvents(row).length
+      } catch {
+        break
+      }
+      if (row.seq !== nextSeq) break
+      intact = row.seq
+      nextSeq = row.seq + count
+    }
+    return intact
   }
 
   /** Select a cold history boundary in SQL, then decode only that raw event window. */

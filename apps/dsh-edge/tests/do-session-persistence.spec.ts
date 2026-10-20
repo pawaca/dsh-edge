@@ -1410,6 +1410,47 @@ describe('session log export pages', () => {
     } finally { await dispose() }
   })
 
+  it('keeps a resume that repairs the torn tail out of an export already under way', async () => {
+    const { storage, persistence, dispose } = await openStore()
+    const id = SessionId('export-repaired')
+    try {
+      // seq 2 ends a committed turn; 3 and 4 are intact uncommitted events, 5 is torn, 6 follows it.
+      await persistence.appendBatch(storageOf(id), [0, 1, 2, 3, 4, 5, 6].map(seq => titleEvent(seq, `t${String(seq)}`)), false)
+      storage.sql.exec("UPDATE dsh_session_events SET type = 'turn/end', data = '{}' WHERE session_id = ? AND seq = 2", id)
+      storage.sql.exec("UPDATE dsh_session_events SET data = '{' WHERE session_id = ? AND seq = 5", id)
+      const seqs: number[] = []
+      for await (const page of persistence.exportEventPages(id, { rows: 2, characters: Number.MAX_SAFE_INTEGER })) {
+        seqs.push(...page.map(event => event.seq))
+        if (seqs.length === 2) {
+          // A resume repairs the tail from the tear on and its new turn takes those seqs.
+          storage.sql.exec('DELETE FROM dsh_session_events WHERE session_id = ? AND seq >= 5', id)
+          await persistence.appendBatch(storageOf(id), [5, 6, 7].map(seq => titleEvent(seq, `new ${String(seq)}`)), true)
+        }
+      }
+      expect(seqs).toEqual([0, 1, 2, 3, 4])
+    } finally { await dispose() }
+  })
+
+  it('fails instead of mixing two versions of the log when a pinned row is rewritten or removed', async () => {
+    const { storage, persistence, dispose } = await openStore()
+    const id = SessionId('export-rewritten')
+    try {
+      await persistence.appendBatch(storageOf(id), [0, 1, 2, 3].map(seq => titleEvent(seq, `t${String(seq)}`)), false)
+      const rewrite = async (change: () => void) => {
+        let pages = 0
+        for await (const _page of persistence.exportEventPages(id, { rows: 2, characters: Number.MAX_SAFE_INTEGER })) {
+          if (pages++ === 0) change()
+        }
+      }
+      await expect(rewrite(() => storage.sql.exec("UPDATE dsh_session_events SET data = '{' WHERE session_id = ? AND seq = 3", id)))
+        .rejects.toThrow('changed during export')
+      storage.sql.exec('DELETE FROM dsh_session_events WHERE session_id = ? AND seq = 3', id)
+      await persistence.appendBatch(storageOf(id), [titleEvent(3, 't3')], true)
+      await expect(rewrite(() => storage.sql.exec('DELETE FROM dsh_session_events WHERE session_id = ? AND seq >= 2', id)))
+        .rejects.toThrow('changed during export')
+    } finally { await dispose() }
+  })
+
   it('yields no page for a session without stored events, and stops when the export is cancelled', async () => {
     const { persistence, dispose } = await openStore()
     try {
