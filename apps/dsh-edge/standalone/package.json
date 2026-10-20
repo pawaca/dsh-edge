@@ -153,6 +153,7 @@
     "compare-versions": "6.1.1",
     "execa": "10.0.1",
     "fast-png": "8.0.0",
+    "fflate": "0.8.3",
     "jpeg-js": "0.4.4",
     "jsonc-parser": "3.3.1",
     "just-bash": "3.4.2",

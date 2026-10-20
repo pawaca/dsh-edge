@@ -8,6 +8,10 @@
  * Two quantities, because Cloudflare bills rows written and read by SQL
  * statements and by the SQLite-backed key-value and alarm operations alike:
  * - SQL rows: `rows_written` / `rows_read` on every SQL span workerd records.
+ *   workerd records `rows_read` when the statement starts, so a cursor iterated
+ *   lazily (a `for...of` without `toArray()`, as the session log export pages
+ *   are) shows only what was read by then; count such a path from the
+ *   cursor's own `rowsRead` instead.
  * - KV and alarm writes: workerd attaches no row count to those spans, so the
  *   probe counts the operations (`put`, `delete`, `setAlarm`, `deleteAlarm`),
  *   matched by span-name suffix so a renamed prefix still counts. One `put` of

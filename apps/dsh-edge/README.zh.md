@@ -28,7 +28,7 @@
 - Image composer、gallery、lightbox、attachment wire contract 与 DeepSeek serializer 全部原样复用。
 - Storage seam 把新部署的图片存入有界 Durable Object storage，已固定使用私有 R2 的部署则继续使用 R2。
 - 缺少对应 host domain 的客户端插件会被排除，而不会 fork UI 代码。可选的本地 host 插件目前仍不可用。
-- 会话日志下载（`/export` 和会话标题栏里的下载项）保持上游的压缩包结构，但 Edge 边压缩边按页读取日志，内存占用取决于一页而不是整份日志，长会话导出不再受原来 4 MiB 的限制。
+- 会话日志下载（`/export` 和会话标题栏里的下载项）保持上游的压缩包结构，但 Edge 边压缩边按页读取日志，导出占用的内存取决于每页的大小，而不是会话的长度。
 - Settings → Plugins 通过上游 `dsh-host-plugin-inventory` Remote 列出当前运行的 composition。Workers 上没有 cordis Loader，因此 Edge 自有的 `EdgeLoader` 用实时的 host 插件 registry 和经过评审的 Web boot graph 来回答它注入的 `loader`。
 - 一个小型 Edge 登录外壳在不修改上游 UI 和协议的前提下保护它们。
 

@@ -28,7 +28,7 @@ The browser also remains upstream-owned:
 - The image composer, gallery, lightbox, attachment wire contract, and DeepSeek serializer are reused unchanged.
 - The storage seam stores new deployments' images in bounded Durable Object storage and keeps private R2 for deployments already pinned to it.
 - Client plugins whose host domains are unavailable are excluded instead of forked. Optional local-host plugins remain unavailable.
-- The session log download (`/export` and the session header's download item) keeps upstream's archive layout, but the Edge reads each log a page at a time while it compresses, so memory follows the page rather than the log and long sessions export without the former 4 MiB limit.
+- The session log download (`/export` and the session header's download item) keeps upstream's archive layout, but the Edge reads each log a page at a time while it compresses, so the memory an export takes follows the page size rather than the length of the session.
 - Settings → Plugins lists the running composition through the upstream `dsh-host-plugin-inventory` Remote. The Edge-owned `EdgeLoader` answers its `loader` inject from the live host plugin registry and the reviewed Web boot graph, because there is no cordis Loader on Workers.
 - A small Edge-owned login shell protects the upstream UI and protocol without changing either one.
 
