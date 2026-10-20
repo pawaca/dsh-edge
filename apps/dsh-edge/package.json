@@ -202,6 +202,7 @@
     "@modelcontextprotocol/sdk": "1.30.0",
     "acorn": "8.18.0",
     "fast-png": "8.0.0",
+    "fflate": "0.8.3",
     "jpeg-js": "0.4.4",
     "just-bash": "3.4.2",
     "minimatch": "10.2.6",

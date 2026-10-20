@@ -36,7 +36,7 @@ await writePrebuiltModeWranglerConfig(runtimeMode, runtimeConfig,
     ? { r2BucketName: 'dsh-edge-integration-attachments' }
     : {})
 const mock = await startMockDeepSeek()
-/** Turns of the large-log session that the session log export refuses (about 4.4 MiB of stored events). */
+/** Turns of the large-log session the paged session log export packages (about 4.4 MiB of stored events). */
 const LARGE_LOG_TURNS = 50
 let worker
 let releasedStateSeeder
@@ -1881,17 +1881,26 @@ try {
   assert.equal(preflight.headers.get('content-disposition'), `attachment; filename="dsh-session-${imageSessionId}.zip"`)
   assert.equal((await preflight.text()), '')
   assert.equal((await request('/api/session.export?sessionId=session-missing', { method: 'HEAD' })).status, 404)
-  // A log above the export budget (4 MiB of stored events) is refused up front, by the preflight and by a direct GET,
-  // instead of being read into the Durable Object's memory.
+  // A log above what a whole-log read could hold (about 4.4 MiB of stored events) is packaged a page at a time,
+  // every turn of it, in order.
   const largeLogSession = (await rpc('session.create', {})).body.result.value.sessionId
   const largePrompt = 'large log fixture '.repeat(2_400)
   for (let index = 0; index < LARGE_LOG_TURNS; index++) await turn(largeLogSession, `${String(index)} ${largePrompt}`)
   const largePreflight = await request(`/api/session.export?sessionId=${largeLogSession}&includeDescendants=true`, { method: 'HEAD' })
-  assert.equal(largePreflight.status, 413)
+  assert.equal(largePreflight.status, 200)
   const largeGet = await request(`/api/session.export?sessionId=${largeLogSession}&includeDescendants=false`)
-  assert.equal(largeGet.status, 413)
-  assert.match(await largeGet.text(), /too large to export/u)
-  // The small session next to it still exports.
+  assert.equal(largeGet.status, 200)
+  const largeArchive = unzipSync(new Uint8Array(await largeGet.arrayBuffer()))
+  const largeLogText = new TextDecoder().decode(largeArchive[logEntry])
+  assert.ok(largeLogText.length > 4 * 1024 * 1024, String(largeLogText.length))
+  const largeLog = largeLogText.trim().split('\n').map(line => JSON.parse(line))
+  assert.equal(largeLog[0].id, largeLogSession)
+  assert.deepEqual(largeLog.slice(1).map(entry => entry.seq), largeLog.slice(1).map((_, index) => index))
+  assert.deepEqual(
+    largeLog.filter(entry => entry.type === 'user/message' && entry.data.content[0]?.text?.includes(largePrompt))
+      .map(entry => entry.data.content[0].text.split(' ', 1)[0]),
+    Array.from({ length: LARGE_LOG_TURNS }, (_, index) => String(index)),
+  )
   assert.equal((await request(`/api/session.export?sessionId=${imageSessionId}&includeDescendants=false`)).status, 200)
   assert.equal((await request('/api/session.export?sessionId=session-missing')).status, 404)
   assert.equal((await request('/api/session.export')).status, 400)
