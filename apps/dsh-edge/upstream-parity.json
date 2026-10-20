@@ -59,11 +59,6 @@
       "status": "not-applicable",
       "reason": "Plugin installation UI (Creator mode); it needs dsh-plugin-manager, which installs with pnpm and reloads through the Loader."
     },
-    "@deepseek-ai/dsh-client-ui-schedule": {
-      "status": "tracked",
-      "issue": 323,
-      "reason": "Host task page and Session reminder catalog (about 488 KB). It calls the `schedule` Remote namespace (catalog, list, update, delete, history), which the Edge's schedule service does not serve yet, so the Web assembly excludes it until that namespace, the startup budget, and a row-write estimate are checked."
-    },
     "@deepseek-ai/dsh-client-ui-settings-account": {
       "status": "declined",
       "reason": "DeepSeek account sign-in. The Edge authenticates with the deployment API key, and the sign-in callback accepts only localhost."
