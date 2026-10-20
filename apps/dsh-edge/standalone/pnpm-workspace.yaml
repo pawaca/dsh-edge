@@ -262,6 +262,7 @@ minimumReleaseAgeExclude:
   - '@deepseek-ai/dsh-win32-process@0.2.1-rc.2'
   - '@deepseek-ai/dsh-workflow-ptc@0.2.1-rc.2'
   - '@deepseek-ai/dsh-workspace-changes@0.2.1-rc.2'
+  - '@deepseek-ai/dsh-web-deepseek-api@0.2.1-rc.2'
 
 patchedDependencies:
   '@cloudflare/computer@0.3.1': patches/@cloudflare__computer@0.3.1.patch

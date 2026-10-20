@@ -299,11 +299,6 @@
       "status": "substitute",
       "reason": "The Web client is assembled statically at build time (standalone/scripts)."
     },
-    "@deepseek-ai/dsh-web-deepseek-api": {
-      "status": "tracked",
-      "issue": 321,
-      "reason": "DeepSeek Search and Fetch API providers. Fetch would run on DeepSeek's side instead of the Worker; needs a credential and outbound-path review first."
-    },
     "@deepseek-ai/dsh-workflow-ptc": {
       "status": "substitute",
       "reason": "edge-workflow-engine.ts runs each workflow in its own Dynamic Worker (Isolated only)."
