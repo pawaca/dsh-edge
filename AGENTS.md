@@ -48,7 +48,7 @@ The root and standalone lockfiles serve different purposes. The root lock instal
 
 An upstream-baseline PR changes `dshEdge.upstreamVersion` and both lockfiles, and also:
 
-1. Runs `pnpm run upstream-parity -- docs-diff <new-version>` before changing code, and reviews every bucket of the report: added and removed subsystems, the changed catalogs (tools, configuration, persistence, session format), and subsystem pages for packages the Edge uses. Record the disposition of each behavior change in the PR description.
+1. Runs `pnpm run upstream-parity -- docs-diff <new-version>` before changing code, and reviews every bucket of the report: added and removed subsystems, the changed catalogs (tools, configuration, persistence, session format), and subsystem pages for packages the Edge uses or replaces. Its last bucket lists the README and type-declaration changes of every package the Edge partly serves (`edgeOwned` in `apps/dsh-edge/upstream-parity.json`), replaces (`substitute`), or patches: upstream changes there do not reach the Edge through the upgrade, so give each one a disposition against the Edge implementation. Record the disposition of each behavior change in the PR description. When a change makes the Edge serve part of a used package itself, or stop doing so, update `edgeOwned`.
 2. Runs `pnpm run upstream-parity -- refresh` after the version bump (set `GITHUB_TOKEN` to avoid GitHub rate limits), then classifies every new reference entry until `pnpm run upstream-parity` passes. If upstream moves a reference composition, update `REFERENCE_SOURCES` in `scripts/upstream-parity.mjs`.
 3. Lists the wiki pages to add, update, or retire for the new subsystem set.
 4. Before the first release on the new baseline, builds the Workers and runs `node apps/dsh-edge/tests/upgrade-from-release.probe.mjs` with `DSH_EDGE_UPGRADE_FROM` set to the latest published release. The probe upgrades state that release created through its real API in place and must pass; fixtures alone do not cover a released format.
@@ -62,6 +62,12 @@ An upstream-baseline PR changes `dshEdge.upstreamVersion` and both lockfiles, an
 - Before changing a persistence path, estimate its cost at realistic retained-data volume and request frequency, including retries and repeated cold starts. For bulk operations or a changed write strategy, measure SqlStorageCursor.rowsWritten/rowsRead in the Cloudflare runtime with representative local data; Node SQLite changes counts alone are not billing evidence. Keep a focused regression test for the cost growth being prevented.
 - Prefer bounded incremental writes, compact streaming records, and idempotent startup. Compare the total cost of copying, deleting, rebuilding, and updating summaries before choosing a migration. Preserve atomicity and existing logs; verify failure rollback and retry without repeatedly rewriting already migrated data. Do not assume DDL is free without measuring it in the target runtime.
 - Never replay a large migration or destructive cleanup against production just to benchmark it. Validate locally first; preserve a recovery point for authorized production recovery, and account for quota already consumed. If the remaining budget is unknown or insufficient, report that limitation instead of claiming an unconditional safe upgrade or silently switching to a paid plan.
+
+## Memory budget
+
+- A Worker isolate, and a Durable Object with it, has 128 MB. Never read content of unbounded size into memory at once: uploads, attachments, file reads, session logs and exports, command output, and spills stream end to end. Write large bytes to R2 (or bounded Durable Object chunks) as they arrive, read them back as ranged streams, keep only a bounded tail or page in memory, and cap whatever must be buffered (a base64 Remote upload, an image to decode).
+- Do not decode large images in the Worker (an 8192×8192 RGBA bitmap alone is 256 MiB); transform them through the Cloudflare Images binding or refuse them with a clear limit.
+- State the peak memory of a new large-content path in its PR and measure it with input sizes well above the expected ones, as the paged session log export did (#328).
 
 ## Change discipline
 

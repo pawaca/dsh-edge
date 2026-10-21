@@ -5,7 +5,9 @@
  *   node scripts/upstream-parity.mjs [verify]         offline check, part of `pnpm run check`
  *   node scripts/upstream-parity.mjs refresh          rebuild upstream-reference.json for the pinned baseline (network)
  *   node scripts/upstream-parity.mjs wiki <dir>       every upstream subsystem page has a wiki page or an omission reason
- *   node scripts/upstream-parity.mjs docs-diff <ver>  upstream docs/ changes from the pinned baseline to <ver> (network)
+ *   node scripts/upstream-parity.mjs docs-diff <ver>  upstream docs/ changes from the pinned baseline to <ver>, and the README
+ *                                                     and type-declaration changes of every package the Edge partly serves,
+ *                                                     replaces, or patches (network)
  */
 
 import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
@@ -20,6 +22,7 @@ const appRoot = join(repoRoot, 'apps/dsh-edge')
 const referencePath = join(appRoot, 'upstream-reference.json')
 const manifestPath = join(appRoot, 'upstream-parity.json')
 const bootGraphPath = join(appRoot, 'standalone/expected-boot-graph.json')
+const patchesPath = join(appRoot, 'standalone/patches')
 const upstreamRepo = 'deepseek-ai/deepseek-harness'
 const scope = '@deepseek-ai/'
 
@@ -213,6 +216,9 @@ export function verifyParity({ upstreamVersion, reference, manifest, usage }) {
     // classification, so re-enabling it later forces a fresh review.
     if (!required.has(name)) errors.push(`${name} is not required by the upstream reference; remove its entry from upstream-parity.json.`)
   }
+  for (const name of Object.keys(manifest.edgeOwned ?? {})) {
+    if (!isUsed(name, usage)) errors.push(`${name} is listed in edgeOwned but not used by the Edge; classify it in packages instead.`)
+  }
   errors.push(...validateManifest(manifest))
   return { errors, counts, required: required.size }
 }
@@ -238,7 +244,45 @@ export function validateManifest(manifest) {
   for (const [slug, reason] of Object.entries(manifest.wikiOmit ?? {})) {
     if (!hasReason(reason)) errors.push(`wikiOmit "${slug}" needs a reason.`)
   }
+  for (const [name, reason] of Object.entries(manifest.edgeOwned ?? {})) {
+    if (!hasReason(reason)) errors.push(`edgeOwned "${name}" needs a reason.`)
+  }
   return errors
+}
+
+/**
+ * Packages whose behavior the Edge owns in whole or part, so upstream changes to them do not
+ * reach the Edge by an upgrade alone: used packages the Edge partly serves itself (`edgeOwned`),
+ * substitutes, and patched packages. A baseline review reads their README and type changes.
+ */
+export function edgeOwnedPackages(manifest, patched = []) {
+  const names = new Set([...Object.keys(manifest.edgeOwned ?? {}), ...patched])
+  for (const [name, entry] of Object.entries(manifest.packages ?? {})) {
+    if (entry.status === 'substitute') names.add(name)
+  }
+  return [...new Set([...names].map(packageOf))].sort()
+}
+
+/** The upstream packages `standalone/patches` patches, from their version-bound file names. */
+export function patchedPackages(fileNames) {
+  return fileNames
+    .map(file => /^(@deepseek-ai)__([a-z0-9-]+)@[^/]+\.patch$/u.exec(file))
+    .filter(match => match !== null)
+    .map(match => `${match[1]}/${match[2]}`)
+}
+
+const SURFACE_FILE = /^(?:README\.md|.*\.d\.ts)$/u
+
+/**
+ * Compare a package's reviewable surface between two versions: its README and its type
+ * declarations, which state its contract. Returns undefined when nothing changed.
+ */
+export function surfaceDiff(fromFiles, toFiles) {
+  const paths = [...new Set([...fromFiles.keys(), ...toFiles.keys()])].filter(path => SURFACE_FILE.test(path)).sort()
+  const added = paths.filter(path => !fromFiles.has(path))
+  const removed = paths.filter(path => !toFiles.has(path))
+  const changed = paths.filter(path => fromFiles.has(path) && toFiles.has(path) && fromFiles.get(path) !== toFiles.get(path))
+  return added.length + removed.length + changed.length === 0 ? undefined : { added, removed, changed }
 }
 
 function isIssueNumber(value) {
@@ -297,9 +341,10 @@ export function classifyDocsDiff({ fromTree, toTree, relevant }) {
   return buckets
 }
 
-/** Whether any of the page versions names a package the Edge uses. */
-export function mentionsUsedPackage(texts, usage) {
-  return texts.some(text => [...text.matchAll(/@deepseek-ai\/[a-z0-9-]+/gu)].some(([name]) => usage.packages.has(name)))
+/** Whether any of the page versions names a package the Edge uses or serves in its place. */
+export function mentionsUsedPackage(texts, usage, owned = []) {
+  const ownedNames = new Set(owned)
+  return texts.some(text => [...text.matchAll(/@deepseek-ai\/[a-z0-9-]+/gu)].some(([name]) => usage.packages.has(name) || ownedNames.has(name)))
 }
 
 // ---- network helpers (refresh, docs-diff) ----
@@ -440,6 +485,7 @@ async function main([command = 'verify', argument]) {
     const from = upstreamVersion()
     const [fromTree, toTree] = await Promise.all([docsTree(from), docsTree(argument)])
     const usage = edgeUsage()
+    const owned = edgeOwnedPackages(readJson(manifestPath), patchedPackages(readdirSync(patchesPath)))
     const changed = [...toTree.keys()].filter(path => /^docs\/subsystems\/[a-z0-9-]+\.md$/u.test(path) && fromTree.get(path) !== toTree.get(path))
     const relevantPaths = new Set()
     for (const path of changed) {
@@ -448,7 +494,7 @@ async function main([command = 'verify', argument]) {
         fromTree.has(path) ? docsFile(from, path) : '',
         docsFile(argument, path),
       ])
-      if (mentionsUsedPackage(texts, usage)) relevantPaths.add(path)
+      if (mentionsUsedPackage(texts, usage, owned)) relevantPaths.add(path)
     }
     const buckets = classifyDocsDiff({ fromTree, toTree, relevant: path => relevantPaths.has(path) })
     const compare = `https://github.com/${upstreamRepo}/compare/dsh-v${from}...dsh-v${argument}`
@@ -465,6 +511,21 @@ async function main([command = 'verify', argument]) {
       for (const item of buckets[key]) console.log(`- ${item}`)
       console.log('')
     }
+    // Packages the Edge serves in part, replaces, or patches: their contract changes need an Edge
+    // decision even when no docs page moves.
+    const surfaces = []
+    for (const name of owned) {
+      const short = name.slice(scope.length)
+      const [fromFiles, toFiles] = await Promise.all([packageFiles(short, from), packageFiles(short, argument).catch(() => undefined)])
+      if (toFiles === undefined) surfaces.push(`${name}: not published at ${argument}`)
+      else {
+        const diff = surfaceDiff(fromFiles, toFiles)
+        if (diff) surfaces.push(`${name}: ${[...diff.changed.map(p => `~${p}`), ...diff.added.map(p => `+${p}`), ...diff.removed.map(p => `-${p}`)].join(', ')}`)
+      }
+    }
+    console.log(`## Packages the Edge partly serves, replaces, or patches: review the Edge implementation (${String(surfaces.length)} of ${String(owned.length)} changed)\n`)
+    for (const item of surfaces) console.log(`- ${item}`)
+    console.log('')
     return
   }
   throw new Error(`upstream-parity: unknown command "${command}"`)
