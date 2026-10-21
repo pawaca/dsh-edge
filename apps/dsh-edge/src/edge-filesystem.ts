@@ -66,6 +66,11 @@ function normalizeLineEndings(text: string): string {
   return text.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
 }
 
+/** A VFS failure for a path that does not exist. */
+function isMissing(error: unknown): boolean {
+  return error instanceof Error && 'code' in error && (error as { code: unknown }).code === 'ENOENT'
+}
+
 function versionOf(mtime: number, size: number): FsVersion {
   return FsVersion(`${String(mtime)}:${String(size)}`)
 }
@@ -235,6 +240,7 @@ export class EdgeFileSystem extends FileSystem {
     const classify = (error: unknown): never => {
       if (error instanceof FsError || (signal?.aborted && error === signal.reason)
         || (error instanceof Error && error.name === 'AbortError')) throw error
+      if (isMissing(error)) throw new FsError(`"${target.displayPath}" does not exist`, 'FS_NOT_FOUND', { cause: error })
       throw new FsError(`cannot read "${target.displayPath}": ${error instanceof Error ? error.message : String(error)}`, 'FS_IO_ERROR', { cause: error })
     }
     let reader: ReadableStreamDefaultReader<Uint8Array>
@@ -282,6 +288,36 @@ export class EdgeFileSystem extends FileSystem {
         await reader.close(failed)
       }
     })()
+  }
+
+  /**
+   * A file's bytes as a stream for an HTTP body, refusing past `maxBytes`, so a
+   * large file is never held in memory. The vfs is taken from the current scope;
+   * the caller keeps the workspace open until the stream ends.
+   */
+  async readStream(target: FsTarget, signal: AbortSignal | undefined, maxBytes: number): Promise<ReadableStream<Uint8Array>> {
+    signal?.throwIfAborted()
+    const reader = await this.openReadStream(target, signal)
+    let total = 0
+    return new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        try {
+          const { done, value } = await reader.read()
+          if (done) {
+            await reader.close(false)
+            controller.close()
+            return
+          }
+          total += value.byteLength
+          if (total > maxBytes) throw new FsError(`"${target.displayPath}" exceeds the ${String(maxBytes)}-byte read limit`, 'FS_TOO_LARGE')
+          controller.enqueue(value)
+        } catch (error) {
+          await reader.close(true)
+          controller.error(error)
+        }
+      },
+      async cancel() { await reader.close(true) },
+    }, { highWaterMark: 0 })
   }
 
   async readByteRange(target: FsTarget, range: { offset: number; length: number }, signal?: AbortSignal): Promise<Uint8Array> {
@@ -338,6 +374,7 @@ export class EdgeFileSystem extends FileSystem {
       return result
     } catch (error) {
       if (error instanceof FsError) throw error
+      if (isMissing(error)) throw new FsError(`"${target.displayPath}" does not exist`, 'FS_NOT_FOUND', { cause: error })
       throw new FsError(`cannot read "${target.displayPath}": ${error instanceof Error ? error.message : String(error)}`, 'FS_IO_ERROR', { cause: error })
     }
   }

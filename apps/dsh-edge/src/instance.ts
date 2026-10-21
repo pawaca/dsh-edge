@@ -128,6 +128,30 @@ const DEFAULT_REPLAY_EVENT_LIMIT = 128
 const MAX_REPLAY_EVENT_LIMIT = 256
 /** When old spills were last swept, and where the next sweep resumes, so a Durable Object that restarts often sweeps at most daily. */
 const SPILL_SWEPT_AT_KEY = 'dsh-edge:spill-swept-at'
+/** Upstream's route for showing a workspace file in the Web client (`SessionMediaReferences`). */
+const WORKSPACE_FILE_ROUTE = '/api/file'
+
+/** Pass a stream through, running `release` once it ends, fails, or is cancelled. */
+function releasingWhenDone(source: ReadableStream<Uint8Array>, release: () => void): ReadableStream<Uint8Array> {
+  const reader = source.getReader()
+  let released = false
+  const done = () => { if (!released) { released = true; release() } }
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const { done: ended, value } = await reader.read()
+        if (ended) { done(); controller.close(); return }
+        controller.enqueue(value)
+      } catch (error) {
+        done()
+        controller.error(error)
+      }
+    },
+    async cancel(reason) {
+      try { await reader.cancel(reason) } finally { done() }
+    },
+  }, { highWaterMark: 0 })
+}
 const MAX_REPLAY_RESPONSE_BYTES = 1_048_576
 const INITIAL_SESSION_LIST_METADATA: SessionListMetadata = { blank: true, lastPromptAt: null }
 const OWNER_SESSION_EXPIRED_CLOSE_CODE = 1008
@@ -459,6 +483,17 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         }
       }
       await this.sessions.waitForInitialization()
+      // HTTP routes upstream plugins register on the connection (`connection.fetch.register`)
+      // run before Typert RPC parsing, which would otherwise claim a two-segment path. The
+      // session log download keeps its Edge exporter below.
+      if (url.pathname !== SESSION_LOG_EXPORT_PATH) {
+        const route = this.sessions.connectionRoute(url.pathname, request.method)
+        if (route !== undefined) {
+          return url.pathname === WORKSPACE_FILE_ROUTE && request.method === 'GET'
+            ? await this.streamWorkspaceFile(url, request, route)
+            : await this.withWorkspaceFileScope(() => route(request))
+        }
+      }
       const typertResponse = await this.handleTypertRpc(request, url)
       if (typertResponse !== undefined) return typertResponse
       if (url.pathname === '/api/events.mux' || url.pathname === '/api/events.host') {
@@ -1257,6 +1292,40 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
   private async withWorkspaceFiles<T>(read: (files: EdgeWorkspaceFiles) => Promise<T>): Promise<T> {
     using workspace = await getWorkspace(this)
     return await read(workspace.fs as unknown as EdgeWorkspaceFiles)
+  }
+
+  /**
+   * Serve `/api/file` as upstream's route does, except that the body streams:
+   * upstream reads the whole file into memory (up to the image byte limit). Its
+   * own HEAD answers the path checks, access policy, size limit, and headers;
+   * an error response comes from upstream unchanged. Only a readable file's
+   * bytes come from the Edge, piped from the VFS while this request holds the
+   * workspace, capped at the size HEAD reported.
+   */
+  private async streamWorkspaceFile(url: URL, request: Request, route: (request: Request) => Promise<Response>): Promise<Response> {
+    const fs = this.sessions.filesystem()
+    if (fs === undefined) throw new Error('Workspace filesystem is unavailable.')
+    const workspace = await getWorkspace(this)
+    const scoped = <T>(run: () => Promise<T>) => fs.runInScope(workspace.fs as never, '/workspace', run)
+    let handedOff = false
+    try {
+      const head = await scoped(() => route(new Request(request, { method: 'HEAD' })))
+      if (!head.ok) return await scoped(() => route(request))
+      const size = Number(head.headers.get('content-length'))
+      const maxBytes = Number.isSafeInteger(size) ? size : (await this.sessions.imageLimits())?.maxImageBytes ?? 0
+      const body = await scoped(async () => fs.readStream(
+        await fs.resolve(url.searchParams.get('path') ?? '', { signal: request.signal }),
+        request.signal,
+        maxBytes,
+      ))
+      // The file may change between HEAD and the read, so the length is not promised.
+      const headers = new Headers(head.headers)
+      headers.delete('content-length')
+      handedOff = true
+      return new Response(releasingWhenDone(body, () => workspace[Symbol.dispose]()), { headers })
+    } finally {
+      if (!handedOff) workspace[Symbol.dispose]()
+    }
   }
 
   private async withWorkspaceFileScope<T>(run: () => Promise<T>): Promise<T> {

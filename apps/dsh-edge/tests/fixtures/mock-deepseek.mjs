@@ -793,6 +793,9 @@ export async function startMockDeepSeek(port = 0) {
         const hasReleasedContinuation = messages.some(message =>
           message.role === 'assistant' && messageText(message) === 'released-history-ok')
         text = hasReleasedContinuation ? 'released-history-ok' : 'released-history-missing'
+      } else if (prompt.startsWith('show workspace image ')) {
+        // A Markdown image of a workspace path, which the Web client loads through /api/file.
+        text = `![workspace image](${prompt.slice('show workspace image '.length).trim()})`
       } else if (prompt === 'rate limited once') {
         text = 'retry-finished'
       } else if (prompt.includes('history')) {
