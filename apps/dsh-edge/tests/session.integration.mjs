@@ -2020,6 +2020,15 @@ try {
   const missingStop = await (await guarded('cancel', { sessionId: 'session-missing' })).json()
   assert.equal(missingStop.result.error.code, 'session/not-found')
   assert.equal((await guarded('prompt', { sessionId: fileSessionId, mode: 'queue', content: [{ type: 'text', text: 'late' }] })).status, 409)
+  // The legacy dot route converges the same way.
+  const legacyGuarded = payload => request('/api/session.cancel', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-dsh-edge-turn-seq': '1' },
+    body: JSON.stringify({ type: 'client-request', rpcId: 'legacy-late-stop', method: 'session.cancel', payload }),
+  })
+  const legacyLateStop = await (await legacyGuarded({ sessionId: fileSessionId })).json()
+  assert.deepEqual(legacyLateStop, { type: 'server-response', rpcId: 'legacy-late-stop', result: { ok: true, value: { accepted: true } } })
+  assert.equal((await (await legacyGuarded({ sessionId: 'session-missing' })).json()).result.error.code, 'session/not-found')
   // Removing a queued file prompt retires its receipts, as upstream's queue
   // removal does: its message is never recorded to retire them.
   const holderSessionId = (await rpc('session.create', {})).body.result.value.sessionId

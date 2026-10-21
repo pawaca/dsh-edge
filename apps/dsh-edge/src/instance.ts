@@ -673,6 +673,21 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         if (expected !== null && ['/api/session.cancel', '/api/session.prompt', '/api/session.updateQueue'].includes(url.pathname)) {
           const body = await readJsonObject(request.clone() as Request, MAX_TURN_BODY_BYTES)
           const payload = body.payload as { sessionId?: string } | undefined
+          // A Stop for a run that already ended converges here as on the
+          // Typert route. This route parses its body before its handler would
+          // cancel, so a turn could start meanwhile; the answer is given here
+          // instead, and nothing is cancelled.
+          if (url.pathname === '/api/session.cancel' && typeof payload?.sessionId === 'string'
+            && !this.activeTurns.has(SessionId(payload.sessionId))) {
+            const sessionId = SessionId(payload.sessionId)
+            const result = await this.sessions.getApiSessionSummary(sessionId).then(
+              () => ({ ok: true, value: { accepted: true } }),
+              (error: unknown) => error instanceof EdgeSessionStoreError && error.code === 'NOT_FOUND'
+                ? { ok: false, error: { code: 'session/not-found', message: error.message, details: { sessionId } } }
+                : { ok: false, error: remoteFailureOf(error) },
+            )
+            return Response.json({ type: 'server-response', rpcId: body.rpcId, result })
+          }
           return await this.withObservedTurn(expected, payload?.sessionId, () => this.apiFetch(request))
         }
         return await this.apiFetch(request)
