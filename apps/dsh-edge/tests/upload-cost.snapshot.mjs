@@ -29,6 +29,10 @@ const CHUNK = 512 * 1024
 // revision bookkeeping (measured about 35).
 const ROWS_PER_CHUNK = 6
 const OVERHEAD_ROWS = 50
+// Rows read per chunk and beyond the chunks (measured about 106 for 2 chunks,
+// 110 for 8, 281 for a refused 130).
+const READS_PER_CHUNK = 3
+const READ_OVERHEAD_ROWS = 150
 
 it('writes rows in proportion to uploaded chunks, including repeats and refusals', async () => {
   const state = mkdtempSync(join(tmpdir(), 'dsh-upload-cost-'))
@@ -103,6 +107,10 @@ it('writes rows in proportion to uploaded chunks, including repeats and refusals
       })
       expect((await upload('big.bin', body)).ok).toBe(false)
     })
+    // Retained data: with 30 more stored uploads, a 1 MiB upload must read no
+    // more than with few, so reads do not scale with what is already stored.
+    for (let index = 0; index < 30; index += 1) expect((await upload(`kept-${String(index)}.txt`, `kept ${String(index)}`)).ok).toBe(true)
+    await step('1 MiB upload with 30 more files stored', async () => expect((await upload('one-later.bin', file(MIB))).ok).toBe(true))
     console.log(JSON.stringify(measured, null, 2))
 
     const chunks = bytes => Math.ceil(bytes / CHUNK)
@@ -113,6 +121,15 @@ it('writes rows in proportion to uploaded chunks, including repeats and refusals
     expect(measured['same 4 MiB file and name again'].written).toBeLessThanOrEqual(bound(4 * MIB))
     // A refusal stages chunks up to the limit and removes the staged file.
     expect(measured['65 MiB refused at the limit'].written).toBeLessThanOrEqual(bound(65 * MIB))
+    // Reads follow the same shape (measured about 106 for 1 MiB, 110 for
+    // 4 MiB, 135 for the repeat, 281 for the refusal).
+    const readBound = bytes => READS_PER_CHUNK * chunks(bytes) + READ_OVERHEAD_ROWS
+    expect(measured['1 MiB upload'].read).toBeLessThanOrEqual(readBound(MIB))
+    expect(measured['4 MiB upload'].read).toBeLessThanOrEqual(readBound(4 * MIB))
+    expect(measured['same 4 MiB file and name again'].read).toBeLessThanOrEqual(readBound(4 * MIB))
+    expect(measured['65 MiB refused at the limit'].read).toBeLessThanOrEqual(readBound(65 * MIB))
+    expect(measured['1 MiB upload with 30 more files stored'].read).toBeLessThanOrEqual(measured['1 MiB upload'].read + 20)
+    expect(measured['1 MiB upload with 30 more files stored'].written).toBeLessThanOrEqual(measured['1 MiB upload'].written + 10)
     // Growth is per chunk: three more MiB cost at most six chunks' rows.
     expect(measured['4 MiB upload'].written - measured['1 MiB upload'].written).toBeLessThanOrEqual(ROWS_PER_CHUNK * chunks(3 * MIB))
   } finally {

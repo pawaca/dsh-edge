@@ -2171,6 +2171,12 @@ try {
   mux.close()
   host.close()
 
+  // An upload receipt outlives the Durable Object: a file uploaded before
+  // restarts (as an idle, hibernated instance is evicted) is still accepted by
+  // the prompt sent after it.
+  const restartNotes = 'notes uploaded before a restart\n'
+  const restartUpload = await uploadFile(fileSessionId, 'restart.txt', restartNotes)
+  assert.equal(restartUpload.body.ok, true, JSON.stringify(restartUpload.body))
   // Model selection needs a provider; the invalid base URL below leaves none registered.
   const textModelAfterRemovedImage = await rpc('session.selectModel', {
     sessionId: protocolSessionId,
@@ -2255,6 +2261,25 @@ try {
   const durableBatch = durableBatchHistory.body.result.value.events
     .find(entry => entry.event.type === 'assistant/message').event
   assert.deepEqual(durableBatch, batchAssistant)
+  const restartPrompt = await rpc('session.prompt', {
+    sessionId: fileSessionId,
+    mode: 'queue',
+    content: [{ type: 'text', text: 'read the uploaded file after restart' }, { type: 'file', receiptId: restartUpload.body.value.receiptId }],
+  })
+  assert.equal(restartPrompt.body.result.ok, true, JSON.stringify(restartPrompt.body))
+  for (const deadline = Date.now() + 60_000; ;) {
+    const events = (await rpc('session.history', { sessionId: fileSessionId })).body.result.value.events.map(entry => entry.event)
+    if (/uploaded-read: .*notes uploaded before a restart/su.test(assistantText(events) ?? '')) break
+    assert.ok(Date.now() < deadline, `no answer from the restarted upload: ${String(assistantText(events))}`)
+    await new Promise(resolve => setTimeout(resolve, 250))
+  }
+  // Recorded with its message, the receipt is spent.
+  const spentAfterRestart = await rpc('session.prompt', {
+    sessionId: fileSessionId,
+    mode: 'queue',
+    content: [{ type: 'text', text: 'again' }, { type: 'file', receiptId: restartUpload.body.value.receiptId }],
+  })
+  assert.equal(spentAfterRestart.body.result.error.details.reason, 'FILE_NOT_STAGED')
   const legacyPresetSessionId = (await rpc('session.create', {})).body.result.value.sessionId
   await worker.stop()
   worker = undefined
