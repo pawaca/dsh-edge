@@ -2009,7 +2009,8 @@ try {
   const missingSessionUpload = await uploadFile('session-missing', 'x.txt', 'x')
   assert.equal(missingSessionUpload.body.ok, false)
   assert.equal(missingSessionUpload.body.error.code, 'session/not-found')
-  assert.equal((await uploadFile(fileSessionId, 'x.txt', 'x', 'text/plain')).status, 415)
+  const wrongType = await uploadFile(fileSessionId, 'x.txt', 'x', 'text/plain')
+  assert.equal(wrongType.status, 415, JSON.stringify(wrongType.body))
   // A body without a declared length streams until the Durable Object's store passes the 64 MiB
   // file limit, then the upload fails and leaves nothing staged.
   let streamedMiB = 0
