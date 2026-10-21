@@ -105,17 +105,36 @@ describe('EdgeVfsSpillStore', () => {
   // A workspace that adds more spills a day than one sweep reads still
   // completes passes: an unfinished pass continues hourly, not daily, so
   // spills that were fresh when the cursor last passed them are revisited.
-  it('catches up hourly until a pass completes while the directory keeps growing', async () => {
+  // 30 s: about 1,000 simulated sweeps; Windows runners are several times slower.
+  it('catches up hourly until a pass completes while the directory keeps growing', { timeout: 30_000 }, async () => {
     const HOUR = 60 * 60 * 1000
     const perDay = 2 * SPILL_SWEEP_LIMITS.entries
-    const fs = memoryFs()
+    // Names sort by creation, so the listing stays ordered by appending; a
+    // sorted array keeps 40 simulated days fast.
+    const listing: Array<{ name: string; mtime: number }> = []
+    const indexOf = (name: string) => {
+      let low = 0
+      let high = listing.length
+      while (low < high) {
+        const middle = (low + high) >>> 1
+        if (listing[middle]!.name < name) low = middle + 1
+        else high = middle
+      }
+      return low
+    }
+    const fs: SpillFilesystem = {
+      mkdir: async () => {},
+      writeFile: async () => {},
+      readdir: async (_path, options) => listing
+        .slice(options?.offset ?? 0, (options?.offset ?? 0) + (options?.limit ?? Infinity))
+        .map(entry => ({ ...entry, size: 1, isFile: true })),
+      rm: async path => { listing.splice(indexOf(path.slice(path.lastIndexOf('/') + 1)), 1) },
+    }
     const spills = store(fs)
     let created = 0
     const grow = (until: number) => {
-      // Spills arrive evenly; names sort by creation so new ones land at the end.
       while (created * (DAY / perDay) < until - NOW) {
-        const at = NOW + created * (DAY / perDay)
-        fs.files.set(`/workspace/.spill/${String(created).padStart(8, '0')}.txt`, { mtime: at, isFile: true, size: 1, content: '' })
+        listing.push({ name: `${String(created).padStart(8, '0')}.txt`, mtime: NOW + created * (DAY / perDay) })
         created++
       }
     }
@@ -136,7 +155,7 @@ describe('EdgeVfsSpillStore', () => {
     const gaps = passes.slice(1).map((pass, index) => pass - passes[index]!)
     expect(passes.length).toBeGreaterThanOrEqual(10)
     expect(Math.max(...gaps.slice(-5))).toBeLessThan(5 * DAY)
-    const oldest = Math.min(...[...fs.files.values()].map(file => file.mtime))
+    const oldest = Math.min(...listing.map(file => file.mtime))
     expect(at - oldest).toBeLessThan(SPILL_RETENTION_MS + 5 * DAY)
     expect(nextSpillSweep({ at: 0, complete: true })).toBe(DAY)
     expect(nextSpillSweep({ at: 0, complete: false })).toBe(HOUR)
