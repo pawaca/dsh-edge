@@ -125,6 +125,9 @@ const DEFAULT_SESSION_LIST_LIMIT = 50
 const MAX_SESSION_LIST_LIMIT = 100
 const DEFAULT_REPLAY_EVENT_LIMIT = 128
 const MAX_REPLAY_EVENT_LIMIT = 256
+/** When old spills were last swept, so a Durable Object that restarts often sweeps at most daily. */
+const SPILL_SWEPT_AT_KEY = 'dsh-edge:spill-swept-at'
+const SPILL_SWEEP_INTERVAL_MS = 24 * 60 * 60 * 1000
 const MAX_REPLAY_RESPONSE_BYTES = 1_048_576
 const INITIAL_SESSION_LIST_METADATA: SessionListMetadata = { blank: true, lastPromptAt: null }
 const OWNER_SESSION_EXPIRED_CLOSE_CODE = 1008
@@ -1030,8 +1033,28 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     if (this.residentWorkspace === undefined) {
       this.residentWorkspace = await getWorkspace(this)
       this.sessions.spillStore()?.bind(this.residentWorkspace.fs)
+      this.ctx.waitUntil(this.sweepSpills())
     }
     return this.residentWorkspace
+  }
+
+  /**
+   * Delete old spills in the background. Upstream sweeps once per process
+   * start; a Durable Object starts after every idle eviction, so the Edge
+   * sweeps at most once a day, recorded in one KV write.
+   */
+  private async sweepSpills(): Promise<void> {
+    const store = this.sessions.spillStore()
+    if (store === undefined) return
+    try {
+      const now = Date.now()
+      const last = await this.ctx.storage.get<number>(SPILL_SWEPT_AT_KEY)
+      if (last !== undefined && now - last < SPILL_SWEEP_INTERVAL_MS) return
+      await this.ctx.storage.put(SPILL_SWEPT_AT_KEY, now)
+      await store.sweep(now)
+    } catch (error) {
+      console.warn('dsh-edge: spill sweep failed.', error)
+    }
   }
 
   /**
