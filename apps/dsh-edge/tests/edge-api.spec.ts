@@ -203,7 +203,7 @@ describe('Edge upstream API invariants', () => {
     const missing = await api.agentPresets.read(request({ agentPreset: 'missing' }))
     expect(missing.result).toMatchObject({
       ok: false,
-      error: { code: 'agent-preset-not-found' },
+      error: { code: 'agent-preset/not-found' },
     })
 
     const invalidProfile = await createEdgeApi(runtime({}, {
@@ -211,7 +211,7 @@ describe('Edge upstream API invariants', () => {
     })).agentPresets.read(request({ agentPreset: 'standard' }))
     expect(invalidProfile.result).toMatchObject({
       ok: false,
-      error: { code: 'internal', message: 'invalid deployment profile' },
+      error: { code: 'gateway/internal', message: 'invalid deployment profile' },
     })
   })
 
@@ -238,7 +238,7 @@ describe('Edge upstream API invariants', () => {
     })).sessions.create(request({ agentPreset: 'ptc' }))
     expect(refused.result).toMatchObject({
       ok: false,
-      error: { code: 'agent-preset-not-found', details: { available: ['standard'] } },
+      error: { code: 'agent-preset/not-found', details: { available: ['standard'] } },
     })
 
     // An existing session keeps its recorded preset on a retry, even once no longer offered.
@@ -262,9 +262,9 @@ describe('Edge upstream API invariants', () => {
     expect(selected.result).toEqual({ ok: true, value: 'ptc' })
     expect(selectAgentPreset).toHaveBeenCalledWith(sessionId, 'ptc')
     const locked = await api.agentPresets.select(request({ agentId: sessionId, agentPreset: 'ptc' }))
-    expect(locked.result).toMatchObject({ ok: false, error: { code: 'agent-preset-locked' } })
+    expect(locked.result).toMatchObject({ ok: false, error: { code: 'agent-preset/locked' } })
     const missing = await api.agentPresets.select(request({ agentId: sessionId, agentPreset: 'missing' }))
-    expect(missing.result).toMatchObject({ ok: false, error: { code: 'agent-preset-not-found' } })
+    expect(missing.result).toMatchObject({ ok: false, error: { code: 'agent-preset/not-found' } })
   })
 
   it('describes only the configured state of the deployment credential', async () => {
@@ -386,7 +386,7 @@ describe('Edge upstream API invariants', () => {
       request({ query: 'cancelled' }),
       controller.signal,
     )
-    expect(cancelled.result).toMatchObject({ ok: false, error: { code: 'cancelled' } })
+    expect(cancelled.result).toMatchObject({ ok: false, error: { code: 'gateway/cancelled' } })
   })
 
   it('bounds a multibyte search excerpt around the literal match', () => {
@@ -463,7 +463,7 @@ describe('Edge upstream API invariants', () => {
       async () => { throw new Error('simulated storage failure') },
     )
     expect(error).toMatchObject({
-      code: 'workspace-attach-failed',
+      code: 'session/workspace-attach-failed',
       details: { sessionId: parentId, workspaceId },
     })
   })
@@ -491,7 +491,7 @@ describe('Edge upstream API invariants', () => {
     expect(response.result).toMatchObject({
       ok: false,
       error: {
-        code: 'workspace-attach-failed',
+        code: 'session/workspace-attach-failed',
         details: { sessionId: parentId, workspaceId },
       },
     })
@@ -510,7 +510,7 @@ describe('Edge upstream API invariants', () => {
     const refused = await createEdgeApi(lookupFailure).sessions.fork(request({
       sessionId: parentId,
     }))
-    expect(refused.result).toMatchObject({ ok: false, error: { code: 'internal' } })
+    expect(refused.result).toMatchObject({ ok: false, error: { code: 'gateway/internal' } })
     expect(forkSession).not.toHaveBeenCalled()
     expect(lookupSessionCreated).not.toHaveBeenCalled()
 
@@ -525,7 +525,7 @@ describe('Edge upstream API invariants', () => {
     expect(published.result).toMatchObject({
       ok: false,
       error: {
-        code: 'workspace-attach-failed',
+        code: 'session/workspace-attach-failed',
         details: { sessionId: childId, workspaceId },
       },
     })
@@ -576,10 +576,28 @@ describe('Edge upstream API invariants', () => {
     const content = [{ type: 'text' as const, text: 'hello' }]
     for (const mode of ['queue', 'steer'] as const) {
       const result = await api.sessions.prompt(request({ sessionId: parentId, mode, content }))
-      expect(result.result).toMatchObject({ ok: false, error: { code: 'agent-busy' } })
+      expect(result.result).toMatchObject({ ok: false, error: { code: 'session/agent-busy' } })
     }
     const result = await api.sessions.updateQueue(request({ sessionId: parentId, itemId: 'pending' as MessageId, action: { kind: 'edit', content } }))
-    expect(result.result).toMatchObject({ ok: false, error: { code: 'agent-busy' } })
+    expect(result.result).toMatchObject({ ok: false, error: { code: 'session/agent-busy' } })
+  })
+
+  it('converges a stop that arrives after the turn and reports refused credential writes as upstream does', async () => {
+    const summary = vi.fn(async (id: SessionId) => {
+      if (id === parentId) return {}
+      throw new EdgeSessionStoreError('NOT_FOUND', 'Session not found.')
+    })
+    const refuse = vi.fn(async () => { throw new Error('The API key was rejected.') })
+    const api = createEdgeApi(runtime({ getApiSessionSummary: summary }, { setCredential: refuse, unsetCredential: refuse }))
+    expect((await api.sessions.cancel(request({ sessionId: parentId }))).result)
+      .toMatchObject({ ok: true, value: { accepted: true } })
+    const missing = SessionId('session-missing')
+    expect((await api.sessions.cancel(request({ sessionId: missing }))).result)
+      .toMatchObject({ ok: false, error: { code: 'session/not-found', details: { sessionId: missing } } })
+    expect((await api.credentials.set(request({ ref: 'DEEPSEEK_API_KEY', value: 'sk-test' }))).result)
+      .toMatchObject({ ok: false, error: { code: 'credential/rejected', details: { ref: 'DEEPSEEK_API_KEY' } } })
+    expect((await api.credentials.unset(request({ ref: 'DEEPSEEK_API_KEY' }))).result)
+      .toMatchObject({ ok: false, error: { code: 'credential/rejected', details: { ref: 'DEEPSEEK_API_KEY' } } })
   })
 
   it('persists the client-minted requestId on the user message and falls back to the envelope rpcId', async () => {
@@ -633,7 +651,7 @@ describe('Edge upstream API invariants', () => {
     }))
     expect(promptResponse.result).toMatchObject({
       ok: false,
-      error: { code: 'attachment-error', details: { reason: 'PROMPT_TEXT_TOO_LARGE' } },
+      error: { code: 'session/attachment-invalid', details: { reason: 'PROMPT_TEXT_TOO_LARGE' } },
     })
     expect(prompt).not.toHaveBeenCalled()
 
@@ -644,7 +662,7 @@ describe('Edge upstream API invariants', () => {
     }))
     expect(editResponse.result).toMatchObject({
       ok: false,
-      error: { code: 'attachment-error', details: { reason: 'QUEUE_EDIT_TEXT_TOO_LARGE' } },
+      error: { code: 'session/attachment-invalid', details: { reason: 'QUEUE_EDIT_TEXT_TOO_LARGE' } },
     })
     expect(updateQueue).not.toHaveBeenCalled()
   })
@@ -663,7 +681,7 @@ describe('Edge upstream API invariants', () => {
       itemId: 'message-image' as MessageId,
       action: { kind: 'edit', content: [{ type: 'image', attachment: imageRef }] } as never,
     }))
-    expect(rejected.result).toMatchObject({ ok: false, error: { code: 'attachment-error', details: { reason: 'QUEUE_EDIT_NON_TEXT' } } })
+    expect(rejected.result).toMatchObject({ ok: false, error: { code: 'session/attachment-invalid', details: { reason: 'QUEUE_EDIT_NON_TEXT' } } })
     expect(updateQueue).toHaveBeenCalledOnce()
   })
 
@@ -717,7 +735,7 @@ describe('Edge upstream API invariants', () => {
 
     expect(response.result).toMatchObject({
       ok: false,
-      error: { code: 'attachment-error', details: { reason: 'MODEL_DOES_NOT_SUPPORT_IMAGES' } },
+      error: { code: 'session/attachment-invalid', details: { reason: 'MODEL_DOES_NOT_SUPPORT_IMAGES' } },
     })
     expect(saveImages).not.toHaveBeenCalled()
     expect(prompt).not.toHaveBeenCalled()
@@ -796,7 +814,7 @@ describe('Edge upstream API invariants', () => {
     await expect(admitting).resolves.toMatchObject({
       result: {
         ok: false,
-        error: { code: 'attachment-error', details: { reason: 'MODEL_DOES_NOT_SUPPORT_IMAGES' } },
+        error: { code: 'session/attachment-invalid', details: { reason: 'MODEL_DOES_NOT_SUPPORT_IMAGES' } },
       },
     })
     expect(saveImages).not.toHaveBeenCalled()

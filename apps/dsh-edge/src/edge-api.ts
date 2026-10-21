@@ -183,13 +183,13 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
         } catch (error) {
           if (signal.aborted || (error instanceof DOMException && error.name === 'AbortError')) {
             return fail(request, {
-              code: 'cancelled',
+              code: 'gateway/cancelled',
               message: 'Session search was aborted.',
               details: {},
             })
           }
           return fail(request, {
-            code: 'internal',
+            code: 'gateway/internal',
             message: error instanceof Error ? error.message : String(error),
             details: {},
           })
@@ -204,7 +204,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
           const workspace = available.items.find(item => item.workspaceId === workspaceId)
           if (workspace === undefined) {
             return fail(request, {
-              code: 'workspace-not-found',
+              code: 'workspace/not-found',
               message: `Workspace "${workspaceId}" is not available in this Edge instance.`,
               details: { workspaceId },
             })
@@ -213,7 +213,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
         }
         if (resolvedCwd !== undefined && !isValidWorkspacePath(resolvedCwd)) {
           return fail(request, {
-            code: 'workspace-invalid-path',
+            code: 'workspace/invalid-path',
             message: 'A path below /workspace/ is required.',
             details: { path: resolvedCwd },
           })
@@ -279,7 +279,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
         const beforeSeq = request.payload.beforeSeq as number | undefined
         const maxMessages = request.payload.maxMessages as number | undefined
         if (sessionId === undefined) {
-          return fail(request, { code: 'invalid-request', message: 'sessionId is required', details: {} })
+          return fail(request, { code: 'gateway/bad-request', message: 'sessionId is required', details: {} })
         }
         try {
           const historyPage = await runtime.sessions.readHistoryPage(sessionId, beforeSeq, maxMessages ?? DEFAULT_HISTORY_MESSAGES)
@@ -320,7 +320,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
           } catch (error) {
             if (!(error instanceof EdgeSessionStoreError)) {
               return fail(request, {
-                code: 'model-unavailable',
+                code: 'session/model-unavailable',
                 message: error instanceof Error ? error.message : String(error),
                 details: { provider, model },
               })
@@ -371,7 +371,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
         const zone = canonicalClientTimeZone(clientTimeZone)
         if (clientTimeZone !== undefined && zone === undefined) {
           return fail(request, {
-            code: 'invalid-time-zone',
+            code: 'session/invalid-time-zone',
             message: 'clientTimeZone must be UTC or a valid IANA Area/Location name.',
             details: { value: clientTimeZone },
           })
@@ -381,7 +381,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
         )
         if (messageTextByteLength(textContent) > MAX_MESSAGE_TEXT_BYTES) {
           return fail(request, {
-            code: 'attachment-error',
+            code: 'session/attachment-invalid',
             message: `Prompt text is limited to ${MAX_MESSAGE_TEXT_BYTES} UTF-8 bytes.`,
             details: { reason: 'PROMPT_TEXT_TOO_LARGE' },
           })
@@ -402,7 +402,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
             const staged = receiptIds.length === 0 ? undefined : runtime.sessions.bindPromptFiles(sessionId, receiptIds, String(messageRpcId))
             if (receiptIds.length > 0 && staged === undefined) {
               return fail(request, {
-                code: 'attachment-error',
+                code: 'session/attachment-invalid',
                 message: 'File was not uploaded for this session.',
                 details: { reason: 'FILE_NOT_STAGED' },
               })
@@ -419,14 +419,14 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
               const attachments = await runtime.sessions.attachmentStore()
               if (attachments === undefined) {
                 return fail(request, {
-                  code: 'attachment-error',
+                  code: 'session/attachment-invalid',
                   message: 'Image attachments are not available in this Edge instance.',
                   details: { reason: 'EDGE_ATTACHMENTS_UNAVAILABLE' },
                 })
               }
               if (!await runtime.sessions.modelSupportsImages(sessionId)) {
                 return fail(request, {
-                  code: 'attachment-error',
+                  code: 'session/attachment-invalid',
                   message: 'The selected model does not support image input.',
                   details: { reason: 'MODEL_DOES_NOT_SUPPORT_IMAGES' },
                 })
@@ -458,7 +458,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
           } catch (error) {
             if (error instanceof AttachmentError) {
               return fail(request, {
-                code: 'attachment-error',
+                code: 'session/attachment-invalid',
                 message: error.message,
                 details: { reason: error.code },
               })
@@ -478,7 +478,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
           const attachments = await runtime.sessions.attachmentStore()
           if (attachments === undefined) {
             return fail(request, {
-              code: 'attachment-error',
+              code: 'session/attachment-invalid',
               message: 'Image attachments are not available in this Edge instance.',
               details: { reason: 'EDGE_ATTACHMENTS_UNAVAILABLE' },
             })
@@ -486,7 +486,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
           const ref = await runtime.sessions.referencedImage(sessionId, String(attachmentId))
           if (ref === undefined) {
             return fail(request, {
-              code: 'attachment-error',
+              code: 'session/attachment-invalid',
               message: 'Image is not referenced by this session.',
               details: { reason: 'ATTACHMENT_NOT_REFERENCED' },
             })
@@ -499,7 +499,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
         } catch (error) {
           if (error instanceof AttachmentError) {
             return fail(request, {
-              code: 'attachment-error',
+              code: 'session/attachment-invalid',
               message: error.message,
               details: { reason: error.code },
             })
@@ -512,7 +512,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
         // Upstream queue edits replace the pending content with text only.
         if (action.kind === 'edit' && action.content.some(block => block.type !== 'text')) {
           return Promise.resolve(fail(request, {
-            code: 'attachment-error',
+            code: 'session/attachment-invalid',
             message: 'Queue edits accept text content only.',
             details: { reason: 'QUEUE_EDIT_NON_TEXT' },
           }))
@@ -522,7 +522,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
             action.content,
           ) > MAX_MESSAGE_TEXT_BYTES) {
           return Promise.resolve(fail(request, {
-            code: 'attachment-error',
+            code: 'session/attachment-invalid',
             message: `Queue edit text is limited to ${MAX_MESSAGE_TEXT_BYTES} UTF-8 bytes.`,
             details: { reason: 'QUEUE_EDIT_TEXT_TOO_LARGE' },
           }))
@@ -535,14 +535,14 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
         }
         if (outcome === 'queue-item-not-found') {
           return Promise.resolve(fail(request, {
-            code: 'queue-item-not-found',
+            code: 'session/queue-item-not-found',
             message: 'The queued item is no longer pending.',
             details: { itemId },
           }))
         }
         if (outcome === 'steer-unavailable') {
           return Promise.resolve(fail(request, {
-            code: 'steer-unavailable',
+            code: 'session/steer-unavailable',
             message: 'The current turn no longer accepts steering.',
             details: { itemId },
           }))
@@ -550,15 +550,17 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
         return Promise.resolve(ok(request, { accepted: true as const }))
       },
 
-      cancel(request: RpcRequest<SessionCancelPayload>) {
-        if (!runtime.cancel(request.payload.sessionId)) {
-          return Promise.resolve(fail(request, {
-            code: 'agent-busy',
-            message: 'The session has no active turn in this Edge instance.',
-            details: { reason: 'not-running' },
-          }))
+      async cancel(request: RpcRequest<SessionCancelPayload>) {
+        const { sessionId } = request.payload
+        if (runtime.cancel(sessionId)) return ok(request, { accepted: true as const })
+        // As upstream, a stop that arrives after the turn ended converges:
+        // an existing session accepts it, and only an unknown one fails.
+        try {
+          await runtime.sessions.getApiSessionSummary(sessionId)
+          return ok(request, { accepted: true as const })
+        } catch (error) {
+          return sessionFailure(request, error, sessionId)
         }
-        return Promise.resolve(ok(request, { accepted: true as const }))
       },
     },
 
@@ -702,7 +704,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
           }
           if (error instanceof EdgeSessionStoreError && error.code === 'PRESET_LOCKED') {
             return fail(request, {
-              code: 'agent-preset-locked',
+              code: 'agent-preset/locked',
               message: error.message,
               details: { sessionId: agentId, agentPreset },
             })
@@ -750,7 +752,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
           })
         } catch (error) {
           return fail(request, {
-            code: 'internal',
+            code: 'gateway/internal',
             message: error instanceof Error ? error.message : String(error),
             details: {},
           })
@@ -833,10 +835,11 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
           await runtime.setCredential(ref, value)
           return ok(request, {})
         } catch (error) {
+          // Upstream's settings controller reports every refused credential write this way.
           return fail(request, {
-            code: 'internal',
+            code: 'credential/rejected',
             message: error instanceof Error ? error.message : String(error),
-            details: {},
+            details: { ref },
           })
         }
       },
@@ -846,10 +849,11 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
           await runtime.unsetCredential(ref)
           return ok(request, {})
         } catch (error) {
+          // Upstream's settings controller reports every refused credential write this way.
           return fail(request, {
-            code: 'internal',
+            code: 'credential/rejected',
             message: error instanceof Error ? error.message : String(error),
-            details: {},
+            details: { ref },
           })
         }
       },
@@ -1061,7 +1065,7 @@ function workspaceFailure<T>(
 ): RpcResponse<T> {
   if (error instanceof WorkspaceOrderInvalidError && workspaceId !== undefined) {
     return fail(request, {
-      code: 'workspace-not-found',
+      code: 'workspace/not-found',
       message: error.message,
       details: { workspaceId },
     })
@@ -1069,7 +1073,7 @@ function workspaceFailure<T>(
   if (error instanceof WorkspaceMoveInvalidError
     && workspaceId !== undefined && sessionId !== undefined) {
     return fail(request, {
-      code: 'workspace-move-invalid',
+      code: 'workspace/move-invalid',
       message: error.message,
       details: {
         workspaceId,
@@ -1080,20 +1084,20 @@ function workspaceFailure<T>(
   }
   if (error instanceof WorkspaceUnknownSessionError) {
     return fail(request, {
-      code: 'session-not-found',
+      code: 'session/not-found',
       message: error.message,
       details: { sessionId: error.sessionId },
     })
   }
   if (error instanceof Error && error.message.includes('path is not a directory')) {
     return fail(request, {
-      code: 'workspace-invalid-path',
+      code: 'workspace/invalid-path',
       message: error.message,
       details: { path: path ?? EDGE_WORKSPACE_PATH },
     })
   }
   return fail(request, {
-    code: 'internal',
+    code: 'gateway/internal',
     message: error instanceof Error ? error.message : String(error),
     details: {},
   })
@@ -1118,7 +1122,7 @@ export async function attachPublishedSession(
     return undefined
   } catch (error) {
     return {
-      code: 'workspace-attach-failed',
+      code: 'session/workspace-attach-failed',
       message: `Session "${sessionId}" was ${operation} but could not attach to workspace "${workspaceId}": ${String(error)}`,
       details: { sessionId, workspaceId },
     }
@@ -1135,7 +1139,7 @@ function fail<P, T>(request: RpcRequest<P>, error: RpcError): RpcResponse<T> {
 
 function unsupported<T>(request: RpcRequest<unknown>): Promise<RpcResponse<T>> {
   return Promise.resolve(fail(request, {
-    code: 'internal',
+    code: 'gateway/internal',
     message: 'This capability is not available in the Edge runtime.',
     details: {},
   }))
@@ -1163,7 +1167,7 @@ function presetNotFound<P, T>(
   available: readonly string[],
 ): RpcResponse<T> {
   return fail(request, {
-    code: 'agent-preset-not-found',
+    code: 'agent-preset/not-found',
     message: `Agent preset "${agentPreset}" is not available in this Edge instance.`,
     details: { agentPreset, available: [...available] },
   })
@@ -1175,33 +1179,33 @@ function sessionFailure<T>(
   sessionId: SessionId | undefined,
 ): RpcResponse<T> {
   if (error instanceof MainQueueFullError) {
-    return fail(request, { code: 'agent-busy', message: error.message, details: { reason: 'queue-full' } })
+    return fail(request, { code: 'session/agent-busy', message: error.message, details: { reason: 'queue-full' } })
   }
   if (error instanceof EdgeSessionStoreError) {
     if (error.code === 'NOT_FOUND' && sessionId !== undefined) {
       return fail(request, {
-        code: 'session-not-found',
+        code: 'session/not-found',
         message: error.message,
         details: { sessionId },
       })
     }
     if (error.code === 'BUSY') {
       return fail(request, {
-        code: 'agent-busy',
+        code: 'session/agent-busy',
         message: error.message,
         details: { reason: 'running' },
       })
     }
     if (error.code === 'FORK_UNAVAILABLE' && sessionId !== undefined) {
       return fail(request, {
-        code: 'fork-unavailable',
+        code: 'session/fork-unavailable',
         message: error.message,
         details: { sessionId },
       })
     }
     if (error.code === 'TITLE_INVALID' && sessionId !== undefined) {
       return fail(request, {
-        code: 'title-invalid',
+        code: 'session/title-invalid',
         message: error.message,
         details: { sessionId },
       })
@@ -1209,7 +1213,7 @@ function sessionFailure<T>(
   }
   if (error instanceof EdgeSessionCwdConflictError && sessionId !== undefined) {
     return fail(request, {
-      code: 'session-conflict',
+      code: 'session/conflict',
       message: error.message,
       details: {
         sessionId,
@@ -1220,13 +1224,13 @@ function sessionFailure<T>(
   }
   if (error instanceof WorkspaceUnknownSessionError && sessionId !== undefined) {
     return fail(request, {
-      code: 'session-not-found',
+      code: 'session/not-found',
       message: error.message,
       details: { sessionId },
     })
   }
   return fail(request, {
-    code: 'internal',
+    code: 'gateway/internal',
     message: error instanceof Error ? error.message : String(error),
     details: {},
   })
@@ -1250,7 +1254,7 @@ function settingsNotRegistered<T>(
   ns: string,
 ): RpcResponse<T> {
   return fail(request, {
-    code: 'settings-rejected',
+    code: 'settings/rejected',
     message: `Settings namespace "${ns}" is not registered.`,
     details: { ns },
   })
@@ -1263,13 +1267,13 @@ function settingsWriteFailure<T>(
   const ns = request.payload.ns
   if (error instanceof SettingsConflictError) {
     return fail(request, {
-      code: 'settings-conflict',
+      code: 'settings/conflict',
       message: error.message,
       details: { ns, expected: error.expected, actual: error.actual },
     })
   }
   return fail(request, {
-    code: 'settings-rejected',
+    code: 'settings/rejected',
     message: error instanceof Error ? error.message : String(error),
     details: { ns },
   })

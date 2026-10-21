@@ -199,7 +199,7 @@ function remoteFailureOf(error: unknown): { code: string; message: string; detai
     }
   }
   return {
-    code: 'internal',
+    code: 'gateway/internal',
     message: error instanceof Error ? error.message : String(error),
     details: {},
   }
@@ -1480,7 +1480,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         // rejections stay correlated server-responses on the direct path.
         return Response.json({ type: 'server-response', rpcId, result: {
           ok: false,
-          error: { code: 'internal', message: String(error), details: {} },
+          error: { code: 'gateway/internal', message: String(error), details: {} },
         } })
       }
     }

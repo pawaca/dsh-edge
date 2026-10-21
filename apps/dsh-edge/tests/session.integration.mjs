@@ -1031,7 +1031,7 @@ try {
     const ptcTools = (turnRequests().at(-1).tools ?? []).map(tool => tool.name)
     assert.deepEqual(ptcTools, ['run_code'])
     const locked = await rpc('agentPreset.select', { agentId: ptcSessionId, agentPreset: 'standard' })
-    assert.equal(locked.body.result.error.code, 'agent-preset-locked')
+    assert.equal(locked.body.result.error.code, 'agent-preset/locked')
     // The Agent presets page makes a preset the default for new sessions, as
     // upstream's does: through the settings Remote, on the registry's namespace.
     const madeDefault = await typertRpc('settings', 'update', { ns: 'agent-preset-registry', patch: { selectedDefault: 'ptc' } })
@@ -1045,7 +1045,7 @@ try {
     assert.equal((await rpc('session.create', {})).body.result.value.agentPreset, 'standard')
   } else {
     const refused = await rpc('session.create', { agentPreset: 'ptc' })
-    assert.equal(refused.body.result.error.code, 'agent-preset-not-found')
+    assert.equal(refused.body.result.error.code, 'agent-preset/not-found')
   }
   remoteMux.send({ type: 'cancel', streamId: 'events-1' })
   remoteMux.close()
@@ -1278,7 +1278,7 @@ try {
 
   const blankFork = await rpc('session.fork', { sessionId: protocolSessionId })
   assert.equal(blankFork.body.result.ok, false)
-  assert.equal(blankFork.body.result.error.code, 'fork-unavailable')
+  assert.equal(blankFork.body.result.error.code, 'session/fork-unavailable')
   assert.equal(blankFork.body.result.error.details.sessionId, protocolSessionId)
 
   const invalidRename = await rpc('session.rename', {
@@ -1286,7 +1286,7 @@ try {
     title: '\u200b',
   })
   assert.equal(invalidRename.body.result.ok, false)
-  assert.equal(invalidRename.body.result.error.code, 'title-invalid')
+  assert.equal(invalidRename.body.result.error.code, 'session/title-invalid')
   assert.equal(invalidRename.body.result.error.details.sessionId, protocolSessionId)
 
   // The Typert client mints its own requestId and reconciles its optimistic
@@ -1439,7 +1439,7 @@ try {
     sessionId: 'session-ghost',
   })
   assert.equal(missingArchive.body.result.ok, false)
-  assert.equal(missingArchive.body.result.error.code, 'session-not-found')
+  assert.equal(missingArchive.body.result.error.code, 'session/not-found')
   const archivedFork = await rpc('workspace.archiveSession', {
     sessionId: forkedSessionId,
   })
@@ -1521,7 +1521,7 @@ try {
     sessionId: 'session-ghost',
   })
   assert.equal(invalidWorkspaceMove.body.result.ok, false)
-  assert.equal(invalidWorkspaceMove.body.result.error.code, 'workspace-move-invalid')
+  assert.equal(invalidWorkspaceMove.body.result.error.code, 'workspace/move-invalid')
 
   const deletedWorkspace = await rpc('workspace.delete', { workspaceId: 'edge-workspace' })
   assert.equal(deletedWorkspace.body.result.ok, true)
@@ -1536,7 +1536,7 @@ try {
   ])
   const missingWorkspaceSession = await rpc('session.create', { workspaceId: 'edge-workspace' })
   assert.equal(missingWorkspaceSession.body.result.ok, false)
-  assert.equal(missingWorkspaceSession.body.result.error.code, 'workspace-not-found')
+  assert.equal(missingWorkspaceSession.body.result.error.code, 'workspace/not-found')
 
   const recreatedWorkspace = await rpc('workspace.create', { path: '/workspace' })
   assert.equal(recreatedWorkspace.body.result.ok, true)
@@ -1581,10 +1581,10 @@ try {
   // Reject session creation with invalid cwd (path traversal, outside /workspace)
   const traversalSession = await rpc('session.create', { cwd: '/workspace/../etc' })
   assert.equal(traversalSession.body.result.ok, false)
-  assert.equal(traversalSession.body.result.error.code, 'workspace-invalid-path')
+  assert.equal(traversalSession.body.result.error.code, 'workspace/invalid-path')
   const outsideSession = await rpc('session.create', { cwd: '/tmp' })
   assert.equal(outsideSession.body.result.ok, false)
-  assert.equal(outsideSession.body.result.error.code, 'workspace-invalid-path')
+  assert.equal(outsideSession.body.result.error.code, 'workspace/invalid-path')
 
   const retrySessionId = 'session-idempotent-workspace-attach'
   const ungroupedSession = await rpc('session.create', { sessionId: retrySessionId })
@@ -1783,7 +1783,7 @@ try {
     action: { kind: 'remove' },
   })
   assert.equal(missingQueueItem.body.result.ok, false)
-  assert.equal(missingQueueItem.body.result.error.code, 'queue-item-not-found')
+  assert.equal(missingQueueItem.body.result.error.code, 'session/queue-item-not-found')
   const largeQueueEdit = await rpc('session.updateQueue', {
     sessionId: protocolSessionId,
     itemId: 'message-large-ghost',
@@ -1791,7 +1791,7 @@ try {
   })
   assert.equal(largeQueueEdit.response.status, 200)
   assert.equal(largeQueueEdit.body.result.ok, false)
-  assert.equal(largeQueueEdit.body.result.error.code, 'queue-item-not-found')
+  assert.equal(largeQueueEdit.body.result.error.code, 'session/queue-item-not-found')
   const oversizedQueueEdit = await rpc('session.updateQueue', {
     sessionId: protocolSessionId,
     itemId: 'message-oversized-ghost',
@@ -1799,7 +1799,7 @@ try {
   })
   assert.equal(oversizedQueueEdit.response.status, 200)
   assert.equal(oversizedQueueEdit.body.result.ok, false)
-  assert.equal(oversizedQueueEdit.body.result.error.code, 'attachment-error')
+  assert.equal(oversizedQueueEdit.body.result.error.code, 'session/attachment-invalid')
   assert.equal(oversizedQueueEdit.body.result.error.details.reason, 'QUEUE_EDIT_TEXT_TOO_LARGE')
   const steeredPrompt = await rpc('session.prompt', {
     sessionId: protocolSessionId,
@@ -2067,7 +2067,7 @@ try {
     model: 'deepseek-v4-pro',
   })
   assert.equal(incompatibleModel.body.result.ok, false)
-  assert.equal(incompatibleModel.body.result.error.code, 'model-unavailable')
+  assert.equal(incompatibleModel.body.result.error.code, 'session/model-unavailable')
   const imageFork = await rpc('session.fork', {
     sessionId: imageSessionId,
     atSeq: imageUser.event.seq,
@@ -2195,14 +2195,14 @@ try {
     content: [{ type: 'text', text: 'invalid configuration must not claim the turn' }],
   })
   assert.equal(invalidProtocolPrompt.body.result.ok, false)
-  assert.equal(invalidProtocolPrompt.body.result.error.code, 'internal')
+  assert.equal(invalidProtocolPrompt.body.result.error.code, 'gateway/internal')
   const retriedInvalidProtocolPrompt = await rpc('session.prompt', {
     sessionId: protocolSessionId,
     mode: 'queue',
     content: [{ type: 'text', text: 'invalid configuration remains retryable' }],
   })
   assert.equal(retriedInvalidProtocolPrompt.body.result.ok, false)
-  assert.equal(retriedInvalidProtocolPrompt.body.result.error.code, 'internal')
+  assert.equal(retriedInvalidProtocolPrompt.body.result.error.code, 'gateway/internal')
   // Promoting the queued prompt to steering folds it into the active turn
   // instead of starting the extra follow-up request exercised previously; the
   // ask_user_question and exit_plan_mode turns each add a tool-call request
