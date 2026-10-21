@@ -107,13 +107,16 @@ export class EdgeFileUploads extends FileUploads {
     receiptIds: readonly string[],
     requestId: string,
   ): { readonly files: readonly FileAttachmentRef[]; readonly binding: PromptFileBinding } | undefined {
-    const files: FileAttachmentRef[] = []
-    for (const receiptId of receiptIds) {
+    // Each distinct receipt is read once, however often the prompt repeats it.
+    const unique = [...new Set(receiptIds)]
+    const found = new Map<string, FileAttachmentRef>()
+    for (const receiptId of unique) {
       const stored = this.stored(String(sessionId), receiptId)
       if (stored === undefined) return undefined
-      files.push(stored.file)
+      found.set(receiptId, stored.file)
     }
-    return { files, binding: this.bindRows([...new Set(receiptIds)], requestId, { commit() {}, [Symbol.dispose]() {} }) }
+    const files = receiptIds.map(receiptId => found.get(receiptId)!)
+    return { files, binding: this.bindRows(unique, requestId, { commit() {}, [Symbol.dispose]() {} }) }
   }
 
   override bindPrompt(agent: Agent, receiptIds: readonly FileUploadReceiptId[], requestId: string): PromptFileBinding {
