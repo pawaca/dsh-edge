@@ -134,7 +134,7 @@ try {
   // One claimed input plus 127 waiting inputs reaches the owner's durable cap.
   for (let i = 0; i < 127; i++) assert.equal((await prompt(b, 'probe-b', `capacity-${i}`, `capacity-${i}`)).result.ok, true)
   const overloaded = await prompt(b, 'probe-b', 'capacity-retry', 'capacity-retry')
-  assert.equal(overloaded.result.error.code, 'agent-busy')
+  assert.equal(overloaded.result.error.code, 'session/agent-busy')
   const rawOverload = await a.evaluate(async () => {
     const response = await fetch('/api/sessions/probe-b/turn', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ message: 'raw-capacity' }),
