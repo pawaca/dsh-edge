@@ -348,7 +348,7 @@ SQLite `DELETE` operations consume the daily row-write allowance too. During for
 - `GET /api/workspace/file?path=/workspace/...` reads a UTF-8 file.
 - `DELETE /api/workspace/file?path=/workspace/...` removes a file.
 - `POST /api/workspace/exec` accepts `{ "command": "...", "cwd": "/workspace/..." }`; `cwd` defaults to `/workspace`, every execution receives the deployment default timeout, `timedOut` reports whether that deadline elapsed, and `outputTruncated` reports whether the retention bound was crossed.
-- `POST /api/sessions` creates a persistent session with a required `title`, recorded as a standard user-sourced `session/title` event before the API returns. If the session is durable but its Workspace attachment fails, the 500 response uses `workspace-attach-failed` and includes the complete created `session`, so callers can recover its id instead of creating a duplicate.
+- `POST /api/sessions` creates a persistent session with a required `title`, recorded as a standard user-sourced `session/title` event before the API returns. If the session is durable but its Workspace attachment fails, the 500 response uses `session/workspace-attach-failed` and includes the complete created `session`, so callers can recover its id instead of creating a duplicate.
 - `GET /api/sessions?after=...&limit=...` lists one bounded summary page; `GET /api/sessions/:sessionId` reads one. Session deletion is not exposed because the upstream persistence service does not define destructive deletion.
 - `POST /api/sessions/:sessionId/turn` accepts `{ "message": "..." }` and streams persisted SSE events.
 - `GET /api/sessions/:sessionId/events?after=...&limit=...` replays a bounded event page and returns continuation headers.
@@ -356,7 +356,7 @@ SQLite `DELETE` operations consume the daily row-write allowance too. During for
 
 ### Session and Workspace behavior
 
-- Session creation and fork return `workspace-attach-failed` with the published session and Workspace ids when publication succeeds but Workspace attachment fails. The diagnostic route returns the same code plus the complete created session.
+- Session creation and fork return `session/workspace-attach-failed` with the published session and Workspace ids when publication succeeds but Workspace attachment fails. The diagnostic route returns the same code plus the complete created session.
 - Prompt and queue-edit text share a 64 KiB semantic limit. Their 10 MiB RPC carrier leaves room for a 7 MiB raw-image batch after base64 and envelope overhead.
 - Because Edge has no directory-flow provider, the upstream browser hides Delete on its sole Workspace and exposes it again whenever restoration remains possible.
 - `@file` completion serves the upstream `fileReferences/list` Remote from the Computer VFS one directory at a time: the session working directory for a bare fragment, or the directory a trailing slash names. There is no recursive fuzzy index because every listing is a Computer call. `@session` mentions and their pre-step snapshots come from the upstream session-reference service unchanged; its candidate discovery and either agent-scoped Remote resume a cold session through the upstream controller and keep it resident until the Durable Object is evicted.
