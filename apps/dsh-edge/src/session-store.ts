@@ -101,7 +101,8 @@ import * as TimeContext from '@deepseek-ai/dsh-time-context'
 import * as ToolSchedule from '@deepseek-ai/dsh-tool-schedule'
 import type { PeerScope } from '@deepseek-ai/dsh-typert-protocol'
 import { EdgeTypertConnection, type TypertRpcInterceptor } from './edge-typert-connection.ts'
-import { FileUploads, type FileUploadReceiptId, type PromptFileBinding } from '@deepseek-ai/dsh-client-file-upload'
+import type { FileUploadReceiptId, PromptFileBinding } from '@deepseek-ai/dsh-client-file-upload'
+import { EdgeFileUploads } from './edge-file-uploads.ts'
 import SessionReferenceResolver from '@deepseek-ai/dsh-session-reference'
 import { EdgeFileSystem } from './edge-filesystem.ts'
 import { EdgeFileReferenceService, type EdgeReferenceFiles } from './edge-file-reference.ts'
@@ -618,7 +619,8 @@ export class EdgeSessionStore {
       '@deepseek-ai/dsh-client-file-upload/typert' as string
     )
     this.context.typert.register(FILE_UPLOAD_TYPERT as never)
-    await this.context.plugin(FileUploads)
+    // Receipts also persist in one Durable Object row each (edge-file-uploads.ts).
+    await this.context.plugin(EdgeFileUploads, { storage })
     // All SessionController inject deps now available: agentDefaultModel,
     // agents, attachments, llm, sessions, sessionProjections, sessionQuery,
     // typert, workspaceRegistry. Controllers activate synchronously.
@@ -1179,9 +1181,11 @@ export class EdgeSessionStore {
   /**
    * Resolve a prompt's file receipts to the files uploaded for this session
    * and bind them to the prompt's request, as upstream's controller does
-   * before it delivers the message. Receipts live with the session's Agent
-   * (upstream keeps them in memory), so a session without a live Agent has
-   * none. The binding rolls back on dispose unless committed.
+   * before it delivers the message. Upstream keeps receipts in memory with
+   * the session's Agent; the Edge also keeps one row per receipt
+   * (edge-file-uploads.ts), so a session whose Agent is not live, as after an
+   * eviction, still resolves them. The binding rolls back on dispose unless
+   * committed.
    * @returns the stored files in receipt order, or undefined when any receipt is unknown.
    */
   bindPromptFiles(
@@ -1190,8 +1194,10 @@ export class EdgeSessionStore {
     requestId: string,
   ): { readonly files: readonly FileAttachmentRef[]; readonly binding: PromptFileBinding } | undefined {
     const agent = this.liveAgent(sessionId)
-    const uploads = this.context.get('fileUploads')
-    if (agent === undefined || uploads === undefined) return undefined
+    const uploads = this.context.get('fileUploads') as EdgeFileUploads | undefined
+    if (uploads === undefined) return undefined
+    // A cold session's receipts are read from their Durable Object rows.
+    if (agent === undefined) return uploads.bindStoredPrompt(sessionId, receiptIds, requestId)
     const files: FileAttachmentRef[] = []
     for (const receiptId of receiptIds) {
       const file = uploads.resolve(agent, receiptId as FileUploadReceiptId)

@@ -189,9 +189,10 @@ export async function startMockDeepSeek(port = 0) {
       const uploadPrompt = messages.findLast(m => m.role === 'user' && messageText(m).startsWith('read the uploaded file'))
       if (uploadPrompt !== undefined && messages.indexOf(uploadPrompt) >= messages.findLastIndex(m => m.role === 'assistant' && m.tool_calls === undefined)) {
         // Each file part reaches the wire as its own user message, before or
-        // after the prompt text as the client ordered them; the fixture
-        // session has no earlier uploads.
-        const text = messages.filter(m => m.role === 'user').map(m => messageText(m)).join('\n')
+        // after the prompt text as the client ordered them, within this turn.
+        const promptIndex = messages.indexOf(uploadPrompt)
+        const turnStart = messages.findLastIndex((m, index) => index < promptIndex && m.role === 'assistant') + 1
+        const text = messages.slice(turnStart).filter(m => m.role === 'user').map(m => messageText(m)).join('\n')
         const saved = /saved at "([^"]+)"/u.exec(text)?.[1]
         if (saved === undefined) return answer(`no-saved-path: ${messageText(uploadPrompt)}`)
         const results = messages.slice(messages.indexOf(uploadPrompt) + 1).filter(m => m.role === 'tool')
