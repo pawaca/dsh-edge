@@ -1136,6 +1136,27 @@ try {
   fileChanges.send({ type: 'cancel', streamId: 'file-preview' })
   fileChanges.close()
 
+  // Upstream's /api/file route, registered on the connection by the session
+  // controller, shows workspace files in chat Markdown and previews. Its HEAD
+  // and errors are upstream's; the Edge streams the body from the VFS.
+  assert.equal((await request('/api/workspace/file?path=/workspace/shown.txt', { method: 'PUT', body: 'shown-bytes\n' })).status, 200)
+  const shownFile = await request('/api/file?path=/workspace/shown.txt')
+  assert.equal(shownFile.status, 200)
+  assert.equal(await shownFile.text(), 'shown-bytes\n')
+  assert.match(shownFile.headers.get('content-type') ?? '', /^text\/plain/u)
+  assert.equal(shownFile.headers.get('cache-control'), 'private, no-store')
+  const shownHead = await request('/api/file?path=/workspace/shown.txt', { method: 'HEAD' })
+  assert.equal(shownHead.status, 200)
+  assert.equal(shownHead.headers.get('content-length'), '12')
+  assert.equal((await request('/api/file?path=/workspace/not-there.png')).status, 404)
+  assert.equal((await request('/api/file?path=relative.png')).status, 400)
+  // A file spanning two 512 KiB VFS chunks arrives whole through the stream.
+  const chunkedBody = Array.from({ length: 1024 }, (_, line) => `${String(line).padStart(4, '0')} ${'x'.repeat(1018)}\n`).join('')
+  assert.equal((await request('/api/workspace/file?path=/workspace/shown-chunked.txt', { method: 'PUT', body: chunkedBody })).status, 200)
+  const chunkedFile = await request('/api/file?path=/workspace/shown-chunked.txt')
+  assert.equal(chunkedFile.status, 200)
+  assert.equal(await chunkedFile.text(), chunkedBody)
+
   // Resolve the upstream file-reference controller for a cold blank Agent too.
   const blankFileCandidates = await typertRpc('fileReferences', 'list', {
     agentId: protocolSessionId,
