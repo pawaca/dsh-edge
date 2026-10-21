@@ -151,6 +151,18 @@ describe('Edge VFS file attachments', () => {
       .toEqual([storedFilePath(a), storedFilePath(b), storedFilePath(empty)].sort((x, y) => x.localeCompare(y)))
   })
 
+  // Another upload of the same bytes and name replaces the object in one rename;
+  // if that rename fails, the copy earlier messages reference stays readable.
+  it('keeps the existing object when replacing it fails', async () => {
+    const files = new TestFiles()
+    const ref = await saveFileStream(files.open, { data: chunksOf(bytes('kept')), name: 'a.txt' })
+    files.rename = () => Promise.reject(new Error('injected rename failure'))
+    await expect(saveFileStream(files.open, { data: chunksOf(bytes('kept')), name: 'a.txt' }))
+      .rejects.toMatchObject({ code: 'ATTACHMENT_WRITE_FAILED' })
+    expect([...files.entries.keys()]).toEqual([storedFilePath(ref)])
+    expect(await collect(readFileStream(files.open, ref))).toEqual(bytes('kept'))
+  })
+
   it('stops at the size limit, leaving no staged or addressed object', async () => {
     const files = new TestFiles()
     const failure = saveFileStream(files.open, {

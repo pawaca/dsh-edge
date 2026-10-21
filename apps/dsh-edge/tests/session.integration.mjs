@@ -1958,6 +1958,10 @@ try {
   assert.equal(notesUpload.body.ok, true, JSON.stringify(notesUpload.body))
   const notesDigest = createHash('sha256').update(notes).digest('hex')
   assert.deepEqual(notesUpload.body.value.file, { attachmentId: `sha256:${notesDigest}`, name: 'notes.txt', bytes: Buffer.byteLength(notes) })
+  // The same bytes and name again replace the stored object in one VFS rename.
+  const notesAgain = await uploadFile(fileSessionId, 'notes.txt', notes)
+  assert.equal(notesAgain.body.ok, true, JSON.stringify(notesAgain.body))
+  assert.deepEqual(notesAgain.body.value.file, notesUpload.body.value.file)
   // Several 512 KiB VFS chunks, generated here.
   const largeFile = new Uint8Array(3 * 1024 * 1024 + 123)
   for (let index = 0; index < largeFile.byteLength; index++) largeFile[index] = (index * 31 + 7) % 251

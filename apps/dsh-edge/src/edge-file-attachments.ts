@@ -135,8 +135,8 @@ export async function saveFileStream(
     }
     const target = storedFilePath(ref)
     await files.mkdir(target.slice(0, target.lastIndexOf('/')), { recursive: true })
-    // An existing object at this address is replaced, so a damaged copy heals.
-    await files.rm(target, { force: true })
+    // The VFS replaces an existing object at this address in one SQLite
+    // transaction, so a damaged copy heals and an intact one is never missing.
     await files.rename(staged, target)
     return ref
   } catch (error) {
