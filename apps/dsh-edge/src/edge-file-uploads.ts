@@ -165,9 +165,14 @@ export class EdgeFileUploads extends FileUploads {
       [Symbol.dispose]: () => {
         binding[Symbol.dispose]()
         if (committed) return
+        // Only rows still bound to this request roll back: a newer prompt that
+        // rebound a receipt meanwhile keeps it, so its recorded message retires it.
         this.storage.transactionSync(() => {
           for (const [id, request] of previous) {
-            this.storage.sql.exec('UPDATE dsh_edge_upload_receipts SET request_id = ? WHERE receipt_id = ?', request, id)
+            this.storage.sql.exec(
+              'UPDATE dsh_edge_upload_receipts SET request_id = ? WHERE receipt_id = ? AND request_id = ?',
+              request, id, requestId,
+            )
           }
         })
       },
