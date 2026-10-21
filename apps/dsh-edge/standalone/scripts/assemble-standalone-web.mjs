@@ -44,7 +44,6 @@ const edgeExcludedPackages = new Set([
   '@deepseek-ai/dsh-client-hmr',
   '@deepseek-ai/dsh-cordis-client-runner',
   '@deepseek-ai/dsh-client-ui-cordis',
-  '@deepseek-ai/dsh-session-log-export',
   // Host services the Edge does not provide: desktop product telemetry, a
   // PTY terminal, DeepSeek account sign-in (the Edge authenticates with an
   // API key), and runtime plugin management. The shell settings page below
