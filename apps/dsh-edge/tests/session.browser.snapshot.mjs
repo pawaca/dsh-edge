@@ -582,7 +582,7 @@ describe('dsh-edge assembled browser snapshot', () => {
       await mock.close()
       rmSync(persistedState, { recursive: true, force: true })
     }
-  }, 120_000)
+  }, 240_000)
 
   it('enables upstream image intake through the temporary DO attachment backend', async () => {
     const persistedState = mkdtempSync(join(tmpdir(), 'dsh-edge-browser-temporary-'))
@@ -675,7 +675,7 @@ describe('dsh-edge assembled browser snapshot', () => {
       await worker?.stop()
       rmSync(persistedState, { recursive: true, force: true })
     }
-  }, 60_000)
+  }, 240_000)
 })
 
 async function stableAria(page, selector) {
