@@ -223,10 +223,8 @@ async function requestForInstance(request: Request, ownerSessionExpiresAt: numbe
 /**
  * A file upload streams through to the Durable Object, whose attachment store
  * counts the bytes and stops at the file limit; buffering it here would hold
- * the whole file in Worker memory. The body is piped through a stream this
- * request owns: the Durable Object may answer (a refusal, a missing session)
- * before the client finishes sending, and the rest of the body must be
- * cancelled before the response is returned, not read after it.
+ * the whole file in Worker memory. The Durable Object reads the whole body
+ * before it answers, refusals included.
  */
 async function forwardUpload(
   instance: DurableObjectStub,
@@ -238,18 +236,7 @@ async function forwardUpload(
     throw new EdgeHttpError(413, `Files are limited to ${String(EDGE_MAX_FILE_ATTACHMENT_BYTES / 1024 / 1024)} MiB on this Edge instance.`)
   }
   const headers = forwardedHeaders(request, ownerSessionExpiresAt)
-  if (request.body === null) return await instance.fetch(new Request(request.url, { method: request.method, headers }))
-  const body = new TransformStream<Uint8Array, Uint8Array>()
-  const stop = new AbortController()
-  // Stopping cancels the client's body but leaves the forwarded stream to end normally.
-  const piped = request.body.pipeTo(body.writable, { signal: stop.signal, preventAbort: true }).catch(() => undefined)
-  try {
-    return await instance.fetch(new Request(request.url, { method: request.method, headers, body: body.readable }))
-  } finally {
-    stop.abort()
-    await piped
-    await body.writable.close().catch(() => undefined)
-  }
+  return await instance.fetch(new Request(request.url, { method: request.method, headers, body: request.body }))
 }
 
 function isInstanceApiPath(pathname: string): boolean {

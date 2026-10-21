@@ -1307,6 +1307,23 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
    * the workspace while the bytes stream (edge-file-attachments.ts).
    */
   private async uploadFile(url: URL, request: Request, route: (request: Request) => Promise<Response>): Promise<Response> {
+    try {
+      return await this.stageUpload(url, request, route)
+    } finally {
+      // Whatever the outcome, the response goes out only after the client has
+      // sent its whole body: a response sent while the request body is still
+      // arriving is not delivered reliably. Unread bytes are discarded; the
+      // Worker's declared-length check and platform request limits bound them.
+      if (request.body !== null && !request.body.locked) {
+        const reader = request.body.getReader()
+        try {
+          while (!(await reader.read()).done) { /* discard */ }
+        } catch { /* the client went away */ }
+      }
+    }
+  }
+
+  private async stageUpload(url: URL, request: Request, route: (request: Request) => Promise<Response>): Promise<Response> {
     const sessionId = url.searchParams.get('sessionId')
     // Upstream answers a malformed request (method, content type, no session) itself.
     if (request.method === 'POST' && sessionId !== null && sessionId !== ''
@@ -1326,18 +1343,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         })
       }
     }
-    const response = await route(request)
-    // An upload refused partway (over the file limit) answers only after the
-    // rest of the body is read and discarded: a response sent while the
-    // client is still sending is not delivered. Platform request limits bound
-    // what is drained, and nothing is kept.
-    if (request.body !== null && !request.body.locked) {
-      const reader = request.body.getReader()
-      try {
-        while (!(await reader.read()).done) { /* discard */ }
-      } catch { /* the client went away */ }
-    }
-    return response
+    return await route(request)
   }
 
   private async withWorkspaceFileScope<T>(run: () => Promise<T>): Promise<T> {
