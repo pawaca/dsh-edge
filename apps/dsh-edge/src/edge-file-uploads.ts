@@ -138,11 +138,23 @@ export class EdgeFileUploads extends FileUploads {
 
   /** Record the binding on the receipts' rows too, restoring them if it rolls back. */
   private bindRows(ids: readonly string[], requestId: string, binding: PromptFileBinding): PromptFileBinding {
-    const previous = new Map(ids.map(id => [id, this.storage.sql.exec<{ request_id: string | null }>(
-      'SELECT request_id FROM dsh_edge_upload_receipts WHERE receipt_id = ?', id,
-    ).toArray()[0]?.request_id ?? null]))
-    for (const id of ids) {
-      this.storage.sql.exec('UPDATE dsh_edge_upload_receipts SET request_id = ? WHERE receipt_id = ?', requestId, id)
+    let previous: Map<string, string | null>
+    try {
+      // All rows change or none do, so a failed write (a spent quota) leaves
+      // no receipt bound to a prompt that was refused.
+      previous = this.storage.transactionSync(() => {
+        const before = new Map(ids.map(id => [id, this.storage.sql.exec<{ request_id: string | null }>(
+          'SELECT request_id FROM dsh_edge_upload_receipts WHERE receipt_id = ?', id,
+        ).toArray()[0]?.request_id ?? null]))
+        for (const id of ids) {
+          this.storage.sql.exec('UPDATE dsh_edge_upload_receipts SET request_id = ? WHERE receipt_id = ?', requestId, id)
+        }
+        return before
+      })
+    } catch (error) {
+      // Undo upstream's in-memory binding too: the caller never receives it.
+      binding[Symbol.dispose]()
+      throw error
     }
     let committed = false
     return {
@@ -153,9 +165,11 @@ export class EdgeFileUploads extends FileUploads {
       [Symbol.dispose]: () => {
         binding[Symbol.dispose]()
         if (committed) return
-        for (const [id, request] of previous) {
-          this.storage.sql.exec('UPDATE dsh_edge_upload_receipts SET request_id = ? WHERE receipt_id = ?', request, id)
-        }
+        this.storage.transactionSync(() => {
+          for (const [id, request] of previous) {
+            this.storage.sql.exec('UPDATE dsh_edge_upload_receipts SET request_id = ? WHERE receipt_id = ?', request, id)
+          }
+        })
       },
     }
   }

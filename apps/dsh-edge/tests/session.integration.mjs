@@ -1944,10 +1944,12 @@ try {
   // workspace VFS at its content address; a prompt's file part resolves its receipt, the model is
   // told the saved path, and its file tool reads the bytes there.
   const fileSessionId = (await rpc('session.create', {})).body.result.value.sessionId
+  // Uploads declare their length, as a browser's do; worker.fetch sends none unless told.
   const uploadFile = async (sessionId, name, body, contentType = 'application/octet-stream') => {
+    const length = typeof body === 'string' ? Buffer.byteLength(body) : body.byteLength
     const response = await request(`/api/session/uploadFileBinary?sessionId=${sessionId}&name=${encodeURIComponent(name)}`, {
       method: 'POST',
-      headers: { 'content-type': contentType },
+      headers: { 'content-type': contentType, 'content-length': String(length) },
       body,
     })
     return { status: response.status, body: response.headers.get('content-type')?.startsWith('application/json') ? await response.json() : await response.text() }
@@ -2047,27 +2049,27 @@ try {
   assert.equal(missingSessionUpload.body.error.code, 'session/not-found')
   const wrongType = await uploadFile(fileSessionId, 'x.txt', 'x', 'text/plain')
   assert.equal(wrongType.status, 415, JSON.stringify(wrongType.body))
-  // A body without a declared length streams until the Durable Object's store passes the 64 MiB
-  // file limit, then the upload fails and leaves nothing staged.
+  // An upload must declare its length, so one over the 64 MiB limit is refused
+  // before any byte reaches the workspace VFS, which keeps written chunks for good.
   let streamedMiB = 0
-  const overLimit = new ReadableStream({
-    pull(controller) {
-      if (streamedMiB++ > 64) controller.close()
-      else controller.enqueue(new Uint8Array(1024 * 1024))
-    },
-  })
-  const overLimitStarted = Date.now()
-  const overLimitUpload = await request(`/api/session/uploadFileBinary?sessionId=${fileSessionId}&name=big.bin`, {
+  const undeclared = await request(`/api/session/uploadFileBinary?sessionId=${fileSessionId}&name=big.bin`, {
     method: 'POST',
     headers: { 'content-type': 'application/octet-stream' },
-    body: overLimit,
+    body: new ReadableStream({
+      pull(controller) {
+        if (streamedMiB++ > 1) controller.close()
+        else controller.enqueue(new Uint8Array(1024 * 1024))
+      },
+    }),
     duplex: 'half',
   })
-  const overLimitResult = await overLimitUpload.json()
-  assert.equal(overLimitResult.ok, false)
-  assert.equal(overLimitResult.error.code, 'session/attachment-invalid')
-  assert.match(overLimitResult.error.message, /limited to 64 MiB/u)
-  console.log(`over-limit upload refused after ${String(Date.now() - overLimitStarted)} ms`)
+  assert.equal(undeclared.status, 411)
+  const overLimit = await request(`/api/session/uploadFileBinary?sessionId=${fileSessionId}&name=big.bin`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/octet-stream', 'content-length': String(64 * 1024 * 1024 + 1) },
+    body: new Uint8Array(64 * 1024 * 1024 + 1),
+  })
+  assert.equal(overLimit.status, 413)
   const staging = await jsonRequest('/api/workspace/exec', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
