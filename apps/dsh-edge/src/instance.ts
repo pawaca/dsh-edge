@@ -1325,8 +1325,11 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
 
   private async stageUpload(url: URL, request: Request, route: (request: Request) => Promise<Response>): Promise<Response> {
     const sessionId = url.searchParams.get('sessionId')
-    // Upstream answers a malformed request (method, content type, no session) itself.
-    if (request.method === 'POST' && sessionId !== null && sessionId !== ''
+    // Upstream answers a malformed request (method, content type, no session)
+    // itself; checking its preconditions first keeps such a request from
+    // resuming, and so writing to, a cold session.
+    const octetStream = request.headers.get('content-type')?.split(';', 1)[0]?.trim().toLowerCase() === 'application/octet-stream'
+    if (request.method === 'POST' && octetStream && sessionId !== null && sessionId !== ''
       && this.sessions.liveAgent(SessionId(sessionId)) === undefined) {
       try {
         await this.withAgentControl(SessionId(sessionId), () => Promise.resolve())
