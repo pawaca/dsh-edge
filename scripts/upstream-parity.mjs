@@ -351,7 +351,9 @@ export function mentionsUsedPackage(texts, usage, owned = []) {
 
 async function fetchOk(url, init) {
   const response = await fetch(url, init)
-  if (!response.ok) throw new Error(`upstream-parity: ${url} answered ${String(response.status)}`)
+  if (!response.ok) {
+    throw Object.assign(new Error(`upstream-parity: ${url} answered ${String(response.status)}`), { status: response.status })
+  }
   return response
 }
 
@@ -516,7 +518,12 @@ async function main([command = 'verify', argument]) {
     const surfaces = []
     for (const name of owned) {
       const short = name.slice(scope.length)
-      const [fromFiles, toFiles] = await Promise.all([packageFiles(short, from), packageFiles(short, argument).catch(() => undefined)])
+      // Only a confirmed 404 means the package is gone; any other failure aborts, so an
+      // incomplete report never passes for a complete one.
+      const [fromFiles, toFiles] = await Promise.all([
+        packageFiles(short, from),
+        packageFiles(short, argument).catch(error => { if (error?.status === 404) return undefined; throw error }),
+      ])
       if (toFiles === undefined) surfaces.push(`${name}: not published at ${argument}`)
       else {
         const diff = surfaceDiff(fromFiles, toFiles)
