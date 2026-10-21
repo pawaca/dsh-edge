@@ -6,6 +6,7 @@ import { chromium } from 'playwright'
 import { expect, it } from 'vitest'
 import { unstable_dev } from 'wrangler'
 import { workerArtifactPath, writePrebuiltModeWranglerConfig } from '../scripts/wrangler-config.mjs'
+import { keepFailingBrowserState } from './fixtures/browser-failure.mjs'
 import { chatMessages, startMockDeepSeek } from './fixtures/mock-deepseek.mjs'
 
 // Skip: SDK @1.30 bundle increases DO cold-start time past the 150s idle
@@ -48,6 +49,9 @@ it.skip('restores live browser subscriptions after an idle DO wakes for a prompt
     await page.getByRole('paragraph').filter({ hasText: 'remembered-alpha' }).waitFor({ timeout: 60_000 })
     expect(carrierCloses).toBeGreaterThan(beforeIdle)
     expect(mock.requests.some(request => chatMessages(request).some(message => message.content === 'hello after idle'))).toBe(true)
+  } catch (error) {
+    await keepFailingBrowserState('remote-idle', browser)
+    throw error
   } finally {
     mock.releaseSlowResponses()
     await browser?.close()

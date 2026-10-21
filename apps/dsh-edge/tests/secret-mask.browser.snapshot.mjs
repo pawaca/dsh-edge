@@ -12,6 +12,7 @@ import { chromium } from 'playwright'
 import { expect, it } from 'vitest'
 import { unstable_dev } from 'wrangler'
 import { workerArtifactPath, writePrebuiltModeWranglerConfig } from '../scripts/wrangler-config.mjs'
+import { keepFailingBrowserState } from './fixtures/browser-failure.mjs'
 import { chatMessages, startMockDeepSeek } from './fixtures/mock-deepseek.mjs'
 
 /** A key-shaped value, long enough for the plugin's recognizer. It is not a credential. */
@@ -44,10 +45,12 @@ it('masks a pasted credential in the Web display only, and labels the Flash mode
     const input = page.getByRole('textbox').last()
     await input.waitFor()
     const send = page.getByRole('button', { name: 'Send message', exact: true })
+    // 60 s: Windows release runs have stalled past 30 s before the Web client accepts a draft
+    // (0.27.1 release run 39555631013); a failure keeps the page state for diagnosis.
     await expect.poll(async () => {
       await input.fill(PROMPT)
       return await send.isEnabled()
-    }, { timeout: 30_000 }).toBe(true)
+    }, { timeout: 60_000 }).toBe(true)
     await send.click()
     await page.getByText('remembered-alpha', { exact: true }).first().waitFor({ timeout: 30_000 })
 
@@ -69,6 +72,9 @@ it('masks a pasted credential in the Web display only, and labels the Flash mode
     const sent = events.find(event => event.type === 'user/message' && event.data.source?.kind !== 'time-context' && JSON.stringify(event.data.content).includes('fake test key'))
     expect(JSON.stringify(sent?.data.content)).toContain(FAKE_KEY)
     expect(mock.requests.some(request => JSON.stringify(chatMessages(request)).includes(FAKE_KEY))).toBe(true)
+  } catch (error) {
+    await keepFailingBrowserState('secret-mask', browser)
+    throw error
   } finally {
     await browser?.close()
     await worker?.stop()

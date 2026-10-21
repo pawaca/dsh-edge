@@ -6,6 +6,7 @@ import { chromium } from 'playwright'
 import { expect, it } from 'vitest'
 import { unstable_dev } from 'wrangler'
 import { workerArtifactPath, writePrebuiltModeWranglerConfig } from '../scripts/wrangler-config.mjs'
+import { keepFailingBrowserState } from './fixtures/browser-failure.mjs'
 import { chatMessages, startMockDeepSeek } from './fixtures/mock-deepseek.mjs'
 
 it('wakes a cold session for a durable reminder without a browser connection', async () => {
@@ -37,12 +38,12 @@ it('wakes a cold session for a durable reminder without a browser connection', a
     const send = page.getByRole('button', { name: 'Send message', exact: true })
     // The initial blank session can replace the composer during bootstrap.
     // Wait for a draft accepted by the mounted session before submitting once.
-    // 30 s like this file's other waits: a Windows release run timed out here at 15 s once
-    // after the same code had passed (run 38158053661; flake mitigation).
+    // 60 s: Windows release runs timed out here at 15 s (run 38158053661) and stalled past
+    // 30 s in another file (0.27.1 run 39555631013); a failure keeps the page state.
     await expect.poll(async () => {
       await input.fill(`schedule once ${delay}`)
       return await send.isEnabled()
-    }, { timeout: 30_000 }).toBe(true)
+    }, { timeout: 60_000 }).toBe(true)
     await send.click()
     await page.getByText('tool-finished', { exact: true }).first().waitFor({ timeout: 30_000 })
     expect(mock.requests.some(request => chatMessages(request).some(message => message.role === 'tool' && message.content?.includes('scheduledAt')))).toBe(true)
@@ -69,6 +70,9 @@ it('wakes a cold session for a durable reminder without a browser connection', a
       // Capture the restored page on failure too; CI keeps it as an artifact.
       if (process.env.DSH_EDGE_SCHEDULE_SCREENSHOT) await restored.screenshot({ path: process.env.DSH_EDGE_SCHEDULE_SCREENSHOT, fullPage: true })
     }
+  } catch (error) {
+    await keepFailingBrowserState('schedule', browser)
+    throw error
   } finally {
     mock.releaseSlowResponses()
     await browser?.close()

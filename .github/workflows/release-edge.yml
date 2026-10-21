@@ -247,7 +247,15 @@ jobs:
       - name: Verify assembled runtime and browser snapshots
         env:
           DSH_EDGE_PLAYWRIGHT_CHANNEL: chrome
+          DSH_EDGE_BROWSER_ARTIFACTS: ${{ runner.temp }}/browser-artifacts
         run: pnpm --filter dsh-edge run test:snapshot
+      - name: Keep the failing browser state
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-browser-snapshots
+          path: ${{ runner.temp }}/browser-artifacts/
+          if-no-files-found: ignore
       - name: Verify installed release
         run: |
           $version = node -p "require('./apps/dsh-edge/package.json').version"

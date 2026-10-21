@@ -56,7 +56,12 @@ describe('repository workflows', () => {
       .toBeLessThan(windowsJob.indexOf('run: pnpm install --frozen-lockfile'))
     expect(windowsJob).toContain('run: pnpm --dir apps/dsh-edge/standalone run verify')
     expect(edge).toContain('run: node apps/dsh-edge/tests/run-session-integration.mjs')
-    expect(count(edge, /DSH_EDGE_PLAYWRIGHT_CHANNEL: chrome\n\s+(?:DSH_EDGE_SCHEDULE_SCREENSHOT: [^\n]+\n\s+)?run: pnpm --filter dsh-edge run test:snapshot/gu)).toBe(2)
+    expect(count(edge, /DSH_EDGE_PLAYWRIGHT_CHANNEL: chrome\n\s+(?:DSH_EDGE_[A-Z_]+: [^\n]+\n\s+)*run: pnpm --filter dsh-edge run test:snapshot/gu)).toBe(2)
+    // A Windows browser failure keeps each page's screenshot and console, in CI and in the release run.
+    for (const source of [edge, release]) {
+      expect(source).toContain('DSH_EDGE_BROWSER_ARTIFACTS: ${{ runner.temp }}/browser-artifacts')
+      expect(source).toContain('${{ runner.temp }}/browser-artifacts/')
+    }
   })
 
   it('uses the reviewed Node 24 action toolchain without an implicit root install', () => {

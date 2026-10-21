@@ -132,7 +132,7 @@ describe('dsh-edge assembled runtime snapshot', () => {
       await mock.close()
       rmSync(persistedState, { recursive: true, force: true })
     }
-  }, 40_000)
+  }, 240_000)
 })
 
 async function jsonRequest(worker, path, init) {

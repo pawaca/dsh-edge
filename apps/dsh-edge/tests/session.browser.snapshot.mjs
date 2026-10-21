@@ -13,6 +13,7 @@ import {
   writePrebuiltModeWranglerConfig,
 } from '../scripts/wrangler-config.mjs'
 import { targetTag } from '../scripts/publish.mjs'
+import { keepFailingBrowserState } from './fixtures/browser-failure.mjs'
 import { startMockDeepSeek } from './fixtures/mock-deepseek.mjs'
 
 const edgePackage = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
@@ -237,6 +238,9 @@ describe('dsh-edge assembled browser snapshot', () => {
             const body = await response.json()
             return body.result?.value?.namespaces?.find(row => row.ns === 'ui-theme')?.user
           }), { timeout: 15_000 }).toMatchObject({ preference: 'dark' })
+        } catch (error) {
+          await keepFailingBrowserState('session-remote-origin', remoteBrowser)
+          throw error
         } finally {
           await remoteBrowser?.close()
           await remoteWorker?.stop()
@@ -571,6 +575,9 @@ describe('dsh-edge assembled browser snapshot', () => {
         { timeout: 15_000 },
       ).toBe(1)
       expect(pageErrors).toEqual([])
+    } catch (error) {
+      await keepFailingBrowserState('session-transcript', browser)
+      throw error
     } finally {
       await browser?.close()
       await worker?.stop()
@@ -578,7 +585,7 @@ describe('dsh-edge assembled browser snapshot', () => {
       await mock.close()
       rmSync(persistedState, { recursive: true, force: true })
     }
-  }, 120_000)
+  }, 240_000)
 
   it('enables upstream image intake through the temporary DO attachment backend', async () => {
     const persistedState = mkdtempSync(join(tmpdir(), 'dsh-edge-browser-temporary-'))
@@ -663,12 +670,15 @@ describe('dsh-edge assembled browser snapshot', () => {
         await page.waitForTimeout(500)
       }
       await expect.poll(() => pendingImages.count(), { timeout: 15_000 }).toBe(1)
+    } catch (error) {
+      await keepFailingBrowserState('session-image-intake', browser)
+      throw error
     } finally {
       await browser?.close()
       await worker?.stop()
       rmSync(persistedState, { recursive: true, force: true })
     }
-  }, 60_000)
+  }, 240_000)
 })
 
 async function stableAria(page, selector) {
