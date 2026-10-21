@@ -367,6 +367,9 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
   /** Blank-session preset switches in flight; a claimed turn waits for its session's switch. */
   private readonly presetSwitches = new Map<SessionId, Promise<unknown>>()
   private residentWorkspace: EdgeWorkspace | undefined
+  /** The background spill sweep in flight, and when the daily gate is next worth checking. */
+  private spillSweep: Promise<void> | undefined
+  private nextSpillSweepAt = 0
   private readonly containerActivity = new ContainerActivity(
     () => this.sessions.runtimeSettings().containerSleepMinutes * 60_000,
   )
@@ -1033,7 +1036,11 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     if (this.residentWorkspace === undefined) {
       this.residentWorkspace = await getWorkspace(this)
       this.sessions.spillStore()?.bind(this.residentWorkspace.fs)
-      this.ctx.waitUntil(this.sweepSpills())
+    }
+    // Recheck on later uses too, so an instance that stays resident for days still sweeps daily.
+    if (this.spillSweep === undefined && Date.now() >= this.nextSpillSweepAt) {
+      this.spillSweep = this.sweepSpills().finally(() => { this.spillSweep = undefined })
+      this.ctx.waitUntil(this.spillSweep)
     }
     return this.residentWorkspace
   }
@@ -1046,10 +1053,16 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
   private async sweepSpills(): Promise<void> {
     const store = this.sessions.spillStore()
     if (store === undefined) return
+    // A failure below retries an hour later rather than on every workspace use.
+    this.nextSpillSweepAt = Date.now() + 60 * 60 * 1000
     try {
       const now = Date.now()
       const last = await this.ctx.storage.get<{ at: number; cursor: number }>(SPILL_SWEPT_AT_KEY)
-      if (last !== undefined && now - last.at < SPILL_SWEEP_INTERVAL_MS) return
+      if (last !== undefined && now - last.at < SPILL_SWEEP_INTERVAL_MS) {
+        this.nextSpillSweepAt = last.at + SPILL_SWEEP_INTERVAL_MS
+        return
+      }
+      this.nextSpillSweepAt = now + SPILL_SWEEP_INTERVAL_MS
       // One sweep per activation (the resident workspace opens once); an
       // eviction mid-sweep leaves the record unchanged, so the next start retries.
       const { cursor } = await store.sweep(now, last?.cursor ?? 0)

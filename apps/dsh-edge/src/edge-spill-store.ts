@@ -8,15 +8,23 @@ const SPILL_DIRECTORY = '/workspace/.spill'
 export const SPILL_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
 
 /**
- * One sweep lists at most `entries` spills and deletes at most `deletes`, so its
- * Durable Object rows stay bounded; a larger backlog drains over later sweeps.
+ * One sweep lists at most `entries` spills and deletes at most `deletes`, spending
+ * at most `rows` estimated rows written; a larger backlog drains over later sweeps.
  */
-export const SPILL_SWEEP_LIMITS = { entries: 1_000, deletes: 200 } as const
+export const SPILL_SWEEP_LIMITS = { entries: 1_000, deletes: 200, rows: 1_000 } as const
+
+/**
+ * Rows one delete writes in the workspace VFS: measured in workerd as 9 for a
+ * file of one 512 KiB chunk and 10 for two, so about 8 plus one per chunk.
+ */
+export function spillDeleteRows(bytes: number): number {
+  return 8 + Math.max(1, Math.ceil(bytes / (512 * 1024)))
+}
 
 export interface SpillFilesystem {
   mkdir(path: string, options: { recursive: boolean }): Promise<void>
   writeFile(path: string, content: string): Promise<void>
-  readdir(path: string, options?: { limit?: number; offset?: number }): Promise<Array<{ name: string; mtime: number; isFile: boolean }>>
+  readdir(path: string, options?: { limit?: number; offset?: number }): Promise<Array<{ name: string; mtime: number; size: number; isFile: boolean }>>
   rm(path: string): Promise<void>
 }
 
@@ -66,10 +74,16 @@ export class EdgeVfsSpillStore extends SpillStore {
     const cutoff = now - SPILL_RETENTION_MS
     let deleted = 0
     let read = 0
+    let rows = 0
     for (const entry of entries) {
       if (deleted >= SPILL_SWEEP_LIMITS.deletes) break
+      const expired = entry.isFile && entry.mtime < cutoff
+      // Billed rows grow with a file's chunks, so the budget, not the file count,
+      // decides how much one sweep may delete.
+      if (expired && rows + spillDeleteRows(entry.size) > SPILL_SWEEP_LIMITS.rows) break
       read++
-      if (!entry.isFile || entry.mtime >= cutoff) continue
+      if (!expired) continue
+      rows += spillDeleteRows(entry.size)
       try {
         await fs.rm(`${SPILL_DIRECTORY}/${entry.name}`)
         deleted++

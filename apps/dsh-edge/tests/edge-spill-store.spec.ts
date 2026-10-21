@@ -1,22 +1,22 @@
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it } from 'vitest'
-import { EdgeVfsSpillStore, SPILL_RETENTION_MS, SPILL_SWEEP_LIMITS, type SpillFilesystem } from '../src/edge-spill-store.ts'
+import { EdgeVfsSpillStore, SPILL_RETENTION_MS, SPILL_SWEEP_LIMITS, spillDeleteRows, type SpillFilesystem } from '../src/edge-spill-store.ts'
 
 const DAY = 24 * 60 * 60 * 1000
 const NOW = Date.UTC(2026, 9, 21)
 
-function memoryFs(entries: Array<{ name: string; mtime: number; isFile?: boolean }> = []) {
-  const files = new Map(entries.map(entry => [`/workspace/.spill/${entry.name}`, { mtime: entry.mtime, isFile: entry.isFile ?? true, content: '' }]))
+function memoryFs(entries: Array<{ name: string; mtime: number; isFile?: boolean; size?: number }> = []) {
+  const files = new Map(entries.map(entry => [`/workspace/.spill/${entry.name}`, { mtime: entry.mtime, isFile: entry.isFile ?? true, size: entry.size ?? 1, content: '' }]))
   const fs: SpillFilesystem & { files: typeof files } = {
     files,
     mkdir: async () => {},
-    writeFile: async (path, content) => { files.set(path, { mtime: NOW, isFile: true, content }) },
+    writeFile: async (path, content) => { files.set(path, { mtime: NOW, isFile: true, size: content.length, content }) },
     // Name order with offset paging, as the workspace VFS lists a directory.
     readdir: async (path, options) => [...files.entries()]
       .filter(([file]) => file.startsWith(`${path}/`))
       .sort(([a], [b]) => a.localeCompare(b))
       .slice(options?.offset ?? 0, (options?.offset ?? 0) + (options?.limit ?? Infinity))
-      .map(([file, entry]) => ({ name: file.slice(path.length + 1), mtime: entry.mtime, isFile: entry.isFile })),
+      .map(([file, entry]) => ({ name: file.slice(path.length + 1), mtime: entry.mtime, size: entry.size, isFile: entry.isFile })),
     rm: async path => { files.delete(path) },
   }
   return fs
@@ -63,9 +63,10 @@ describe('EdgeVfsSpillStore', () => {
     const backlog = Array.from({ length: SPILL_SWEEP_LIMITS.deletes + 5 }, (_, index) => ({ name: `old-${String(index)}.txt`, mtime: 0 }))
     const fs = memoryFs(backlog)
     const spills = store(fs)
+    const perSweep = Math.min(SPILL_SWEEP_LIMITS.deletes, Math.floor(SPILL_SWEEP_LIMITS.rows / spillDeleteRows(1)))
     const first = await spills.sweep(NOW)
-    expect(first).toEqual({ deleted: SPILL_SWEEP_LIMITS.deletes, cursor: 0 })
-    expect(await spills.sweep(NOW, first.cursor)).toEqual({ deleted: 5, cursor: 0 })
+    expect(first).toEqual({ deleted: perSweep, cursor: 0 })
+    expect(await spills.sweep(NOW, first.cursor)).toEqual({ deleted: backlog.length - perSweep, cursor: 0 })
     expect(fs.files.size).toBe(0)
   })
 
@@ -79,6 +80,20 @@ describe('EdgeVfsSpillStore', () => {
     expect(first).toEqual({ deleted: 0, cursor: SPILL_SWEEP_LIMITS.entries })
     expect(await spills.sweep(NOW, first.cursor)).toEqual({ deleted: 1, cursor: 0 })
     expect(fs.files.has('/workspace/.spill/z-old.txt')).toBe(false)
+  })
+
+  // Deleting a chunked VFS file writes a row per chunk, so a few large spills
+  // exhaust the budget before the file cap; the rest wait for the next sweep.
+  it('stops at the row budget, so large spills drain over several sweeps', async () => {
+    const large = 40 * 1024 * 1024
+    const fs = memoryFs(Array.from({ length: 30 }, (_, index) => ({ name: `big-${String(index).padStart(2, '0')}.txt`, mtime: 0, size: large })))
+    const spills = store(fs)
+    const perSweep = Math.floor(SPILL_SWEEP_LIMITS.rows / spillDeleteRows(large))
+    const first = await spills.sweep(NOW)
+    expect(first).toEqual({ deleted: perSweep, cursor: 0 })
+    expect(fs.files.size).toBe(30 - perSweep)
+    expect(spillDeleteRows(10)).toBe(9)
+    expect(spillDeleteRows(1024 * 1024)).toBe(10)
   })
 
   it('does nothing without a bound workspace or a spill directory', async () => {
