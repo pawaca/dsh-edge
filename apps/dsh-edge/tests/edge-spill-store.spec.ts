@@ -11,9 +11,11 @@ function memoryFs(entries: Array<{ name: string; mtime: number; isFile?: boolean
     files,
     mkdir: async () => {},
     writeFile: async (path, content) => { files.set(path, { mtime: NOW, isFile: true, content }) },
+    // Name order with offset paging, as the workspace VFS lists a directory.
     readdir: async (path, options) => [...files.entries()]
       .filter(([file]) => file.startsWith(`${path}/`))
-      .slice(0, options?.limit)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .slice(options?.offset ?? 0, (options?.offset ?? 0) + (options?.limit ?? Infinity))
       .map(([file, entry]) => ({ name: file.slice(path.length + 1), mtime: entry.mtime, isFile: entry.isFile })),
     rm: async path => { files.delete(path) },
   }
@@ -41,7 +43,7 @@ describe('EdgeVfsSpillStore', () => {
     const first = await spills.saveText(spill('session-reference-1.txt', 'session-a'))
     const second = await spills.saveText(spill('session-reference-1.txt', 'session-a'))
     expect(first.locator).not.toBe(second.locator)
-    expect(String(first.locator)).toMatch(/^\/workspace\/\.spill\/[0-9a-f]{8}-session-reference-1\.txt_session-a\.txt$/u)
+    expect(String(first.locator)).toMatch(/^\/workspace\/\.spill\/[0-9a-f-]{36}-session-reference-1\.txt_session-a\.txt$/u)
     expect(fs.files.size).toBe(2)
   })
 
@@ -52,7 +54,7 @@ describe('EdgeVfsSpillStore', () => {
       { name: 'fresh.txt', mtime: NOW - DAY },
       { name: 'old-dir', mtime: NOW - 400 * DAY, isFile: false },
     ])
-    expect(await store(fs).sweep(NOW)).toBe(1)
+    expect(await store(fs).sweep(NOW)).toEqual({ deleted: 1, cursor: 0 })
     expect([...fs.files.keys()].map(path => path.split('/').pop() ?? '').sort((a, b) => a.localeCompare(b)))
       .toEqual(['edge.txt', 'fresh.txt', 'old-dir'])
   })
@@ -61,14 +63,27 @@ describe('EdgeVfsSpillStore', () => {
     const backlog = Array.from({ length: SPILL_SWEEP_LIMITS.deletes + 5 }, (_, index) => ({ name: `old-${String(index)}.txt`, mtime: 0 }))
     const fs = memoryFs(backlog)
     const spills = store(fs)
-    expect(await spills.sweep(NOW)).toBe(SPILL_SWEEP_LIMITS.deletes)
-    expect(await spills.sweep(NOW)).toBe(5)
+    const first = await spills.sweep(NOW)
+    expect(first).toEqual({ deleted: SPILL_SWEEP_LIMITS.deletes, cursor: 0 })
+    expect(await spills.sweep(NOW, first.cursor)).toEqual({ deleted: 5, cursor: 0 })
     expect(fs.files.size).toBe(0)
   })
 
+  // Each sweep reads one bounded page; the cursor carries later sweeps past a
+  // first page of fresh spills to expired ones further on, then wraps.
+  it('resumes after a full page of fresh spills', async () => {
+    const fresh = Array.from({ length: SPILL_SWEEP_LIMITS.entries }, (_, index) => ({ name: `a-${String(index).padStart(5, '0')}.txt`, mtime: NOW }))
+    const fs = memoryFs([...fresh, { name: 'z-old.txt', mtime: 0 }])
+    const spills = store(fs)
+    const first = await spills.sweep(NOW)
+    expect(first).toEqual({ deleted: 0, cursor: SPILL_SWEEP_LIMITS.entries })
+    expect(await spills.sweep(NOW, first.cursor)).toEqual({ deleted: 1, cursor: 0 })
+    expect(fs.files.has('/workspace/.spill/z-old.txt')).toBe(false)
+  })
+
   it('does nothing without a bound workspace or a spill directory', async () => {
-    expect(await store().sweep(NOW)).toBe(0)
+    expect(await store().sweep(NOW, 7)).toEqual({ deleted: 0, cursor: 7 })
     const missing = { ...memoryFs(), readdir: () => Promise.reject(new Error('ENOENT')) }
-    expect(await store(missing).sweep(NOW)).toBe(0)
+    expect(await store(missing).sweep(NOW, 7)).toEqual({ deleted: 0, cursor: 0 })
   })
 })

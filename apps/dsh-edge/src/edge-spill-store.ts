@@ -16,7 +16,7 @@ export const SPILL_SWEEP_LIMITS = { entries: 1_000, deletes: 200 } as const
 export interface SpillFilesystem {
   mkdir(path: string, options: { recursive: boolean }): Promise<void>
   writeFile(path: string, content: string): Promise<void>
-  readdir(path: string, options?: { limit?: number }): Promise<Array<{ name: string; mtime: number; isFile: boolean }>>
+  readdir(path: string, options?: { limit?: number; offset?: number }): Promise<Array<{ name: string; mtime: number; isFile: boolean }>>
   rm(path: string): Promise<void>
 }
 
@@ -35,7 +35,7 @@ export class EdgeVfsSpillStore extends SpillStore {
     const suffix = input.source.kind === 'tool' ? input.source.callId : input.source.sessionId
     // A random prefix keeps two saves of the same name apart, as upstream's does:
     // a later reference to the same session must not replace an earlier spill.
-    const name = `${crypto.randomUUID().slice(0, 8)}-${safe}_${suffix}.txt`
+    const name = `${crypto.randomUUID()}-${safe}_${suffix}.txt`
     const path = `${SPILL_DIRECTORY}/${name}`
     await this.fs.mkdir(SPILL_DIRECTORY, { recursive: true })
     await this.fs.writeFile(path, input.content)
@@ -49,21 +49,26 @@ export class EdgeVfsSpillStore extends SpillStore {
   /**
    * Delete spills older than the retention, as upstream sweeps its spill root
    * on start. Best effort: a missing directory or a failed delete is skipped.
-   * @returns how many spills were deleted.
+   * One sweep reads one bounded page from `cursor` (entries in name order), so
+   * the caller keeps the returned cursor and later sweeps reach the rest of
+   * the directory before wrapping to its start.
+   * @returns how many spills were deleted and where the next sweep starts.
    */
-  async sweep(now: number): Promise<number> {
+  async sweep(now: number, cursor = 0): Promise<{ deleted: number; cursor: number }> {
     const fs = this.fs
-    if (fs === undefined) return 0
+    if (fs === undefined) return { deleted: 0, cursor }
     let entries: Awaited<ReturnType<SpillFilesystem['readdir']>>
     try {
-      entries = await fs.readdir(SPILL_DIRECTORY, { limit: SPILL_SWEEP_LIMITS.entries })
+      entries = await fs.readdir(SPILL_DIRECTORY, { limit: SPILL_SWEEP_LIMITS.entries, offset: cursor })
     } catch {
-      return 0
+      return { deleted: 0, cursor: 0 }
     }
     const cutoff = now - SPILL_RETENTION_MS
     let deleted = 0
+    let read = 0
     for (const entry of entries) {
       if (deleted >= SPILL_SWEEP_LIMITS.deletes) break
+      read++
       if (!entry.isFile || entry.mtime >= cutoff) continue
       try {
         await fs.rm(`${SPILL_DIRECTORY}/${entry.name}`)
@@ -72,6 +77,10 @@ export class EdgeVfsSpillStore extends SpillStore {
         console.warn(`dsh-edge: could not delete spill ${entry.name}`, error)
       }
     }
-    return deleted
+    // A short page reached the end of the directory: start over next time.
+    // Otherwise resume after what this sweep read and kept; deleting shifted
+    // the later entries down by the number deleted.
+    const exhausted = entries.length < SPILL_SWEEP_LIMITS.entries && read === entries.length
+    return { deleted, cursor: exhausted ? 0 : cursor + read - deleted }
   }
 }

@@ -125,7 +125,7 @@ const DEFAULT_SESSION_LIST_LIMIT = 50
 const MAX_SESSION_LIST_LIMIT = 100
 const DEFAULT_REPLAY_EVENT_LIMIT = 128
 const MAX_REPLAY_EVENT_LIMIT = 256
-/** When old spills were last swept, so a Durable Object that restarts often sweeps at most daily. */
+/** When old spills were last swept, and where the next sweep resumes, so a Durable Object that restarts often sweeps at most daily. */
 const SPILL_SWEPT_AT_KEY = 'dsh-edge:spill-swept-at'
 const SPILL_SWEEP_INTERVAL_MS = 24 * 60 * 60 * 1000
 const MAX_REPLAY_RESPONSE_BYTES = 1_048_576
@@ -1048,10 +1048,12 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     if (store === undefined) return
     try {
       const now = Date.now()
-      const last = await this.ctx.storage.get<number>(SPILL_SWEPT_AT_KEY)
-      if (last !== undefined && now - last < SPILL_SWEEP_INTERVAL_MS) return
-      await this.ctx.storage.put(SPILL_SWEPT_AT_KEY, now)
-      await store.sweep(now)
+      const last = await this.ctx.storage.get<{ at: number; cursor: number }>(SPILL_SWEPT_AT_KEY)
+      if (last !== undefined && now - last.at < SPILL_SWEEP_INTERVAL_MS) return
+      // One sweep per activation (the resident workspace opens once); an
+      // eviction mid-sweep leaves the record unchanged, so the next start retries.
+      const { cursor } = await store.sweep(now, last?.cursor ?? 0)
+      await this.ctx.storage.put(SPILL_SWEPT_AT_KEY, { at: now, cursor })
     } catch (error) {
       console.warn('dsh-edge: spill sweep failed.', error)
     }
