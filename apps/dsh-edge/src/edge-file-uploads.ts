@@ -31,6 +31,7 @@ interface ReceiptRow extends Record<string, SqlStorageValue> {
   attachment_id: string
   name: string
   bytes: number
+  request_id: string | null
 }
 
 /** Upstream's in-memory registry, which restored receipts rejoin. */
@@ -58,6 +59,10 @@ export class EdgeFileUploads extends FileUploads {
       request_id TEXT,
       created_at INTEGER NOT NULL
     ) STRICT`)
+    // Retiring a recorded message and expiring old receipts each look rows up
+    // by these columns, so neither scans the receipts other uploads retain.
+    this.storage.sql.exec('CREATE INDEX IF NOT EXISTS dsh_edge_upload_receipts_request ON dsh_edge_upload_receipts (session_id, request_id)')
+    this.storage.sql.exec('CREATE INDEX IF NOT EXISTS dsh_edge_upload_receipts_created ON dsh_edge_upload_receipts (created_at)')
     // As upstream retires a bound receipt once its user message is recorded.
     ctx.on('session/event', (session, event) => {
       if (event.type !== 'user/message' || event.data.source.kind !== 'user' || !('rpcId' in event.data.source)) return
@@ -77,16 +82,18 @@ export class EdgeFileUploads extends FileUploads {
   override resolve(agent: Agent, receiptId: FileUploadReceiptId): FileAttachmentRef | undefined {
     const live = super.resolve(agent, receiptId)
     if (live !== undefined) return live
-    const file = this.stored(String(agent.id), String(receiptId))
-    if (file === undefined) return undefined
+    const stored = this.stored(String(agent.id), String(receiptId))
+    if (stored === undefined) return undefined
     const staged = (this as unknown as { stagedFiles: StagedFiles }).stagedFiles
     let session = staged.get(agent.session)
     if (session === undefined) {
       session = new Map()
       staged.set(agent.session, session)
     }
-    session.set(String(receiptId), { file })
-    return file
+    // A receipt already bound to a queued prompt keeps that binding, so the
+    // prompt's recorded message retires it as upstream's would.
+    session.set(String(receiptId), stored.requestId === undefined ? { file: stored.file } : { file: stored.file, requestId: stored.requestId })
+    return stored.file
   }
 
   /**
@@ -102,9 +109,9 @@ export class EdgeFileUploads extends FileUploads {
   ): { readonly files: readonly FileAttachmentRef[]; readonly binding: PromptFileBinding } | undefined {
     const files: FileAttachmentRef[] = []
     for (const receiptId of receiptIds) {
-      const file = this.stored(String(sessionId), receiptId)
-      if (file === undefined) return undefined
-      files.push(file)
+      const stored = this.stored(String(sessionId), receiptId)
+      if (stored === undefined) return undefined
+      files.push(stored.file)
     }
     return { files, binding: this.bindRows([...new Set(receiptIds)], requestId, { commit() {}, [Symbol.dispose]() {} }) }
   }
@@ -118,13 +125,15 @@ export class EdgeFileUploads extends FileUploads {
     this.forget(String(agent.id), requestId)
   }
 
-  private stored(sessionId: string, receiptId: string): FileAttachmentRef | undefined {
+  private stored(sessionId: string, receiptId: string): { file: FileAttachmentRef; requestId?: string } | undefined {
     const row = this.storage.sql.exec<ReceiptRow>(
-      `SELECT attachment_id, name, bytes FROM dsh_edge_upload_receipts
+      `SELECT attachment_id, name, bytes, request_id FROM dsh_edge_upload_receipts
        WHERE receipt_id = ? AND session_id = ? AND created_at >= ?`,
       receiptId, sessionId, this.now() - UPLOAD_RECEIPT_RETENTION_MS,
     ).toArray()[0]
-    return row === undefined ? undefined : { attachmentId: AttachmentId(row.attachment_id), name: row.name, bytes: row.bytes }
+    if (row === undefined) return undefined
+    const file: FileAttachmentRef = { attachmentId: AttachmentId(row.attachment_id), name: row.name, bytes: row.bytes }
+    return row.request_id === null ? { file } : { file, requestId: row.request_id }
   }
 
   /** Record the binding on the receipts' rows too, restoring them if it rolls back. */
