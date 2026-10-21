@@ -2023,6 +2023,10 @@ try {
   assert.equal(new TextDecoder().decode(fileArchive[`files/${notesDigest.slice(0, 2)}/${notesDigest}/notes.txt`]), notes)
   assert.equal(createHash('sha256').update(fileArchive[`files/${largeDigest.slice(0, 2)}/${largeDigest}/data.bin`]).digest('hex'), largeDigest)
   // Failures answer in upstream's envelope or status.
+  // A malformed upload to a cold session is refused before any resume.
+  const coldSessionId = (await rpc('session.create', {})).body.result.value.sessionId
+  const coldMalformed = await uploadFile(coldSessionId, 'x.txt', 'x', 'text/plain')
+  assert.equal(coldMalformed.status, 415, JSON.stringify(coldMalformed.body))
   const missingSessionUpload = await uploadFile('session-missing', 'x.txt', 'x')
   assert.equal(missingSessionUpload.body.ok, false)
   assert.equal(missingSessionUpload.body.error.code, 'session/not-found')
