@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { LIGHT_SHELL_MISSES, LIGHT_SHELL_MISS_SETUP } from './fixtures/light-shell-misses.mjs'
 import { LIGHT_SHELL_SAMPLES, LIGHT_SHELL_SETUP } from './fixtures/light-shell-samples.mjs'
 import { lightShellCouldNotRun } from '../src/light-shell-fallback.ts'
-import { createHmac } from 'node:crypto'
+import { createHash, createHmac } from 'node:crypto'
 import { createRequire } from 'node:module'
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -1940,6 +1940,103 @@ try {
   assert.equal((await request('/api/session.export?sessionId=session-missing')).status, 404)
   assert.equal((await request('/api/session.export')).status, 400)
   assert.equal((await request(`/api/session.export?sessionId=${imageSessionId}&includeDescendants=maybe`)).status, 400)
+  // Upstream file uploads (#337). A raw octet-stream upload streams through the Worker into the
+  // workspace VFS at its content address; a prompt's file part resolves its receipt, the model is
+  // told the saved path, and its file tool reads the bytes there.
+  const fileSessionId = (await rpc('session.create', {})).body.result.value.sessionId
+  const uploadFile = async (sessionId, name, body, contentType = 'application/octet-stream') => {
+    const response = await request(`/api/session/uploadFileBinary?sessionId=${sessionId}&name=${encodeURIComponent(name)}`, {
+      method: 'POST',
+      headers: { 'content-type': contentType },
+      body,
+    })
+    return { status: response.status, body: response.headers.get('content-type')?.startsWith('application/json') ? await response.json() : await response.text() }
+  }
+  const notes = 'uploaded notes: alpha beta gamma\n'
+  const notesUpload = await uploadFile(fileSessionId, 'C:\\Users\\me\\notes.txt', notes)
+  assert.equal(notesUpload.status, 200)
+  assert.equal(notesUpload.body.ok, true, JSON.stringify(notesUpload.body))
+  const notesDigest = createHash('sha256').update(notes).digest('hex')
+  assert.deepEqual(notesUpload.body.value.file, { attachmentId: `sha256:${notesDigest}`, name: 'notes.txt', bytes: Buffer.byteLength(notes) })
+  // Several 512 KiB VFS chunks, generated here.
+  const largeFile = new Uint8Array(3 * 1024 * 1024 + 123)
+  for (let index = 0; index < largeFile.byteLength; index++) largeFile[index] = (index * 31 + 7) % 251
+  const largeUpload = await uploadFile(fileSessionId, 'data.bin', largeFile)
+  assert.equal(largeUpload.body.ok, true, JSON.stringify(largeUpload.body))
+  const largeDigest = createHash('sha256').update(largeFile).digest('hex')
+  assert.deepEqual(largeUpload.body.value.file, { attachmentId: `sha256:${largeDigest}`, name: 'data.bin', bytes: largeFile.byteLength })
+  // The base64 Remote stores through the same attachment store.
+  const encodedUpload = await typertRpc('fileUploads', 'upload', {
+    agentId: fileSessionId,
+    request: { data: Buffer.from('encoded upload').toString('base64'), name: 'encoded.txt' },
+  })
+  assert.equal(encodedUpload.body.result.ok, true, JSON.stringify(encodedUpload.body))
+  assert.equal(encodedUpload.body.result.value.file.bytes, 'encoded upload'.length)
+  const filePrompt = await rpc('session.prompt', {
+    sessionId: fileSessionId,
+    mode: 'queue',
+    content: [
+      { type: 'text', text: 'read the uploaded file' },
+      { type: 'file', receiptId: notesUpload.body.value.receiptId },
+      { type: 'file', receiptId: largeUpload.body.value.receiptId },
+    ],
+  })
+  assert.equal(filePrompt.body.result.ok, true, JSON.stringify(filePrompt.body))
+  await mux.next(message => message.payload.type === 'session/event'
+    && message.payload.sessionId === fileSessionId
+    && message.payload.event.type === 'turn/end')
+  const savedNotesPath = `/.dsh/attachments/v1/files/${notesDigest.slice(0, 2)}/${notesDigest}/notes.txt`
+  const fileApiRequest = mock.requests.findLast(req => chatMessages(req).some(msg => JSON.stringify(msg.content).includes(savedNotesPath)))
+  assert.ok(fileApiRequest !== undefined, 'expected the model request to name the saved upload path')
+  const fileHistory = (await rpc('session.history', { sessionId: fileSessionId })).body.result.value.events
+  const fileUser = fileHistory.find(entry => entry.event.type === 'user/message').event
+  assert.deepEqual(fileUser.data.content.filter(block => block.type === 'file').map(block => block.attachment),
+    [notesUpload.body.value.file, largeUpload.body.value.file])
+  assert.match(assistantText(fileHistory.map(entry => entry.event)), /uploaded-read: .*uploaded notes: alpha beta gamma/su)
+  // A receipt is spent once its message is recorded; an unknown one is refused before anything is queued.
+  const reusedReceipt = await rpc('session.prompt', {
+    sessionId: fileSessionId,
+    mode: 'queue',
+    content: [{ type: 'text', text: 'again' }, { type: 'file', receiptId: notesUpload.body.value.receiptId }],
+  })
+  assert.equal(reusedReceipt.body.result.ok, false)
+  assert.equal(reusedReceipt.body.result.error.details.reason, 'FILE_NOT_STAGED')
+  // The session log download carries both files byte for byte.
+  const fileArchive = unzipSync(new Uint8Array(await (await request(`/api/session.export?sessionId=${fileSessionId}&includeDescendants=false`)).arrayBuffer()))
+  assert.equal(new TextDecoder().decode(fileArchive[`files/${notesDigest.slice(0, 2)}/${notesDigest}/notes.txt`]), notes)
+  assert.equal(createHash('sha256').update(fileArchive[`files/${largeDigest.slice(0, 2)}/${largeDigest}/data.bin`]).digest('hex'), largeDigest)
+  // Failures answer in upstream's envelope or status.
+  const missingSessionUpload = await uploadFile('session-missing', 'x.txt', 'x')
+  assert.equal(missingSessionUpload.body.ok, false)
+  assert.equal(missingSessionUpload.body.error.code, 'session/not-found')
+  assert.equal((await uploadFile(fileSessionId, 'x.txt', 'x', 'text/plain')).status, 415)
+  // A body without a declared length streams until the Durable Object's store passes the 64 MiB
+  // file limit, then the upload fails and leaves nothing staged.
+  let streamedMiB = 0
+  const overLimit = new ReadableStream({
+    pull(controller) {
+      if (streamedMiB++ > 64) controller.close()
+      else controller.enqueue(new Uint8Array(1024 * 1024))
+    },
+  })
+  const overLimitStarted = Date.now()
+  const overLimitUpload = await request(`/api/session/uploadFileBinary?sessionId=${fileSessionId}&name=big.bin`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/octet-stream' },
+    body: overLimit,
+    duplex: 'half',
+  })
+  const overLimitResult = await overLimitUpload.json()
+  assert.equal(overLimitResult.ok, false)
+  assert.equal(overLimitResult.error.code, 'session/attachment-invalid')
+  assert.match(overLimitResult.error.message, /limited to 64 MiB/u)
+  console.log(`over-limit upload refused after ${String(Date.now() - overLimitStarted)} ms`)
+  const staging = await jsonRequest('/api/workspace/exec', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ command: 'ls -A /.dsh/attachments/v1/staging | wc -l' }),
+  })
+  assert.equal(staging.body.stdout.trim(), '0', JSON.stringify(staging.body))
   // Upstream's `schedule` Remote namespace behind the Web task page, on a reminder the model created.
   const reminderSession = (await rpc('session.create', {})).body.result.value.sessionId
   await turn(reminderSession, 'schedule once 3600')
@@ -2116,8 +2213,9 @@ try {
   // adds a tool-call request and its continuation; the large-log export
   // fixture adds one request for each of its 50 turns; the first message in
   // the nested workspace adds one; the reminder the schedule Remote manages
+  // adds a tool-call request and its continuation; the uploaded-file read
   // adds a tool-call request and its continuation.
-  assert.equal(turnRequests().length, (runtimeMode === 'isolated' ? 39 : 30) + LARGE_LOG_TURNS)
+  assert.equal(turnRequests().length, (runtimeMode === 'isolated' ? 41 : 32) + LARGE_LOG_TURNS)
   await worker.stop()
   worker = undefined
   const { physicalRows, writeBatches } = sessionEventStorageStats(batchedSessionId)

@@ -5,16 +5,20 @@ import {
   AttachmentId,
   AttachmentStore,
   ImageVariantId,
+  type FileAttachmentRef,
   type ImageAttachmentLimits,
   type ImageAttachmentRef,
   type ImageRequestTarget,
   type ImageMediaType,
+  type SaveFileAttachment,
+  type SaveFileStreamAttachment,
   type SaveImageAttachment,
   type StoredImageAttachment,
 } from '@deepseek-ai/dsh-attachment'
 import type { Context } from '@deepseek-ai/cordis'
 import { decode as decodePng } from 'fast-png'
 import { decode as decodeJpeg } from 'jpeg-js'
+import * as EdgeFileAttachments from './edge-file-attachments.ts'
 
 const DEFAULT_MAX_IMAGE_BYTES = 3.5 * 1024 * 1024
 const DEFAULT_MAX_IMAGES_PER_MESSAGE = 4
@@ -51,6 +55,8 @@ interface ImageMetadata {
 export interface EdgeR2AttachmentStoreConfig {
   bucket: R2Bucket
   images?: ImagesBinding
+  /** The workspace VFS verbatim files are kept in; without it files are refused, as upstream's default does. */
+  files?: EdgeFileAttachments.OpenAttachmentFiles
 }
 
 interface AttachmentDigest {
@@ -70,6 +76,30 @@ export interface ImagesBinding {
 abstract class EdgeImageAttachmentStore extends AttachmentStore {
   abstract override readonly imageLimits: ImageAttachmentLimits
   protected images?: ImagesBinding
+  protected files?: EdgeFileAttachments.OpenAttachmentFiles
+
+  // Images stay in R2 or Durable Object rows; verbatim files live in the
+  // workspace VFS, where the model's file tools can read them by path.
+  override saveFile(input: SaveFileAttachment): Promise<FileAttachmentRef> {
+    return this.saveFileStream({
+      data: (async function* () { yield input.data })(),
+      ...input.name === undefined ? {} : { name: input.name },
+    })
+  }
+
+  override saveFileStream(input: SaveFileStreamAttachment): Promise<FileAttachmentRef> {
+    if (this.files === undefined) return super.saveFileStream(input)
+    return EdgeFileAttachments.saveFileStream(this.files, input)
+  }
+
+  override readFileStream(ref: FileAttachmentRef, signal?: AbortSignal): AsyncIterable<Uint8Array> {
+    if (this.files === undefined) return super.readFileStream(ref, signal)
+    return EdgeFileAttachments.readFileStream(this.files, ref, signal)
+  }
+
+  override fileHostPath(ref: FileAttachmentRef): string | undefined {
+    return this.files === undefined ? undefined : EdgeFileAttachments.storedFilePath(ref)
+  }
 
   override async validateImage(input: SaveImageAttachment): Promise<void> {
     await inspectImage(input.data, input.mediaType, this.imageLimits, true)
@@ -205,6 +235,7 @@ export class EdgeR2AttachmentStore extends EdgeImageAttachmentStore {
     super(ctx)
     this.bucket = config.bucket
     if (config.images !== undefined) this.images = config.images
+    if (config.files !== undefined) this.files = config.files
   }
 
   protected override async writeBytes(
@@ -234,6 +265,7 @@ interface EdgeDoAttachmentStoreConfig {
   storage: DurableObjectStorage
   maxStoredBytes?: number
   images?: ImagesBinding
+  files?: EdgeFileAttachments.OpenAttachmentFiles
 }
 
 interface AttachmentObjectRow extends Record<string, SqlStorageValue> {
@@ -307,6 +339,7 @@ export class EdgeDoAttachmentStore extends EdgeImageAttachmentStore {
     this.storage = config.storage
     this.maxStoredBytes = config.maxStoredBytes ?? EDGE_DO_ATTACHMENT_MAX_STORED_BYTES
     if (config.images !== undefined) this.images = config.images
+    if (config.files !== undefined) this.files = config.files
     if (!Number.isSafeInteger(this.maxStoredBytes) || this.maxStoredBytes <= 0) {
       throw new Error('Temporary attachment storage limit must be a positive integer.')
     }

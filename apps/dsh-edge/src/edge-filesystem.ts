@@ -8,6 +8,7 @@ import {
   FsTargetKey,
   FsVersion,
 } from '@deepseek-ai/dsh-fs'
+import { EDGE_FILE_ATTACHMENT_ROOT, isStoredFilePath } from './edge-file-attachments.ts'
 import type {
   FsDirEntry,
   FsEditOutcome,
@@ -69,6 +70,18 @@ function normalizeLineEndings(text: string): string {
 /** A VFS failure for a path that does not exist. */
 function isMissing(error: unknown): boolean {
   return error instanceof Error && 'code' in error && (error as { code: unknown }).code === 'ENOENT'
+}
+
+/**
+ * Uploaded files are read-only copies, as upstream publishes them; the model
+ * is told to copy one elsewhere before changing it. The file tools refuse to
+ * write below the attachment root. Shell commands bypass the provider, and a
+ * changed copy then fails the store's digest check rather than being served.
+ */
+function refuseAttachmentWrite(path: string, target: FsTarget): void {
+  if (path === EDGE_FILE_ATTACHMENT_ROOT || path.startsWith(`${EDGE_FILE_ATTACHMENT_ROOT}/`)) {
+    throw new FsError(`cannot write "${target.displayPath}": uploaded files are read-only; copy it to a writable location first`, 'FS_PERMISSION_DENIED')
+  }
 }
 
 function versionOf(mtime: number, size: number): FsVersion {
@@ -147,6 +160,15 @@ export class EdgeFileSystem extends FileSystem {
 
   processPath(target: FsTarget): string {
     return String(target.targetKey)
+  }
+
+  /**
+   * The attachment store keeps verbatim uploads in this same VFS
+   * (edge-file-attachments.ts), so their stored path is the path the model's
+   * file tools read. Other host paths have no process-visible form.
+   */
+  override processPathFromHostPath(hostPath: string): string | undefined {
+    return isStoredFilePath(hostPath) ? hostPath : undefined
   }
 
   fileUrl(target: FsTarget): string {
@@ -418,6 +440,7 @@ export class EdgeFileSystem extends FileSystem {
     if (signal?.aborted) throw new FsError('writeText aborted', 'FS_ABORTED')
     const vfs = this.requireBinding().vfs
     const path = this.processPath(target)
+    refuseAttachmentWrite(path, target)
     const existing = await this.stat(target)
     if (existing !== undefined && existing.type !== 'file') {
       throw new FsError(`cannot write "${target.displayPath}": not a regular file`, 'FS_NOT_REGULAR_FILE')
@@ -465,6 +488,7 @@ export class EdgeFileSystem extends FileSystem {
     if (signal?.aborted) throw new FsError('editText aborted', 'FS_ABORTED')
     const vfs = this.requireBinding().vfs
     const path = this.processPath(target)
+    refuseAttachmentWrite(path, target)
     const existing = await this.stat(target)
     if (existing === undefined) throw new FsError(`cannot edit "${target.displayPath}": file not found`, 'FS_STALE_VERSION')
     if (existing.type !== 'file') throw new FsError(`cannot edit "${target.displayPath}": not a regular file`, 'FS_NOT_REGULAR_FILE')

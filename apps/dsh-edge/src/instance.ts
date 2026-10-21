@@ -107,6 +107,7 @@ import {
 } from './edge-api.ts'
 import { putSkill, deleteSkill, listSkillNames } from './edge-skill-provider.ts'
 import type { EdgeApiSessionSummary, EdgeWorkspaceFiles } from './session-store.ts'
+import { FILE_UPLOAD_PATH, type EdgeAttachmentFiles } from './edge-file-attachments.ts'
 import { WorkspaceOrderInvalidError } from '@deepseek-ai/dsh-workspace'
 import { DSH_EDGE_VERSION } from './release.ts'
 import {
@@ -358,6 +359,13 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         this.env.DSH_EDGE_MAX_COMMAND_TIMEOUT_MS,
       ).maxTimeoutMs,
       withWorkspaceFiles: read => this.withWorkspaceFiles(read),
+      openAttachmentFiles: async () => {
+        const workspace = await getWorkspace(this)
+        return {
+          files: workspace.fs as unknown as EdgeAttachmentFiles,
+          [Symbol.dispose]: () => { workspace[Symbol.dispose]() },
+        }
+      },
       onLateSessionEvent: (sessionId, event) => {
         this.publishSessionEvent(sessionId, event)
       },
@@ -483,9 +491,11 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       if (url.pathname !== SESSION_LOG_EXPORT_PATH) {
         const route = this.sessions.connectionRoute(url.pathname, request.method)
         if (route !== undefined) {
-          return url.pathname === WORKSPACE_FILE_ROUTE && request.method === 'GET'
-            ? await this.streamWorkspaceFile(url, request, route)
-            : await this.withWorkspaceFileScope(() => route(request))
+          if (url.pathname === WORKSPACE_FILE_ROUTE && request.method === 'GET') {
+            return await this.streamWorkspaceFile(url, request, route)
+          }
+          if (url.pathname === FILE_UPLOAD_PATH) return await this.uploadFile(url, request, route)
+          return await this.withWorkspaceFileScope(() => route(request))
         }
       }
       const typertResponse = await this.handleTypertRpc(request, url)
@@ -1286,6 +1296,48 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     } finally {
       if (!handedOff) workspace[Symbol.dispose]()
     }
+  }
+
+  /**
+   * Upstream's streaming upload route stages a file for a live Agent and
+   * resolves a cold one through the session controller, which the Edge does
+   * not let own resumes. A cold session is resumed here as other agent-scoped
+   * calls are; its Agent then stays resident, so the upload itself (which can
+   * take a while) does not hold the main slot. The attachment store borrows
+   * the workspace while the bytes stream (edge-file-attachments.ts).
+   */
+  private async uploadFile(url: URL, request: Request, route: (request: Request) => Promise<Response>): Promise<Response> {
+    const sessionId = url.searchParams.get('sessionId')
+    // Upstream answers a malformed request (method, content type, no session) itself.
+    if (request.method === 'POST' && sessionId !== null && sessionId !== ''
+      && this.sessions.liveAgent(SessionId(sessionId)) === undefined) {
+      try {
+        await this.withAgentControl(SessionId(sessionId), () => Promise.resolve())
+      } catch (error) {
+        const code = error instanceof EdgeSessionStoreError && error.code === 'NOT_FOUND'
+          ? 'session/not-found'
+          : error instanceof EdgeSessionStoreError && error.code === 'BUSY'
+            ? 'session/agent-busy'
+            : 'gateway/internal'
+        const message = error instanceof Error ? error.message : String(error)
+        // The same 200 envelope upstream's route answers with, so the client shows the failure.
+        return Response.json({ ok: false, error: { code, message, details: { sessionId } } }, {
+          headers: { 'cache-control': 'no-store' },
+        })
+      }
+    }
+    const response = await route(request)
+    // An upload refused partway (over the file limit) answers only after the
+    // rest of the body is read and discarded: a response sent while the
+    // client is still sending is not delivered. Platform request limits bound
+    // what is drained, and nothing is kept.
+    if (request.body !== null && !request.body.locked) {
+      const reader = request.body.getReader()
+      try {
+        while (!(await reader.read()).done) { /* discard */ }
+      } catch { /* the client went away */ }
+    }
+    return response
   }
 
   private async withWorkspaceFileScope<T>(run: () => Promise<T>): Promise<T> {

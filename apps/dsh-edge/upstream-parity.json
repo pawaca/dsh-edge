@@ -32,7 +32,7 @@
     },
     "@deepseek-ai/dsh-attachment-local": {
       "status": "substitute",
-      "reason": "EdgeR2AttachmentStore and EdgeDoAttachmentStore in edge-attachment-store.ts."
+      "reason": "EdgeR2AttachmentStore and EdgeDoAttachmentStore in edge-attachment-store.ts keep images in private R2 or Durable Object rows; verbatim uploaded files follow upstream's files/<prefix>/<digest>/<name> layout in the workspace VFS below /.dsh/attachments/v1 (edge-file-attachments.ts)."
     },
     "@deepseek-ai/dsh-authorization": {
       "status": "declined",
