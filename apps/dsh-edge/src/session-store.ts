@@ -499,6 +499,13 @@ export class EdgeSessionStore {
     // The gateway injects `remoteAccess` and does not start without it. The one
     // owner Peer is never checked, so the Edge registers no non-owner policy.
     await this.context.plugin(RemoteAccess)
+    // The Web shell's access face follows `remoteAccess/follow` after the
+    // static baseline; the owner's stream sends one owner snapshot and stays open.
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    const { TYPERT: REMOTE_ACCESS_TYPERT } = await import(
+      '@deepseek-ai/dsh-api-remote-access/typert' as string
+    )
+    this.context.typert.register(REMOTE_ACCESS_TYPERT as never)
     const { TypertGatewayService } = await import('@deepseek-ai/dsh-api-gateway')
     await this.context.plugin(TypertGatewayService)
     // AgentRegistry has zero inject deps — register early so SessionController
@@ -516,6 +523,15 @@ export class EdgeSessionStore {
     // ctx.userQuestions: the upstream answerer waterfall tools and plan mode
     // ask through. The browser answers it over the forwarded `$events` stream.
     await this.context.plugin(UserQuestionService)
+    // A timed question's card claims its wait over `userQuestions/attachWait`;
+    // once the countdown lets the agent continue, its answer arrives through
+    // `userQuestions/answer`, which resumes a cold session like other
+    // agent-scoped calls.
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    const { TYPERT: USER_QUESTIONS_TYPERT } = await import(
+      '@deepseek-ai/dsh-user-questions/typert' as string
+    )
+    this.context.typert.register(USER_QUESTIONS_TYPERT as never)
     // Model-facing ask_user_question over that seam; registered globally in
     // ToolRuntime like the other upstream tools, so every Edge agent mounts it.
     await this.context.plugin(ToolAskUser)

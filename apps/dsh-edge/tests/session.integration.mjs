@@ -863,6 +863,20 @@ try {
     'question-finished:{"answers":[{"id":"deploy","selected":["Yes (Recommended)"]}]}',
   )
   assert.equal(askEvents.filter(event => event.type === 'step/start').length, 2)
+  // A continued question's card answers through userQuestions/answer, which
+  // resolves the session's root agent; a call with no continued question is
+  // reported as not answerable rather than unserved.
+  const lateAnswer = await typertRpc('userQuestions', 'answer', {
+    agentId: sessionId, callId: 'no-such-call', answer: { answers: [] },
+  })
+  assert.equal(lateAnswer.body.result.ok, true, JSON.stringify(lateAnswer.body))
+  assert.equal(lateAnswer.body.result.value, false)
+  // The Web shell's access face follows the owner's access after its static baseline.
+  remoteMux.send({ type: 'open', streamId: 'access-1', endpoint: 'remoteAccess/follow', payload: { args: {} } })
+  assert.deepEqual(await remoteMux.next(frame => frame.streamId === 'access-1'), {
+    type: 'item', streamId: 'access-1', value: { type: 'baseline', owner: true },
+  })
+  remoteMux.send({ type: 'cancel', streamId: 'access-1' })
   // Upstream plan mode end to end: /plan runs through the upstream command
   // runtime and appends the logged plan/mode event, the deployment's
   // plan:policy section reaches the model request, exit_plan_mode presents the
