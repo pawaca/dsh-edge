@@ -1,6 +1,7 @@
 /** Workspace Durable Object with persistent sessions and streamed agent turns. */
 
 import { initializeSchedules, nextSchedule, scheduleWakeTime, setScheduleRetry, dispatchDueSchedules } from './schedule-store.ts'
+import { nextSpillSweep } from './edge-spill-store.ts'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import type { EdgeMcpServerConfig } from './edge-mcp-manager.ts'
 
@@ -127,7 +128,6 @@ const DEFAULT_REPLAY_EVENT_LIMIT = 128
 const MAX_REPLAY_EVENT_LIMIT = 256
 /** When old spills were last swept, and where the next sweep resumes, so a Durable Object that restarts often sweeps at most daily. */
 const SPILL_SWEPT_AT_KEY = 'dsh-edge:spill-swept-at'
-const SPILL_SWEEP_INTERVAL_MS = 24 * 60 * 60 * 1000
 const MAX_REPLAY_RESPONSE_BYTES = 1_048_576
 const INITIAL_SESSION_LIST_METADATA: SessionListMetadata = { blank: true, lastPromptAt: null }
 const OWNER_SESSION_EXPIRED_CLOSE_CODE = 1008
@@ -1048,7 +1048,8 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
   /**
    * Delete old spills in the background. Upstream sweeps once per process
    * start; a Durable Object starts after every idle eviction, so the Edge
-   * sweeps at most once a day, recorded in one KV write.
+   * sweeps one bounded page at most once a day, or hourly until an
+   * unfinished pass completes, each recorded in one KV write.
    */
   private async sweepSpills(): Promise<void> {
     const store = this.sessions.spillStore()
@@ -1057,16 +1058,17 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     this.nextSpillSweepAt = Date.now() + 60 * 60 * 1000
     try {
       const now = Date.now()
-      const last = await this.ctx.storage.get<{ at: number; cursor: number }>(SPILL_SWEPT_AT_KEY)
-      if (last !== undefined && now - last.at < SPILL_SWEEP_INTERVAL_MS) {
-        this.nextSpillSweepAt = last.at + SPILL_SWEEP_INTERVAL_MS
+      const last = await this.ctx.storage.get<{ at: number; cursor: number; complete: boolean }>(SPILL_SWEPT_AT_KEY)
+      if (last !== undefined && now < nextSpillSweep(last)) {
+        this.nextSpillSweepAt = nextSpillSweep(last)
         return
       }
-      this.nextSpillSweepAt = now + SPILL_SWEEP_INTERVAL_MS
-      // One sweep per activation (the resident workspace opens once); an
-      // eviction mid-sweep leaves the record unchanged, so the next start retries.
-      const { cursor } = await store.sweep(now, last?.cursor ?? 0)
-      await this.ctx.storage.put(SPILL_SWEPT_AT_KEY, { at: now, cursor })
+      // One bounded page per run; an eviction mid-sweep leaves the record
+      // unchanged, so the next start retries.
+      const { cursor, complete } = await store.sweep(now, last?.cursor ?? 0)
+      const swept = { at: now, cursor, complete }
+      this.nextSpillSweepAt = nextSpillSweep(swept)
+      await this.ctx.storage.put(SPILL_SWEPT_AT_KEY, swept)
     } catch (error) {
       console.warn('dsh-edge: spill sweep failed.', error)
     }

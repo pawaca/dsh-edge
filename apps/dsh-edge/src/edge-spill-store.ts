@@ -60,16 +60,17 @@ export class EdgeVfsSpillStore extends SpillStore {
    * One sweep reads one bounded page from `cursor` (entries in name order), so
    * the caller keeps the returned cursor and later sweeps reach the rest of
    * the directory before wrapping to its start.
-   * @returns how many spills were deleted and where the next sweep starts.
+   * @returns how many spills were deleted, where the next sweep starts, and
+   * whether this sweep finished a pass (read to the end within its budgets).
    */
-  async sweep(now: number, cursor = 0): Promise<{ deleted: number; cursor: number }> {
+  async sweep(now: number, cursor = 0): Promise<{ deleted: number; cursor: number; complete: boolean }> {
     const fs = this.fs
-    if (fs === undefined) return { deleted: 0, cursor }
+    if (fs === undefined) return { deleted: 0, cursor, complete: true }
     let entries: Awaited<ReturnType<SpillFilesystem['readdir']>>
     try {
       entries = await fs.readdir(SPILL_DIRECTORY, { limit: SPILL_SWEEP_LIMITS.entries, offset: cursor })
     } catch {
-      return { deleted: 0, cursor: 0 }
+      return { deleted: 0, cursor: 0, complete: true }
     }
     const cutoff = now - SPILL_RETENTION_MS
     let deleted = 0
@@ -93,8 +94,19 @@ export class EdgeVfsSpillStore extends SpillStore {
     }
     // A short page reached the end of the directory: start over next time.
     // Otherwise resume after what this sweep read and kept; deleting shifted
-    // the later entries down by the number deleted.
+    // the later entries down by the number deleted. A sweep that stopped at a
+    // budget is unfinished even when that offset is 0.
     const exhausted = entries.length < SPILL_SWEEP_LIMITS.entries && read === entries.length
-    return { deleted, cursor: exhausted ? 0 : cursor + read - deleted }
+    return { deleted, cursor: exhausted ? 0 : cursor + read - deleted, complete: exhausted }
   }
+}
+
+const SPILL_SWEEP_INTERVAL_MS = 24 * 60 * 60 * 1000
+// A pass that stops at a page, delete, or row budget continues an hour later,
+// so a directory that grows by more than one budget a day still completes passes.
+const SPILL_SWEEP_CATCH_UP_MS = 60 * 60 * 1000
+
+/** When the next sweep is due: daily once a pass completes, hourly while one is unfinished. */
+export function nextSpillSweep(last: { at: number; complete: boolean }): number {
+  return last.at + (last.complete ? SPILL_SWEEP_INTERVAL_MS : SPILL_SWEEP_CATCH_UP_MS)
 }

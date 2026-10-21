@@ -1,6 +1,6 @@
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it } from 'vitest'
-import { EdgeVfsSpillStore, SPILL_RETENTION_MS, SPILL_SWEEP_LIMITS, spillDeleteRows, type SpillFilesystem } from '../src/edge-spill-store.ts'
+import { EdgeVfsSpillStore, SPILL_RETENTION_MS, SPILL_SWEEP_LIMITS, nextSpillSweep, spillDeleteRows, type SpillFilesystem } from '../src/edge-spill-store.ts'
 
 const DAY = 24 * 60 * 60 * 1000
 const NOW = Date.UTC(2026, 9, 21)
@@ -54,7 +54,7 @@ describe('EdgeVfsSpillStore', () => {
       { name: 'fresh.txt', mtime: NOW - DAY },
       { name: 'old-dir', mtime: NOW - 400 * DAY, isFile: false },
     ])
-    expect(await store(fs).sweep(NOW)).toEqual({ deleted: 1, cursor: 0 })
+    expect(await store(fs).sweep(NOW)).toEqual({ deleted: 1, cursor: 0, complete: true })
     expect([...fs.files.keys()].map(path => path.split('/').pop() ?? '').sort((a, b) => a.localeCompare(b)))
       .toEqual(['edge.txt', 'fresh.txt', 'old-dir'])
   })
@@ -65,8 +65,8 @@ describe('EdgeVfsSpillStore', () => {
     const spills = store(fs)
     const perSweep = Math.min(SPILL_SWEEP_LIMITS.deletes, Math.floor(SPILL_SWEEP_LIMITS.rows / spillDeleteRows(1)))
     const first = await spills.sweep(NOW)
-    expect(first).toEqual({ deleted: perSweep, cursor: 0 })
-    expect(await spills.sweep(NOW, first.cursor)).toEqual({ deleted: backlog.length - perSweep, cursor: 0 })
+    expect(first).toEqual({ deleted: perSweep, cursor: 0, complete: false })
+    expect(await spills.sweep(NOW, first.cursor)).toEqual({ deleted: backlog.length - perSweep, cursor: 0, complete: true })
     expect(fs.files.size).toBe(0)
   })
 
@@ -77,8 +77,8 @@ describe('EdgeVfsSpillStore', () => {
     const fs = memoryFs([...fresh, { name: 'z-old.txt', mtime: 0 }])
     const spills = store(fs)
     const first = await spills.sweep(NOW)
-    expect(first).toEqual({ deleted: 0, cursor: SPILL_SWEEP_LIMITS.entries })
-    expect(await spills.sweep(NOW, first.cursor)).toEqual({ deleted: 1, cursor: 0 })
+    expect(first).toEqual({ deleted: 0, cursor: SPILL_SWEEP_LIMITS.entries, complete: false })
+    expect(await spills.sweep(NOW, first.cursor)).toEqual({ deleted: 1, cursor: 0, complete: true })
     expect(fs.files.has('/workspace/.spill/z-old.txt')).toBe(false)
   })
 
@@ -90,15 +90,55 @@ describe('EdgeVfsSpillStore', () => {
     const spills = store(fs)
     const perSweep = Math.floor(SPILL_SWEEP_LIMITS.rows / spillDeleteRows(large))
     const first = await spills.sweep(NOW)
-    expect(first).toEqual({ deleted: perSweep, cursor: 0 })
+    expect(first).toEqual({ deleted: perSweep, cursor: 0, complete: false })
     expect(fs.files.size).toBe(30 - perSweep)
     expect(spillDeleteRows(10)).toBe(9)
     expect(spillDeleteRows(1024 * 1024)).toBe(10)
   })
 
   it('does nothing without a bound workspace or a spill directory', async () => {
-    expect(await store().sweep(NOW, 7)).toEqual({ deleted: 0, cursor: 7 })
+    expect(await store().sweep(NOW, 7)).toEqual({ deleted: 0, cursor: 7, complete: true })
     const missing = { ...memoryFs(), readdir: () => Promise.reject(new Error('ENOENT')) }
-    expect(await store(missing).sweep(NOW, 7)).toEqual({ deleted: 0, cursor: 0 })
+    expect(await store(missing).sweep(NOW, 7)).toEqual({ deleted: 0, cursor: 0, complete: true })
+  })
+
+  // A workspace that adds more spills a day than one sweep reads still
+  // completes passes: an unfinished pass continues hourly, not daily, so
+  // spills that were fresh when the cursor last passed them are revisited.
+  it('catches up hourly until a pass completes while the directory keeps growing', async () => {
+    const HOUR = 60 * 60 * 1000
+    const perDay = 2 * SPILL_SWEEP_LIMITS.entries
+    const fs = memoryFs()
+    const spills = store(fs)
+    let created = 0
+    const grow = (until: number) => {
+      // Spills arrive evenly; names sort by creation so new ones land at the end.
+      while (created * (DAY / perDay) < until - NOW) {
+        const at = NOW + created * (DAY / perDay)
+        fs.files.set(`/workspace/.spill/${String(created).padStart(8, '0')}.txt`, { mtime: at, isFile: true, size: 1, content: '' })
+        created++
+      }
+    }
+    let at = NOW
+    let last = { at: NOW, cursor: 0, complete: true }
+    const passes: number[] = []
+    while (at < NOW + 40 * DAY) {
+      grow(at)
+      const result = await spills.sweep(at, last.cursor)
+      last = { at, ...result }
+      if (result.complete) passes.push(at)
+      at = nextSpillSweep(last)
+    }
+    // Once the retained directory stops growing (about 60,000 spills), hourly
+    // runs bounded by the delete and row budgets finish a pass in under five
+    // days; passes keep completing, and nothing outlives the retention by more
+    // than one pass. A daily-only schedule never completes one here.
+    const gaps = passes.slice(1).map((pass, index) => pass - passes[index]!)
+    expect(passes.length).toBeGreaterThanOrEqual(10)
+    expect(Math.max(...gaps.slice(-5))).toBeLessThan(5 * DAY)
+    const oldest = Math.min(...[...fs.files.values()].map(file => file.mtime))
+    expect(at - oldest).toBeLessThan(SPILL_RETENTION_MS + 5 * DAY)
+    expect(nextSpillSweep({ at: 0, complete: true })).toBe(DAY)
+    expect(nextSpillSweep({ at: 0, complete: false })).toBe(HOUR)
   })
 })
