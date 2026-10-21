@@ -23,6 +23,16 @@
     ]
   },
   {
+    "id": "@deepseek-ai/dsh-session-log-export",
+    "inject": [
+      "@deepseek-ai/dsh-client-locale",
+      "@deepseek-ai/dsh-client-ui-commands",
+      "@deepseek-ai/dsh-client-ui-conversation",
+      "@deepseek-ai/dsh-client-ui-renderer",
+      "@deepseek-ai/dsh-client-ui-session"
+    ]
+  },
+  {
     "id": "@deepseek-ai/dsh-client-ui-open-in-app",
     "inject": [
       "@deepseek-ai/dsh-api-gateway",

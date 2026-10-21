@@ -1,6 +1,7 @@
 - banner:
   - navigation "Session hierarchy": Browser snapshot (1)
   - text: Standard mode
+  - button "More actions"
   - button "Open right sidebar"
   - tablist:
     - tab "Chat" [selected]

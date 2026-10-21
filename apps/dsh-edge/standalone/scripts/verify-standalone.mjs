@@ -18,12 +18,13 @@ const targetVersion = edgePackage.dshEdge.upstreamVersion
 const requiredClientPackages = [
   'dsh-edge-client-ui',
   '@deepseek-ai/dsh-client-ui-directory-picker-browse',
+  // The session header's log download and /export, served by the Edge exporter.
+  '@deepseek-ai/dsh-session-log-export',
 ]
 const excludedClientPackages = [
   '@deepseek-ai/dsh-client-hmr',
   '@deepseek-ai/dsh-cordis-client-runner',
   '@deepseek-ai/dsh-client-ui-cordis',
-  '@deepseek-ai/dsh-session-log-export',
 ]
 
 for (const [name, version] of Object.entries(standalonePackage.dependencies ?? {})) {
