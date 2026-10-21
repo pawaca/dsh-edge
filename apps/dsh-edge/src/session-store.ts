@@ -880,6 +880,14 @@ export class EdgeSessionStore {
       await this.context.plugin(ToolWorkflow)
     }
     await this.context.plugin(EdgeSchedule, { storage })
+    // Upstream's `schedule` Remote namespace (catalog, list, update, delete,
+    // history) behind the Web task page and session reminder catalog, served by
+    // EdgeSchedule under the same service key.
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    const { TYPERT: SCHEDULE_TYPERT } = await import(
+      '@deepseek-ai/dsh-schedule/typert' as string
+    )
+    this.context.typert.register(SCHEDULE_TYPERT as never)
     // As upstream's standard presets: the reminder tools, and the clock the
     // model reads reminders against. Subagents are refused by the tools.
     await this.context.plugin(TimeContext)
@@ -1070,6 +1078,11 @@ export class EdgeSessionStore {
     const agent = this.context.agents.get(sessionId)
     if (agent === undefined) return undefined
     return this.context.sessionProjections.snapshot(agent.session)
+  }
+
+  /** Tell the Web clients that reminders were delivered (the alarm's dispatch writes the task set directly). */
+  scheduleChanged(): void {
+    (this.context.get('schedule') as EdgeSchedule | undefined)?.changed()
   }
 
   /** Upstream's session log download handler for this method, once its plugin has registered the route. */

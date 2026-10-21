@@ -24,7 +24,6 @@ const excludedClientPackages = [
   '@deepseek-ai/dsh-cordis-client-runner',
   '@deepseek-ai/dsh-client-ui-cordis',
   '@deepseek-ai/dsh-session-log-export',
-  '@deepseek-ai/dsh-client-ui-schedule',
 ]
 
 for (const [name, version] of Object.entries(standalonePackage.dependencies ?? {})) {

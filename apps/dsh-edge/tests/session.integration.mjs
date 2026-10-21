@@ -1905,6 +1905,30 @@ try {
   assert.equal((await request('/api/session.export?sessionId=session-missing')).status, 404)
   assert.equal((await request('/api/session.export')).status, 400)
   assert.equal((await request(`/api/session.export?sessionId=${imageSessionId}&includeDescendants=maybe`)).status, 400)
+  // Upstream's `schedule` Remote namespace behind the Web task page, on a reminder the model created.
+  const reminderSession = (await rpc('session.create', {})).body.result.value.sessionId
+  await turn(reminderSession, 'schedule once 3600')
+  const reminderCatalog = await typertRpc('schedule', 'catalog', {})
+  assert.equal(reminderCatalog.body.result.ok, true, JSON.stringify(reminderCatalog.body))
+  const reminder = reminderCatalog.body.result.value.find(entry => entry.sessionId === reminderSession)
+  assert.equal(reminder?.status, 'active', JSON.stringify(reminderCatalog.body.result.value))
+  assert.equal(reminder.title, 'Fixture reminder')
+  assert.equal(reminder.lastDelivery, undefined)
+  const { sessionId: _boundSession, status: _status, ...reminderRecord } = reminder
+  const reminderList = await typertRpc('schedule', 'list', { request: { sessionId: reminderSession } })
+  assert.deepEqual(reminderList.body.result.value, [reminderRecord])
+  const reminderHistory = await typertRpc('schedule', 'history', { request: { sessionId: reminderSession, id: reminder.id, limit: 20 } })
+  assert.deepEqual(reminderHistory.body.result.value, {
+    id: reminder.id, records: [], earlierRecordsUnavailable: false, earlierRecordsPruned: false, retention: { days: 30, records: 200 },
+  })
+  const renamed = await typertRpc('schedule', 'update', { request: { sessionId: reminderSession, id: reminder.id, expected: reminderRecord, title: 'Renamed reminder' } })
+  assert.equal(renamed.body.result.value.updated, true, JSON.stringify(renamed.body))
+  assert.equal(renamed.body.result.value.record.title, 'Renamed reminder')
+  const staleRename = await typertRpc('schedule', 'update', { request: { sessionId: reminderSession, id: reminder.id, expected: reminderRecord, title: 'Stale' } })
+  assert.equal(staleRename.body.result.value.code, 'schedule_conflict')
+  const removed = await typertRpc('schedule', 'delete', { request: { sessionId: reminderSession, id: reminder.id } })
+  assert.deepEqual(removed.body.result.value, { id: reminder.id, deleted: true })
+  assert.equal((await typertRpc('schedule', 'catalog', {})).body.result.value.some(entry => entry.id === reminder.id), false)
   const incompatibleModel = await rpc('session.selectModel', {
     sessionId: imageSessionId,
     provider: 'deepseek-official',
@@ -2056,8 +2080,9 @@ try {
   // own date-context turn adds one request; the watched preview's read turn
   // adds a tool-call request and its continuation; the large-log export
   // fixture adds one request for each of its 50 turns; the first message in
-  // the nested workspace adds one.
-  assert.equal(turnRequests().length, (runtimeMode === 'isolated' ? 37 : 28) + LARGE_LOG_TURNS)
+  // the nested workspace adds one; the reminder the schedule Remote manages
+  // adds a tool-call request and its continuation.
+  assert.equal(turnRequests().length, (runtimeMode === 'isolated' ? 39 : 30) + LARGE_LOG_TURNS)
   await worker.stop()
   worker = undefined
   const { physicalRows, writeBatches } = sessionEventStorageStats(batchedSessionId)

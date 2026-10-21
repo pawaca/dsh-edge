@@ -61,10 +61,6 @@ const edgeExcludedPackages = new Set([
   // preference and the permission-preset picker, which would only render errors.
   '@deepseek-ai/dsh-client-ui-settings-session-log',
   '@deepseek-ai/dsh-client-ui-permission-presets',
-  // The task page and reminder catalog call the `schedule` Remote namespace
-  // (catalog, list, update, delete, history), which the Edge's schedule service
-  // does not serve yet; the page would only render errors.
-  '@deepseek-ai/dsh-client-ui-schedule',
 ])
 const shellStaticPackages = new Set(['@deepseek-ai/dsh-client-ui-primitives'])
 // The shipped settings cards wait on the plugin manager, whose page declares

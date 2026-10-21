@@ -1,4 +1,4 @@
-/** Real browser creation and delivery through the promoted Worker alarm path. */
+/** Real browser creation and delivery through the promoted Worker alarm path, and the task page that shows it. */
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -55,6 +55,16 @@ it('wakes a cold session for a durable reminder without a browser connection', a
       // 30 s like this file's other waits: the 0.19.2 Windows release run timed out at 15 s once
       // in four Windows runs of the same code (flake mitigation; the screenshot below is for the cause).
       await restored.getByText('schedule-delivered', { exact: true }).first().waitFor({ timeout: 30_000 })
+      // Upstream's task page lists the delivered one-shot as ended and shows the delivery it made.
+      await restored.getByText('Automation tasks', { exact: true }).first().click()
+      const task = restored.getByText('Fixture reminder', { exact: true }).first()
+      await task.waitFor({ timeout: 30_000 })
+      // The row's status reads "Inactive · Once" across separate text nodes; the filter tab is a button.
+      await restored.getByText('Inactive', { exact: true }).and(restored.locator(':not(button)')).first().waitFor({ timeout: 30_000 })
+      await task.click()
+      await restored.getByRole('tab', { name: 'Records', exact: true }).click()
+      // The hidden Rules tab also holds the prompt; the Records tab shows it for the delivery.
+      await restored.getByText('schedule-fixture-reminder', { exact: true }).filter({ visible: true }).first().waitFor({ timeout: 30_000 })
     } finally {
       // Capture the restored page on failure too; CI keeps it as an artifact.
       if (process.env.DSH_EDGE_SCHEDULE_SCREENSHOT) await restored.screenshot({ path: process.env.DSH_EDGE_SCHEDULE_SCREENSHOT, fullPage: true })

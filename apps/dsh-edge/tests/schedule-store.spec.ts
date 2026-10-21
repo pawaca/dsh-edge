@@ -226,6 +226,150 @@ describe('Edge schedule service', () => {
   })
 })
 
+describe('delivery history and the schedule Remote', () => {
+  const deliveries = (storage: AlarmStorage) => storage.sql.exec<{ task_id: string; seq: number }>('SELECT task_id, seq FROM dsh_schedule_deliveries ORDER BY task_id, seq').toArray()
+  /** Deliver everything due at `now`, then empty the main queue so the next delivery has room. */
+  const deliverAt = (storage: AlarmStorage, now: number) => {
+    const delivered = dispatchDueSchedules(storage as never, ALPHA, now)
+    storage.sql.exec('DELETE FROM dsh_runtime_inputs')
+    storage.sql.exec('UPDATE dsh_runtime_slot SET pending = 0, bytes = 0')
+    return delivered
+  }
+
+  it('saves each delivery with its occurrence, message, and prompt, and shows the latest on the catalog', async () => {
+    const { schedule, storage, queue } = await setup()
+    const one = await schedule.create(ALPHA, { prompt: 'check the build', title: 'Build', after_seconds: 60 })
+    const every = await schedule.create(ALPHA, { prompt: 'drink water', title: 'Water', every_seconds: 600 })
+    expect((await schedule.catalog()).every(entry => entry.lastDelivery === undefined)).toBe(true)
+    const now = Date.parse(every.scheduledAt) + 1
+    // The one-shot goes first and alone; the recurring batch next.
+    expect(dispatchDueSchedules(storage as never, ALPHA, now)).toBe(true)
+    expect(dispatchDueSchedules(storage as never, ALPHA, now)).toBe(true)
+    const [oneShotInput, batchInput] = queue.pending(ALPHA)
+    const deliveredAt = new Date(now).toISOString()
+    const oneHistory = await schedule.history({ sessionId: ALPHA, id: one.id, limit: 20 })
+    expect(oneHistory).toEqual({
+      id: one.id,
+      records: [{ scheduledAt: one.scheduledAt, deliveredAt, messageId: oneShotInput!.message.id, prompt: 'check the build' }],
+      earlierRecordsUnavailable: false,
+      earlierRecordsPruned: false,
+      retention: { days: 30, records: 200 },
+    })
+    const everyHistory = await schedule.history({ sessionId: ALPHA, id: every.id, limit: 20 })
+    expect(everyHistory).toMatchObject({ records: [{ scheduledAt: every.scheduledAt, deliveredAt, messageId: batchInput!.message.id, prompt: 'drink water' }] })
+    // The catalog's last delivery is the newest saved record, as upstream's schema requires.
+    const catalog = await schedule.catalog()
+    for (const [task, history] of [[one, oneHistory], [every, everyHistory]] as const) {
+      const { prompt: _prompt, ...receipt } = ('records' in history ? history.records[0] : undefined)!
+      expect(catalog.find(entry => entry.id === task.id)?.lastDelivery).toEqual(receipt)
+    }
+  })
+
+  it('pages newest first by message cursor and refuses unknown tasks, cursors, and limits', async () => {
+    const { schedule, storage } = await setup()
+    const every = await schedule.create(ALPHA, { prompt: 'tick', title: 'Tick', every_seconds: 600 })
+    let at = Date.parse(every.scheduledAt)
+    for (let index = 0; index < 5; index++, at += 600_000) expect(deliverAt(storage, at + 1)).toBe(true)
+    const first = await schedule.history({ sessionId: ALPHA, id: every.id, limit: 2 })
+    if (!('records' in first)) throw new Error('expected records')
+    expect(first.records.map(record => record.scheduledAt)).toEqual([new Date(at - 600_000).toISOString(), new Date(at - 1_200_000).toISOString()])
+    expect(first.nextBefore).toBe(first.records[1]!.messageId)
+    const second = await schedule.history({ sessionId: ALPHA, id: every.id, limit: 2, before: first.records[1]!.messageId })
+    if (!('nextBefore' in second) || second.nextBefore === undefined) throw new Error('expected a second cursor')
+    const third = await schedule.history({ sessionId: ALPHA, id: every.id, limit: 2, before: second.nextBefore })
+    expect('records' in third && third.records).toHaveLength(1)
+    expect('nextBefore' in third).toBe(false)
+    expect(await schedule.history({ sessionId: ALPHA, id: every.id, limit: 2, before: 'missing' as never })).toEqual({ id: every.id, code: 'delivery_cursor_not_found' })
+    expect(await schedule.history({ sessionId: SessionId('beta'), id: every.id, limit: 2 })).toEqual({ id: every.id, code: 'schedule_not_found' })
+    for (const limit of [0, 101, 1.5]) await expect(schedule.history({ sessionId: ALPHA, id: every.id, limit })).rejects.toThrow('limit')
+  })
+
+  it('keeps the newest 200 records within 30 days, and says when earlier ones were pruned', async () => {
+    const { schedule, storage } = await setup()
+    const every = await schedule.create(ALPHA, { prompt: 'tick', title: 'Tick', every_seconds: 60 })
+    let at = Date.parse(every.scheduledAt)
+    for (let index = 0; index < 205; index++, at += 60_000) deliverAt(storage, at + 1)
+    expect(deliveries(storage)).toHaveLength(200)
+    expect(deliveries(storage)[0]!.seq).toBe(5)
+    expect(await schedule.history({ sessionId: ALPHA, id: every.id, limit: 1 })).toMatchObject({ earlierRecordsUnavailable: true, earlierRecordsPruned: true })
+    // A delivery 31 days later drops everything older than its window.
+    const late = await schedule.create(ALPHA, { prompt: 'later', title: 'Later', every_seconds: 60 })
+    deliverAt(storage, Date.parse(late.scheduledAt) + 31 * 86_400_000)
+    expect(deliveries(storage).filter(row => row.task_id === every.id)).toHaveLength(1)
+  })
+
+  it('reads a task stored before delivery history as having earlier records unavailable', async () => {
+    const { schedule, storage } = await setup()
+    const every = await schedule.create(ALPHA, { prompt: 'tick', title: 'Tick', every_seconds: 600 })
+    storage.sql.exec('UPDATE dsh_schedule_tasks SET delivery = NULL')
+    expect(await schedule.history({ sessionId: ALPHA, id: every.id, limit: 5 })).toMatchObject({ records: [], earlierRecordsUnavailable: true, earlierRecordsPruned: false })
+    deliverAt(storage, Date.parse(every.scheduledAt) + 1)
+    expect(await schedule.history({ sessionId: ALPHA, id: every.id, limit: 5 })).toMatchObject({ earlierRecordsUnavailable: true, earlierRecordsPruned: false })
+    expect((await schedule.catalog())[0]?.lastDelivery).toBeDefined()
+  })
+
+  it('adds the summary column to a task table from an earlier release', async () => {
+    const storage = new AlarmStorage()
+    storage.sql.exec(`CREATE TABLE dsh_schedule_tasks (session_id TEXT NOT NULL, id TEXT NOT NULL, record TEXT NOT NULL,
+      active INTEGER NOT NULL, due INTEGER NOT NULL, created INTEGER NOT NULL, PRIMARY KEY(session_id, id))`)
+    initializeSchedules(storage as never)
+    initializeSchedules(storage as never)
+    expect(storage.sql.exec<{ name: string }>("SELECT name FROM pragma_table_info('dsh_schedule_tasks') WHERE name = 'delivery'").toArray()).toHaveLength(1)
+    storage.close()
+  })
+
+  it('removes saved deliveries with their task: delete, archive, and the ended-task cap', async () => {
+    const { schedule, storage, ctx } = await setup()
+    const deleted = await schedule.create(ALPHA, { prompt: 'a', title: 'A', every_seconds: 600 })
+    deliverAt(storage, Date.parse(deleted.scheduledAt) + 1)
+    expect(deliveries(storage)).toHaveLength(1)
+    await schedule.delete({ sessionId: ALPHA, id: deleted.id })
+    expect(deliveries(storage)).toEqual([])
+
+    const archived = await schedule.create(ALPHA, { prompt: 'b', title: 'B', every_seconds: 600 })
+    deliverAt(storage, Date.parse(archived.scheduledAt) + 1)
+    await ctx.parallel('workspace/session-stop', { sessionId: ALPHA })
+    expect(deliveries(storage)).toEqual([])
+
+    // Only the newest 128 ended tasks are kept; older ones leave no history behind.
+    const ended: ScheduleRecord[] = []
+    for (let index = 0; index < 130; index++) {
+      const record = await schedule.create(ALPHA, { prompt: `once ${String(index)}`, title: 'Once', after_seconds: 60 + index })
+      ended.push(record)
+      deliverAt(storage, Date.parse(record.scheduledAt) + 1)
+    }
+    const kept = new Set((await schedule.catalog()).map(entry => entry.id))
+    expect(kept.size).toBe(128)
+    expect(new Set(deliveries(storage).map(row => row.task_id))).toEqual(kept)
+  })
+
+  it('announces each committed change, and nothing for a no-op or a miss', async () => {
+    const { schedule, storage, ctx } = await setup()
+    let changes = 0
+    ctx.on('schedule/changed', () => { changes += 1 })
+    const record = await schedule.create(ALPHA, { prompt: 'a', title: 'A', every_seconds: 600 })
+    expect(changes).toBe(1)
+    await schedule.update({ sessionId: ALPHA, id: record.id, expected: record, title: 'A' })
+    expect(changes).toBe(1)
+    const updated = await schedule.update({ sessionId: ALPHA, id: record.id, expected: record, title: 'B' })
+    expect(changes).toBe(2)
+    await schedule.delete({ sessionId: ALPHA, id: ScheduleId('missing') })
+    expect(changes).toBe(2)
+    await schedule.delete({ sessionId: ALPHA, id: record.id })
+    expect(changes).toBe(3)
+    await schedule.create(ALPHA, { prompt: 'b', title: 'B', after_seconds: 60 })
+    await ctx.parallel('workspace/session-stop', { sessionId: ALPHA })
+    expect(changes).toBe(5)
+    await ctx.parallel('workspace/session-stop', { sessionId: ALPHA })
+    expect(changes).toBe(5)
+    // A throwing listener does not fail the change that already landed.
+    ctx.on('schedule/changed', () => { throw new Error('listener failed') })
+    await expect(schedule.create(ALPHA, { prompt: 'c', title: 'C', after_seconds: 60 })).resolves.toMatchObject({ title: 'C' })
+    expect('record' in updated).toBe(true)
+    void storage
+  })
+})
+
 describe('legacy reminder import', () => {
   it('imports active 0.18 reminders once with generated titles and drops the old tables', async () => {
     const storage = new AlarmStorage()
