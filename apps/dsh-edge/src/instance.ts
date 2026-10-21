@@ -29,12 +29,6 @@ import { callEdgeApi, dispatchEdgeApi } from './edge-api-dispatch.ts'
 import type { PeerScope } from '@deepseek-ai/dsh-typert-protocol'
 import { typertRpcResponse, type TypertRpcResult } from './edge-typert-connection.ts'
 import { SESSION_LOG_EXPORT_PATH, sessionLogZipFilename } from '@deepseek-ai/dsh-session-log-export'
-import {
-  SESSION_LOG_EXPORT_LIMITS,
-  sessionLogExportBudget,
-  sessionLogTooLargeResponse,
-  type SessionLogExportBudget,
-} from './edge-session-log-export.ts'
 import { createUserMessage, freezeMessage, MessageId, type UserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
@@ -1435,18 +1429,12 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
   }
 
   /**
-   * Upstream's session log download. The exporter holds a whole log in memory,
-   * so a log the Durable Object could not package is refused with a 413 rather
-   * than risking the object. The Web client sends a HEAD preflight with
-   * `includeDescendants=true` and starts the browser download only if it
-   * succeeds, so the HEAD carries the check for the whole tree and answers on
-   * its own: upstream's HEAD would read the entire root log just to discard it.
-   * The GET checks the same tree, then runs the exporter under a budget that the
-   * persistence layer enforces at each log read, which closes the race with a
-   * turn appending after the check and covers the subagent logs the exporter
-   * reads while streaming.
-   * A request the exporter would reject as malformed is passed to it for its
-   * own 400.
+   * The session log download. Upstream's plugin registers the route and the
+   * `/export` command; the Edge answers the download itself, a page at a time
+   * (see edge-session-log-export.ts), so no whole log is held in memory.
+   * The Web client sends a HEAD preflight before it starts the browser
+   * download, which needs only to know the session exists. A request upstream
+   * would reject as malformed is passed to it for its own 400.
    */
   private async exportSessionLog(request: Request, url: URL): Promise<Response> {
     const handler = this.sessions.sessionLogExportHandler(request.method)
@@ -1457,22 +1445,14 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       return await handler(request)
     }
     const id = SessionId(sessionId)
-    const includeDescendants = descendants === 'true'
     if (request.method === 'HEAD') {
       if (!await this.sessions.sessionLogExists(id)) throw new EdgeHttpError(404, 'session not found')
-      await this.sessions.assertSessionLogExportable(id, includeDescendants, request.signal)
       return new Response(null, { headers: {
         'content-type': 'application/zip',
         'content-disposition': `attachment; filename="${sessionLogZipFilename(id)}"`,
       } })
     }
-    // The whole tree, so a subagent log that is already over the limits is refused
-    // here with a 413 rather than ending a download that has begun.
-    await this.sessions.assertSessionLogExportable(id, includeDescendants, request.signal)
-    const budget: SessionLogExportBudget = { limits: SESSION_LOG_EXPORT_LIMITS }
-    const response = await sessionLogExportBudget.run(budget, () => handler(request))
-    if (budget.refused !== undefined) throw sessionLogTooLargeResponse(budget.refused, id, includeDescendants)
-    return response
+    return await this.sessions.exportSessionLog(id, descendants === 'true', request.signal)
   }
 
   /** Both HTTP spellings bind controls to the same observed run before dispatch. */

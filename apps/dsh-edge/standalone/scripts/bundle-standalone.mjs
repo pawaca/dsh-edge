@@ -88,7 +88,7 @@ async function publishedPackageAliases() {
     .map(escapeRegExpLiteral)
     .join('|')
   const specifierPattern = new RegExp(
-    `['"]((?:${scopePattern})\/[^'"]+|(?:just-bash|fast-png|jpeg-js|acorn|sucrase|minimatch|re2js|yaml)(?:\/[^'"]*)?)['"]`,
+    `['"]((?:${scopePattern})\/[^'"]+|(?:just-bash|fast-png|jpeg-js|fflate|acorn|sucrase|minimatch|re2js|yaml)(?:\/[^'"]*)?)['"]`,
     'g',
   )
   for (const path of await sourceFiles(join(appDirectory, 'src'))) {
@@ -237,6 +237,7 @@ async function requirePublishedDependencyInputs(metafilePath) {
       || path.includes('just-bash')
       || path.includes('fast-png')
       || path.includes('jpeg-js')
+      || path.includes('/fflate/') || path.includes('fflate@')
       || path.includes('/acorn/') || path.includes('acorn@')
       || path.includes('/sucrase/') || path.includes('sucrase@')
       || path.includes('/minimatch/') || path.includes('minimatch@')

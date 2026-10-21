@@ -44,7 +44,7 @@ import SessionStore, {
   type SessionHeader,
   type UserMessage,
 } from '@deepseek-ai/dsh-session'
-import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
+import { SessionPersistenceNotFoundError, type SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SessionProjectionCache from '@deepseek-ai/dsh-session-projection-cache'
 import { boundProjectionCacheRecord, PROJECTION_CACHE_UNIT } from './edge-projection-cache.ts'
@@ -82,7 +82,7 @@ import GoalService from '@deepseek-ai/dsh-goal'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
 import * as CommandFeedback from '@deepseek-ai/dsh-command-feedback'
 import * as SessionLogExport from '@deepseek-ai/dsh-session-log-export'
-import { assertSessionLogExportable } from './edge-session-log-export.ts'
+import { SESSION_LOG_EXPORT_PAGE, sessionLogExportResponse } from './edge-session-log-export.ts'
 import * as ShellEnv from '@deepseek-ai/dsh-shell-env'
 import * as CommandCompact from '@deepseek-ai/dsh-command-compact'
 import * as CommandGoal from '@deepseek-ai/dsh-command-goal'
@@ -1086,32 +1086,35 @@ export class EdgeSessionStore {
   }
 
   /**
-   * Refuse a session log export whose logs would not fit in memory
-   * (see edge-session-log-export.ts). A session that does not exist is left to
-   * the exporter, which answers 404.
+   * Upstream's session log download, packaged a page at a time
+   * (see edge-session-log-export.ts). Each log is opened read-only first, which
+   * migrates an older format and resolves a blank session to its header.
    */
-  async assertSessionLogExportable(sessionId: SessionId, includeDescendants: boolean, signal: AbortSignal): Promise<void> {
+  async exportSessionLog(sessionId: SessionId, includeDescendants: boolean, signal: AbortSignal): Promise<Response> {
     const { persistence } = await this.services()
-    if (!(persistence instanceof DurableObjectSessionPersistence) || !persistence.hasSession(sessionId)) return
-    await assertSessionLogExportable({
-      flush: async (id) => {
+    const attachments = this.context.get('attachments')
+    if (!(persistence instanceof DurableObjectSessionPersistence) || attachments === undefined) {
+      return new Response('session log export is unavailable: missing session-persistence or attachments service', { status: 500 })
+    }
+    return await sessionLogExportResponse({
+      flush: async (id, abort) => {
+        abort.throwIfAborted()
         const live = this.context.sessions.get(id)
         if (live !== undefined) await this.context.sessions.flush(live)
       },
-      size: (id, limits) => persistence.exportSize(id, limits),
-      sessionIds: async (id, include, abort) => {
-        if (!include) return [id]
-        const lineage = await this.context.sessionQuery.traceSession(id, abort)
-        const ids: SessionId[] = [id]
-        const walk = (nodes: readonly { session: { header: { id: SessionId } }; descendants: readonly unknown[] }[]): void => {
-          for (const node of nodes) {
-            ids.push(node.session.header.id)
-            walk(node.descendants as typeof nodes)
-          }
+      header: async (id, abort) => {
+        try {
+          await using handle = await persistence.open(id, 'read', { signal: abort })
+          return handle.header
+        } catch (error) {
+          if (error instanceof SessionPersistenceNotFoundError) return undefined
+          throw error
         }
-        walk(lineage.descendants as Parameters<typeof walk>[0])
-        return ids
       },
+      pages: (id, abort) => persistence.exportEventPages(id, SESSION_LOG_EXPORT_PAGE, abort),
+      descendants: async (id, abort) => (await this.context.sessionQuery.traceSession(id, abort)).descendants,
+      readImage: (ref, abort) => attachments.readImage(ref, abort),
+      readFileStream: (ref, abort) => attachments.readFileStream(ref, abort),
     }, sessionId, includeDescendants, signal)
   }
 
