@@ -31,12 +31,16 @@ describe('bounded VFS preview reads', () => {
     const ctx = new Context()
     await ctx.plugin(EdgeFileSystem)
     const fs = ctx.fs as EdgeFileSystem
-    const failure = Object.assign(new Error('file deleted before open'), { code: 'ENOENT' })
-    const readFile = vi.fn().mockRejectedValue(failure)
+    // As upstream dsh-fs-local reads: a missing file is FS_NOT_FOUND, other faults FS_IO_ERROR.
+    const missing = Object.assign(new Error('file deleted before open'), { code: 'ENOENT' })
+    const failure = Object.assign(new Error('storage fault'), { code: 'EIO' })
+    const readFile = vi.fn().mockRejectedValue(missing)
     try {
       await fs.runInScope({ readFile } as never, '/workspace', async () => {
         const target = await fs.resolve('deleted.txt')
         const read = () => kind === 'text' ? fs.streamText(target) : fs.readByteRange(target, { offset: 0, length: 1 })
+        await expect(read()).rejects.toMatchObject({ code: 'FS_NOT_FOUND', cause: missing })
+        readFile.mockRejectedValue(failure)
         await expect(read()).rejects.toMatchObject({ code: 'FS_IO_ERROR', cause: failure })
         const typed = new FsError('already classified', 'FS_NOT_FOUND')
         readFile.mockRejectedValue(typed)
@@ -286,5 +290,28 @@ describe('guarded writes', () => {
         expect(files.get('/workspace/same.txt')?.content).toBe('bbbb')
       })
     } finally { await ctx.fiber.dispose() }
+  })
+})
+
+describe('streamed file bodies', () => {
+  // `/api/file` returns this stream as its body: it must pull the VFS lazily
+  // and keep reading after the scope that opened it has returned.
+  it('pulls chunks only as the body is read, after the scope returns', async () => {
+    let body: ReadableStream<Uint8Array> | undefined
+    let readsAtOpen = -1
+    await withFile([encode('ab'), encode('cd'), encode('ef')], async (fs, reads) => {
+      body = await fs.readStream(await fs.resolve('pic.png'), undefined, 6)
+      readsAtOpen = reads()
+    })
+    expect(readsAtOpen).toBe(0)
+    expect(await new Response(body).text()).toBe('abcdef')
+  })
+
+  it('fails the stream and cancels the read once it passes the byte limit', async () => {
+    await withFile([encode('abc'), encode('def'), encode('ghi')], async (fs, _reads, cancelled) => {
+      const body = await fs.readStream(await fs.resolve('grown.png'), undefined, 4)
+      await expect(new Response(body).text()).rejects.toMatchObject({ code: 'FS_TOO_LARGE' })
+      expect(cancelled).toHaveBeenCalled()
+    })
   })
 })

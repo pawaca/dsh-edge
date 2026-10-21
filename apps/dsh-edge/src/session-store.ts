@@ -1103,8 +1103,12 @@ export class EdgeSessionStore {
 
   /** Upstream's session log download handler for this method, once its plugin has registered the route. */
   sessionLogExportHandler(method: string): ((request: Request) => Promise<Response>) | undefined {
-    return (this.context.get('connection') as EdgeTypertConnection | undefined)
-      ?.route(SessionLogExport.SESSION_LOG_EXPORT_PATH, method)
+    return this.connectionRoute(SessionLogExport.SESSION_LOG_EXPORT_PATH, method)
+  }
+
+  /** The handler an upstream plugin registered on the connection for this path and method, if any. */
+  connectionRoute(path: string, method: string): ((request: Request) => Promise<Response>) | undefined {
+    return (this.context.get('connection') as EdgeTypertConnection | undefined)?.route(path, method)
   }
 
   /** Whether a session (blank ones included) has a log the exporter can open. */
