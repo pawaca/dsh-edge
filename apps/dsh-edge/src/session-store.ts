@@ -1208,6 +1208,21 @@ export class EdgeSessionStore {
     return { files, binding }
   }
 
+  /**
+   * Retire the file receipts a removed queued prompt was bound to, as
+   * upstream's controller does when a queue item is removed: its message is
+   * never recorded, so the recorded-message retirement never runs for it.
+   */
+  retirePromptFiles(sessionId: SessionId, message: { readonly source: unknown }): void {
+    const source = message.source as { kind?: unknown; rpcId?: unknown }
+    if (source.kind !== 'user' || typeof source.rpcId !== 'string') return
+    const uploads = this.context.get('fileUploads') as EdgeFileUploads | undefined
+    if (uploads === undefined) return
+    const agent = this.liveAgent(sessionId)
+    if (agent !== undefined) uploads.retirePrompt(agent, source.rpcId)
+    else uploads.retireStoredPrompt(sessionId, source.rpcId)
+  }
+
   /** Resolve the optional upstream attachment service composed for this deployment. */
   async attachmentStore(): Promise<AttachmentStore | undefined> {
     await this.ready

@@ -175,6 +175,11 @@ export class EdgeFileUploads extends FileUploads {
     return value
   }
 
+  /** Retire a request's stored receipts for a session without a live Agent. */
+  retireStoredPrompt(sessionId: SessionId, requestId: string): void {
+    this.forget(String(sessionId), requestId)
+  }
+
   private forget(sessionId: string, requestId: string): void {
     this.storage.sql.exec('DELETE FROM dsh_edge_upload_receipts WHERE session_id = ? AND request_id = ?', sessionId, requestId)
   }
