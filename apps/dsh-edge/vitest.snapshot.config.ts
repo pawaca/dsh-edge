@@ -14,5 +14,9 @@ export default defineConfig({
     poolOptions: { forks: { isolate: true } },
     testTimeout: 300_000,
     hookTimeout: 30_000,
+    // A poll without its own timeout waits as long as the browser snapshots'
+    // other waits: Windows release runners sometimes take tens of seconds to
+    // boot the Web client, and vitest's 1 s default failed a release run.
+    expect: { poll: { timeout: 30_000 } },
   },
 })

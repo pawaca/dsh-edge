@@ -13,6 +13,7 @@ import {
   writePrebuiltModeWranglerConfig,
 } from '../scripts/wrangler-config.mjs'
 import { targetTag } from '../scripts/publish.mjs'
+import { keepFailingBrowserState } from './fixtures/browser-failure.mjs'
 import { startMockDeepSeek } from './fixtures/mock-deepseek.mjs'
 
 const edgePackage = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
@@ -571,6 +572,9 @@ describe('dsh-edge assembled browser snapshot', () => {
         { timeout: 15_000 },
       ).toBe(1)
       expect(pageErrors).toEqual([])
+    } catch (error) {
+      await keepFailingBrowserState('session-transcript', browser)
+      throw error
     } finally {
       await browser?.close()
       await worker?.stop()
@@ -663,6 +667,9 @@ describe('dsh-edge assembled browser snapshot', () => {
         await page.waitForTimeout(500)
       }
       await expect.poll(() => pendingImages.count(), { timeout: 15_000 }).toBe(1)
+    } catch (error) {
+      await keepFailingBrowserState('session-image-intake', browser)
+      throw error
     } finally {
       await browser?.close()
       await worker?.stop()

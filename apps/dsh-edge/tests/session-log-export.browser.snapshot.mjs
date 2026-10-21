@@ -12,6 +12,7 @@ import { chromium } from 'playwright'
 import { expect, it } from 'vitest'
 import { unstable_dev } from 'wrangler'
 import { workerArtifactPath, writePrebuiltModeWranglerConfig } from '../scripts/wrangler-config.mjs'
+import { keepFailingBrowserState } from './fixtures/browser-failure.mjs'
 import { startMockDeepSeek } from './fixtures/mock-deepseek.mjs'
 
 const { unzipSync, strFromU8 } = createRequire(import.meta.resolve('@deepseek-ai/dsh-session-log-export'))('fflate')
@@ -43,10 +44,12 @@ it('downloads the session log from the header menu and from /export', async () =
     const input = page.getByRole('textbox').last()
     await input.waitFor()
     const send = page.getByRole('button', { name: 'Send message', exact: true })
+    // 60 s: Windows release runs have stalled past 30 s before the Web client accepts a draft
+    // (0.27.1 release run 39555631013); a failure keeps the page state for diagnosis.
     await expect.poll(async () => {
       await input.fill(PROMPT)
       return await send.isEnabled()
-    }, { timeout: 30_000 }).toBe(true)
+    }, { timeout: 60_000 }).toBe(true)
     await send.click()
     await page.getByText('remembered-alpha', { exact: true }).first().waitFor({ timeout: 30_000 })
 
@@ -68,6 +71,9 @@ it('downloads the session log from the header menu and from /export', async () =
     const commandArchive = await archiveOf(await fromCommand, state, 'command.zip')
     expect(commandArchive.log).toContain(PROMPT)
     expect(commandArchive.log).toContain('command/run')
+  } catch (error) {
+    await keepFailingBrowserState('session-log-export', browser)
+    throw error
   } finally {
     await browser?.close()
     await worker?.stop()
