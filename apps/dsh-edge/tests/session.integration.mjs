@@ -2005,6 +2005,19 @@ try {
   })
   assert.equal(reusedReceipt.body.result.ok, false)
   assert.equal(reusedReceipt.body.result.error.details.reason, 'FILE_NOT_STAGED')
+  // The Web client guards Stop with the turn it observed. A Stop that arrives
+  // after that turn ended converges as upstream's cancel does; other guarded
+  // controls still answer 409 for an ended run.
+  const guarded = (method, args) => request(`/api/session/${method}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-dsh-edge-turn-seq': '1' },
+    body: JSON.stringify({ type: 'client-request', rpcId: crypto.randomUUID(), payload: { args: { request: args } } }),
+  })
+  const lateStop = await (await guarded('cancel', { sessionId: fileSessionId })).json()
+  assert.deepEqual(lateStop.result, { ok: true, value: { accepted: true } })
+  const missingStop = await (await guarded('cancel', { sessionId: 'session-missing' })).json()
+  assert.equal(missingStop.result.error.code, 'session/not-found')
+  assert.equal((await guarded('prompt', { sessionId: fileSessionId, mode: 'queue', content: [{ type: 'text', text: 'late' }] })).status, 409)
   // The session log download carries both files byte for byte.
   const fileArchive = unzipSync(new Uint8Array(await (await request(`/api/session.export?sessionId=${fileSessionId}&includeDescendants=false`)).arrayBuffer()))
   assert.equal(new TextDecoder().decode(fileArchive[`files/${notesDigest.slice(0, 2)}/${notesDigest}/notes.txt`]), notes)
