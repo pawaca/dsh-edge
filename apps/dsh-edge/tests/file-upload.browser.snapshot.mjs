@@ -39,8 +39,8 @@ it('uploads non-image files from the composer and lets the model read them', asy
     expect((await context.request.post(`${origin}/api/auth/login`, { form: { accessKey: ownerKey } })).ok()).toBe(true)
     const page = await context.newPage()
     const uploads = []
-    page.on('request', request => {
-      if (request.url().includes('/api/session/uploadFileBinary')) uploads.push(new URL(request.url()).searchParams.get('name'))
+    page.on('response', response => {
+      if (response.url().includes('/api/session/uploadFileBinary') && response.ok()) uploads.push(new URL(response.url()).searchParams.get('name'))
     })
     await page.goto(origin)
     const onboarding = page.getByRole('button', { name: 'Continue', exact: true })
@@ -51,6 +51,11 @@ it('uploads non-image files from the composer and lets the model read them', asy
       { name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from(NOTES) },
       { name: 'brief.pdf', mimeType: 'application/pdf', buffer: Buffer.from(PDF) },
     ])
+    // Send only once both files have uploaded and show as cards; a slow
+    // runner could otherwise send the text before the receipts exist.
+    await expect.poll(() => uploads.length, { timeout: 60_000 }).toBe(2)
+    await page.getByText('notes.txt', { exact: true }).first().waitFor()
+    await page.getByText('brief.pdf', { exact: true }).first().waitFor()
     const send = page.getByRole('button', { name: 'Send message', exact: true })
     // 60 s: Windows release runs have stalled past 30 s before the Web client accepts a draft
     // (0.27.1 release run 39555631013); a failure keeps the page state for diagnosis.
