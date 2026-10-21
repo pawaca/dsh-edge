@@ -231,9 +231,27 @@ async function forwardUpload(
   request: Request,
   ownerSessionExpiresAt: number,
 ): Promise<Response> {
+  // A declared length lets an oversized upload be refused before any byte is
+  // stored: the workspace VFS keeps every chunk it has written, even of a file
+  // later deleted, so a refusal midway would leave bytes behind for good. The
+  // Web client sends files as Blobs, which always declare their length.
   const declared = request.headers.get('content-length')
-  if (declared !== null && /^\d+$/u.test(declared) && Number(declared) > EDGE_MAX_FILE_ATTACHMENT_BYTES) {
-    throw new EdgeHttpError(413, `Files are limited to ${String(EDGE_MAX_FILE_ATTACHMENT_BYTES / 1024 / 1024)} MiB on this Edge instance.`)
+  const refusal = request.method === 'POST' && (declared === null || !/^\d+$/u.test(declared))
+    ? new EdgeHttpError(411, 'File uploads must declare their content-length.')
+    : declared !== null && Number(declared) > EDGE_MAX_FILE_ATTACHMENT_BYTES
+      ? new EdgeHttpError(413, `Files are limited to ${String(EDGE_MAX_FILE_ATTACHMENT_BYTES / 1024 / 1024)} MiB on this Edge instance.`)
+      : undefined
+  if (refusal !== undefined) {
+    // Answer after the client has sent its body: a response while it is still
+    // arriving drops the connection. Nothing is kept, and platform request
+    // limits bound what is read.
+    if (request.body !== null) {
+      const reader = request.body.getReader()
+      try {
+        while (!(await reader.read()).done) { /* discard */ }
+      } catch { /* the client went away */ }
+    }
+    throw refusal
   }
   const headers = forwardedHeaders(request, ownerSessionExpiresAt)
   return await instance.fetch(new Request(request.url, { method: request.method, headers, body: request.body }))
