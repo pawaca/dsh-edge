@@ -238,6 +238,9 @@ describe('dsh-edge assembled browser snapshot', () => {
             const body = await response.json()
             return body.result?.value?.namespaces?.find(row => row.ns === 'ui-theme')?.user
           }), { timeout: 15_000 }).toMatchObject({ preference: 'dark' })
+        } catch (error) {
+          await keepFailingBrowserState('session-remote-origin', remoteBrowser)
+          throw error
         } finally {
           await remoteBrowser?.close()
           await remoteWorker?.stop()
