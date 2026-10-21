@@ -2005,6 +2005,34 @@ try {
   })
   assert.equal(reusedReceipt.body.result.ok, false)
   assert.equal(reusedReceipt.body.result.error.details.reason, 'FILE_NOT_STAGED')
+  // Removing a queued file prompt retires its receipts, as upstream's queue
+  // removal does: its message is never recorded to retire them.
+  const holderSessionId = (await rpc('session.create', {})).body.result.value.sessionId
+  assert.equal((await rpc('session.prompt', { sessionId: holderSessionId, mode: 'queue', content: [{ type: 'text', text: 'slow file queue holder' }] })).body.result.ok, true)
+  const queuedUpload = await uploadFile(fileSessionId, 'queued.txt', 'queued file\n')
+  assert.equal(queuedUpload.body.ok, true, JSON.stringify(queuedUpload.body))
+  const queuedFilePrompt = await rpc('session.prompt', {
+    sessionId: fileSessionId,
+    mode: 'queue',
+    content: [{ type: 'text', text: 'queued file prompt' }, { type: 'file', receiptId: queuedUpload.body.value.receiptId }],
+  })
+  assert.equal(queuedFilePrompt.body.result.ok, true, JSON.stringify(queuedFilePrompt.body))
+  const queuedFileItem = (await mux.next(message => message.payload.type === 'session/queue'
+    && message.payload.sessionId === fileSessionId
+    && message.payload.items.some(item => item.message.source.rpcId === queuedFilePrompt.rpcId)))
+    .payload.items.find(item => item.message.source.rpcId === queuedFilePrompt.rpcId)
+  const removedFileItem = await rpc('session.updateQueue', { sessionId: fileSessionId, itemId: queuedFileItem.id, action: { kind: 'remove' } })
+  assert.equal(removedFileItem.body.result.ok, true, JSON.stringify(removedFileItem.body))
+  const retiredReceipt = await rpc('session.prompt', {
+    sessionId: fileSessionId,
+    mode: 'queue',
+    content: [{ type: 'text', text: 'reuse removed receipt' }, { type: 'file', receiptId: queuedUpload.body.value.receiptId }],
+  })
+  assert.equal(retiredReceipt.body.result.error.details.reason, 'FILE_NOT_STAGED')
+  mock.releaseSlowResponses()
+  await mux.next(message => message.payload.type === 'session/event'
+    && message.payload.sessionId === holderSessionId
+    && message.payload.event.type === 'turn/end')
   // The session log download carries both files byte for byte.
   const fileArchive = unzipSync(new Uint8Array(await (await request(`/api/session.export?sessionId=${fileSessionId}&includeDescendants=false`)).arrayBuffer()))
   assert.equal(new TextDecoder().decode(fileArchive[`files/${notesDigest.slice(0, 2)}/${notesDigest}/notes.txt`]), notes)
@@ -2229,8 +2257,9 @@ try {
   // fixture adds one request for each of its 50 turns; the first message in
   // the nested workspace adds one; the reminder the schedule Remote manages
   // adds a tool-call request and its continuation; the uploaded-file read
-  // adds a tool-call request and its continuation.
-  assert.equal(turnRequests().length, (runtimeMode === 'isolated' ? 41 : 32) + LARGE_LOG_TURNS)
+  // adds a tool-call request and its continuation, and the turn that holds
+  // the main slot while a file prompt is queued adds one.
+  assert.equal(turnRequests().length, (runtimeMode === 'isolated' ? 42 : 33) + LARGE_LOG_TURNS)
   await worker.stop()
   worker = undefined
   const { physicalRows, writeBatches } = sessionEventStorageStats(batchedSessionId)

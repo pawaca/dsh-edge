@@ -2024,6 +2024,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         this.mainQueue.edit(sessionId, itemId, { ...pending.message, content: [...action.content] })
       } else {
         this.mainQueue.remove(sessionId, itemId)
+        this.sessions.retirePromptFiles(sessionId, pending.message)
         for (const observer of this.mainStreams.get(pending.seq) ?? []) observer.resolve()
         this.mainStreams.delete(pending.seq)
       }
@@ -2050,6 +2051,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     } else {
       agent.inbox.remove(itemId)
       if (action.kind === 'steer') agent.steer(message)
+      else this.sessions.retirePromptFiles(sessionId, message)
     }
     return 'accepted'
   }
