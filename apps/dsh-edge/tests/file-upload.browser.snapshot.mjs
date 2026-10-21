@@ -47,10 +47,17 @@ it('uploads non-image files from the composer and lets the model read them', asy
     if (await onboarding.waitFor({ timeout: 5000 }).then(() => true, () => false)) await onboarding.click()
     const input = page.getByRole('textbox').last()
     await input.waitFor()
-    await page.locator('input[type="file"]').first().setInputFiles([
-      { name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from(NOTES) },
-      { name: 'brief.pdf', mimeType: 'application/pdf', buffer: Buffer.from(PDF) },
-    ])
+    // A slow runner can re-render the composer just after the files are set and
+    // drop them, so they are set again until their cards appear.
+    await expect.poll(async () => {
+      if (await page.getByText('notes.txt', { exact: true }).count() > 0) return true
+      await page.locator('input[type="file"]').first().setInputFiles([
+        { name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from(NOTES) },
+        { name: 'brief.pdf', mimeType: 'application/pdf', buffer: Buffer.from(PDF) },
+      ])
+      await page.getByText('notes.txt', { exact: true }).first().waitFor({ timeout: 5_000 }).catch(() => undefined)
+      return await page.getByText('notes.txt', { exact: true }).count() > 0
+    }, { timeout: 60_000 }).toBe(true)
     // Send only once both files have uploaded and show as cards; a slow
     // runner could otherwise send the text before the receipts exist.
     await expect.poll(() => uploads.length, { timeout: 60_000 }).toBe(2)
