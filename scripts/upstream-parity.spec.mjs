@@ -5,10 +5,13 @@ import {
   checkWiki,
   classifyDocsDiff,
   collectEdgeUsage,
+  edgeOwnedPackages,
   mentionsUsedPackage,
   mergePlugins,
   parseComposition,
   parseToolCatalog,
+  patchedPackages,
+  surfaceDiff,
   untar,
   validateManifest,
   verifyParity,
@@ -338,6 +341,41 @@ describe('upstream parity', () => {
     const after = 'Moved to a new package, `@deepseek-ai/dsh-renamed`.'
     expect(mentionsUsedPackage([before, after], usage)).toBe(true)
     expect(mentionsUsedPackage(['', after], usage)).toBe(false)
+    // A package the Edge replaces is never imported, yet its page still matters.
+    expect(mentionsUsedPackage(['', after], usage, ['@deepseek-ai/dsh-renamed'])).toBe(true)
+  })
+
+  it('requires an edgeOwned entry to name a used package and give a reason', () => {
+    const { errors } = verifyParity({ upstreamVersion: '1.0.0', reference: reference(), usage, manifest: {
+      packages: {
+        '@deepseek-ai/dsh-gap': { status: 'gap', reason: 'x' },
+        '@deepseek-ai/dsh-tool-extra': { status: 'tracked', reason: 'x', issue: 7 },
+      },
+      edgeOwned: { '@deepseek-ai/dsh-used': '', '@deepseek-ai/dsh-gap': 'serves its own' },
+    } })
+    expect(errors).toEqual([
+      '@deepseek-ai/dsh-gap is listed in edgeOwned but not used by the Edge; classify it in packages instead.',
+      'edgeOwned "@deepseek-ai/dsh-used" needs a reason.',
+    ])
+  })
+
+  it('collects the packages whose contract changes need an Edge review', () => {
+    const files = ['@deepseek-ai__dsh-llm@0.2.1-rc.2.patch', '@cloudflare__computer@0.3.1.patch', 'audit.json']
+    expect(patchedPackages(files)).toEqual(['@deepseek-ai/dsh-llm'])
+    expect(edgeOwnedPackages({
+      packages: {
+        '@deepseek-ai/dsh-web-app/startup': { status: 'substitute', reason: 'x' },
+        '@deepseek-ai/dsh-gap': { status: 'gap', reason: 'x' },
+      },
+      edgeOwned: { '@deepseek-ai/dsh-schedule': 'x' },
+    }, patchedPackages(files))).toEqual(['@deepseek-ai/dsh-llm', '@deepseek-ai/dsh-schedule', '@deepseek-ai/dsh-web-app'])
+  })
+
+  it('diffs a package surface by its README and type declarations only', () => {
+    const from = new Map([['README.md', 'a'], ['lib/types/index.d.ts', 'x'], ['lib/index.js', '1'], ['lib/types/old.d.ts', 'o']])
+    const to = new Map([['README.md', 'a'], ['lib/types/index.d.ts', 'y'], ['lib/index.js', '2'], ['lib/types/new.d.ts', 'n']])
+    expect(surfaceDiff(from, to)).toEqual({ added: ['lib/types/new.d.ts'], removed: ['lib/types/old.d.ts'], changed: ['lib/types/index.d.ts'] })
+    expect(surfaceDiff(from, new Map([...from, ['lib/index.js', 'changed code only']]))).toBeUndefined()
   })
 
   it('reads regular files from an npm tarball', () => {
