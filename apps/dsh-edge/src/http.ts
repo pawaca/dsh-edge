@@ -26,7 +26,8 @@ export function instanceRequestBodyLimit(pathname: string): number {
   const route = /^\/api\/([a-zA-Z0-9_$-]+)[./]([a-zA-Z0-9_$-]+)$/.exec(pathname)
   if (route === null) return MAX_SESSION_CREATE_BODY_BYTES
   const key = `${route[1]}.${route[2]}`
-  if (key === 'session.prompt' || key === 'session.updateQueue') return MAX_TURN_BODY_BYTES
+  // fileUploads.upload carries one base64 file; larger files use the streaming upload route.
+  if (key === 'session.prompt' || key === 'session.updateQueue' || key === 'fileUploads.upload') return MAX_TURN_BODY_BYTES
   if (key === 'messageFeedback.put') return MAX_MESSAGE_FEEDBACK_BODY_BYTES
   return MAX_SESSION_CREATE_BODY_BYTES
 }

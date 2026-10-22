@@ -395,9 +395,26 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
               contentDigest = Array.from(new Uint8Array(hash), byte => byte.toString(16).padStart(2, '0')).join('')
               if (runtime.hasPrompt(sessionId, messageRpcId, contentDigest)) return ok(request, { accepted: true as const })
             }
+            // Uploaded files arrive as receipts for this session's staged
+            // uploads; they bind to this request before it is delivered and
+            // roll back if delivery fails, as in upstream's controller.
+            const receiptIds = content.flatMap((part: PromptContentPart) => part.type === 'file' ? [String(part.receiptId)] : [])
+            const staged = receiptIds.length === 0 ? undefined : runtime.sessions.bindPromptFiles(sessionId, receiptIds, String(messageRpcId))
+            if (receiptIds.length > 0 && staged === undefined) {
+              return fail(request, {
+                code: 'attachment-error',
+                message: 'File was not uploaded for this session.',
+                details: { reason: 'FILE_NOT_STAGED' },
+              })
+            }
+            using binding = staged?.binding
+            let nextFile = 0
+            const file = () => ({ type: 'file' as const, attachment: staged!.files[nextFile++]! })
             let durable: ContentBlock[]
             if (!hasImage) {
-              durable = textContent.map((part: { text: string }) => ({ type: 'text' as const, text: part.text }))
+              durable = content.map((part: PromptContentPart) => part.type === 'file'
+                ? file()
+                : { type: 'text' as const, text: (part as { text: string }).text })
             } else {
               const attachments = await runtime.sessions.attachmentStore()
               if (attachments === undefined) {
@@ -424,7 +441,9 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
               let nextImage = 0
               durable = content.map((part: PromptContentPart) => part.type === 'text'
                 ? { type: 'text', text: part.text }
-                : { type: 'image', attachment: refs[nextImage++]! })
+                : part.type === 'file'
+                  ? file()
+                  : { type: 'image', attachment: refs[nextImage++]! })
             }
             await runtime.prompt({
               ...contentDigest === undefined ? {} : { contentDigest },
@@ -434,6 +453,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
               rpcId: messageRpcId,
               ...zone === undefined ? {} : { clientTimeZone: zone },
             })
+            binding?.commit()
             return ok(request, { accepted: true as const })
           } catch (error) {
             if (error instanceof AttachmentError) {

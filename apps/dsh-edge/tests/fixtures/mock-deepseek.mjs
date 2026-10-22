@@ -183,6 +183,22 @@ export async function startMockDeepSeek(port = 0) {
         if (!hasToolResult) return callTool(id, name, args(prompt.slice(prefix.length).trim()))
         return answer(`${name}-done`)
       }
+      // Uploaded files reach the model as handle text naming a read-only saved
+      // path; the model reads the first one with its file tool.
+      // Harness notes follow the prompt as user messages, so the turn is found by its prompt text.
+      const uploadPrompt = messages.findLast(m => m.role === 'user' && messageText(m).startsWith('read the uploaded file'))
+      if (uploadPrompt !== undefined && messages.indexOf(uploadPrompt) >= messages.findLastIndex(m => m.role === 'assistant' && m.tool_calls === undefined)) {
+        // Each file part reaches the wire as its own user message, before or
+        // after the prompt text as the client ordered them, within this turn.
+        const promptIndex = messages.indexOf(uploadPrompt)
+        const turnStart = messages.findLastIndex((m, index) => index < promptIndex && m.role === 'assistant') + 1
+        const text = messages.slice(turnStart).filter(m => m.role === 'user').map(m => messageText(m)).join('\n')
+        const saved = /saved at "([^"]+)"/u.exec(text)?.[1]
+        if (saved === undefined) return answer(`no-saved-path: ${messageText(uploadPrompt)}`)
+        const results = messages.slice(messages.indexOf(uploadPrompt) + 1).filter(m => m.role === 'tool')
+        if (results.length === 0) return callTool('call_read_upload', 'read', { file_path: saved })
+        return answer(`uploaded-read: ${results.map(message => messageText(message)).join('\n')}`)
+      }
       if (/print the shell env/u.test(prompt)) {
         if (!hasToolResult) return callTool('call_shell_env', 'bash', { command: 'printf \'%s|%s|%s\' "$DSH_SHELL" "$DSH_SESSION_ID" "$DSH_HOME" > shell-env.txt && env > shell-env-all.txt', description: 'Print the Harness shell variables' })
         return answer('shell-env-done')

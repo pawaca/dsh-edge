@@ -225,6 +225,42 @@ describe('provider watching', () => {
 })
 
 describe('guarded writes', () => {
+  it('keeps uploaded files read-only for the file tools and names their saved path as process-visible', async () => {
+    const ctx = new Context()
+    await ctx.plugin(EdgeFileSystem)
+    const fs = ctx.fs as EdgeFileSystem
+    const saved = '/.dsh/attachments/v1/files/ab/abcd/notes.txt'
+    const files = new Map([[saved, 'uploaded\n']])
+    const vfs = {
+      stat: (path: string) => {
+        const file = files.get(path)
+        if (file === undefined) return Promise.reject(Object.assign(new Error('missing'), { code: 'ENOENT' }))
+        return Promise.resolve({ size: file.length, mtime: 1, isFile: true, isDirectory: false, isSymbolicLink: false })
+      },
+      readFile: (path: string) => Promise.resolve(files.get(path) ?? ''),
+      writeFile: (path: string, content: string) => { files.set(path, content); return Promise.resolve() },
+      mkdir: () => Promise.resolve(),
+    }
+    try {
+      expect(fs.processPathFromHostPath(saved)).toBe(saved)
+      expect(fs.processPathFromHostPath('/home/me/notes.txt')).toBeUndefined()
+      await fs.runInScope(vfs as never, '/workspace', async () => {
+        const target = await fs.resolve(saved)
+        const observed = await fs.stat(target)
+        await expect(fs.writeText(target, 'changed\n', { kind: 'replaceIfVersion', version: observed!.version }))
+          .rejects.toMatchObject({ code: 'FS_PERMISSION_DENIED' })
+        await expect(fs.editText(target, { oldString: 'uploaded', newString: 'changed', replaceAll: false }))
+          .rejects.toMatchObject({ code: 'FS_PERMISSION_DENIED' })
+        await expect(fs.writeText(await fs.resolve('/.dsh/attachments/v1/staging/new'), 'x'))
+          .rejects.toMatchObject({ code: 'FS_PERMISSION_DENIED' })
+        expect(files.get(saved)).toBe('uploaded\n')
+        // A copy elsewhere is writable.
+        await fs.writeText(await fs.resolve('/workspace/notes.txt'), 'changed\n')
+        expect(files.get('/workspace/notes.txt')).toBe('changed\n')
+      })
+    } finally { await ctx.fiber.dispose() }
+  })
+
   it('lets one of two concurrent writes from the same version win and fails the other as stale', async () => {
     const ctx = new Context()
     await ctx.plugin(EdgeFileSystem)

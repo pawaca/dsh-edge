@@ -108,6 +108,7 @@ import {
 } from './edge-api.ts'
 import { putSkill, deleteSkill, listSkillNames } from './edge-skill-provider.ts'
 import type { EdgeApiSessionSummary, EdgeWorkspaceFiles } from './session-store.ts'
+import { FILE_UPLOAD_PATH, type EdgeAttachmentFiles } from './edge-file-attachments.ts'
 import { WorkspaceOrderInvalidError } from '@deepseek-ai/dsh-workspace'
 import { DSH_EDGE_VERSION } from './release.ts'
 import {
@@ -361,6 +362,13 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         this.env.DSH_EDGE_MAX_COMMAND_TIMEOUT_MS,
       ).maxTimeoutMs,
       withWorkspaceFiles: read => this.withWorkspaceFiles(read),
+      openAttachmentFiles: async () => {
+        const workspace = await getWorkspace(this)
+        return {
+          files: workspace.fs as unknown as EdgeAttachmentFiles,
+          [Symbol.dispose]: () => { workspace[Symbol.dispose]() },
+        }
+      },
       onLateSessionEvent: (sessionId, event) => {
         this.publishSessionEvent(sessionId, event)
       },
@@ -489,9 +497,11 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       if (url.pathname !== SESSION_LOG_EXPORT_PATH) {
         const route = this.sessions.connectionRoute(url.pathname, request.method)
         if (route !== undefined) {
-          return url.pathname === WORKSPACE_FILE_ROUTE && request.method === 'GET'
-            ? await this.streamWorkspaceFile(url, request, route)
-            : await this.withWorkspaceFileScope(() => route(request))
+          if (url.pathname === WORKSPACE_FILE_ROUTE && request.method === 'GET') {
+            return await this.streamWorkspaceFile(url, request, route)
+          }
+          if (url.pathname === FILE_UPLOAD_PATH) return await this.uploadFile(url, request, route)
+          return await this.withWorkspaceFileScope(() => route(request))
         }
       }
       const typertResponse = await this.handleTypertRpc(request, url)
@@ -1328,6 +1338,57 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     }
   }
 
+  /**
+   * Upstream's streaming upload route stages a file for a live Agent and
+   * resolves a cold one through the session controller, which the Edge does
+   * not let own resumes. A cold session is resumed here as other agent-scoped
+   * calls are; its Agent then stays resident, so the upload itself (which can
+   * take a while) does not hold the main slot. The attachment store borrows
+   * the workspace while the bytes stream (edge-file-attachments.ts).
+   */
+  private async uploadFile(url: URL, request: Request, route: (request: Request) => Promise<Response>): Promise<Response> {
+    try {
+      return await this.stageUpload(url, request, route)
+    } finally {
+      // Whatever the outcome, the response goes out only after the client has
+      // sent its whole body: a response sent while the request body is still
+      // arriving is not delivered reliably. Unread bytes are discarded; the
+      // Worker's declared-length check and platform request limits bound them.
+      if (request.body !== null && !request.body.locked) {
+        const reader = request.body.getReader()
+        try {
+          while (!(await reader.read()).done) { /* discard */ }
+        } catch { /* the client went away */ }
+      }
+    }
+  }
+
+  private async stageUpload(url: URL, request: Request, route: (request: Request) => Promise<Response>): Promise<Response> {
+    const sessionId = url.searchParams.get('sessionId')
+    // Upstream answers a malformed request (method, content type, no session)
+    // itself; checking its preconditions first keeps such a request from
+    // resuming, and so writing to, a cold session.
+    const octetStream = request.headers.get('content-type')?.split(';', 1)[0]?.trim().toLowerCase() === 'application/octet-stream'
+    if (request.method === 'POST' && octetStream && sessionId !== null && sessionId !== ''
+      && this.sessions.liveAgent(SessionId(sessionId)) === undefined) {
+      try {
+        await this.withAgentControl(SessionId(sessionId), () => Promise.resolve())
+      } catch (error) {
+        const code = error instanceof EdgeSessionStoreError && error.code === 'NOT_FOUND'
+          ? 'session/not-found'
+          : error instanceof EdgeSessionStoreError && error.code === 'BUSY'
+            ? 'session/agent-busy'
+            : 'gateway/internal'
+        const message = error instanceof Error ? error.message : String(error)
+        // The same 200 envelope upstream's route answers with, so the client shows the failure.
+        return Response.json({ ok: false, error: { code, message, details: { sessionId } } }, {
+          headers: { 'cache-control': 'no-store' },
+        })
+      }
+    }
+    return await route(request)
+  }
+
   private async withWorkspaceFileScope<T>(run: () => Promise<T>): Promise<T> {
     const fs = this.sessions.filesystem()
     if (fs === undefined) throw new Error('Workspace filesystem is unavailable.')
@@ -2003,6 +2064,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         this.mainQueue.edit(sessionId, itemId, { ...pending.message, content: [...action.content] })
       } else {
         this.mainQueue.remove(sessionId, itemId)
+        this.sessions.retirePromptFiles(sessionId, pending.message)
         for (const observer of this.mainStreams.get(pending.seq) ?? []) observer.resolve()
         this.mainStreams.delete(pending.seq)
       }
@@ -2029,6 +2091,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     } else {
       agent.inbox.remove(itemId)
       if (action.kind === 'steer') agent.steer(message)
+      else this.sessions.retirePromptFiles(sessionId, message)
     }
     return 'accepted'
   }

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { LIGHT_SHELL_MISSES, LIGHT_SHELL_MISS_SETUP } from './fixtures/light-shell-misses.mjs'
 import { LIGHT_SHELL_SAMPLES, LIGHT_SHELL_SETUP } from './fixtures/light-shell-samples.mjs'
 import { lightShellCouldNotRun } from '../src/light-shell-fallback.ts'
-import { createHmac } from 'node:crypto'
+import { createHash, createHmac } from 'node:crypto'
 import { createRequire } from 'node:module'
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -1940,6 +1940,142 @@ try {
   assert.equal((await request('/api/session.export?sessionId=session-missing')).status, 404)
   assert.equal((await request('/api/session.export')).status, 400)
   assert.equal((await request(`/api/session.export?sessionId=${imageSessionId}&includeDescendants=maybe`)).status, 400)
+  // Upstream file uploads (#337). A raw octet-stream upload streams through the Worker into the
+  // workspace VFS at its content address; a prompt's file part resolves its receipt, the model is
+  // told the saved path, and its file tool reads the bytes there.
+  const fileSessionId = (await rpc('session.create', {})).body.result.value.sessionId
+  // Uploads declare their length, as a browser's do; worker.fetch sends none unless told.
+  const uploadFile = async (sessionId, name, body, contentType = 'application/octet-stream') => {
+    const length = typeof body === 'string' ? Buffer.byteLength(body) : body.byteLength
+    const response = await request(`/api/session/uploadFileBinary?sessionId=${sessionId}&name=${encodeURIComponent(name)}`, {
+      method: 'POST',
+      headers: { 'content-type': contentType, 'content-length': String(length) },
+      body,
+    })
+    return { status: response.status, body: response.headers.get('content-type')?.startsWith('application/json') ? await response.json() : await response.text() }
+  }
+  const notes = 'uploaded notes: alpha beta gamma\n'
+  const notesUpload = await uploadFile(fileSessionId, 'C:\\Users\\me\\notes.txt', notes)
+  assert.equal(notesUpload.status, 200)
+  assert.equal(notesUpload.body.ok, true, JSON.stringify(notesUpload.body))
+  const notesDigest = createHash('sha256').update(notes).digest('hex')
+  assert.deepEqual(notesUpload.body.value.file, { attachmentId: `sha256:${notesDigest}`, name: 'notes.txt', bytes: Buffer.byteLength(notes) })
+  // The same bytes and name again replace the stored object in one VFS rename.
+  const notesAgain = await uploadFile(fileSessionId, 'notes.txt', notes)
+  assert.equal(notesAgain.body.ok, true, JSON.stringify(notesAgain.body))
+  assert.deepEqual(notesAgain.body.value.file, notesUpload.body.value.file)
+  // Several 512 KiB VFS chunks, generated here.
+  const largeFile = new Uint8Array(3 * 1024 * 1024 + 123)
+  for (let index = 0; index < largeFile.byteLength; index++) largeFile[index] = (index * 31 + 7) % 251
+  const largeUpload = await uploadFile(fileSessionId, 'data.bin', largeFile)
+  assert.equal(largeUpload.body.ok, true, JSON.stringify(largeUpload.body))
+  const largeDigest = createHash('sha256').update(largeFile).digest('hex')
+  assert.deepEqual(largeUpload.body.value.file, { attachmentId: `sha256:${largeDigest}`, name: 'data.bin', bytes: largeFile.byteLength })
+  // The base64 Remote stores through the same attachment store.
+  const encodedUpload = await typertRpc('fileUploads', 'upload', {
+    agentId: fileSessionId,
+    request: { data: Buffer.from('encoded upload').toString('base64'), name: 'encoded.txt' },
+  })
+  assert.equal(encodedUpload.body.result.ok, true, JSON.stringify(encodedUpload.body))
+  assert.equal(encodedUpload.body.result.value.file.bytes, 'encoded upload'.length)
+  const filePrompt = await rpc('session.prompt', {
+    sessionId: fileSessionId,
+    mode: 'queue',
+    content: [
+      { type: 'text', text: 'read the uploaded file' },
+      { type: 'file', receiptId: notesUpload.body.value.receiptId },
+      { type: 'file', receiptId: largeUpload.body.value.receiptId },
+    ],
+  })
+  assert.equal(filePrompt.body.result.ok, true, JSON.stringify(filePrompt.body))
+  await mux.next(message => message.payload.type === 'session/event'
+    && message.payload.sessionId === fileSessionId
+    && message.payload.event.type === 'turn/end')
+  const savedNotesPath = `/.dsh/attachments/v1/files/${notesDigest.slice(0, 2)}/${notesDigest}/notes.txt`
+  const fileApiRequest = mock.requests.findLast(req => chatMessages(req).some(msg => JSON.stringify(msg.content).includes(savedNotesPath)))
+  assert.ok(fileApiRequest !== undefined, 'expected the model request to name the saved upload path')
+  const fileHistory = (await rpc('session.history', { sessionId: fileSessionId })).body.result.value.events
+  const fileUser = fileHistory.find(entry => entry.event.type === 'user/message').event
+  assert.deepEqual(fileUser.data.content.filter(block => block.type === 'file').map(block => block.attachment),
+    [notesUpload.body.value.file, largeUpload.body.value.file])
+  assert.match(assistantText(fileHistory.map(entry => entry.event)), /uploaded-read: .*uploaded notes: alpha beta gamma/su)
+  // A receipt is spent once its message is recorded; an unknown one is refused before anything is queued.
+  const reusedReceipt = await rpc('session.prompt', {
+    sessionId: fileSessionId,
+    mode: 'queue',
+    content: [{ type: 'text', text: 'again' }, { type: 'file', receiptId: notesUpload.body.value.receiptId }],
+  })
+  assert.equal(reusedReceipt.body.result.ok, false)
+  assert.equal(reusedReceipt.body.result.error.details.reason, 'FILE_NOT_STAGED')
+  // Removing a queued file prompt retires its receipts, as upstream's queue
+  // removal does: its message is never recorded to retire them.
+  const holderSessionId = (await rpc('session.create', {})).body.result.value.sessionId
+  assert.equal((await rpc('session.prompt', { sessionId: holderSessionId, mode: 'queue', content: [{ type: 'text', text: 'slow file queue holder' }] })).body.result.ok, true)
+  const queuedUpload = await uploadFile(fileSessionId, 'queued.txt', 'queued file\n')
+  assert.equal(queuedUpload.body.ok, true, JSON.stringify(queuedUpload.body))
+  const queuedFilePrompt = await rpc('session.prompt', {
+    sessionId: fileSessionId,
+    mode: 'queue',
+    content: [{ type: 'text', text: 'queued file prompt' }, { type: 'file', receiptId: queuedUpload.body.value.receiptId }],
+  })
+  assert.equal(queuedFilePrompt.body.result.ok, true, JSON.stringify(queuedFilePrompt.body))
+  const queuedFileItem = (await mux.next(message => message.payload.type === 'session/queue'
+    && message.payload.sessionId === fileSessionId
+    && message.payload.items.some(item => item.message.source.rpcId === queuedFilePrompt.rpcId)))
+    .payload.items.find(item => item.message.source.rpcId === queuedFilePrompt.rpcId)
+  const removedFileItem = await rpc('session.updateQueue', { sessionId: fileSessionId, itemId: queuedFileItem.id, action: { kind: 'remove' } })
+  assert.equal(removedFileItem.body.result.ok, true, JSON.stringify(removedFileItem.body))
+  const retiredReceipt = await rpc('session.prompt', {
+    sessionId: fileSessionId,
+    mode: 'queue',
+    content: [{ type: 'text', text: 'reuse removed receipt' }, { type: 'file', receiptId: queuedUpload.body.value.receiptId }],
+  })
+  assert.equal(retiredReceipt.body.result.error.details.reason, 'FILE_NOT_STAGED')
+  mock.releaseSlowResponses()
+  await mux.next(message => message.payload.type === 'session/event'
+    && message.payload.sessionId === holderSessionId
+    && message.payload.event.type === 'turn/end')
+  // The session log download carries both files byte for byte.
+  const fileArchive = unzipSync(new Uint8Array(await (await request(`/api/session.export?sessionId=${fileSessionId}&includeDescendants=false`)).arrayBuffer()))
+  assert.equal(new TextDecoder().decode(fileArchive[`files/${notesDigest.slice(0, 2)}/${notesDigest}/notes.txt`]), notes)
+  assert.equal(createHash('sha256').update(fileArchive[`files/${largeDigest.slice(0, 2)}/${largeDigest}/data.bin`]).digest('hex'), largeDigest)
+  // Failures answer in upstream's envelope or status.
+  // A malformed upload to a cold session is refused before any resume.
+  const coldSessionId = (await rpc('session.create', {})).body.result.value.sessionId
+  const coldMalformed = await uploadFile(coldSessionId, 'x.txt', 'x', 'text/plain')
+  assert.equal(coldMalformed.status, 415, JSON.stringify(coldMalformed.body))
+  const missingSessionUpload = await uploadFile('session-missing', 'x.txt', 'x')
+  assert.equal(missingSessionUpload.body.ok, false)
+  assert.equal(missingSessionUpload.body.error.code, 'session/not-found')
+  const wrongType = await uploadFile(fileSessionId, 'x.txt', 'x', 'text/plain')
+  assert.equal(wrongType.status, 415, JSON.stringify(wrongType.body))
+  // An upload must declare its length, so one over the 64 MiB limit is refused
+  // before any byte reaches the workspace VFS, which keeps written chunks for good.
+  let streamedMiB = 0
+  const undeclared = await request(`/api/session/uploadFileBinary?sessionId=${fileSessionId}&name=big.bin`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/octet-stream' },
+    body: new ReadableStream({
+      pull(controller) {
+        if (streamedMiB++ > 1) controller.close()
+        else controller.enqueue(new Uint8Array(1024 * 1024))
+      },
+    }),
+    duplex: 'half',
+  })
+  assert.equal(undeclared.status, 411)
+  const overLimit = await request(`/api/session/uploadFileBinary?sessionId=${fileSessionId}&name=big.bin`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/octet-stream', 'content-length': String(64 * 1024 * 1024 + 1) },
+    body: new Uint8Array(64 * 1024 * 1024 + 1),
+  })
+  assert.equal(overLimit.status, 413)
+  const staging = await jsonRequest('/api/workspace/exec', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ command: 'ls -A /.dsh/attachments/v1/staging | wc -l' }),
+  })
+  assert.equal(staging.body.stdout.trim(), '0', JSON.stringify(staging.body))
   // Upstream's `schedule` Remote namespace behind the Web task page, on a reminder the model created.
   const reminderSession = (await rpc('session.create', {})).body.result.value.sessionId
   await turn(reminderSession, 'schedule once 3600')
@@ -2052,6 +2188,12 @@ try {
   mux.close()
   host.close()
 
+  // An upload receipt outlives the Durable Object: a file uploaded before
+  // restarts (as an idle, hibernated instance is evicted) is still accepted by
+  // the prompt sent after it.
+  const restartNotes = 'notes uploaded before a restart\n'
+  const restartUpload = await uploadFile(fileSessionId, 'restart.txt', restartNotes)
+  assert.equal(restartUpload.body.ok, true, JSON.stringify(restartUpload.body))
   // Model selection needs a provider; the invalid base URL below leaves none registered.
   const textModelAfterRemovedImage = await rpc('session.selectModel', {
     sessionId: protocolSessionId,
@@ -2116,8 +2258,10 @@ try {
   // adds a tool-call request and its continuation; the large-log export
   // fixture adds one request for each of its 50 turns; the first message in
   // the nested workspace adds one; the reminder the schedule Remote manages
-  // adds a tool-call request and its continuation.
-  assert.equal(turnRequests().length, (runtimeMode === 'isolated' ? 39 : 30) + LARGE_LOG_TURNS)
+  // adds a tool-call request and its continuation; the uploaded-file read
+  // adds a tool-call request and its continuation, and the turn that holds
+  // the main slot while a file prompt is queued adds one.
+  assert.equal(turnRequests().length, (runtimeMode === 'isolated' ? 42 : 33) + LARGE_LOG_TURNS)
   await worker.stop()
   worker = undefined
   const { physicalRows, writeBatches } = sessionEventStorageStats(batchedSessionId)
@@ -2135,6 +2279,25 @@ try {
   const durableBatch = durableBatchHistory.body.result.value.events
     .find(entry => entry.event.type === 'assistant/message').event
   assert.deepEqual(durableBatch, batchAssistant)
+  const restartPrompt = await rpc('session.prompt', {
+    sessionId: fileSessionId,
+    mode: 'queue',
+    content: [{ type: 'text', text: 'read the uploaded file after restart' }, { type: 'file', receiptId: restartUpload.body.value.receiptId }],
+  })
+  assert.equal(restartPrompt.body.result.ok, true, JSON.stringify(restartPrompt.body))
+  for (const deadline = Date.now() + 60_000; ;) {
+    const events = (await rpc('session.history', { sessionId: fileSessionId })).body.result.value.events.map(entry => entry.event)
+    if (/uploaded-read: .*notes uploaded before a restart/su.test(assistantText(events) ?? '')) break
+    assert.ok(Date.now() < deadline, `no answer from the restarted upload: ${String(assistantText(events))}`)
+    await new Promise(resolve => setTimeout(resolve, 250))
+  }
+  // Recorded with its message, the receipt is spent.
+  const spentAfterRestart = await rpc('session.prompt', {
+    sessionId: fileSessionId,
+    mode: 'queue',
+    content: [{ type: 'text', text: 'again' }, { type: 'file', receiptId: restartUpload.body.value.receiptId }],
+  })
+  assert.equal(spentAfterRestart.body.result.error.details.reason, 'FILE_NOT_STAGED')
   const legacyPresetSessionId = (await rpc('session.create', {})).body.result.value.sessionId
   await worker.stop()
   worker = undefined

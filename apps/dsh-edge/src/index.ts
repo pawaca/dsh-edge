@@ -22,6 +22,7 @@ import {
   readBoundedText,
   readJsonObject,
 } from './http.ts'
+import { EDGE_MAX_FILE_ATTACHMENT_BYTES, FILE_UPLOAD_PATH } from './edge-file-attachments.ts'
 import type { EdgeEnv } from './instance.ts'
 import { resolveEdgeDeploymentHealth } from './deployment.ts'
 import {
@@ -96,9 +97,9 @@ export default {
       rejectLegacyInstanceSelector(request, url)
       const instanceStub = env.DSH_EDGE_INSTANCE.getByName(OWNER_INSTANCE)
       if (isInstanceApiPath(url.pathname)) {
-        const response = await instanceStub.fetch(
-          await requestForInstance(request, ownerSession.expiresAt),
-        )
+        const response = url.pathname === FILE_UPLOAD_PATH
+          ? await forwardUpload(instanceStub, request, ownerSession.expiresAt)
+          : await instanceStub.fetch(await requestForInstance(request, ownerSession.expiresAt))
         if (response.webSocket !== null) return response
         const headers = new Headers(response.headers)
         for (const [name, value] of Object.entries(corsHeaders())) headers.set(name, value)
@@ -194,12 +195,17 @@ function resolveWorkspacePath(url: URL): string {
   return requireWorkspacePath(url.searchParams.get('path'))
 }
 
-async function requestForInstance(request: Request, ownerSessionExpiresAt: number): Promise<Request> {
+function forwardedHeaders(request: Request, ownerSessionExpiresAt: number): Headers {
   const headers = new Headers(request.headers)
   headers.delete('cookie')
   headers.delete('authorization')
   headers.delete('x-dsh-edge-instance')
   headers.set(OWNER_SESSION_EXPIRY_HEADER, String(ownerSessionExpiresAt))
+  return headers
+}
+
+async function requestForInstance(request: Request, ownerSessionExpiresAt: number): Promise<Request> {
+  const headers = forwardedHeaders(request, ownerSessionExpiresAt)
   if (request.body === null) return new Request(request, { headers })
   const maxBytes = instanceRequestBodyLimit(new URL(request.url).pathname)
   const body = await readBoundedBody(
@@ -212,6 +218,43 @@ async function requestForInstance(request: Request, ownerSessionExpiresAt: numbe
     headers,
     body,
   })
+}
+
+/**
+ * A file upload streams through to the Durable Object, whose attachment store
+ * counts the bytes and stops at the file limit; buffering it here would hold
+ * the whole file in Worker memory. The Durable Object reads the whole body
+ * before it answers, refusals included.
+ */
+async function forwardUpload(
+  instance: DurableObjectStub,
+  request: Request,
+  ownerSessionExpiresAt: number,
+): Promise<Response> {
+  // A declared length lets an oversized upload be refused before any byte is
+  // stored: the workspace VFS keeps every chunk it has written, even of a file
+  // later deleted, so a refusal midway would leave bytes behind for good. The
+  // Web client sends files as Blobs, which always declare their length.
+  const declared = request.headers.get('content-length')
+  const refusal = request.method === 'POST' && (declared === null || !/^\d+$/u.test(declared))
+    ? new EdgeHttpError(411, 'File uploads must declare their content-length.')
+    : declared !== null && Number(declared) > EDGE_MAX_FILE_ATTACHMENT_BYTES
+      ? new EdgeHttpError(413, `Files are limited to ${String(EDGE_MAX_FILE_ATTACHMENT_BYTES / 1024 / 1024)} MiB on this Edge instance.`)
+      : undefined
+  if (refusal !== undefined) {
+    // Answer after the client has sent its body: a response while it is still
+    // arriving drops the connection. Nothing is kept, and platform request
+    // limits bound what is read.
+    if (request.body !== null) {
+      const reader = request.body.getReader()
+      try {
+        while (!(await reader.read()).done) { /* discard */ }
+      } catch { /* the client went away */ }
+    }
+    throw refusal
+  }
+  const headers = forwardedHeaders(request, ownerSessionExpiresAt)
+  return await instance.fetch(new Request(request.url, { method: request.method, headers, body: request.body }))
 }
 
 function isInstanceApiPath(pathname: string): boolean {

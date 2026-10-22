@@ -32,7 +32,7 @@
     },
     "@deepseek-ai/dsh-attachment-local": {
       "status": "substitute",
-      "reason": "EdgeR2AttachmentStore and EdgeDoAttachmentStore in edge-attachment-store.ts."
+      "reason": "EdgeR2AttachmentStore and EdgeDoAttachmentStore in edge-attachment-store.ts keep images in private R2 or Durable Object rows; verbatim uploaded files follow upstream's files/<prefix>/<digest>/<name> layout in the workspace VFS below /.dsh/attachments/v1 (edge-file-attachments.ts)."
     },
     "@deepseek-ai/dsh-authorization": {
       "status": "declined",
@@ -324,7 +324,7 @@
   "edgeOwned": {
     "@deepseek-ai/dsh-api-gateway": "Patched; the Edge serves /api/remote.mux and the /api/events.* channels itself (instance.ts), with Durable Object hibernation-safe WebSockets, and uses the gateway only for /api RPC and stream dispatch.",
     "@deepseek-ai/dsh-api-session-controller": "Patched; eight session methods (list, create, prompt, cancel, updateQueue, selectModel, rename, fork) are answered by edge-api.ts, and an Edge subclass turns off native file opening.",
-    "@deepseek-ai/dsh-client-file-upload": "The fileUploads service is an Edge stub and no upload route is served, so non-image uploads fail (#337).",
+    "@deepseek-ai/dsh-client-file-upload": "EdgeFileUploads (edge-file-uploads.ts) extends upstream FileUploads: the upload Remote and the streaming /api/session/uploadFileBinary route are upstream's, but each receipt is also kept in a Durable Object row (restored after eviction, bound and retired with its prompt, expired after 7 days). The Durable Object resumes a cold session before an upload and drains a refused body; the Worker requires a declared length (411) and refuses over 64 MiB (413). Bytes go to the workspace VFS through edge-file-attachments.ts. Edge session.prompt resolves and binds file receipts itself (edge-api.ts, session-store.ts bindPromptFiles), and queue removal retires them.",
     "@deepseek-ai/dsh-client-locale": "The locale settings namespace is registered by edge-client-settings.ts, not a Loader entry.",
     "@deepseek-ai/dsh-client-ui-agent-preset": "The agentPresets Remote is served by EdgeAgentPresets (agent-presets.ts), which declares the standard and ptc presets in code; the composition editor is read-only.",
     "@deepseek-ai/dsh-client-ui-chat": "The ui-chat namespace is Edge-registered (linkOpening defaults to new-tab), and file links download through /api/workspace/file instead of opening natively.",

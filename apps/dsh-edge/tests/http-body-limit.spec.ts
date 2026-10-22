@@ -21,6 +21,8 @@ describe('instanceRequestBodyLimit', () => {
     expect(instanceRequestBodyLimit('/api/skills')).toBe(MAX_TURN_BODY_BYTES)
     expect(instanceRequestBodyLimit('/api/messageFeedback/put')).toBe(MAX_MESSAGE_FEEDBACK_BODY_BYTES)
     expect(instanceRequestBodyLimit('/api/messageFeedback.put')).toBe(MAX_MESSAGE_FEEDBACK_BODY_BYTES)
+    // One base64 file through the Remote; larger files stream through the upload route.
+    expect(instanceRequestBodyLimit('/api/fileUploads/upload')).toBe(MAX_TURN_BODY_BYTES)
   })
 
   it('leaves every other route on the small default', () => {

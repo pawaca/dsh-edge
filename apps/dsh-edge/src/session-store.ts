@@ -16,6 +16,7 @@ import AgentRegistry, {
 } from '@deepseek-ai/dsh-agent'
 import type {
   AttachmentStore,
+  FileAttachmentRef,
   ImageAttachmentLimits,
   ImageAttachmentRef,
 } from '@deepseek-ai/dsh-attachment'
@@ -100,7 +101,8 @@ import * as TimeContext from '@deepseek-ai/dsh-time-context'
 import * as ToolSchedule from '@deepseek-ai/dsh-tool-schedule'
 import type { PeerScope } from '@deepseek-ai/dsh-typert-protocol'
 import { EdgeTypertConnection, type TypertRpcInterceptor } from './edge-typert-connection.ts'
-import EdgeFileUploadsStub from './edge-file-uploads-stub.ts'
+import type { FileUploadReceiptId, PromptFileBinding } from '@deepseek-ai/dsh-client-file-upload'
+import { EdgeFileUploads } from './edge-file-uploads.ts'
 import SessionReferenceResolver from '@deepseek-ai/dsh-session-reference'
 import { EdgeFileSystem } from './edge-filesystem.ts'
 import { EdgeFileReferenceService, type EdgeReferenceFiles } from './edge-file-reference.ts'
@@ -128,6 +130,7 @@ import {
   EdgeR2AttachmentStore,
   type EdgeAttachmentStorage,
 } from './edge-attachment-store.ts'
+import type { OpenAttachmentFiles } from './edge-file-attachments.ts'
 import { EdgeVfsSpillStore } from './edge-spill-store.ts'
 import * as EdgeFsSearch from './edge-fs-search.ts'
 import {
@@ -182,6 +185,8 @@ interface EdgeSessionStoreConfig {
   maxCommandTimeoutMs: number
   /** Run one bounded Computer workspace operation outside a turn (`@file` completion, directory browsing). */
   withWorkspaceFiles<T>(read: (files: EdgeWorkspaceFiles) => Promise<T>): Promise<T>
+  /** Borrow the workspace VFS for as long as a verbatim file attachment streams. */
+  openAttachmentFiles?: OpenAttachmentFiles
   onLateSessionEvent?: (sessionId: SessionId, event: SessionEvent) => void
   onProjectionChanged?: (sessionId: SessionId, key: string, value: unknown, seq: number) => void
   /** Whether the session's turn has a stop (Stop or its deadline) requested. */
@@ -378,11 +383,13 @@ export class EdgeSessionStore {
     config: EdgeSessionStoreConfig,
   ): Promise<void> {
     const images = config.images as import('./edge-attachment-store.ts').ImagesBinding | undefined
+    const files = config.openAttachmentFiles
+    const optional = { ...images !== undefined ? { images } : {}, ...files !== undefined ? { files } : {} }
     await (config.attachmentStorage === 'temporary-do'
-      ? this.context.plugin(EdgeDoAttachmentStore, { storage, ...(images !== undefined ? { images } : {}) })
+      ? this.context.plugin(EdgeDoAttachmentStore, { storage, ...optional })
       : this.context.plugin(EdgeR2AttachmentStore, {
           bucket: requireAttachmentBucket(config.attachmentBucket),
-          ...(images !== undefined ? { images } : {}),
+          ...optional,
         }))
     await this.context.plugin(EdgeCredentialProvider, {
       storage,
@@ -603,7 +610,17 @@ export class EdgeSessionStore {
     await workspaceFilesContext.plugin(WorkspaceFiles, {
       maxBytes: 1024 * 1024, maxFileBytes: 1024 * 1024, maxLines: 5000, maxEntries: 2000,
     })
-    await this.context.plugin(EdgeFileUploadsStub)
+    // Upstream file uploads as-is: the `fileUploads/upload` Remote, the
+    // streaming /api/session/uploadFileBinary route on the connection seam, and
+    // the per-session receipts a prompt's file parts resolve. The attachment
+    // store keeps the bytes in the workspace VFS (edge-file-attachments.ts).
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    const { TYPERT: FILE_UPLOAD_TYPERT } = await import(
+      '@deepseek-ai/dsh-client-file-upload/typert' as string
+    )
+    this.context.typert.register(FILE_UPLOAD_TYPERT as never)
+    // Receipts also persist in one Durable Object row each (edge-file-uploads.ts).
+    await this.context.plugin(EdgeFileUploads, { storage })
     // All SessionController inject deps now available: agentDefaultModel,
     // agents, attachments, llm, sessions, sessionProjections, sessionQuery,
     // typert, workspaceRegistry. Controllers activate synchronously.
@@ -1160,6 +1177,58 @@ export class EdgeSessionStore {
     return cache.cachedSnapshot(this.context.sessions.get(summary.id)?.header ?? summary.header)
   }
 
+
+  /**
+   * Resolve a prompt's file receipts to the files uploaded for this session
+   * and bind them to the prompt's request, as upstream's controller does
+   * before it delivers the message. Upstream keeps receipts in memory with
+   * the session's Agent; the Edge also keeps one row per receipt
+   * (edge-file-uploads.ts), so a session whose Agent is not live, as after an
+   * eviction, still resolves them. The binding rolls back on dispose unless
+   * committed.
+   * @returns the stored files in receipt order, or undefined when any receipt is unknown.
+   */
+  bindPromptFiles(
+    sessionId: SessionId,
+    receiptIds: readonly string[],
+    requestId: string,
+  ): { readonly files: readonly FileAttachmentRef[]; readonly binding: PromptFileBinding } | undefined {
+    const agent = this.liveAgent(sessionId)
+    const uploads = this.context.get('fileUploads') as EdgeFileUploads | undefined
+    if (uploads === undefined) return undefined
+    // A cold session's receipts are read from their Durable Object rows.
+    if (agent === undefined) return uploads.bindStoredPrompt(sessionId, receiptIds, requestId)
+    const files: FileAttachmentRef[] = []
+    for (const receiptId of receiptIds) {
+      const file = uploads.resolve(agent, receiptId as FileUploadReceiptId)
+      if (file === undefined) return undefined
+      files.push(file)
+    }
+    const binding = uploads.bindPrompt(agent, [...new Set(receiptIds)] as FileUploadReceiptId[], requestId)
+    return { files, binding }
+  }
+
+  /**
+   * Retire the file receipts a removed queued prompt was bound to, as
+   * upstream's controller does when a queue item is removed: its message is
+   * never recorded, so the recorded-message retirement never runs for it.
+   */
+  retirePromptFiles(sessionId: SessionId, message: { readonly source: unknown }): void {
+    const source = message.source as { kind?: unknown; rpcId?: unknown }
+    if (source.kind !== 'user' || typeof source.rpcId !== 'string') return
+    const uploads = this.context.get('fileUploads') as EdgeFileUploads | undefined
+    if (uploads === undefined) return
+    const agent = this.liveAgent(sessionId)
+    // Best effort: the removal has already committed, so a failed write here
+    // (a spent quota) must not report it as failed. An unretired receipt
+    // expires with its row.
+    try {
+      if (agent !== undefined) uploads.retirePrompt(agent, source.rpcId)
+      else uploads.retireStoredPrompt(sessionId, source.rpcId)
+    } catch (error) {
+      console.warn('dsh-edge: could not retire a removed prompt\'s file receipts.', error)
+    }
+  }
 
   /** Resolve the optional upstream attachment service composed for this deployment. */
   async attachmentStore(): Promise<AttachmentStore | undefined> {
