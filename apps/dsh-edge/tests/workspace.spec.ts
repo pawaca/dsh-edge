@@ -316,6 +316,28 @@ describe('dsh-edge workspace command execution', () => {
     }
   })
 
+  it('stops waiting for a stalled spill at the command deadline when nothing cancels it', async () => {
+    vi.useFakeTimers()
+    try {
+      const runtime = executionRuntime([
+        { name: 'stdout', value: new Uint8Array(3 * 1024 * 1024).fill(0x63) },
+        { name: 'stdout', value: new Uint8Array(1024).fill(0x64) },
+        { name: 'exit', code: 0 },
+      ])
+      runtime.writeFile.mockImplementation(() => new Promise(() => {}))
+      // The HTTP exec route passes no signal; only the deadline can end the wait.
+      const running = executeWorkspaceCommand(runtime.workspace, 'yes', '/workspace', resolveEdgeCommandTimeoutPolicy(), 5_000)
+      await vi.advanceTimersByTimeAsync(5_100)
+      const result = await running
+      expect(result.timedOut).toBe(true)
+      expect(result.detached).toBe(true)
+      expect(runtime.kill).toHaveBeenCalled()
+      expect(result.stdoutTruncated).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('writes nothing for output under the inline cap', async () => {
     const runtime = executionRuntime([{ name: 'stdout', value: new Uint8Array(SHELL_OUTPUT_TAIL_BYTES).fill(0x61) }, { name: 'exit', code: 0 }])
     const result = await executeWorkspaceCommand(runtime.workspace, 'printf', '/workspace', resolveEdgeCommandTimeoutPolicy())

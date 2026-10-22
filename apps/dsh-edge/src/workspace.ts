@@ -262,6 +262,10 @@ export async function executeWorkspaceCommand(
   const stdout = new StreamCapture(() => spillTarget('stdout'))
   const stderr = new StreamCapture(() => spillTarget('stderr'))
   let stoppedAtLightLimit = false
+  // Armed on the first output event: only a spill wait can outlast the deadline.
+  let deadlineTimer: ReturnType<typeof setTimeout> | undefined
+  let stopAtDeadline!: () => void
+  const deadlinePassed = new Promise<typeof DEADLINE_PASSED>((resolve) => { stopAtDeadline = () => resolve(DEADLINE_PASSED) })
   let exitCode = -1
   const reader = running.getReader()
   try {
@@ -287,11 +291,16 @@ export async function executeWorkspaceCommand(
       }
       // Waits while the spill writer is full, so the next event is read only
       // once storage has caught up; a cancelled command's grace still bounds it.
+      // The command's own deadline bounds it too, for callers that never
+      // cancel (the HTTP exec route).
+      deadlineTimer ??= setTimeout(stopAtDeadline, deadline.remainingMs())
       const pushed = await Promise.race([
         (event.name === 'stdout' ? stdout : stderr).push(event.value),
         graceExpired,
+        deadlinePassed,
       ])
-      if (pushed === GRACE_EXPIRED) {
+      if (pushed === GRACE_EXPIRED || pushed === DEADLINE_PASSED) {
+        if (pushed === DEADLINE_PASSED) void interrupt()
         detached = true
         void reader.cancel().catch(() => undefined)
         break
@@ -299,6 +308,7 @@ export async function executeWorkspaceCommand(
     }
   } finally {
     clearTimeout(graceTimer)
+    clearTimeout(deadlineTimer)
     reader.releaseLock()
     signal?.removeEventListener('abort', abort)
   }
@@ -335,12 +345,14 @@ function streamFacts(stream: ShellStream, captured: Awaited<ReturnType<StreamCap
 }
 
 const GRACE_EXPIRED = Symbol('cancelled command grace expired')
+const DEADLINE_PASSED = Symbol('command deadline passed while output waited for storage')
 
-function commandDeadline(timeoutMs: number): { complete(): void; readonly timedOut: boolean; expired(): Promise<void> } {
+function commandDeadline(timeoutMs: number): { complete(): void; readonly timedOut: boolean; remainingMs(): number; expired(): Promise<void> } {
   const expiresAt = performance.now() + timeoutMs
   let completedAt: number | undefined
   return {
     complete() { completedAt ??= performance.now() },
+    remainingMs: () => Math.max(0, expiresAt - performance.now()),
     get timedOut() { return (completedAt ?? performance.now()) >= expiresAt },
     expired: () => new Promise(resolve => setTimeout(resolve, Math.max(0, expiresAt - performance.now()))),
   }
