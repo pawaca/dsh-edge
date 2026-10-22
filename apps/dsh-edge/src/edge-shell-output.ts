@@ -107,23 +107,10 @@ export class StreamCapture {
   async finish(options: { wait?: boolean } = {}): Promise<CapturedStream> {
     let spillPath: string | undefined
     if (this.spill !== undefined) {
-      const { writer, stored, path } = this.spill
-      const settle = async (): Promise<void> => {
-        if (this.spillFailed) await writer.abort(new Error('command output spill failed'))
-        else await writer.close()
-        await stored
-      }
-      if (options.wait === false) {
-        void settle().catch(() => { this.spillFailed = true })
-        if (!this.spillFailed) spillPath = path
-      } else {
-        try {
-          await settle()
-          if (!this.spillFailed) spillPath = path
-        } catch {
-          this.spillFailed = true
-        }
-      }
+      // Started once; a later call (no longer waiting) reuses it.
+      const settling = this.settling ??= this.settle(this.spill)
+      if (options.wait !== false) await settling
+      if (!this.spillFailed) spillPath = this.spill.path
     }
     const bytes = concat(this.held, this.heldBytes)
     return {
@@ -131,6 +118,18 @@ export class StreamCapture {
       truncated: this.overflowed,
       ...spillPath === undefined ? {} : { spillPath },
       ...spillPath !== undefined && this.spillPartial ? { spillPartial: true } : {},
+    }
+  }
+
+  private settling: Promise<void> | undefined
+
+  private async settle({ writer, stored }: NonNullable<StreamCapture['spill']>): Promise<void> {
+    try {
+      if (this.spillFailed) await writer.abort(new Error('command output spill failed'))
+      else await writer.close()
+      await stored
+    } catch {
+      this.spillFailed = true
     }
   }
 

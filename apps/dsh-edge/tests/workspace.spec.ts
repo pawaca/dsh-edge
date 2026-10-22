@@ -338,6 +338,28 @@ describe('dsh-edge workspace command execution', () => {
     }
   })
 
+  it('bounds closing a stalled spill by the deadline after the command has exited', async () => {
+    vi.useFakeTimers()
+    try {
+      // Just past the inline cap: it fits the spill queue, so the exit event is read
+      // before storage stalls, and only closing the spill waits.
+      const runtime = executionRuntime([
+        { name: 'stdout', value: new Uint8Array(SHELL_OUTPUT_TAIL_BYTES + 100).fill(0x65) },
+        { name: 'exit', code: 0 },
+      ])
+      runtime.writeFile.mockImplementation(() => new Promise(() => {}))
+      const running = executeWorkspaceCommand(runtime.workspace, 'yes', '/workspace', resolveEdgeCommandTimeoutPolicy(), 5_000)
+      await vi.advanceTimersByTimeAsync(5_100)
+      const result = await running
+      expect(result.exitCode).toBe(0)
+      expect(result.status).toBe('completed')
+      expect(result.detached).toBeUndefined()
+      expect(result.stdoutSpillPath).toBe('/workspace/.spill/bash-exec-1.stdout.txt')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('writes nothing for output under the inline cap', async () => {
     const runtime = executionRuntime([{ name: 'stdout', value: new Uint8Array(SHELL_OUTPUT_TAIL_BYTES).fill(0x61) }, { name: 'exit', code: 0 }])
     const result = await executeWorkspaceCommand(runtime.workspace, 'printf', '/workspace', resolveEdgeCommandTimeoutPolicy())

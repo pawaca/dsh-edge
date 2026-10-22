@@ -313,9 +313,15 @@ export async function executeWorkspaceCommand(
     signal?.removeEventListener('abort', abort)
   }
   // A detached command's spills finish in the background: storage that
-  // stalled the read loop must not hold the turn either.
-  const out = await stdout.finish({ wait: !detached })
-  const err = await stderr.finish({ wait: !detached })
+  // stalled the read loop must not hold the turn either. Otherwise the
+  // spills are closed within what remains of the command's deadline (or a
+  // cancellation grace), past which they too finish in the background; the
+  // command itself has ended, so it is not reported detached.
+  if (!detached) {
+    await settledWithin(Promise.all([stdout.finish(), stderr.finish()]), deadline.remainingMs(), signal)
+  }
+  const out = await stdout.finish({ wait: false })
+  const err = await stderr.finish({ wait: false })
   // Its end is no longer observable: the command's own timeout bounds it.
   if (detached) onDetached?.(deadline.expired())
   return {
@@ -342,6 +348,29 @@ function streamFacts(stream: ShellStream, captured: Awaited<ReturnType<StreamCap
   return stream === 'stdout'
     ? { stdoutTruncated: true, ...captured.spillPath === undefined ? {} : { stdoutSpillPath: captured.spillPath }, ...captured.spillPartial === true ? { stdoutSpillPartial: true } : {} }
     : { stderrTruncated: true, ...captured.spillPath === undefined ? {} : { stderrSpillPath: captured.spillPath }, ...captured.spillPartial === true ? { stderrSpillPartial: true } : {} }
+}
+
+/**
+ * Whether `work` settles before `timeoutMs`, or before the cancellation grace
+ * once `signal` aborts.
+ */
+async function settledWithin(work: Promise<unknown>, timeoutMs: number, signal: AbortSignal | undefined): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let graceTimer: ReturnType<typeof setTimeout> | undefined
+  let onAbort: (() => void) | undefined
+  const bound = new Promise<false>((resolve) => {
+    timer = setTimeout(() => resolve(false), timeoutMs)
+    onAbort = () => { graceTimer ??= setTimeout(() => resolve(false), CANCELLED_COMMAND_GRACE_MS) }
+    if (signal?.aborted === true) onAbort()
+    else signal?.addEventListener('abort', onAbort, { once: true })
+  })
+  try {
+    return await Promise.race([work.then(() => true), bound])
+  } finally {
+    clearTimeout(timer)
+    clearTimeout(graceTimer)
+    if (onAbort !== undefined) signal?.removeEventListener('abort', onAbort)
+  }
 }
 
 const GRACE_EXPIRED = Symbol('cancelled command grace expired')
