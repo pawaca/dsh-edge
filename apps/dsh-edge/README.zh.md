@@ -348,7 +348,7 @@ SQLite 的 `DELETE` 操作也会消耗每日行写入额度。迁移格式时，
 - `PUT /api/workspace/file?path=/workspace/...` 写入 UTF-8 文件。
 - `GET /api/workspace/file?path=/workspace/...` 读取 UTF-8 文件。
 - `DELETE /api/workspace/file?path=/workspace/...` 删除文件。
-- `POST /api/workspace/exec` 接受 `{ "command": "...", "cwd": "/workspace/..." }`，`cwd` 默认为 `/workspace`；每次执行都会收到部署级默认 timeout，`timedOut` 会报告该 deadline 是否已过，`outputTruncated` 报告是否有输出未内联；`stdoutTruncated`/`stderrTruncated` 指出哪个流只显示了尾部，`stdoutSpillPath`/`stderrSpillPath` 给出完整输出的保存位置。
+- `POST /api/workspace/exec` 接受 `{ "command": "...", "cwd": "/workspace/..." }`，`cwd` 默认为 `/workspace`；每次执行都会使用默认 timeout（Shell 卡片保存的值，未保存时为 `DSH_EDGE_DEFAULT_COMMAND_TIMEOUT_MS`，且不超过 `DSH_EDGE_MAX_COMMAND_TIMEOUT_MS`），`timedOut` 会报告该 deadline 是否已过，`outputTruncated` 报告是否有输出未内联；`stdoutTruncated`/`stderrTruncated` 指出哪个流只显示了尾部，`stdoutSpillPath`/`stderrSpillPath` 给出完整输出的保存位置。
 - `POST /api/sessions` 使用必填 `title` 创建持久 session；API 返回前，标题会写成标准、用户来源的 `session/title` 事件。如果 session 已持久化但 Workspace attachment 失败，500 响应会使用 `session/workspace-attach-failed` 并携带完整的已创建 `session`，调用方可以恢复其 id，而不会创建重复 session。
 - `GET /api/sessions?after=...&limit=...` 列出一个有界 summary page；`GET /api/sessions/:sessionId` 读取一个 session。上游 persistence service 没有定义破坏性删除，因此这里不暴露 session deletion。
 - `POST /api/sessions/:sessionId/turn` 接受 `{ "message": "..." }` 并流式返回持久 SSE events。
