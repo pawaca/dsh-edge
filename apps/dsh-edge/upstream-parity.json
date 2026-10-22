@@ -320,6 +320,7 @@
     "@deepseek-ai/dsh-client-ui-settings-models": "Provider namespaces are mounted by edge-llm-settings.ts and credentials resolve through EdgeCredentialProvider.",
     "@deepseek-ai/dsh-client-ui-settings-plugin-inventory": "The inventory is projected by EdgeLoader (edge-plugin-loader.ts) from the runtime registry and the boot graph.",
     "@deepseek-ai/dsh-client-ui-settings-plugins": "Its tabs come from dsh-edge-client-ui instead of the excluded plugin manager.",
+    "@deepseek-ai/dsh-client-ui-settings-shell": "Hosted by dsh-edge-client-ui; its bash-sandbox namespace (timeoutMs, maxOutputBytes) is registered by edge-shell-settings.ts for the Edge's own bash, which reads it per command (instance.ts, workspace.ts).",
     "@deepseek-ai/dsh-client-ui-settings-subagent": "Hosted by dsh-edge-client-ui; its namespaces are mounted by edge-plugin-settings.ts.",
     "@deepseek-ai/dsh-client-ui-settings-web-search": "Hosted by dsh-edge-client-ui; the web, web-search-deepseek, and web-deepseek-api namespaces are mounted by edge-plugin-settings.ts.",
     "@deepseek-ai/dsh-client-ui-sidebar-documentpreview": "Office previews need officeToPdf, which the Edge does not serve; its other previews read file bytes through upstream's /api/file, which the Edge serves with a streamed body since 0.28.0 (#355).",
