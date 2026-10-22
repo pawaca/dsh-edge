@@ -18,6 +18,7 @@ import {
   writePrebuiltModeWranglerConfig,
 } from '../scripts/wrangler-config.mjs'
 import { chatMessages, latestUserPromptIndex, startMockDeepSeek } from './fixtures/mock-deepseek.mjs'
+import { startMockMcpServer } from './fixtures/mock-mcp-server.mjs'
 
 const ACCESS_KEY = 'integration-owner-access-key-32-bytes'
 const RELEASED_SESSION_ID = 'session-v0-1-3'
@@ -2528,6 +2529,31 @@ try {
   await request('/api/tool-settings', { method: 'PUT', body: JSON.stringify({ sessionQuery: false }) })
   await turn(notedSessionId, 'note the heron again')
   assert.deepEqual(offeredSessionTools(), [])
+  // MCP resources: a probe records the server's resources capability, upstream's shared resource
+  // tools then read through the Edge client, and a resource over the 1 MiB response cap fails
+  // while it streams in. Removing the server removes the tools.
+  const mcpServer = await startMockMcpServer(0, { resources: true })
+  try {
+    const savedServers = await request('/api/mcp-servers', { method: 'PUT', body: JSON.stringify({ servers: [{ serverName: 'docs', url: mcpServer.url }] }) })
+    assert.equal(savedServers.status, 200, await savedServers.clone().text())
+    assert.equal((await request('/api/mcp-servers/docs/probe', { method: 'POST' })).status, 200)
+    assert.equal((await (await request('/api/mcp-servers')).json()).servers[0].resources, true)
+    const resourceSessionId = (await rpc('session.create', {})).body.result.value.sessionId
+    const resourceEvents = await turn(resourceSessionId, 'read the docs resources')
+    assert.equal(assistantText(resourceEvents), 'resources-finished')
+    const resourceResult = callId => toolResultText(resourceEvents.find(event => event.type === 'tool/result' && event.data.message.toolCallId === callId))
+    assert.match(resourceResult('call_mock_resource_notes'), /^MCP server: docs\n.*resource notes/su)
+    assert.match(resourceResult('call_mock_resource_huge'), /larger than 1048576 bytes/u)
+    assert.ok((turnRequests().at(-1).tools ?? []).some(tool => tool.name === 'read_mcp_resource'))
+    // Saving the list again keeps the probed capability.
+    await request('/api/mcp-servers', { method: 'PUT', body: JSON.stringify({ servers: [{ serverName: 'docs', url: mcpServer.url }] }) })
+    assert.equal((await (await request('/api/mcp-servers')).json()).servers[0].resources, true)
+    await request('/api/mcp-servers', { method: 'PUT', body: JSON.stringify({ servers: [] }) })
+    await turn(resourceSessionId, 'note the heron once more')
+    assert.ok(!(turnRequests().at(-1).tools ?? []).some(tool => tool.name.endsWith('_mcp_resource') || tool.name === 'list_mcp_resources'))
+  } finally {
+    await mcpServer.close()
+  }
   // The agent-loop and web-search settings cards edit namespaces the Edge registers under the
   // upstream entry ids; a saved endpoint must pass the DEEPSEEK_SEARCH_BASE_URL check.
   const pluginSettings = async () => (await rpc('settings.describe', {})).body.result.value.namespaces

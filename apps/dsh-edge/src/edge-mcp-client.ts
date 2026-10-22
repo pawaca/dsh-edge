@@ -17,7 +17,14 @@ export interface ProbeResult {
   tools: CachedMcpTool[]
   serverInfo?: { name?: string | undefined; version?: string | undefined } | undefined
   instructions?: string | undefined
+  /** Whether the server declared the `resources` capability. */
+  resources: boolean
 }
+
+/** One resources/* operation, as `dsh-mcp-resources` forwards it. */
+export type McpResourceRequest =
+  | { method: 'resources/list' | 'resources/templates/list'; cursor?: string }
+  | { method: 'resources/read'; uri: string }
 
 export interface McpAuth {
   type: 'none' | 'bearer'
@@ -109,15 +116,42 @@ export const noRedirectFetch: typeof globalThis.fetch = async (input, init) => {
   return res
 }
 
+/**
+ * `noRedirectFetch` whose response bodies fail once they pass `maxBytes`, so
+ * an oversized reply errors while it streams in instead of being buffered.
+ */
+export function byteCappedFetch(maxBytes: number): typeof globalThis.fetch {
+  return async (input, init) => {
+    const res = await noRedirectFetch(input, init)
+    if (res.body === null) return res
+    let received = 0
+    const capped = res.body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        received += chunk.byteLength
+        if (received > maxBytes) {
+          controller.error(new Error(`MCP server response is larger than ${String(maxBytes)} bytes.`))
+          return
+        }
+        controller.enqueue(chunk)
+      },
+    }))
+    return new Response(capped, { status: res.status, statusText: res.statusText, headers: res.headers })
+  }
+}
+
 async function connectClient(
   url: string,
   auth: McpAuth | undefined,
   signal: AbortSignal,
+  maxResponseBytes?: number,
 ) {
   assertSafeUrl(url)
   const transport = new StreamableHTTPClientTransport(
     new URL(url),
-    { requestInit: { headers: buildHeaders(auth), signal }, fetch: noRedirectFetch },
+    {
+      requestInit: { headers: buildHeaders(auth), signal },
+      fetch: maxResponseBytes === undefined ? noRedirectFetch : byteCappedFetch(maxResponseBytes),
+    },
   )
   const client = new Client(
     { name: 'dsh-edge', version: DSH_EDGE_VERSION },
@@ -148,7 +182,10 @@ export async function probe(
     const seenNames = new Set<string>()
     const seenCursors = new Set<string>()
     let cursor: string | undefined
-    for (let page = 0; page < MCP_LIMITS.maxCatalogPages; page++) {
+    // A server without the tools capability (resources only, say) has an empty
+    // catalog; the SDK refuses tools/list to it.
+    const listsTools = client.getServerCapabilities?.()?.tools !== undefined
+    for (let page = 0; listsTools && page < MCP_LIMITS.maxCatalogPages; page++) {
       const result = await client.listTools(
         cursor === undefined ? undefined : { cursor },
         { signal },
@@ -182,6 +219,7 @@ export async function probe(
 
     const serverVersion = client.getServerVersion?.()
     const instructions = client.getInstructions?.()
+    const resources = client.getServerCapabilities?.()?.resources !== undefined
 
     return {
       tools,
@@ -191,6 +229,7 @@ export async function probe(
       instructions: typeof instructions === 'string' && instructions.length > 0
         ? instructions.slice(0, MCP_LIMITS.maxInstructionsLength)
         : undefined,
+      resources,
     }
   } finally {
     await close()
@@ -230,5 +269,69 @@ export async function callTool(
     throw new Error(scrubMcpErrorMessage(error instanceof Error ? error.message : String(error)))
   } finally {
     await client.close()
+  }
+}
+
+/**
+ * Run one resources/* operation on a fresh connection. Each response body is
+ * capped at {@link MCP_LIMITS.maxResourceResponseBytes}. A list without a
+ * cursor follows the server's pages, as the SDK would, until
+ * {@link MCP_LIMITS.maxCatalogPages} pages or a page that would bring the
+ * listed entries past that many UTF-8 bytes, and returns the cursor where it
+ * stops so the caller can continue.
+ */
+export async function requestResources(
+  url: string,
+  request: McpResourceRequest,
+  auth?: McpAuth,
+  signal?: AbortSignal,
+  timeoutMs?: number,
+): Promise<Record<string, unknown>> {
+  const effectiveTimeout = timeoutMs ?? MCP_LIMITS.callTimeoutMs
+  const deadline = signal
+    ? AbortSignal.any([signal, AbortSignal.timeout(effectiveTimeout)])
+    : AbortSignal.timeout(effectiveTimeout)
+  let conn: Awaited<ReturnType<typeof connectClient>>
+  try {
+    conn = await connectClient(url, auth, deadline, MCP_LIMITS.maxResourceResponseBytes)
+  } catch (error) {
+    throw new Error(scrubMcpErrorMessage(error instanceof Error ? error.message : String(error)))
+  }
+  try {
+    const { client } = conn
+    if (request.method === 'resources/read') {
+      return await client.readResource({ uri: request.uri }, { signal: deadline }) as Record<string, unknown>
+    }
+    const key = request.method === 'resources/list' ? 'resources' : 'resourceTemplates'
+    const page = (cursor: string | undefined) => request.method === 'resources/list'
+      ? client.listResources(cursor === undefined ? undefined : { cursor }, { signal: deadline })
+      : client.listResourceTemplates(cursor === undefined ? undefined : { cursor }, { signal: deadline })
+    if (request.cursor !== undefined) return await page(request.cursor) as Record<string, unknown>
+    const items: unknown[] = []
+    const seenCursors = new Set<string>()
+    let bytes = 0
+    let cursor: string | undefined
+    for (let pages = 0; pages < MCP_LIMITS.maxCatalogPages; pages++) {
+      const result = await page(cursor) as Record<string, unknown>
+      const listed = Array.isArray(result[key]) ? result[key] as unknown[] : []
+      const size = new TextEncoder().encode(JSON.stringify(listed)).byteLength
+      // A page that would pass the budget is left for the caller: `cursor` still names it.
+      if (items.length > 0 && bytes + size > MCP_LIMITS.maxResourceResponseBytes) break
+      items.push(...listed)
+      bytes += size
+      const next = typeof result['nextCursor'] === 'string' ? result['nextCursor'] : undefined
+      if (next === undefined) {
+        cursor = undefined
+        break
+      }
+      if (seenCursors.has(next)) throw new Error(`Server repeated a ${request.method} continuation cursor`)
+      seenCursors.add(next)
+      cursor = next
+    }
+    return cursor === undefined ? { [key]: items } : { [key]: items, nextCursor: cursor }
+  } catch (error) {
+    throw new Error(scrubMcpErrorMessage(error instanceof Error ? error.message : String(error)))
+  } finally {
+    await conn.close()
   }
 }

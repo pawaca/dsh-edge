@@ -5,7 +5,9 @@ import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { AttachmentStore, ImageAttachmentRef, SaveImageAttachment } from '@deepseek-ai/dsh-attachment'
 import { isImageAdmissionError } from '@deepseek-ai/dsh-attachment'
-import { callTool, probe, type McpAuth, type ProbeResult } from './edge-mcp-client.ts'
+import type McpResourceRuntime from '@deepseek-ai/dsh-mcp-resources'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
+import { callTool, probe, requestResources, type McpAuth, type ProbeResult } from './edge-mcp-client.ts'
 import {
   type CachedMcpTool,
   type McpContentBlock,
@@ -36,6 +38,8 @@ export interface EdgeMcpServerConfig {
   lastProbeAt?: number | undefined
   serverInfo?: { name?: string | undefined; version?: string | undefined } | undefined
   instructions?: string | undefined
+  /** Whether the last successful probe saw the `resources` capability. */
+  resources?: boolean | undefined
   lastError?: string | undefined
 }
 
@@ -113,6 +117,8 @@ export interface McpToolManager {
   disposeServer(serverName: string): void
   disposeAll(): void
   resolveToolPolicy(publicName: string): Promise<'allow' | 'ask' | undefined>
+  /** The connector's policy for its resources, which are read-only. */
+  resolveResourcePolicy(serverName: string): Promise<'allow' | 'ask' | undefined>
   getServerSummary(): Promise<string | undefined>
   invalidateConfigCache(): void
 }
@@ -374,11 +380,55 @@ function registerCachedTools(
   return disposers
 }
 
+/**
+ * Offer one server's resources through `dsh-mcp-resources`, whose three tools
+ * exist while any server is registered. Each request connects afresh, as tool
+ * calls do, with the server's current settings (a saved timeout applies to
+ * the next request) and credential.
+ */
+function registerResources(
+  ctx: Context,
+  server: EdgeMcpServerConfig,
+  storage: DurableObjectStorage,
+  current: (serverName: string) => Promise<EdgeMcpServerConfig | undefined>,
+): (() => void) | undefined {
+  const resources = ctx.get('mcpResources') as McpResourceRuntime | undefined
+  if (resources === undefined || server.resources !== true) return undefined
+  const serverName = server.serverName
+  return resources.register(serverName, {
+    request: async (request, exec) => {
+      const config = await current(serverName)
+      if (config === undefined) throw new Error(`MCP server "${serverName}" is no longer configured.`)
+      const auth = await resolveAuth(config, ctx, storage)
+      return await requestResources(config.url, request, auth, exec.signal, config.toolCallTimeoutMs) as JsonValue
+    },
+  })
+}
+
 export function installEdgeMcpServers(
   ctx: Context,
   storage: DurableObjectStorage,
 ): McpToolManager {
   const serverDisposers = new Map<string, Map<string, () => void>>()
+  const resourceDisposers = new Map<string, () => void>()
+  const currentConfig = async (serverName: string): Promise<EdgeMcpServerConfig | undefined> => {
+    let servers = cache.getConfigs()
+    if (servers === null) {
+      servers = await readConfigs(storage)
+      cache.setConfigs(servers)
+    }
+    return servers.find(s => s.serverName === serverName)
+  }
+  const offerResources = (server: EdgeMcpServerConfig): void => {
+    resourceDisposers.get(server.serverName)?.()
+    resourceDisposers.delete(server.serverName)
+    try {
+      const dispose = registerResources(ctx, server, storage, currentConfig)
+      if (dispose !== undefined) resourceDisposers.set(server.serverName, dispose)
+    } catch (error) {
+      console.error(`dsh-edge: failed to register MCP resources for "${server.serverName}".`, error)
+    }
+  }
   const toolMeta = new Map<string, McpToolMeta>()
   const cache = new McpStorageCache()
   let syncChain = Promise.resolve()
@@ -387,6 +437,7 @@ export function installEdgeMcpServers(
 
   const initPromise = readConfigsWithTools(storage, cache).then(servers => {
     if (servers.length === 0) return
+    for (const server of servers) offerResources(server)
     const totalTools = servers.reduce((sum, s) => sum + (s.cachedTools?.length ?? 0), 0)
     useMetaTools = totalTools > MCP_LIMITS.metaToolThreshold
 
@@ -426,6 +477,8 @@ export function installEdgeMcpServers(
   })
 
   function disposeServer(serverName: string): void {
+    resourceDisposers.get(serverName)?.()
+    resourceDisposers.delete(serverName)
     const disposers = serverDisposers.get(serverName)
     if (disposers !== undefined) {
       for (const [publicName, dispose] of disposers) {
@@ -475,6 +528,7 @@ export function installEdgeMcpServers(
         entry.lastProbeAt = Date.now()
         entry.serverInfo = result.serverInfo
         entry.instructions = result.instructions
+        entry.resources = result.resources
         delete entry.lastError
         await writeConfigsAndTools(storage, fresh, serverName, capped)
         cache.setConfigs(fresh)
@@ -499,6 +553,8 @@ export function installEdgeMcpServers(
           serverDisposers.set(serverName, disposers)
           console.log(`dsh-edge: hot-swapped ${disposers.size} MCP tools for "${serverName}"`)
         }
+        // After the swap: disposeServer above releases the previous registration.
+        offerResources(entry)
       }
       return result
     })
@@ -519,6 +575,18 @@ export function installEdgeMcpServers(
     return evaluateMcpToolPolicy(meta.rawName, server?.toolPolicy?.mode, meta.readOnlyHint)
   }
 
+  async function resolveResourcePolicy(serverName: string): Promise<'allow' | 'ask' | undefined> {
+    await initPromise
+    let servers = cache.getConfigs()
+    if (servers === null) {
+      servers = await readConfigs(storage)
+      cache.setConfigs(servers)
+    }
+    const server = servers.find(s => s.serverName === serverName)
+    if (server === undefined) return undefined
+    return evaluateMcpToolPolicy('resources', server.toolPolicy?.mode, true)
+  }
+
   async function getServerSummary(): Promise<string | undefined> {
     await initPromise
     if (!useMetaTools) return undefined
@@ -535,9 +603,12 @@ export function installEdgeMcpServers(
     syncServer,
     disposeServer,
     resolveToolPolicy,
+    resolveResourcePolicy,
     getServerSummary,
     invalidateConfigCache() { cache.clearConfigs() },
     disposeAll() {
+      for (const dispose of resourceDisposers.values()) dispose()
+      resourceDisposers.clear()
       for (const [, disposers] of serverDisposers) {
         for (const dispose of disposers.values()) dispose()
       }

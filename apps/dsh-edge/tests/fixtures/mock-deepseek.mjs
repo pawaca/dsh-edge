@@ -218,6 +218,28 @@ export async function startMockDeepSeek(port = 0) {
         return
       }
 
+      // MCP resources: read a text resource and one over the Edge's response cap.
+      if (prompt === 'read the docs resources' && !hasToolResult) {
+        sendEvents(response, [
+          { choices: [{ delta: { role: 'assistant', content: null, reasoning_content: '' } }] },
+          {
+            choices: [{
+              delta: {
+                tool_calls: [
+                  { index: 0, id: 'call_mock_resource_notes', type: 'function', function: { name: 'read_mcp_resource', arguments: JSON.stringify({ server: 'docs', uri: 'file:///notes.txt' }) } },
+                  { index: 1, id: 'call_mock_resource_huge', type: 'function', function: { name: 'read_mcp_resource', arguments: JSON.stringify({ server: 'docs', uri: 'file:///huge.bin' }) } },
+                ],
+              },
+            }],
+          },
+          {
+            choices: [{ delta: {}, finish_reason: 'tool_calls' }],
+            usage: { prompt_tokens: 8, completion_tokens: 3 },
+          },
+        ])
+        return
+      }
+
       // Continuable subagents: a parent starts, lists, messages, forks, and
       // interrupts children; a child writes a file; the parent writes one
       // whenever a child's settlement notice wakes it.
@@ -852,6 +874,8 @@ export async function startMockDeepSeek(port = 0) {
                   ? `ralph-finished:${messageText(toolResults[0])}`
                 : prompt === 'search earlier sessions'
                   ? 'session-search-finished'
+                : prompt === 'read the docs resources'
+                  ? 'resources-finished'
                   : prompt.includes('run some code')
                     ? `code-finished:${messageText(toolResults[0])}`
                     : prompt === 'find the needles'

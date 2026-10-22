@@ -65,6 +65,7 @@ import ToolResultPruner from '@deepseek-ai/dsh-compaction-tool-result-pruner'
 import * as ImageOffload from '@deepseek-ai/dsh-compaction-image-offload'
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import * as SpillPolicy from '@deepseek-ai/dsh-spill-policy'
+import McpResourceRuntime from '@deepseek-ai/dsh-mcp-resources'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import ApprovalService from '@deepseek-ai/dsh-user-approval'
@@ -759,9 +760,13 @@ export class EdgeSessionStore {
       order: 100,
       text: ({ agent }) => agent === undefined ? '' : edgeCurrentDate(new Date(), this.ownerTimeZone),
     })
+    // Upstream's shared resource tools; the MCP manager registers each server
+    // whose probe saw the resources capability, and the tools exist while one is.
+    await this.context.plugin(McpResourceRuntime)
     this.mcpToolManager = installEdgeMcpServers(this.context, storage)
     this.approvalScope = installEdgeApprovalPolicy(this.context, {
       resolveMcpPolicy: name => this.mcpToolManager!.resolveToolPolicy(name),
+      resolveMcpResourcePolicy: server => this.mcpToolManager!.resolveResourcePolicy(server),
     })
     this.runtimeScope = installEdgeRuntimeSettings(this.context)
     // Optional upstream tools the owner turns on in Settings (off by default).
@@ -1591,7 +1596,7 @@ export class EdgeSessionStore {
         ...(tp?.mode !== undefined ? { toolPolicy: { mode: tp.mode as 'allow_all' | 'read_only' | 'approve_all' } } : {}),
       }
     })
-    // Preserve status/toolCount/serverInfo for servers whose name+url+auth.type are unchanged
+    // Preserve status/toolCount/serverInfo/resources for servers whose name+url+auth.type are unchanged
     const oldByName = new Map(oldServers.map(s => [s.serverName, s]))
     for (const v of validated) {
       const old = oldByName.get(v.serverName)
@@ -1601,6 +1606,7 @@ export class EdgeSessionStore {
         (v as EdgeMcpServerConfig).lastProbeAt = old.lastProbeAt;
         (v as EdgeMcpServerConfig).serverInfo = old.serverInfo;
         (v as EdgeMcpServerConfig).instructions = old.instructions;
+        (v as EdgeMcpServerConfig).resources = old.resources;
         (v as EdgeMcpServerConfig).lastError = old.lastError
         if (v.toolPolicy === undefined && old.toolPolicy !== undefined) {
           (v as EdgeMcpServerConfig).toolPolicy = old.toolPolicy

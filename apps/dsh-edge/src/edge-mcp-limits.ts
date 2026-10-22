@@ -11,4 +11,10 @@ export const MCP_LIMITS = {
   maxPublicNameLength: 64,
   maxInstructionsLength: 1024,
   metaToolThreshold: 20,
+  /**
+   * Bytes of one resources/* response body. The SDK parses a response whole,
+   * and a read result (a blob kept for programmatic callers) is stored in the
+   * session log, so a larger resource is refused while it streams in.
+   */
+  maxResourceResponseBytes: 1024 * 1024,
 } as const
