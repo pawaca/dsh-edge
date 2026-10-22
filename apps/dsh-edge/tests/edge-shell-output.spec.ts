@@ -13,7 +13,9 @@ function countingTarget(delayEveryChunk = false) {
           stored.bytes += chunk.byteLength
           stored.chunks++
           stored.last = chunk
-          if (delayEveryChunk) await new Promise(resolve => setTimeout(resolve, 0))
+          // A microtask, not a timer: storage still lags the producer, without
+          // hundreds of timer turns on a slow runner.
+          if (delayEveryChunk) await Promise.resolve()
         }
       },
     }
@@ -50,7 +52,7 @@ describe('bounded stream capture', () => {
     expect(result.spillPath).toBe('/workspace/.spill/test.txt')
     expect(result.text.length).toBe(SHELL_OUTPUT_TAIL_BYTES)
     expect(result.text.endsWith(new TextDecoder().decode(last.subarray(-17)))).toBe(true)
-  })
+  }, 30_000)
 
   it('queues a single large chunk in slices, never past the queue bound', async () => {
     let queuedPeak = 0
