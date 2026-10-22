@@ -67,11 +67,6 @@
       "status": "declined",
       "reason": "Attaches session logs or the plugin inventory to official DeepSeek API requests. On by default upstream; declined on the Edge for privacy."
     },
-    "@deepseek-ai/dsh-client-ui-settings-shell": {
-      "status": "gap",
-      "priority": "P3",
-      "reason": "Shell settings card: the executor's command timeout and per-stream output cap (shell namespace). The card mount exists since #278, but the Edge's bash is its own: createEdgeBashTool (agent.ts) forwards only a per-call timeoutMs, the timeout default and ceiling come from DSH_EDGE_DEFAULT/MAX_COMMAND_TIMEOUT_MS (workspace.ts), and the Direct output cap is the fixed EDGE_SHELL_OUTPUT_LIMIT_BYTES (direct-shell.ts). Restoring the card needs an Edge shell namespace that the timeout policy and both shell backends (Direct and the Isolated/container paths) read live."
-    },
     "@deepseek-ai/dsh-client-ui-sidebar-terminal": {
       "status": "tracked",
       "issue": 99,

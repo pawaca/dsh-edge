@@ -527,6 +527,14 @@
     ]
   },
   {
+    "id": "@deepseek-ai/dsh-client-ui-settings-shell",
+    "inject": [
+      "@deepseek-ai/dsh-client-locale",
+      "@deepseek-ai/dsh-client-ui-settings",
+      "dsh-edge-client-ui"
+    ]
+  },
+  {
     "id": "@deepseek-ai/dsh-client-ui-settings-agent-loop",
     "inject": [
       "@deepseek-ai/dsh-client-locale",

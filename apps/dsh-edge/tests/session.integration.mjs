@@ -2554,6 +2554,25 @@ try {
   } finally {
     await mcpServer.close()
   }
+  // The Shell card edits upstream's `bash-sandbox` namespace: its per-stream cap applies to the
+  // next command (here one past it, which spills), and a timeout above the ceiling is refused.
+  const shellNamespace = (await rpc('settings.describe', {})).body.result.value.namespaces.find(entry => entry.ns === 'bash-sandbox')
+  assert.deepEqual(shellNamespace?.value, { timeoutMs: 180_000, maxOutputBytes: 64_000 })
+  const tooLong = await typertRpc('settings', 'update', { ns: 'bash-sandbox', patch: { timeoutMs: 240_001 } })
+  assert.equal(tooLong.body.result.ok, false, JSON.stringify(tooLong.body.result))
+  const capped = await typertRpc('settings', 'update', { ns: 'bash-sandbox', patch: { maxOutputBytes: 2_048 } })
+  assert.equal(capped.body.result.ok, true, JSON.stringify(capped.body.result))
+  const cappedRun = await jsonRequest('/api/workspace/exec', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ command: 'seq 1 2000' }),
+  })
+  assert.equal(cappedRun.body.status, 'completed')
+  assert.equal(cappedRun.body.stdoutTruncated, true)
+  assert.equal(cappedRun.body.stdout.length, 2_048)
+  assert.ok(cappedRun.body.stdout.endsWith('1999\n2000\n'))
+  assert.match(cappedRun.body.stdoutSpillPath, /^\/workspace\/\.spill\/bash-.+\.stdout\.txt$/u)
+  await typertRpc('settings', 'update', { ns: 'bash-sandbox', patch: { maxOutputBytes: 64_000 } })
   // The agent-loop and web-search settings cards edit namespaces the Edge registers under the
   // upstream entry ids; a saved endpoint must pass the DEEPSEEK_SEARCH_BASE_URL check.
   const pluginSettings = async () => (await rpc('settings.describe', {})).body.result.value.namespaces

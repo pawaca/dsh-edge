@@ -64,3 +64,16 @@
       - text: "10"
     - paragraph: Upper bound on parallel-safe calls running at once within one step.
     - button "Save" [disabled]
+    - heading "Shell" [level=3]
+    - paragraph: Limit how long each command may run and how much it may output.
+    - text: Command timeout (ms)
+    - textbox "Command timeout (ms)":
+      - /placeholder: ""
+      - text: "120000"
+    - paragraph: How long one command may run before it is terminated.
+    - text: Output cap per stream (bytes)
+    - textbox "Output cap per stream (bytes)":
+      - /placeholder: ""
+      - text: "64000"
+    - paragraph: Output beyond this spills to a temporary file rather than being lost.
+    - button "Save" [disabled]

@@ -159,6 +159,8 @@ import {
 import { installEdgeApprovalPolicy, type EdgeApprovalMode, type EdgeApprovalSettings } from './approval-policy.ts'
 import { installEdgeRuntimeSettings, type EdgeRuntimeSettings } from './runtime-settings.ts'
 import { installEdgeToolSettings, type EdgeToolSettings, type EdgeToolSettingsHandle } from './edge-tool-settings.ts'
+import { installEdgeShellSettings, type EdgeShellSettings } from './edge-shell-settings.ts'
+import type { EdgeCommandTimeoutPolicy } from './workspace.ts'
 import { installEdgeWebSearch } from './web-search.ts'
 import { mountAgentLoop, mountSubagentModelSelection, mountSubagentRuntime } from './edge-plugin-settings.ts'
 import { DurableEventDeliveryQueue, ImmediateFlushLimiter } from './durable-event-delivery.ts'
@@ -183,8 +185,8 @@ interface EdgeSessionStoreConfig {
   workerLoader?: WorkflowLoader
   /** The public identity of the shell serving the bash layer. */
   shell: EdgeRuntimeProviderDescriptor['shell']
-  /** The deployment's bash timeout ceiling, stated to the model. */
-  maxCommandTimeoutMs: number
+  /** The deployment's bash timeouts: the ceiling is stated to the model, the default seeds the Shell card. */
+  commandTimeoutPolicy: EdgeCommandTimeoutPolicy
   /** Run one bounded Computer workspace operation outside a turn (`@file` completion, directory browsing). */
   withWorkspaceFiles<T>(read: (files: EdgeWorkspaceFiles) => Promise<T>): Promise<T>
   /** Borrow the workspace VFS for as long as a verbatim file attachment streams. */
@@ -363,6 +365,7 @@ export class EdgeSessionStore {
   private readonly residentAgents = new Map<SessionId, AgentHandle>()
   private approvalScope?: EdgeSettingsScope<EdgeApprovalSettings>
   private toolSettings?: EdgeToolSettingsHandle
+  private shellScope?: EdgeSettingsScope<EdgeShellSettings>
   private runtimeScope?: EdgeSettingsScope<EdgeRuntimeSettings>
   private mcpToolManager?: McpToolManager
   private refreshWorkspaceSkills: EdgeWorkspaceSkills.EdgeSkillRefresh | undefined
@@ -469,7 +472,7 @@ export class EdgeSessionStore {
     this.context.systemPrompt.section({
       name: 'tool:bash',
       order: this.context.systemPrompt.getSectionOrder('TOOL_BASH'),
-      text: edgeBashGuidance(config.maxCommandTimeoutMs),
+      text: edgeBashGuidance(config.commandTimeoutPolicy.maxTimeoutMs),
     })
     if (config.shell === 'linux-container') {
       this.context.systemPrompt.section({
@@ -771,6 +774,8 @@ export class EdgeSessionStore {
     this.runtimeScope = installEdgeRuntimeSettings(this.context)
     // Optional upstream tools the owner turns on in Settings (off by default).
     this.toolSettings = await installEdgeToolSettings(this.context)
+    // The Shell card's timeout and per-stream output cap, read per command.
+    this.shellScope = installEdgeShellSettings(this.context, config.commandTimeoutPolicy)
     if (config.onRuntimeSettingsChanged !== undefined) this.runtimeScope.watch(config.onRuntimeSettingsChanged)
     await this.mcpToolManager.ready
     const mcpSummary = await this.mcpToolManager.getServerSummary()
@@ -956,7 +961,7 @@ export class EdgeSessionStore {
       () => this.context.tools.register(createEdgeBashTool(
         this.shells,
         config.shell,
-        config.maxCommandTimeoutMs,
+        config.commandTimeoutPolicy.maxTimeoutMs,
         exec => this.context.shellEnv.collect(exec),
         (agent, signal) => this.context.workingDirectory.ensure(agent, signal),
       )),
@@ -1499,6 +1504,14 @@ export class EdgeSessionStore {
       throw error
     }
     return { ...scope.get() }
+  }
+
+  /**
+   * The Shell card's settings. Only valid after {@link waitForInitialization},
+   * as for {@link runtimeSettings}.
+   */
+  shellSettings(): EdgeShellSettings {
+    return this.shellScope!.get()
   }
 
   /** Record the zone of the owner's latest prompt; a change is written once. */

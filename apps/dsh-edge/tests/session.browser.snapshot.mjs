@@ -144,16 +144,18 @@ describe('dsh-edge assembled browser snapshot', () => {
         { timeout: 15_000 },
       ).toBe(inventoryIds.length)
 
-      // The agent-loop, web-search, and subagent cards from upstream render in
+      // The agent-loop, web-search, subagent, and shell cards from upstream render in
       // the Edge's Built-in plugins settings tab, which hosts their `plugins.item` slot.
       await settings.getByRole('tab', { name: 'Settings', exact: true }).click()
       await expect.poll(
         () => settings.locator('[data-plugin-item]').count(),
         { timeout: 15_000 },
-      ).toBe(3)
+      ).toBe(4)
       await settings.getByLabel('Parallel tool calls', { exact: true }).waitFor()
       await settings.getByLabel('Max searches per request', { exact: true }).waitFor()
       await settings.getByLabel('Maximum recursion depth', { exact: true }).waitFor()
+      // The shell card shows the Edge's live `bash-sandbox` values.
+      await expect.poll(() => settings.getByLabel('Output cap per stream (bytes)', { exact: true }).inputValue(), { timeout: 15_000 }).toBe('64000')
       const pluginSettingsSnapshot = await stableAria(page, '[role="dialog"]')
       await expect(normalize(pluginSettingsSnapshot))
         .toMatchFileSnapshot('./snapshots/edge-plugin-settings.expected.md')

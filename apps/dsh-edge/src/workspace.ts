@@ -3,7 +3,13 @@
 import { getWorkspace } from '@cloudflare/computer'
 import type { EdgeShellResult } from './agent.ts'
 import { DIRECT_SHELL_OUTPUT_TRUNCATED } from './direct-shell-protocol.ts'
-import { StreamCapture, type ShellSpillTarget, type ShellStream } from './edge-shell-output.ts'
+import {
+  SHELL_OUTPUT_TAIL_BYTES,
+  SHELL_SPILL_MAX_BYTES,
+  StreamCapture,
+  type ShellSpillTarget,
+  type ShellStream,
+} from './edge-shell-output.ts'
 import { EdgeExecutionId } from './protocol.ts'
 
 const MAX_COMMAND_BYTES = 16_384
@@ -167,6 +173,8 @@ export async function executeWorkspaceCommand(
   onDetached?: (settled: Promise<void>) => void,
   /** Extra environment variables for the command (upstream's `DSH_*` shell env). */
   env?: Readonly<Record<string, string>>,
+  /** Bytes of each stream kept inline (the Shell card's output cap); the rest spills. */
+  tailBytes = SHELL_OUTPUT_TAIL_BYTES,
 ): Promise<EdgeShellResult> {
   const effectiveTimeoutMs = resolveCommandTimeoutMs(timeoutPolicy, timeoutMs)
   signal?.throwIfAborted()
@@ -262,8 +270,9 @@ export async function executeWorkspaceCommand(
       },
     }
   }
-  const stdout = new StreamCapture(() => spillTarget('stdout'))
-  const stderr = new StreamCapture(() => spillTarget('stderr'))
+  const limits = { tailBytes, spillMaxBytes: SHELL_SPILL_MAX_BYTES }
+  const stdout = new StreamCapture(() => spillTarget('stdout'), limits)
+  const stderr = new StreamCapture(() => spillTarget('stderr'), limits)
   let stoppedAtLightLimit = false
   // Armed on the first output event: only a spill wait can outlast the deadline.
   let deadlineTimer: ReturnType<typeof setTimeout> | undefined
