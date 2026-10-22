@@ -901,7 +901,7 @@ export class EdgeSessionStore {
     if (config.workerLoader !== undefined) {
       // Provider-gated: each run executes in its own Dynamic Worker, so only
       // deployments with the Worker Loader binding offer the workflow tool.
-      const { default: EdgeWorkflowEngine } = await import('./edge-workflow-engine.ts')
+      const { default: EdgeWorkflowEngine, WORKFLOW_MAX_TOTAL_AGENTS } = await import('./edge-workflow-engine.ts')
       await this.context.plugin(EdgeWorkflowEngine, { loader: config.workerLoader } as never)
       // The executor behind `run_code`; ToolRuntime reads ctx.ptcRuntime lazily.
       const { default: EdgeCodeRuntime } = await import('./edge-code-runtime.ts')
@@ -911,6 +911,14 @@ export class EdgeSessionStore {
         '@deepseek-ai/dsh-tool-workflow' as string
       )
       await this.context.plugin(ToolWorkflow)
+      // Ralph runs its fixed loop on the same engine, one child per round, and
+      // passes its round cap as the run's total-agent cap; upstream's default
+      // of 256 rounds is above the engine ceiling and would fail every call.
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+      const ToolRalph = await import(
+        '@deepseek-ai/dsh-tool-ralph' as string
+      )
+      await this.context.plugin(ToolRalph, { maxRounds: WORKFLOW_MAX_TOTAL_AGENTS })
     }
     await this.context.plugin(EdgeSchedule, { storage })
     // Upstream's `schedule` Remote namespace (catalog, list, update, delete,

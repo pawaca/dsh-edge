@@ -155,6 +155,45 @@ export async function startMockDeepSeek(port = 0) {
         .filter(message => message.role === 'tool')
       const hasToolResult = toolResults.length > 0
 
+      // Ralph, ahead of the generic branches its round prompt would match: the
+      // parent starts a two-round loop; round 1 reports continue and round 2
+      // complete, each through the structured_output tool.
+      const ralphCall = prompt === 'run a ralph loop' && !hasToolResult
+        ? { id: 'call_mock_ralph', name: 'ralph', arguments: JSON.stringify({ objective: 'Write the ralph notes.', maxRounds: 2 }) }
+        : undefined
+      const ralphRound = prompt.includes('foreground Ralph loop') && !hasToolResult
+        ? Number(/Ralph round: (\d+) of/u.exec(prompt)?.[1])
+        : undefined
+      const ralphReport = ralphRound === undefined
+        ? undefined
+        : ralphRound === 1
+          ? { status: 'continue', summary: 'Drafted the notes.', evidence: ['notes drafted'], nextSteps: ['finish the notes'], blocker: '' }
+          : { status: 'complete', summary: 'Finished the notes.', evidence: ['notes finished'], nextSteps: [], blocker: '' }
+      const ralphToolCall = ralphCall
+        ?? (ralphReport === undefined ? undefined : { id: `call_mock_ralph_round_${ralphRound}`, name: 'structured_output', arguments: JSON.stringify(ralphReport) })
+      if (ralphToolCall !== undefined) {
+        sendEvents(response, [
+          { choices: [{ delta: { role: 'assistant', content: null, reasoning_content: '' } }] },
+          {
+            choices: [{
+              delta: {
+                tool_calls: [{
+                  index: 0,
+                  id: ralphToolCall.id,
+                  type: 'function',
+                  function: { name: ralphToolCall.name, arguments: ralphToolCall.arguments },
+                }],
+              },
+            }],
+          },
+          {
+            choices: [{ delta: {}, finish_reason: 'tool_calls' }],
+            usage: { prompt_tokens: 8, completion_tokens: 3 },
+          },
+        ])
+        return
+      }
+
       // Continuable subagents: a parent starts, lists, messages, forks, and
       // interrupts children; a child writes a file; the parent writes one
       // whenever a child's settlement notice wakes it.
@@ -785,6 +824,8 @@ export async function startMockDeepSeek(port = 0) {
                 ? `plan-finished:${messageText(toolResults[0])}`
                 : prompt.includes('run a workflow')
                   ? `workflow-finished:${messageText(toolResults[0])}`
+                : prompt === 'run a ralph loop'
+                  ? `ralph-finished:${messageText(toolResults[0])}`
                   : prompt.includes('run some code')
                     ? `code-finished:${messageText(toolResults[0])}`
                     : prompt === 'find the needles'

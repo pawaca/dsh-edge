@@ -996,11 +996,23 @@ try {
       workflowEvents.filter(event => event.type === 'tool-workflow/run-end').map(event => event.data.stopReason),
       ['completed'],
     )
+    // Ralph runs its fixed loop on the same engine: one fresh child per round,
+    // each reporting through structured_output, until a round reports complete.
+    const revisionsBeforeRalph = sessionRevisions()
+    const ralphEvents = await turn(sessionId, 'run a ralph loop')
+    assert.equal(ralphEvents.find(event => event.type === 'tool/call')?.data.name, 'ralph')
+    const ralphResultText = toolResultText(ralphEvents.find(event => event.type === 'tool/result'))
+    assert.match(ralphResultText, /Finished the notes\./u)
+    const ralphChildren = [...sessionRevisions()]
+      .filter(([id, row]) => row.parentSession === sessionId && !revisionsBeforeRalph.has(id))
+    assert.equal(ralphChildren.length, 2)
+    assert.match(assistantText(ralphEvents), /^ralph-finished:/u)
   }
-  // Tools are presented natively: the default session offers workflow on the
-  // isolated build but never run_code.
+  // Tools are presented natively: the default session offers workflow and
+  // ralph on the isolated build but never run_code.
   const defaultTools = (turnRequests().at(-1).tools ?? []).map(tool => tool.name)
   assert.equal(defaultTools.includes('workflow'), runtimeMode === 'isolated')
+  assert.equal(defaultTools.includes('ralph'), runtimeMode === 'isolated')
   assert.equal(defaultTools.includes('run_code'), false)
   // run_code is opt-in through the PTC mode preset, which only the isolated
   // build offers. A blank session selects it; its program runs in its own
@@ -1030,6 +1042,8 @@ try {
     assert.equal(codeEvents.filter(event => event.type === 'tool/ptc-dispatch').length, 2)
     const ptcTools = (turnRequests().at(-1).tools ?? []).map(tool => tool.name)
     assert.deepEqual(ptcTools, ['run_code'])
+    // As workflow, ralph is not offered to run_code programs.
+    assert.doesNotMatch(JSON.stringify(turnRequests().at(-1).tools), /\bralph\b/u)
     const locked = await rpc('agentPreset.select', { agentId: ptcSessionId, agentPreset: 'standard' })
     assert.equal(locked.body.result.error.code, 'agent-preset/locked')
     // The Agent presets page makes a preset the default for new sessions, as
@@ -2274,8 +2288,9 @@ try {
   // instead of starting the extra follow-up request exercised previously; the
   // ask_user_question and exit_plan_mode turns each add a tool-call request
   // and its continuation; in the isolated build the workflow turn adds a
-  // tool-call request, its five children, and its continuation, and the
-  // run_code turn adds a tool-call request and its continuation; the fork's
+  // tool-call request, its five children, and its continuation, the ralph
+  // turn a tool-call request, one request for each of its two rounds, and its
+  // continuation, and the run_code turn adds a tool-call request and its continuation; the fork's
   // own date-context turn adds one request; the watched preview's read turn
   // adds a tool-call request and its continuation; the large-log export
   // fixture adds one request for each of its 50 turns; the first message in
@@ -2283,7 +2298,7 @@ try {
   // adds a tool-call request and its continuation; the uploaded-file read
   // adds a tool-call request and its continuation, and the turn that holds
   // the main slot while a file prompt is queued adds one.
-  assert.equal(turnRequests().length, (runtimeMode === 'isolated' ? 42 : 33) + LARGE_LOG_TURNS)
+  assert.equal(turnRequests().length, (runtimeMode === 'isolated' ? 46 : 33) + LARGE_LOG_TURNS)
   await worker.stop()
   worker = undefined
   const { physicalRows, writeBatches } = sessionEventStorageStats(batchedSessionId)

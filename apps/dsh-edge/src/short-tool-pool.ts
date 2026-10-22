@@ -71,10 +71,10 @@ function throwIfAborted(signal: AbortSignal): void {
   if (signal.aborted) throw abortError(signal)
 }
 
-// The subagent and workflow tools run child agents that own their own turn
-// budgets, and the question and plan-review tools wait for the owner to
+// The subagent, workflow, and ralph tools run child agents that own their own
+// turn budgets, and the question and plan-review tools wait for the owner to
 // answer; applying the short-tool execution deadline would kill them at 60 s.
-const LONG_TOOLS = new Set(['subagent', 'workflow', 'ask_user_question', 'exit_plan_mode'])
+const LONG_TOOLS = new Set(['subagent', 'workflow', 'ralph', 'ask_user_question', 'exit_plan_mode'])
 
 /** Own one root permit; nested dispatch inherits its deadline instead of deadlocking. */
 export function installShortToolPool(ctx: Context): ShortToolPool {

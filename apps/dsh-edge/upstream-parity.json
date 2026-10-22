@@ -262,11 +262,6 @@
       "status": "not-applicable",
       "reason": "Persistent PowerShell; it needs the terminal seam (ctx.subprocess) and a pwsh binary, neither of which the Edge has."
     },
-    "@deepseek-ai/dsh-tool-ralph": {
-      "status": "gap",
-      "priority": "P3",
-      "reason": "ralph fresh-agent loop; it needs ctx.workflowEngine and ctx.subagents, which Isolated deployments serve. Upstream reserves it for explicit user requests."
-    },
     "@deepseek-ai/dsh-tool-session-query": {
       "status": "gap",
       "priority": "P2",
