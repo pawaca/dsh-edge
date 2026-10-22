@@ -749,7 +749,9 @@ function normalize(source) {
     .replaceAll(mockChannelVersion, '{{channel-version}}')
     .replaceAll(edgePackage.version, '{{version}}')
     .replaceAll(edgePackage.dshEdge.upstreamVersion, '{{upstream-version}}')
-    .replaceAll(channel, '{{channel}}')
+    // Only where the channel is named: `next` is also an ordinary word in UI text.
+    .replaceAll(`@${channel}`, '@{{channel}}')
+    .replace(new RegExp(`^(\\s*- code: )${channel}$`, 'gmu'), '$1{{channel}}')
     .trimEnd()}\n`
 }
 
