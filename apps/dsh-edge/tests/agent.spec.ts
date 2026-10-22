@@ -190,6 +190,23 @@ describe('dsh-edge native agent runtime', () => {
     expect(exec).toHaveBeenLastCalledWith('ls', expect.objectContaining({ cwd: '/tmp' }))
   })
 
+  it('lowers a timeout above the ceiling to it, as upstream does, and reports the directory the command ran in', async () => {
+    const shells = new EdgeShellBindings()
+    const result = { executionId: 'e', status: 'completed', timedOut: false, exitCode: 0, stdout: '', stderr: '', outputTruncated: false }
+    const exec = vi.fn(async () => result)
+    shells.bind('agent-1' as never, { exec } as never, '/workspace')
+    const tool = createEdgeBashTool(shells, 'just-bash-isolated', 120_000)
+    const run = (tool as unknown as { execute: (args: unknown, exec: unknown) => Promise<unknown> }).execute
+    const context = { agent: { id: 'agent-1' }, signal: new AbortController().signal, deferContext: vi.fn() }
+    expect(await run({ command: 'ls', description: 'list', timeoutMs: 600_000 }, context)).toMatchObject({ cwd: '/workspace' })
+    expect(exec).toHaveBeenLastCalledWith('ls', expect.objectContaining({ timeoutMs: 120_000 }))
+    await run({ command: 'ls', description: 'list', timeoutMs: 1_500.5 }, context)
+    expect(exec).toHaveBeenLastCalledWith('ls', expect.objectContaining({ timeoutMs: 1_501 }))
+    await expect(run({ command: 'ls', description: 'list', timeoutMs: 0 }, context)).rejects.toThrow(/positive finite/u)
+    const meta = (tool.output as { presentationMeta: (args: unknown, value: unknown) => unknown }).presentationMeta
+    expect(meta({}, { cwd: '/workspace/app' })).toEqual({ cwd: '/workspace/app' })
+  })
+
   it('leaves the session directory to the working-directory context, which follows working_directory', () => {
     // A directory named here would stay the starting one after a change and contradict that context.
     expect(EDGE_PERSONA_SUFFIX).not.toMatch(/\{\{|working directory|\/workspace\/\w/iu)
@@ -211,7 +228,8 @@ describe('dsh-edge native agent runtime', () => {
         + 'Each call starts in the session working directory unless workdir is supplied. '
         + 'Before any delete or move, verify that the resolved absolute target path is the intended one; never '
         + 'run it against a computed path you have not checked. An unset variable expands to an empty string, '
-        + 'so guard variables in such paths with `${VAR:?}`.')
+        + 'so guard variables in such paths with `${VAR:?}`. Long output is truncated to its tail; the full output '
+        + 'is saved to a file whose path is reported when available.')
     const routed = createEdgeBashTool(shells, 'linux-container')
     expect(routed.description).toContain('lightweight just-bash shell unless it needs git')
     expect(routed.description).toContain('guard variables in such paths with `${VAR:?}`')
@@ -241,6 +259,22 @@ describe('dsh-edge native agent runtime', () => {
     expect(clientExitCode(render({ exitCode: 2, runtime: 'container', retriedFromLight: true, queuedMs: 3_000 }))).toBe('2')
     expect(clientExitCode(render({ exitCode: 127, runtime: 'light', lightShellMiss: true }))).toBe('127')
     expect(clientExitCode(render({ exitCode: 130, runtime: 'container', detached: true }))).toBe('130')
+    // Upstream's layout: stdout, a [stderr] section, each stream's truncation
+    // notice with its spill path, then the timeout marker and the exit code.
+    expect(render({
+      exitCode: 1, stdout: 'tail of out', stderr: 'oops', timedOut: true, timeoutMs: 5_000, outputTruncated: true,
+      stdoutTruncated: true, stdoutSpillPath: '/workspace/.spill/bash-e.stdout.txt',
+    })).toBe('tail of out\n[output truncated; full output: /workspace/.spill/bash-e.stdout.txt]\n[stderr]\noops\n'
+      + '[timed out after 5000ms]\n[exit code: 1]')
+    expect(render({ exitCode: 0, stdout: 'x', outputTruncated: true, stdoutTruncated: true, stdoutSpillPath: '/s', stdoutSpillPartial: true }))
+      .toBe('x\n[output truncated; first 16 MiB saved: /s]')
+    expect(render({ exitCode: 0, stderr: 'y', outputTruncated: true, stderrTruncated: true }))
+      .toBe('[stderr]\ny\n[output truncated; full output: (unavailable)]')
+    expect(render({ exitCode: 126, stdout: '', outputTruncated: true, stoppedAtLightLimit: true }))
+      .toBe("(no output)\n[stopped: the lightweight shell's output passed 8 MiB]\n[exit code: 126]")
+    // A result recorded before per-stream tails keeps its old notice.
+    expect(render({ exitCode: 0, stdout: 'old', outputTruncated: true })).toBe('old\n[output truncated after 65536 UTF-8 bytes]')
+    expect(render({ exitCode: 0, stdout: '' })).toBe('(no output)')
     expect(clientExitCode(render({ exitCode: 0, status: 'completed', stdout: 'ok', runtime: 'container' }))).toBeUndefined()
     expect(properties(createEdgeBashTool(shells, 'just-bash-isolated'))).not.toContain('linux')
     const container = edgeSystemPrompt('linux-container')
@@ -258,10 +292,10 @@ describe('dsh-edge native agent runtime', () => {
 
   it('states the deployment timeout ceiling to the model', () => {
     expect(edgeBashGuidance(120_000)).toBe('Check the [exit code: N] marker on every bash result and investigate '
-      + 'failures before moving on. timeoutMs is optional and at most 120000; split longer work into separate commands.')
+      + 'failures before moving on. timeoutMs is optional; a larger value is lowered to 120000, so split longer work into separate commands.')
     const tool = createEdgeBashTool(new EdgeShellBindings(), 'linux-container', 240_000)
     const timeout = (tool.parameters as { properties: Record<string, { description: string }> }).properties.timeoutMs
-    expect(timeout?.description).toBe('Optional execution timeout in milliseconds, at most 240000.')
+    expect(timeout?.description).toBe('Optional execution timeout in milliseconds; a larger value is lowered to 240000.')
   })
 
   it('renders the current date in the user\'s time zone, falling back to UTC', () => {

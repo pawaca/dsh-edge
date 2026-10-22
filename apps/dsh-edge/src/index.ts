@@ -167,6 +167,14 @@ export default {
           ...result.queuedMs === undefined ? {} : { queuedMs: result.queuedMs },
           ...result.retriedFromLight === true ? { retriedFromLight: true } : {},
           ...result.lightShellMiss === true ? { lightShellMiss: true } : {},
+          // Additive: which stream shows only its tail, and where the rest went.
+          ...result.stdoutTruncated === true ? { stdoutTruncated: true } : {},
+          ...result.stderrTruncated === true ? { stderrTruncated: true } : {},
+          ...result.stdoutSpillPath === undefined ? {} : { stdoutSpillPath: result.stdoutSpillPath },
+          ...result.stderrSpillPath === undefined ? {} : { stderrSpillPath: result.stderrSpillPath },
+          ...result.stdoutSpillPartial === true ? { stdoutSpillPartial: true } : {},
+          ...result.stderrSpillPartial === true ? { stderrSpillPartial: true } : {},
+          ...result.stoppedAtLightLimit === true ? { stoppedAtLightLimit: true } : {},
         } satisfies EdgeShellResult)
       }
 

@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   DIRECT_SHELL_OUTPUT_TRUNCATED,
-  EDGE_SHELL_OUTPUT_LIMIT_BYTES,
+  LIGHT_SHELL_MAX_OUTPUT_BYTES,
 } from '../src/direct-shell-protocol.ts'
+import { SHELL_OUTPUT_TAIL_BYTES } from '../src/edge-shell-output.ts'
 import {
   CANCELLED_COMMAND_GRACE_MS,
   executeWorkspaceCommand,
@@ -260,8 +261,82 @@ describe('dsh-edge workspace command execution', () => {
     )
 
     expect(result.outputTruncated).toBe(true)
+    expect(result.stoppedAtLightLimit).toBe(true)
     expect(result.status).toBe('cancelled')
     expect(result.exitCode).toBe(126)
+  })
+
+  it('keeps a command running past the inline cap, with each stream\'s tail inline and all of it spilled', async () => {
+    const encoder = new TextEncoder()
+    const lines = Array.from({ length: 20_000 }, (_, index) => `line ${String(index)}\n`)
+    const stdoutBytes = encoder.encode(lines.join(''))
+    const events: RuntimeEvent[] = []
+    for (let offset = 0; offset < stdoutBytes.byteLength; offset += 7_000) {
+      events.push({ name: 'stdout', value: stdoutBytes.subarray(offset, offset + 7_000) })
+    }
+    events.push({ name: 'stderr', value: encoder.encode('warning: small\n') }, { name: 'exit', code: 0 })
+    const runtime = executionRuntime(events)
+
+    const result = await executeWorkspaceCommand(runtime.workspace, 'seq', '/workspace', resolveEdgeCommandTimeoutPolicy())
+
+    expect(runtime.kill).not.toHaveBeenCalled()
+    expect(result.status).toBe('completed')
+    expect(result.timeoutMs).toBe(120_000)
+    expect(result.stdoutTruncated).toBe(true)
+    expect(result.stdout).toBe(new TextDecoder().decode(stdoutBytes.subarray(stdoutBytes.byteLength - SHELL_OUTPUT_TAIL_BYTES)))
+    expect(result.stdoutSpillPath).toBe('/workspace/.spill/bash-exec-1.stdout.txt')
+    expect(runtime.files.get('/workspace/.spill/bash-exec-1.stdout.txt')).toEqual(stdoutBytes)
+    // A stream under the cap is inline whole and writes no file.
+    expect(result.stderr).toBe('warning: small\n')
+    expect(result.stderrTruncated).toBeUndefined()
+    expect(runtime.files.has('/workspace/.spill/bash-exec-1.stderr.txt')).toBe(false)
+  })
+
+  it('stops waiting for a stalled spill once a cancelled command\'s grace expires', async () => {
+    vi.useFakeTimers()
+    try {
+      const runtime = executionRuntime([
+        { name: 'stdout', value: new Uint8Array(3 * 1024 * 1024).fill(0x63) },
+        { name: 'stdout', value: new Uint8Array(1024).fill(0x64) },
+        { name: 'exit', code: 0 },
+      ])
+      // Storage that never reads: the spill queue fills and the read loop waits on it.
+      runtime.writeFile.mockImplementation(() => new Promise(() => {}))
+      const controller = new AbortController()
+      const running = executeWorkspaceCommand(runtime.workspace, 'yes', '/workspace', resolveEdgeCommandTimeoutPolicy(), undefined, controller.signal)
+      await vi.advanceTimersByTimeAsync(10)
+      controller.abort()
+      await vi.advanceTimersByTimeAsync(CANCELLED_COMMAND_GRACE_MS + 10)
+      const result = await running
+      expect(result.detached).toBe(true)
+      expect(result.status).toBe('cancelled')
+      expect(result.stdoutTruncated).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('writes nothing for output under the inline cap', async () => {
+    const runtime = executionRuntime([{ name: 'stdout', value: new Uint8Array(SHELL_OUTPUT_TAIL_BYTES).fill(0x61) }, { name: 'exit', code: 0 }])
+    const result = await executeWorkspaceCommand(runtime.workspace, 'printf', '/workspace', resolveEdgeCommandTimeoutPolicy())
+    expect(result.outputTruncated).toBe(false)
+    expect(result.stdout).toHaveLength(SHELL_OUTPUT_TAIL_BYTES)
+    expect(runtime.writeFile).not.toHaveBeenCalled()
+  })
+
+  it('reports an unavailable spill when storage fails, and still returns the tail', async () => {
+    const runtime = executionRuntime([
+      { name: 'stdout', value: new Uint8Array(SHELL_OUTPUT_TAIL_BYTES + 10).fill(0x62) },
+      { name: 'exit', code: 0 },
+    ])
+    runtime.writeFile.mockImplementation(async (_path: string, body: ReadableStream<Uint8Array>) => {
+      await body.cancel()
+      throw new Error('quota')
+    })
+    const result = await executeWorkspaceCommand(runtime.workspace, 'yes', '/workspace', resolveEdgeCommandTimeoutPolicy())
+    expect(result.stdoutTruncated).toBe(true)
+    expect(result.stdoutSpillPath).toBeUndefined()
+    expect(result.stdout).toHaveLength(SHELL_OUTPUT_TAIL_BYTES)
   })
 
   it('decodes output that is not UTF-8 like a terminal instead of failing the command', async () => {
@@ -300,7 +375,7 @@ describe('dsh-edge workspace command execution', () => {
   it('does not infer terminal causes from command-controlled stderr and exit codes', async () => {
     for (const [exitCode, diagnostic] of [
       [124, 'execution deadline'],
-      [126, `limit exceeded (${EDGE_SHELL_OUTPUT_LIMIT_BYTES} bytes)`],
+      [126, `limit exceeded (${LIGHT_SHELL_MAX_OUTPUT_BYTES} bytes)`],
     ] as const) {
       const runtime = executionRuntime([
         { name: 'stderr', value: new TextEncoder().encode(diagnostic) },
@@ -356,10 +431,21 @@ function executionRuntime(
     return execution
   })
   const mkdir = vi.fn(async () => undefined)
+  const files = new Map<string, Uint8Array>()
+  const writeFile = vi.fn(async (path: string, body: ReadableStream<Uint8Array>) => {
+    const chunks: Uint8Array[] = []
+    for await (const chunk of body) chunks.push(chunk)
+    const bytes = new Uint8Array(chunks.reduce((total, chunk) => total + chunk.byteLength, 0))
+    let offset = 0
+    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength }
+    files.set(path, bytes)
+  })
   return {
     exec,
     kill,
     mkdir,
-    workspace: { fs: { mkdir }, runtime: { exec } } as unknown as EdgeWorkspace,
+    files,
+    writeFile,
+    workspace: { fs: { mkdir, writeFile }, runtime: { exec } } as unknown as EdgeWorkspace,
   }
 }

@@ -15,7 +15,7 @@ import {
 } from 'just-bash/browser'
 import {
   DIRECT_SHELL_OUTPUT_TRUNCATED,
-  EDGE_SHELL_OUTPUT_LIMIT_BYTES,
+  LIGHT_SHELL_MAX_OUTPUT_BYTES,
 } from './direct-shell-protocol.ts'
 
 const DEFAULT_BACKEND_ID = 'worker-shell'
@@ -161,7 +161,7 @@ class DirectShellRuntime {
       defenseInDepth: { enabled: 'auto' },
       executionLimitProfile: 'hardened',
       executionLimits: {
-        maxOutputSize: EDGE_SHELL_OUTPUT_LIMIT_BYTES,
+        maxOutputSize: LIGHT_SHELL_MAX_OUTPUT_BYTES,
         ...timeoutLimit,
       },
     })
@@ -300,8 +300,8 @@ function hitDirectOutputLimit(result: BashExecResult): boolean {
   if (accountedBytes < 0 || accountedBytes > stderr.byteLength) return false
   const interpreterDiagnostic = new TextDecoder().decode(stderr.subarray(accountedBytes))
   return [
-    `limit exceeded (${EDGE_SHELL_OUTPUT_LIMIT_BYTES} bytes)`,
-    `total output size exceeded (>${EDGE_SHELL_OUTPUT_LIMIT_BYTES} bytes), `
+    `limit exceeded (${LIGHT_SHELL_MAX_OUTPUT_BYTES} bytes)`,
+    `total output size exceeded (>${LIGHT_SHELL_MAX_OUTPUT_BYTES} bytes), `
       + 'increase executionLimits.maxOutputSize',
   ].some(diagnostic => interpreterDiagnostic.includes(diagnostic))
 }

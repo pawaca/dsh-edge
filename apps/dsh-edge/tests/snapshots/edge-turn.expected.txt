@@ -65,7 +65,7 @@ Reminders: Use schedule tools for durable reminders that survive session restart
 
 Tokens prefixed with @ are paths the user explicitly referenced. Relative paths resolve from the workspace root; absolute paths identify files or directories on the host. A trailing slash marks a directory: list it when its contents matter. Anything else is a file: use the read tool when its contents are needed, and do not claim to have inspected it before reading. @"..." quotes a path containing spaces.
 
-Check the [exit code: N] marker on every bash result and investigate failures before moving on. timeoutMs is optional and at most 120000; split longer work into separate commands.
+Check the [exit code: N] marker on every bash result and investigate failures before moving on. timeoutMs is optional; a larger value is lowered to 120000, so split longer work into separate commands.
 
 Use the read tool — not shell commands like cat — to inspect text files. Use offset and limit to continue reading large files.
 
@@ -272,7 +272,7 @@ Elapsed since the preceding model-visible message: unavailable.",
               },
             },
             {
-              "description": "Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in the session working directory unless workdir is supplied. Before any delete or move, verify that the resolved absolute target path is the intended one; never run it against a computed path you have not checked. An unset variable expands to an empty string, so guard variables in such paths with `${VAR:?}`.",
+              "description": "Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in the session working directory unless workdir is supplied. Before any delete or move, verify that the resolved absolute target path is the intended one; never run it against a computed path you have not checked. An unset variable expands to an empty string, so guard variables in such paths with `${VAR:?}`. Long output is truncated to its tail; the full output is saved to a file whose path is reported when available.",
               "name": "bash",
               "parameters": {
                 "properties": {
@@ -285,7 +285,7 @@ Elapsed since the preceding model-visible message: unavailable.",
                     "type": "string",
                   },
                   "timeoutMs": {
-                    "description": "Optional execution timeout in milliseconds, at most 120000.",
+                    "description": "Optional execution timeout in milliseconds; a larger value is lowered to 120000.",
                     "type": "number",
                   },
                   "workdir": {
@@ -1256,6 +1256,9 @@ Elapsed since the preceding model-visible message: unavailable.",
           },
           "toolCallId": "call_mock_file",
         },
+        "meta": {
+          "cwd": "/workspace",
+        },
         "step": 1,
         "turn": 1,
       },
@@ -1362,7 +1365,7 @@ Elapsed since the preceding model-visible message: unavailable.",
               },
             },
             {
-              "description": "Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in the session working directory unless workdir is supplied. Before any delete or move, verify that the resolved absolute target path is the intended one; never run it against a computed path you have not checked. An unset variable expands to an empty string, so guard variables in such paths with `${VAR:?}`.",
+              "description": "Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in the session working directory unless workdir is supplied. Before any delete or move, verify that the resolved absolute target path is the intended one; never run it against a computed path you have not checked. An unset variable expands to an empty string, so guard variables in such paths with `${VAR:?}`. Long output is truncated to its tail; the full output is saved to a file whose path is reported when available.",
               "name": "bash",
               "parameters": {
                 "properties": {
@@ -1375,7 +1378,7 @@ Elapsed since the preceding model-visible message: unavailable.",
                     "type": "string",
                   },
                   "timeoutMs": {
-                    "description": "Optional execution timeout in milliseconds, at most 120000.",
+                    "description": "Optional execution timeout in milliseconds; a larger value is lowered to 120000.",
                     "type": "number",
                   },
                   "workdir": {
@@ -2394,7 +2397,7 @@ Reminders: Use schedule tools for durable reminders that survive session restart
 
 Tokens prefixed with @ are paths the user explicitly referenced. Relative paths resolve from the workspace root; absolute paths identify files or directories on the host. A trailing slash marks a directory: list it when its contents matter. Anything else is a file: use the read tool when its contents are needed, and do not claim to have inspected it before reading. @"..." quotes a path containing spaces.
 
-Check the [exit code: N] marker on every bash result and investigate failures before moving on. timeoutMs is optional and at most 120000; split longer work into separate commands.
+Check the [exit code: N] marker on every bash result and investigate failures before moving on. timeoutMs is optional; a larger value is lowered to 120000, so split longer work into separate commands.
 
 Use the read tool — not shell commands like cat — to inspect text files. Use offset and limit to continue reading large files.
 
@@ -2601,7 +2604,7 @@ Elapsed since the preceding model-visible message: unavailable.",
               },
             },
             {
-              "description": "Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in the session working directory unless workdir is supplied. Before any delete or move, verify that the resolved absolute target path is the intended one; never run it against a computed path you have not checked. An unset variable expands to an empty string, so guard variables in such paths with `${VAR:?}`.",
+              "description": "Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in the session working directory unless workdir is supplied. Before any delete or move, verify that the resolved absolute target path is the intended one; never run it against a computed path you have not checked. An unset variable expands to an empty string, so guard variables in such paths with `${VAR:?}`. Long output is truncated to its tail; the full output is saved to a file whose path is reported when available.",
               "name": "bash",
               "parameters": {
                 "properties": {
@@ -2614,7 +2617,7 @@ Elapsed since the preceding model-visible message: unavailable.",
                     "type": "string",
                   },
                   "timeoutMs": {
-                    "description": "Optional execution timeout in milliseconds, at most 120000.",
+                    "description": "Optional execution timeout in milliseconds; a larger value is lowered to 120000.",
                     "type": "number",
                   },
                   "workdir": {
@@ -3585,6 +3588,9 @@ Elapsed since the preceding model-visible message: unavailable.",
           },
           "toolCallId": "call_mock_file",
         },
+        "meta": {
+          "cwd": "/workspace",
+        },
         "step": 1,
         "turn": 1,
       },
@@ -3691,7 +3697,7 @@ Elapsed since the preceding model-visible message: unavailable.",
               },
             },
             {
-              "description": "Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in the session working directory unless workdir is supplied. Before any delete or move, verify that the resolved absolute target path is the intended one; never run it against a computed path you have not checked. An unset variable expands to an empty string, so guard variables in such paths with `${VAR:?}`.",
+              "description": "Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in the session working directory unless workdir is supplied. Before any delete or move, verify that the resolved absolute target path is the intended one; never run it against a computed path you have not checked. An unset variable expands to an empty string, so guard variables in such paths with `${VAR:?}`. Long output is truncated to its tail; the full output is saved to a file whose path is reported when available.",
               "name": "bash",
               "parameters": {
                 "properties": {
@@ -3704,7 +3710,7 @@ Elapsed since the preceding model-visible message: unavailable.",
                     "type": "string",
                   },
                   "timeoutMs": {
-                    "description": "Optional execution timeout in milliseconds, at most 120000.",
+                    "description": "Optional execution timeout in milliseconds; a larger value is lowered to 120000.",
                     "type": "number",
                   },
                   "workdir": {
@@ -4682,7 +4688,7 @@ Reminders: Use schedule tools for durable reminders that survive session restart
 
 Tokens prefixed with @ are paths the user explicitly referenced. Relative paths resolve from the workspace root; absolute paths identify files or directories on the host. A trailing slash marks a directory: list it when its contents matter. Anything else is a file: use the read tool when its contents are needed, and do not claim to have inspected it before reading. @"..." quotes a path containing spaces.
 
-Check the [exit code: N] marker on every bash result and investigate failures before moving on. timeoutMs is optional and at most 120000; split longer work into separate commands.
+Check the [exit code: N] marker on every bash result and investigate failures before moving on. timeoutMs is optional; a larger value is lowered to 120000, so split longer work into separate commands.
 
 Use the read tool — not shell commands like cat — to inspect text files. Use offset and limit to continue reading large files.
 
@@ -4773,7 +4779,7 @@ Only files under /workspace persist across sessions.",
           "name": "ask_user_question",
         },
         {
-          "description": "Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in the session working directory unless workdir is supplied. Before any delete or move, verify that the resolved absolute target path is the intended one; never run it against a computed path you have not checked. An unset variable expands to an empty string, so guard variables in such paths with `${VAR:?}`.",
+          "description": "Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in the session working directory unless workdir is supplied. Before any delete or move, verify that the resolved absolute target path is the intended one; never run it against a computed path you have not checked. An unset variable expands to an empty string, so guard variables in such paths with `${VAR:?}`. Long output is truncated to its tail; the full output is saved to a file whose path is reported when available.",
           "input_schema": {
             "properties": {
               "command": {
@@ -4785,7 +4791,7 @@ Only files under /workspace persist across sessions.",
                 "type": "string",
               },
               "timeoutMs": {
-                "description": "Optional execution timeout in milliseconds, at most 120000.",
+                "description": "Optional execution timeout in milliseconds; a larger value is lowered to 120000.",
                 "type": "number",
               },
               "workdir": {
@@ -5658,7 +5664,7 @@ Reminders: Use schedule tools for durable reminders that survive session restart
 
 Tokens prefixed with @ are paths the user explicitly referenced. Relative paths resolve from the workspace root; absolute paths identify files or directories on the host. A trailing slash marks a directory: list it when its contents matter. Anything else is a file: use the read tool when its contents are needed, and do not claim to have inspected it before reading. @"..." quotes a path containing spaces.
 
-Check the [exit code: N] marker on every bash result and investigate failures before moving on. timeoutMs is optional and at most 120000; split longer work into separate commands.
+Check the [exit code: N] marker on every bash result and investigate failures before moving on. timeoutMs is optional; a larger value is lowered to 120000, so split longer work into separate commands.
 
 Use the read tool — not shell commands like cat — to inspect text files. Use offset and limit to continue reading large files.
 
@@ -5749,7 +5755,7 @@ Only files under /workspace persist across sessions.",
           "name": "ask_user_question",
         },
         {
-          "description": "Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in the session working directory unless workdir is supplied. Before any delete or move, verify that the resolved absolute target path is the intended one; never run it against a computed path you have not checked. An unset variable expands to an empty string, so guard variables in such paths with `${VAR:?}`.",
+          "description": "Execute a just-bash command against the persistent /workspace virtual filesystem. Each call starts in the session working directory unless workdir is supplied. Before any delete or move, verify that the resolved absolute target path is the intended one; never run it against a computed path you have not checked. An unset variable expands to an empty string, so guard variables in such paths with `${VAR:?}`. Long output is truncated to its tail; the full output is saved to a file whose path is reported when available.",
           "input_schema": {
             "properties": {
               "command": {
@@ -5761,7 +5767,7 @@ Only files under /workspace persist across sessions.",
                 "type": "string",
               },
               "timeoutMs": {
-                "description": "Optional execution timeout in milliseconds, at most 120000.",
+                "description": "Optional execution timeout in milliseconds; a larger value is lowered to 120000.",
                 "type": "number",
               },
               "workdir": {

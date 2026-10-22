@@ -2,10 +2,8 @@
 
 import { getWorkspace } from '@cloudflare/computer'
 import type { EdgeShellResult } from './agent.ts'
-import {
-  DIRECT_SHELL_OUTPUT_TRUNCATED,
-  EDGE_SHELL_OUTPUT_LIMIT_BYTES,
-} from './direct-shell-protocol.ts'
+import { DIRECT_SHELL_OUTPUT_TRUNCATED } from './direct-shell-protocol.ts'
+import { StreamCapture, type ShellSpillTarget, type ShellStream } from './edge-shell-output.ts'
 import { EdgeExecutionId } from './protocol.ts'
 
 const MAX_COMMAND_BYTES = 16_384
@@ -243,10 +241,27 @@ export async function executeWorkspaceCommand(
   current.execution = running
   if (interruptionRequested) void interrupt()
   let detached = false
-  const stdout: Uint8Array[] = []
-  const stderr: Uint8Array[] = []
-  let retainedBytes = 0
-  let outputTruncated = false
+  // Each stream keeps its tail in memory and spills past it, while the command
+  // runs on (upstream bash-local's behavior); the spill lands next to the
+  // other spills, which the daily sweep deletes after 30 days.
+  const spillTarget = (stream: ShellStream): ShellSpillTarget => {
+    const path = `${SHELL_SPILL_DIRECTORY}/bash-${running.id}.${stream}.txt`
+    return {
+      path,
+      write: async (body) => {
+        try {
+          await workspace.fs.mkdir(SHELL_SPILL_DIRECTORY, { recursive: true })
+        } catch (error) {
+          await body.cancel(error)
+          throw error
+        }
+        await workspace.fs.writeFile(path, body)
+      },
+    }
+  }
+  const stdout = new StreamCapture(() => spillTarget('stdout'))
+  const stderr = new StreamCapture(() => spillTarget('stderr'))
+  let stoppedAtLightLimit = false
   let exitCode = -1
   const reader = running.getReader()
   try {
@@ -263,25 +278,23 @@ export async function executeWorkspaceCommand(
       if (event.name === 'exit') {
         deadline.complete()
         exitCode = event.code
+        // The lightweight shell buffers output and stops at its own bound.
         if (event.result === DIRECT_SHELL_OUTPUT_TRUNCATED) {
-          outputTruncated = true
+          stoppedAtLightLimit = true
           interruptionRequested = true
         }
         continue
       }
-
-      const remaining = EDGE_SHELL_OUTPUT_LIMIT_BYTES - retainedBytes
-      if (remaining > 0) {
-        // Copy rather than retain a subarray view: an oversized event may use
-        // a much larger backing buffer that must become collectible here.
-        const retained = event.value.slice(0, remaining)
-        if (event.name === 'stdout') stdout.push(retained)
-        else stderr.push(retained)
-        retainedBytes += retained.byteLength
-      }
-      if (event.value.byteLength > remaining && !outputTruncated) {
-        outputTruncated = true
-        await interrupt()
+      // Waits while the spill writer is full, so the next event is read only
+      // once storage has caught up; a cancelled command's grace still bounds it.
+      const pushed = await Promise.race([
+        (event.name === 'stdout' ? stdout : stderr).push(event.value),
+        graceExpired,
+      ])
+      if (pushed === GRACE_EXPIRED) {
+        detached = true
+        void reader.cancel().catch(() => undefined)
+        break
       }
     }
   } finally {
@@ -289,18 +302,36 @@ export async function executeWorkspaceCommand(
     reader.releaseLock()
     signal?.removeEventListener('abort', abort)
   }
+  // A detached command's spills finish in the background: storage that
+  // stalled the read loop must not hold the turn either.
+  const out = await stdout.finish({ wait: !detached })
+  const err = await stderr.finish({ wait: !detached })
   // Its end is no longer observable: the command's own timeout bounds it.
   if (detached) onDetached?.(deadline.expired())
   return {
     executionId: EdgeExecutionId(running.id),
     status: executionStatus(exitCode, interruptionRequested),
     timedOut: deadline.timedOut,
+    timeoutMs: effectiveTimeoutMs,
     exitCode,
-    stdout: decodeChunks(stdout),
-    stderr: decodeChunks(stderr),
-    outputTruncated,
+    stdout: out.text,
+    stderr: err.text,
+    outputTruncated: out.truncated || err.truncated || stoppedAtLightLimit,
+    ...streamFacts('stdout', out),
+    ...streamFacts('stderr', err),
+    ...stoppedAtLightLimit ? { stoppedAtLightLimit: true } : {},
     ...detached ? { detached: true } : {},
   }
+}
+
+/** Where command output past the tail is saved, beside the other tool spills. */
+const SHELL_SPILL_DIRECTORY = '/workspace/.spill'
+
+function streamFacts(stream: ShellStream, captured: Awaited<ReturnType<StreamCapture['finish']>>): Partial<EdgeShellResult> {
+  if (!captured.truncated) return {}
+  return stream === 'stdout'
+    ? { stdoutTruncated: true, ...captured.spillPath === undefined ? {} : { stdoutSpillPath: captured.spillPath }, ...captured.spillPartial === true ? { stdoutSpillPartial: true } : {} }
+    : { stderrTruncated: true, ...captured.spillPath === undefined ? {} : { stderrSpillPath: captured.spillPath }, ...captured.spillPartial === true ? { stderrSpillPartial: true } : {} }
 }
 
 const GRACE_EXPIRED = Symbol('cancelled command grace expired')
@@ -334,16 +365,4 @@ function resolveDeploymentTimeout(raw: string | undefined, fallback: number, nam
     throw new Error(`dsh-edge: ${name} must be no greater than ${MAX_TIMER_DELAY_MS}`)
   }
   return value
-}
-
-function decodeChunks(chunks: Uint8Array[]): string {
-  // Decode like a terminal: bytes that are not UTF-8 (a GBK page, a binary
-  // file, or `head -c` cutting a character mid-output) become U+FFFD instead
-  // of failing the command. Streaming mode holds back an incomplete sequence
-  // at the very end, which is where the output limit cuts; it is dropped
-  // rather than shown as a replacement character.
-  const decoder = new TextDecoder('utf-8')
-  let text = ''
-  for (const chunk of chunks) text += decoder.decode(chunk, { stream: true })
-  return text
 }

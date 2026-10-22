@@ -194,6 +194,23 @@ try {
   assert.equal((await json('/api/runtime')).container.running, false)
   assert.equal((await exec('uname -s')).stdout, 'Linux\n')
 
+  // Output past the inline cap no longer stops the command: it runs to the
+  // end, the result keeps each stream's last 64,000 bytes, and the complete
+  // stream lands in a spill file the next command can read.
+  const big = await exec('seq 1 1000000; seq 1 3000 >&2; echo finished > big-done.txt', true)
+  assert.equal(big.status, 'completed', big.stderr.slice(-300))
+  assert.equal(big.exitCode, 0)
+  assert.equal(big.stdoutTruncated, true)
+  assert.ok(big.stdout.endsWith('999999\n1000000\n'))
+  assert.ok(new TextEncoder().encode(big.stdout).byteLength <= 64_000)
+  assert.equal(big.stdoutSpillPath, `/workspace/.spill/bash-${big.executionId}.stdout.txt`)
+  assert.equal(big.stderrTruncated, undefined)
+  assert.ok(big.stderr.endsWith('2999\n3000\n'))
+  assert.equal((await exec('cat big-done.txt')).stdout, 'finished\n')
+  const sums = await exec(`sha256sum < ${big.stdoutSpillPath} | cut -d' ' -f1; seq 1 1000000 | sha256sum | cut -d' ' -f1`, true)
+  const [spilled, expected] = sums.stdout.trim().split('\n')
+  assert.equal(spilled, expected, 'the spill file differs from the command output')
+
   // The first command after a restart routes by the saved policy, not the default.
   await putRuntime({ bashRouting: 'light' })
   await worker.stop()

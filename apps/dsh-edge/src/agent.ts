@@ -4,7 +4,9 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { createUserMessage, type ContextFormed } from '@deepseek-ai/dsh-llm'
 import { defineTool, type ToolDefinition } from '@deepseek-ai/dsh-tools'
-import { EDGE_SHELL_OUTPUT_LIMIT_BYTES } from './direct-shell-protocol.ts'
+import { clampTimeout } from '@deepseek-ai/dsh-timeout'
+import { LIGHT_SHELL_MAX_OUTPUT_BYTES } from './direct-shell-protocol.ts'
+import { SHELL_SPILL_MAX_BYTES } from './edge-shell-output.ts'
 import type { EdgeExecutionId } from './protocol.ts'
 import type { EdgeRuntimeProviderDescriptor } from './runtime-provider.ts'
 
@@ -44,7 +46,7 @@ export const EDGE_PERSONA_SUFFIX = 'Only files under /workspace persist across s
 /** Bash guidance at the upstream `TOOL_BASH` position, with the deployment's timeout ceiling. */
 export function edgeBashGuidance(maxTimeoutMs: number): string {
   return 'Check the [exit code: N] marker on every bash result and investigate failures before moving on. '
-    + `timeoutMs is optional and at most ${String(maxTimeoutMs)}; split longer work into separate commands.`
+    + `timeoutMs is optional; a larger value is lowered to ${String(maxTimeoutMs)}, so split longer work into separate commands.`
 }
 
 /** Container deployments can curl the web, which skips web_fetch's decoding and untrusted-data framing. */
@@ -107,9 +109,24 @@ export interface EdgeShellResult {
   status: 'completed' | 'failed' | 'cancelled'
   timedOut: boolean
   exitCode: number
+  /** The effective timeout, for the timed-out marker. */
+  timeoutMs?: number
   stdout: string
   stderr: string
+  /** Some output is not inline: a stream kept only its tail, or the lightweight shell stopped. */
   outputTruncated: boolean
+  /** The stream shows only its last bytes; the complete stream is in its spill file when one is named. */
+  stdoutTruncated?: boolean
+  stderrTruncated?: boolean
+  stdoutSpillPath?: string
+  stderrSpillPath?: string
+  /** The stream passed the spill cap, so its file holds only the start. */
+  stdoutSpillPartial?: boolean
+  stderrSpillPartial?: boolean
+  /** The lightweight shell, which buffers output, stopped the command at its output bound. */
+  stoppedAtLightLimit?: boolean
+  /** The session working directory the command ran in. */
+  cwd?: string
   /** Where a container deployment ran the command; absent without a container. */
   runtime?: 'light' | 'container'
   /** Time spent waiting for a container slot before the command started. */
@@ -186,7 +203,8 @@ export function createEdgeBashTool(
       // Upstream 0.2.0-rc.2 dsh-tool-bash guidance, verbatim; just-bash honors `${VAR:?}`.
       + 'Before any delete or move, verify that the resolved absolute target path is the intended one; never '
       + 'run it against a computed path you have not checked. An unset variable expands to an empty string, '
-      + 'so guard variables in such paths with `${VAR:?}`.',
+      + 'so guard variables in such paths with `${VAR:?}`. Long output is truncated to its tail; the full output '
+      + 'is saved to a file whose path is reported when available.',
     parameters: {
       command: {
         type: 'string',
@@ -206,7 +224,7 @@ export function createEdgeBashTool(
         type: 'number',
         description: maxTimeoutMs === undefined
           ? 'Optional execution timeout in milliseconds.'
-          : `Optional execution timeout in milliseconds, at most ${String(maxTimeoutMs)}.`,
+          : `Optional execution timeout in milliseconds; a larger value is lowered to ${String(maxTimeoutMs)}.`,
       },
       ...shell === 'linux-container'
         ? {
@@ -230,9 +248,18 @@ export function createEdgeBashTool(
           },
           timedOut: { type: 'boolean', required: true },
           exitCode: { type: 'number', required: true },
+          timeoutMs: { type: 'number' },
           stdout: { type: 'string', required: true },
           stderr: { type: 'string', required: true },
           outputTruncated: { type: 'boolean', required: true },
+          stdoutTruncated: { type: 'boolean' },
+          stderrTruncated: { type: 'boolean' },
+          stdoutSpillPath: { type: 'string' },
+          stderrSpillPath: { type: 'string' },
+          stdoutSpillPartial: { type: 'boolean' },
+          stderrSpillPartial: { type: 'boolean' },
+          stoppedAtLightLimit: { type: 'boolean' },
+          cwd: { type: 'string' },
           runtime: { type: 'string', enum: ['light', 'container'] },
           queuedMs: { type: 'number' },
           retriedFromLight: { type: 'boolean' },
@@ -241,14 +268,21 @@ export function createEdgeBashTool(
         },
       },
       render: (_args, result) => [{ type: 'text', text: formatExecution(result) }],
+      // As upstream: the terminal card shows where the command ran.
+      presentationMeta: (_args, result) => result.cwd === undefined ? {} : { cwd: result.cwd },
     },
     async execute(args, exec) {
       const agent = exec.agent
       if (agent === undefined) throw new Error('dsh-edge: bash requires an initiating agent')
       const { shell, cwd } = bindings.require(agent.id)
+      const workdir = args.workdir ?? await sessionDirectory?.(agent, exec.signal) ?? cwd
+      // As upstream bash-local: a timeout past the ceiling is lowered to it, not refused.
+      const timeoutMs = args.timeoutMs === undefined || maxTimeoutMs === undefined
+        ? args.timeoutMs
+        : Math.ceil(clampTimeout(args.timeoutMs, maxTimeoutMs, maxTimeoutMs, 'timeoutMs'))
       const result = await shell.exec(args.command, {
-        cwd: args.workdir ?? await sessionDirectory?.(agent, exec.signal) ?? cwd,
-        ...args.timeoutMs === undefined ? {} : { timeoutMs: args.timeoutMs },
+        cwd: workdir,
+        ...timeoutMs === undefined ? {} : { timeoutMs },
         ...(args as { linux?: boolean }).linux === true ? { requestContainer: true } : {},
         ...collectEnv === undefined ? {} : { env: collectEnv(exec) },
         signal: exec.signal,
@@ -256,7 +290,7 @@ export function createEdgeBashTool(
       // A cancelled call's result is replaced by the upstream cancellation
       // result; a deferred context survives it and reaches the next turn.
       if (result.detached === true) exec.deferContext(detachedCommandNotice(args.command))
-      return result
+      return { ...result, cwd: workdir }
     },
   })
 }
@@ -274,28 +308,57 @@ function detachedCommandNotice(command: string) {
   })
 }
 
+const SHELL_SPILL_MAX_MIB = SHELL_SPILL_MAX_BYTES / 1024 / 1024
+
+/** One stream's text, with upstream's notice when only its tail is shown. */
+function streamText(text: string, truncated: boolean | undefined, spillPath: string | undefined, partial: boolean | undefined): string {
+  if (truncated !== true) return text
+  const saved = spillPath === undefined
+    ? 'full output: (unavailable)'
+    : partial === true ? `first ${String(SHELL_SPILL_MAX_MIB)} MiB saved: ${spillPath}` : `full output: ${spillPath}`
+  return `${text}\n[output truncated; ${saved}]`
+}
+
+/**
+ * Upstream's layout: stdout, a `[stderr]` section, then the markers each on
+ * its own line, the exit status last, where the Web client reads it.
+ */
 function formatExecution(result: Omit<EdgeShellResult, 'executionId'>): string {
-  const output = `${result.stdout}${result.stderr}`
-  const truncated = result.outputTruncated
-    ? `\n[output truncated after ${EDGE_SHELL_OUTPUT_LIMIT_BYTES} UTF-8 bytes]`
-    : ''
-  const timedOut = result.timedOut ? '\n[command timed out]' : ''
-  const suffix = result.exitCode === 0 ? '' : `\n[exit code: ${result.exitCode}]`
+  // Results recorded before per-stream tails kept the first 64 KiB of both streams.
+  const legacy = result.outputTruncated && result.stdoutTruncated === undefined && result.stderrTruncated === undefined
+    && result.stoppedAtLightLimit === undefined
+  const out = streamText(result.stdout, result.stdoutTruncated, result.stdoutSpillPath, result.stdoutSpillPartial)
+  const err = streamText(result.stderr, result.stderrTruncated, result.stderrSpillPath, result.stderrSpillPartial)
+  let body = out
+  if (err.length > 0) {
+    if (body.length > 0 && !body.endsWith('\n')) body += '\n'
+    body += `[stderr]\n${err}`
+  }
+  if (body.length === 0) body = '(no output)'
+  const markers: string[] = []
+  if (legacy) markers.push('[output truncated after 65536 UTF-8 bytes]')
+  if (result.stoppedAtLightLimit === true) {
+    markers.push(`[stopped: the lightweight shell's output passed ${String(LIGHT_SHELL_MAX_OUTPUT_BYTES / 1024 / 1024)} MiB]`)
+  }
+  if (result.timedOut) {
+    markers.push(result.timeoutMs === undefined ? '[command timed out]' : `[timed out after ${String(result.timeoutMs)}ms]`)
+  }
   const queued = result.queuedMs !== undefined && result.queuedMs >= 1_000
     ? ` after waiting ${Math.round(result.queuedMs / 1_000)}s for a free slot`
     : ''
-  const where = result.runtime === 'container'
-    ? result.retriedFromLight === true
-      ? `\n[the lightweight shell could not run this, so it reran in the Linux container${queued}]`
-      : `\n[ran in the Linux container${queued}]`
-    : result.lightShellMiss === true
-      ? '\n[the lightweight shell could not run part of this after it had changed files; '
-        + 'check the workspace, then rerun with linux: true to use the Linux container]'
-      : ''
-  const detached = result.detached === true
-    ? '\n[cancelled; the shell had not stopped the command yet, so it may still finish in the background]'
-    : ''
-  // The exit status comes last, as upstream's bash tool writes it: the Web
-  // client reads it only from the final line and shows a failure without it.
-  return output + truncated + timedOut + where + detached + suffix || '(no output)'
+  if (result.runtime === 'container') {
+    markers.push(result.retriedFromLight === true
+      ? `[the lightweight shell could not run this, so it reran in the Linux container${queued}]`
+      : `[ran in the Linux container${queued}]`)
+  } else if (result.lightShellMiss === true) {
+    markers.push('[the lightweight shell could not run part of this after it had changed files; '
+      + 'check the workspace, then rerun with linux: true to use the Linux container]')
+  }
+  if (result.detached === true) {
+    markers.push('[cancelled; the shell had not stopped the command yet, so it may still finish in the background]')
+  }
+  if (result.exitCode !== 0) markers.push(`[exit code: ${result.exitCode}]`)
+  if (markers.length === 0) return body
+  if (!body.endsWith('\n')) body += '\n'
+  return body + markers.join('\n')
 }
