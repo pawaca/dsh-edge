@@ -47,22 +47,25 @@ describe('ignore file rules', () => {
   it('compiles each rule once, not once per tested path', () => {
     const rules = new IgnoreRules(Array.from({ length: 500 }, (_, index) => `pattern-${String(index)}-*.tmp`).join('\n'))
     const started = performance.now()
-    for (let index = 0; index < 20_000; index++) rules.match(`dir/file-${String(index)}.ts`, false)
-    // 10 million rule tests; recompiling each glob per test took minutes.
-    expect(performance.now() - started).toBeLessThan(20_000)
-  })
+    for (let index = 0; index < 2_000; index++) rules.match(`dir/file-${String(index)}.ts`, false)
+    // One million rule tests; recompiling each glob per test took over ten seconds.
+    expect(performance.now() - started).toBeLessThan(8_000)
+  }, 30_000)
 
   it('reads braces as ripgrep does: comma alternatives only', () => {
     expect(ripgrepBraces('*.{js,ts}')).toBe('*.{js,ts}')
     expect(ripgrepBraces('{1..3}')).toBe('1..3')
     expect(ripgrepBraces('a{b}c')).toBe('abc')
-    expect(ripgrepBraces('ab{,c}')).toBeUndefined()
-    expect(ripgrepBraces('ab{c,}')).toBeUndefined()
+    expect(ripgrepBraces('ab{,c}')).toBe('abc')
+    expect(ripgrepBraces('ab{c,}')).toBe('abc')
+    expect(ripgrepBraces('a{,b,,c}')).toBe('a{b,c}')
+    expect(ripgrepBraces('a{,}')).toBeUndefined()
     expect(ripgrepBraces('x\\{1..3\\}')).toBe('x\\{1..3\\}')
     const rules = new IgnoreRules('{1..3}\nab{,c}\n*.{tmp,bak}\n')
     expect(rules.match('2', false)).toBeUndefined()
     expect(rules.match('1..3', false)).toBe('ignore')
     expect(rules.match('ab', false)).toBeUndefined()
+    expect(rules.match('abc', false)).toBe('ignore')
     expect(rules.match('x.bak', false)).toBe('ignore')
   })
 

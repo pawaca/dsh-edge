@@ -133,12 +133,13 @@ export function ruleMatcherCount(rule: Pick<IgnoreRule, 'glob'>, limit = Number.
  * Restrict `{…}` to ripgrep's dialect before minimatch, which also expands
  * numeric ranges (`{1..3}`) and empty alternatives (`ab{,c}`). ripgrep reads
  * a group with no comma as its one alternative, so its braces are dropped
- * (`{1..3}` matches the literal `1..3`), and it refuses an empty
- * alternative, so such a pattern returns undefined.
+ * (`{1..3}` matches the literal `1..3`), and an empty alternative matches
+ * nothing, so it is removed (`ab{,c}` matches only `abc`). A group with no
+ * nonempty arm matches nothing, so its pattern returns undefined.
  */
 export function ripgrepBraces(glob: string): string | undefined {
   let out = ''
-  const groups: Array<{ open: number; commas: number; length: number }> = []
+  const groups: Array<{ open: number; arms: number; length: number }> = []
   for (let index = 0; index < glob.length; index++) {
     const char = glob[index]!
     if (char === '\\' && index + 1 < glob.length) {
@@ -148,18 +149,22 @@ export function ripgrepBraces(glob: string): string | undefined {
     }
     if (char === '{') {
       if (groups.length > 0) groups.at(-1)!.length += 1
-      groups.push({ open: out.length, commas: 0, length: 0 })
+      groups.push({ open: out.length, arms: 0, length: 0 })
       out += char
     } else if (char === ',' && groups.length > 0) {
       const group = groups.at(-1)!
-      if (group.length === 0) return undefined
-      group.commas += 1
+      // An empty alternative matches nothing; the other arms stay.
+      if (group.length > 0) {
+        group.arms += 1
+        out += char
+      }
       group.length = 0
-      out += char
     } else if (char === '}' && groups.length > 0) {
       const group = groups.pop()!
-      if (group.length === 0) return undefined
-      if (group.commas === 0) out = out.slice(0, group.open) + out.slice(group.open + 1)
+      if (group.length > 0) group.arms += 1
+      else if (out.endsWith(',')) out = out.slice(0, -1)
+      if (group.arms === 0) return undefined
+      if (group.arms === 1) out = out.slice(0, group.open) + out.slice(group.open + 1)
       else out += char
     } else {
       if (groups.length > 0) groups.at(-1)!.length += 1

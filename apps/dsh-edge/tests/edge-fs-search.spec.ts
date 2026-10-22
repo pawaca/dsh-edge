@@ -357,6 +357,19 @@ describe('grep applies ripgrep ignore files', () => {
     expect(answers(await search.run('grep', { pattern: 'answer' }))).toEqual(['a.tmp', 'sub/b.txt'])
   })
 
+  it('lets include override ignore files and hidden names for the files it matches, as ripgrep\'s --glob does', async () => {
+    const search = tools(workspace({
+      '/workspace/.ignore': '*.ts\nvendor/\n',
+      '/workspace/a.ts': 'answer\n',
+      '/workspace/.hidden.ts': 'answer\n',
+      '/workspace/b.js': 'answer\n',
+      '/workspace/vendor/c.ts': 'answer\n',
+    }))
+    expect(answers(await search.run('grep', { pattern: 'answer' }))).toEqual(['b.js'])
+    // The glob names files, so an ignored directory is still not entered.
+    expect(answers(await search.run('grep', { pattern: 'answer', include: '*.ts' }))).toEqual(['.hidden.ts', 'a.ts'])
+  })
+
   it('charges a rule\'s brace alternates to the compile budget', async () => {
     const search = tools(workspace({
       // One rule that would expand to 65,536 matchers is not compiled.

@@ -241,7 +241,7 @@ function applyGrepTool(ctx: Context): void {
       }
       if (input.include !== undefined) assertValidGlob('grep', input.include)
       const scope = await searchScope(ctx, exec, input.path)
-      const files = await listFiles(scope, 'grep', 'ripgrep-defaults', exec.signal)
+      const files = await listFiles(scope, 'grep', 'ripgrep-defaults', exec.signal, input.include)
       const matches: GrepMatch[] = []
       let collectedChars = 0
       for (const { path } of files) {
@@ -317,6 +317,12 @@ async function listFiles(
   toolName: string,
   filter: WalkFilter,
   signal: AbortSignal,
+  /**
+   * ripgrep's `--glob`, which overrides the ignore logic: a file it matches is
+   * searched even when an ignore file or its hidden name would skip it. A
+   * directory still follows the ignore files, as the glob names files.
+   */
+  include?: string,
 ): Promise<WalkedFile[]> {
   let info
   try {
@@ -344,7 +350,8 @@ async function listFiles(
     for (const entry of entries) {
       if (VCS_NAMES.has(entry.name)) continue
       const path = directory === '/' ? `/${entry.name}` : `${directory}/${entry.name}`
-      if (ignores !== undefined) {
+      const overridden = include !== undefined && entry.isFile && globMatches(include, relativeTo(path, scope.root))
+      if (ignores !== undefined && !overridden) {
         const verdict = ignores.decide(path, entry.isDirectory)
         // A hidden entry is skipped unless an ignore file re-includes it.
         if (verdict === 'ignore' || (verdict === undefined && entry.name.startsWith('.'))) continue
