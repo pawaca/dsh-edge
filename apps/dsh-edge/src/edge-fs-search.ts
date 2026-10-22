@@ -50,7 +50,7 @@ import { defineTool, type ToolDefinition, type ToolExecution } from '@deepseek-a
 import { minimatch } from 'minimatch'
 import { RE2JS } from 're2js'
 import type { EdgeFileSystem, EdgeVfs } from './edge-filesystem.ts'
-import { IGNORE_FILES, IgnoreRules, IgnoreStack, parseIgnoreRules, ruleMatcherCount, type IgnoreKind } from './edge-search-ignore.ts'
+import { IGNORE_FILES, IgnoreRules, IgnoreStack, parseIgnoreRules, ruleMatcherCount, type IgnoreKind, type IgnoreWork } from './edge-search-ignore.ts'
 
 export const name = 'edge-fs-search'
 export const inject = ['tools', 'systemPrompt', 'fs', 'workingDirectory']
@@ -80,6 +80,12 @@ export const IGNORE_FILE_MAX_BYTES = 256 * 1024
  * real repositories use a few hundred.
  */
 export const IGNORE_RULES_MAX = 5_000
+/**
+ * Ignore-pattern tests one walk may spend: each entry is tested against the
+ * rules in force, and that synchronous work cannot be interrupted by the tool
+ * timeout, so a walk that would pass this fails like one past its entry cap.
+ */
+export const IGNORE_EVALUATIONS_MAX = 5_000_000
 
 const VCS_NAMES = new Set(GLOB_VCS_EXCLUDES)
 const IGNORE_FILE_KINDS = new Map<string, IgnoreKind>(IGNORE_FILES)
@@ -335,6 +341,7 @@ async function listFiles(
   const files: WalkedFile[] = []
   let listed = 0
   const budget: RuleBudget = { remaining: IGNORE_RULES_MAX }
+  const work: IgnoreWork = { evaluations: 0 }
   const visit = async (directory: string, inherited: IgnoreStack | undefined): Promise<void> => {
     throwIfAborted(toolName, signal)
     const entries = await scope.vfs.readdir(directory, { limit: SEARCH_MAX_ENTRIES - listed + 1 })
@@ -352,7 +359,10 @@ async function listFiles(
       const path = directory === '/' ? `/${entry.name}` : `${directory}/${entry.name}`
       const overridden = include !== undefined && entry.isFile && globMatches(include, relativeTo(path, scope.root))
       if (ignores !== undefined && !overridden) {
-        const verdict = ignores.decide(path, entry.isDirectory)
+        const verdict = ignores.decide(path, entry.isDirectory, work)
+        if (work.evaluations > IGNORE_EVALUATIONS_MAX) {
+          throw new SearchError(`${toolName} would test ignore rules more than ${String(IGNORE_EVALUATIONS_MAX)} times under ${scope.root}; narrow path`, 'SEARCH_RAW_OUTPUT_OVERFLOW')
+        }
         // A hidden entry is skipped unless an ignore file re-includes it.
         if (verdict === 'ignore' || (verdict === undefined && entry.name.startsWith('.'))) continue
       }

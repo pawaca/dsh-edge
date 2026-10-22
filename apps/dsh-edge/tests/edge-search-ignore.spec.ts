@@ -60,6 +60,10 @@ describe('ignore file rules', () => {
     expect(ripgrepBraces('ab{c,}')).toBe('abc')
     expect(ripgrepBraces('a{,b,,c}')).toBe('a{b,c}')
     expect(ripgrepBraces('a{,}')).toBeUndefined()
+    // Braces inside a character class are members, not a group.
+    expect(ripgrepBraces('[{}]')).toBe('[{}]')
+    expect(ripgrepBraces('[]{]x{a,}')).toBe('[]{]xa')
+    expect(new IgnoreRules('[{}]\n').match('}', false)).toBe('ignore')
     expect(ripgrepBraces('x\\{1..3\\}')).toBe('x\\{1..3\\}')
     const rules = new IgnoreRules('{1..3}\nab{,c}\n*.{tmp,bak}\n')
     expect(rules.match('2', false)).toBeUndefined()

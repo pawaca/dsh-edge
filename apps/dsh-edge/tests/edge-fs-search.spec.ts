@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { apply, GREP_MAX_COLLECTED_CHARS, IGNORE_FILE_MAX_BYTES, IGNORE_RULES_MAX, GREP_MAX_COLLECTED_MATCHES, GREP_MAX_FILE_BYTES, SEARCH_MAX_ENTRIES } from '../src/edge-fs-search.ts'
+import { apply, GREP_MAX_COLLECTED_CHARS, IGNORE_EVALUATIONS_MAX, IGNORE_FILE_MAX_BYTES, IGNORE_RULES_MAX, GREP_MAX_COLLECTED_MATCHES, GREP_MAX_FILE_BYTES, SEARCH_MAX_ENTRIES } from '../src/edge-fs-search.ts'
 
 type Tool = {
   name: string
@@ -369,6 +369,17 @@ describe('grep applies ripgrep ignore files', () => {
     // The glob names files, so an ignored directory is still not entered.
     expect(answers(await search.run('grep', { pattern: 'answer', include: '*.ts' }))).toEqual(['.hidden.ts', 'a.ts'])
   })
+
+  it('fails a walk that would test ignore rules more than its budget allows', async () => {
+    const rules = Array.from({ length: 2_000 }, (_, index) => `never-${String(index)}.tmp`).join('\n')
+    const entries = Math.ceil(IGNORE_EVALUATIONS_MAX / 2_000) + 10
+    const files = Object.fromEntries(Array.from({ length: entries }, (_, index) => [`/workspace/f${String(index)}.txt`, '']))
+    const search = tools(workspace({ ...files, '/workspace/.ignore': `${rules}\n` }))
+    await expect(search.run('grep', { pattern: 'answer' })).rejects.toMatchObject({ code: 'SEARCH_RAW_OUTPUT_OVERFLOW' })
+    // Within it the same rules apply as usual.
+    const small = tools(workspace({ '/workspace/.ignore': `${rules}\nskip.txt\n`, '/workspace/a.txt': 'answer\n', '/workspace/skip.txt': 'answer\n' }))
+    expect(answers(await small.run('grep', { pattern: 'answer' }))).toEqual(['a.txt'])
+  }, 30_000)
 
   it('charges a rule\'s brace alternates to the compile budget', async () => {
     const search = tools(workspace({

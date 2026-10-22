@@ -56,11 +56,13 @@ export class IgnoreRules {
   }
 
   /** The last rule matching `relativePath`, as ripgrep reads it. */
-  match(relativePath: string, isDir: boolean): IgnoreMatch | undefined {
+  /** @param work - counts the compiled patterns tested, one per brace alternative. */
+  match(relativePath: string, isDir: boolean, work?: IgnoreWork): IgnoreMatch | undefined {
     const name = relativePath.slice(relativePath.lastIndexOf('/') + 1)
     for (let index = this.rules.length - 1; index >= 0; index--) {
       const rule = this.rules[index]!
       if (rule.dirOnly && !isDir) continue
+      if (work !== undefined) work.evaluations += rule.matcher.set.length
       if (rule.matcher.match(rule.basename ? name : relativePath)) {
         return rule.negate ? 'whitelist' : 'ignore'
       }
@@ -140,11 +142,26 @@ export function ruleMatcherCount(rule: Pick<IgnoreRule, 'glob'>, limit = Number.
 export function ripgrepBraces(glob: string): string | undefined {
   let out = ''
   const groups: Array<{ open: number; arms: number; length: number }> = []
+  // Inside `[...]` every character, braces included, is a class member.
+  let classStart = -1
   for (let index = 0; index < glob.length; index++) {
     const char = glob[index]!
     if (char === '\\' && index + 1 < glob.length) {
       out += char + glob[++index]!
       if (groups.length > 0) groups.at(-1)!.length += 1
+      continue
+    }
+    if (classStart >= 0) {
+      // A `]` right after `[` (or `[!`, `[^`) is a member, not the end.
+      const first = index === classStart + 1 || (index === classStart + 2 && '!^'.includes(glob[classStart + 1]!))
+      if (char === ']' && !first) classStart = -1
+      out += char
+      continue
+    }
+    if (char === '[' && glob.indexOf(']', index + 2) > index) {
+      classStart = index
+      if (groups.length > 0) groups.at(-1)!.length += 1
+      out += char
       continue
     }
     if (char === '{') {
@@ -187,6 +204,9 @@ function trimTrailingSpaces(line: string): string {
   return line.slice(0, end)
 }
 
+/** Pattern tests a walk has spent, which its caller bounds. */
+export interface IgnoreWork { evaluations: number }
+
 /** The ignore files and `.git` entry of one directory on the walk. */
 export interface IgnoreFrame {
   readonly dir: string
@@ -207,7 +227,7 @@ export class IgnoreStack {
   }
 
   /** ripgrep's verdict for `path` (absolute), or undefined when no rule matches. */
-  decide(path: string, isDir: boolean): IgnoreMatch | undefined {
+  decide(path: string, isDir: boolean, work?: IgnoreWork): IgnoreMatch | undefined {
     const anyGit = this.frames.some(frame => frame.hasGit)
     for (const kind of KINDS) {
       let sawGit = false
@@ -216,7 +236,7 @@ export class IgnoreStack {
         if (kind === 'gitignore' && (!anyGit || sawGit)) break
         const rules = frame.files[kind]
         const relative = rules === undefined ? undefined : relativeUnder(path, frame.dir)
-        const match = relative === undefined ? undefined : rules!.match(relative, isDir)
+        const match = relative === undefined ? undefined : rules!.match(relative, isDir, work)
         if (match !== undefined) return match
         sawGit ||= frame.hasGit
       }
