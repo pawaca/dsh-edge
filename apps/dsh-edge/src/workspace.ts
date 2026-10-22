@@ -176,6 +176,8 @@ export async function executeWorkspaceCommand(
   // Cancellation starts a grace period before the execution exists: a Worker
   // shell answers `exec` only after the command has finished.
   let graceTimer: ReturnType<typeof setTimeout> | undefined
+  // When the cancellation grace runs out; later waits keep this end, not a fresh grace.
+  let graceEndsAt: number | undefined
   let stopWaiting!: () => void
   const graceExpired = new Promise<typeof GRACE_EXPIRED>((resolve) => { stopWaiting = () => resolve(GRACE_EXPIRED) })
   let interruptionRequested = false
@@ -186,6 +188,7 @@ export async function executeWorkspaceCommand(
   }
   const abort = (): void => {
     void interrupt()
+    graceEndsAt ??= performance.now() + CANCELLED_COMMAND_GRACE_MS
     graceTimer ??= setTimeout(stopWaiting, CANCELLED_COMMAND_GRACE_MS)
   }
   signal?.addEventListener('abort', abort, { once: true })
@@ -318,7 +321,7 @@ export async function executeWorkspaceCommand(
   // cancellation grace), past which they too finish in the background; the
   // command itself has ended, so it is not reported detached.
   if (!detached) {
-    await settledWithin(Promise.all([stdout.finish(), stderr.finish()]), deadline.remainingMs(), signal)
+    await settledWithin(Promise.all([stdout.finish(), stderr.finish()]), deadline.remainingMs(), signal, () => graceEndsAt)
   }
   const out = await stdout.finish({ wait: false })
   const err = await stderr.finish({ wait: false })
@@ -354,13 +357,23 @@ function streamFacts(stream: ShellStream, captured: Awaited<ReturnType<StreamCap
  * Whether `work` settles before `timeoutMs`, or before the cancellation grace
  * once `signal` aborts.
  */
-async function settledWithin(work: Promise<unknown>, timeoutMs: number, signal: AbortSignal | undefined): Promise<boolean> {
+async function settledWithin(
+  work: Promise<unknown>,
+  timeoutMs: number,
+  signal: AbortSignal | undefined,
+  /** When an already-started grace ends, so a cancelled call does not get a second one. */
+  graceEnd: () => number | undefined,
+): Promise<boolean> {
   let timer: ReturnType<typeof setTimeout> | undefined
   let graceTimer: ReturnType<typeof setTimeout> | undefined
   let onAbort: (() => void) | undefined
   const bound = new Promise<false>((resolve) => {
     timer = setTimeout(() => resolve(false), timeoutMs)
-    onAbort = () => { graceTimer ??= setTimeout(() => resolve(false), CANCELLED_COMMAND_GRACE_MS) }
+    onAbort = () => {
+      const end = graceEnd()
+      const remaining = end === undefined ? CANCELLED_COMMAND_GRACE_MS : Math.max(0, end - performance.now())
+      graceTimer ??= setTimeout(() => resolve(false), remaining)
+    }
     if (signal?.aborted === true) onAbort()
     else signal?.addEventListener('abort', onAbort, { once: true })
   })

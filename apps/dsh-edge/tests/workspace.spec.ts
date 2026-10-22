@@ -364,6 +364,32 @@ describe('dsh-edge workspace command execution', () => {
     }
   })
 
+  it('bounds a cancelled call\'s spill close by the grace it already started, not a second one', async () => {
+    vi.useFakeTimers()
+    try {
+      let release!: () => void
+      const exited = new Promise<void>((resolve) => { release = resolve })
+      const runtime = executionRuntime([
+        { name: 'stdout', value: new Uint8Array(SHELL_OUTPUT_TAIL_BYTES + 100).fill(0x66) },
+        { name: 'exit', code: 130 },
+      ], undefined, 0, exited)
+      runtime.writeFile.mockImplementation(() => new Promise(() => {}))
+      const controller = new AbortController()
+      const running = executeWorkspaceCommand(runtime.workspace, 'yes', '/workspace', resolveEdgeCommandTimeoutPolicy(), undefined, controller.signal)
+      let settled = false
+      void running.then(() => { settled = true })
+      await vi.advanceTimersByTimeAsync(10)
+      controller.abort()
+      // The command takes most of the grace to exit; then storage stalls the spill close.
+      await vi.advanceTimersByTimeAsync(CANCELLED_COMMAND_GRACE_MS - 200)
+      release()
+      await vi.advanceTimersByTimeAsync(400)
+      expect(settled).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('writes nothing for output under the inline cap', async () => {
     const runtime = executionRuntime([{ name: 'stdout', value: new Uint8Array(SHELL_OUTPUT_TAIL_BYTES).fill(0x61) }, { name: 'exit', code: 0 }])
     const result = await executeWorkspaceCommand(runtime.workspace, 'printf', '/workspace', resolveEdgeCommandTimeoutPolicy())
@@ -453,10 +479,13 @@ function executionRuntime(
   events: RuntimeEvent[],
   onGetReader?: () => void,
   execDelayMs = 0,
+  /** Hold the exit event until this settles. */
+  exitAfter?: Promise<void>,
 ) {
   const stream = new ReadableStream({
-    start(controller) {
+    async start(controller) {
       for (const [seq, event] of events.entries()) {
+        if (event.name === 'exit' && exitAfter !== undefined) await exitAfter
         controller.enqueue({ id: 'exec-1', seq, ...event })
       }
       controller.close()
