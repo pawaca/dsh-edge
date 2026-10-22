@@ -1219,8 +1219,15 @@ export class EdgeSessionStore {
     const uploads = this.context.get('fileUploads') as EdgeFileUploads | undefined
     if (uploads === undefined) return
     const agent = this.liveAgent(sessionId)
-    if (agent !== undefined) uploads.retirePrompt(agent, source.rpcId)
-    else uploads.retireStoredPrompt(sessionId, source.rpcId)
+    // Best effort: the removal has already committed, so a failed write here
+    // (a spent quota) must not report it as failed. An unretired receipt
+    // expires with its row.
+    try {
+      if (agent !== undefined) uploads.retirePrompt(agent, source.rpcId)
+      else uploads.retireStoredPrompt(sessionId, source.rpcId)
+    } catch (error) {
+      console.warn('dsh-edge: could not retire a removed prompt\'s file receipts.', error)
+    }
   }
 
   /** Resolve the optional upstream attachment service composed for this deployment. */
