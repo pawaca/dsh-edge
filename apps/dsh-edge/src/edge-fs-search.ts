@@ -408,9 +408,12 @@ async function withIgnoreFrame(
 ): Promise<IgnoreStack> {
   const files: Partial<Record<IgnoreKind, IgnoreRules>> = {}
   let found = false
-  for (const name of names) {
-    const kind = IGNORE_FILE_KINDS.get(name)
-    if (kind === undefined) continue
+  const hasGit = names.includes('.git')
+  // In precedence order, so a .gitignore cannot spend the budget a .rgignore
+  // or .ignore needs; outside a repository a .gitignore never applies.
+  for (const [name, kind] of IGNORE_FILES) {
+    if (!names.includes(name)) continue
+    if (kind === 'gitignore' && !hasGit && !stack.inRepository) continue
     const path = directory === '/' ? `/${name}` : `${directory}/${name}`
     let text: string | undefined
     try {
@@ -433,7 +436,6 @@ async function withIgnoreFrame(
     files[kind] = new IgnoreRules(parsed)
     found = true
   }
-  const hasGit = names.includes('.git')
   return found || hasGit ? stack.push({ dir: directory, files, hasGit }) : stack
 }
 

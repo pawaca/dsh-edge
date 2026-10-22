@@ -15,6 +15,12 @@ describe('ignore file rules', () => {
     ])
   })
 
+  it('strips a byte order mark and skips a rule minimatch refuses', () => {
+    expect(new IgnoreRules('\uFEFFa\n').match('a', false)).toBe('ignore')
+    const rules = new IgnoreRules(`${'x'.repeat(70_000)}\nb\n`)
+    expect(rules.match('b', false)).toBe('ignore')
+  })
+
   it('lets the last matching rule decide', () => {
     const rules = new IgnoreRules('*.log\n!keep.log\nkeep.log\n!*.tmp.log\n')
     expect(rules.match('a/debug.log', false)).toBe('ignore')

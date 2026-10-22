@@ -48,7 +48,14 @@ export class IgnoreRules {
   /** @param source - an ignore file's text, or its rules already parsed (to count them first). */
   constructor(source: string | readonly IgnoreRule[]) {
     const rules = typeof source === 'string' ? parseIgnoreRules(source) : source
-    this.rules = rules.map(rule => ({ ...rule, matcher: new Minimatch(rule.glob, MATCH_OPTIONS) }))
+    this.rules = rules.flatMap((rule) => {
+      try {
+        return [{ ...rule, matcher: new Minimatch(rule.glob, MATCH_OPTIONS) }]
+      } catch {
+        // A pattern minimatch refuses (over its 64 Ki-character limit) is skipped.
+        return []
+      }
+    })
   }
 
   get empty(): boolean {
@@ -78,7 +85,8 @@ const MATCH_OPTIONS = { dot: true, noext: true, nocomment: true, nonegate: true 
 /** Parse gitignore syntax: comments, `\` escapes, `!` negation, `/` anchoring, trailing `/`. */
 export function parseIgnoreRules(text: string): IgnoreRule[] {
   const rules: IgnoreRule[] = []
-  for (let line of text.split('\n')) {
+  // A UTF-8 byte order mark is not part of the first rule.
+  for (let line of (text.startsWith('\uFEFF') ? text.slice(1) : text).split('\n')) {
     if (line.endsWith('\r')) line = line.slice(0, -1)
     line = trimTrailingSpaces(line)
     if (line === '' || line.startsWith('#')) continue
@@ -220,6 +228,11 @@ export class IgnoreStack {
 
   static empty(): IgnoreStack {
     return new IgnoreStack([])
+  }
+
+  /** Whether a `.git` entry exists at or above the walked directory, so `.gitignore` files apply. */
+  get inRepository(): boolean {
+    return this.frames.some(frame => frame.hasGit)
   }
 
   push(frame: IgnoreFrame): IgnoreStack {

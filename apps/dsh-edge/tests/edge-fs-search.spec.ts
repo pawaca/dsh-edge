@@ -381,6 +381,17 @@ describe('grep applies ripgrep ignore files', () => {
     expect(answers(await small.run('grep', { pattern: 'answer' }))).toEqual(['a.txt'])
   }, 30_000)
 
+  it('spends the compile budget in precedence order, and not on a .gitignore outside a repository', async () => {
+    const many = Array.from({ length: IGNORE_RULES_MAX }, (_, index) => `generated-${String(index)}.tmp`).join('\n')
+    const search = tools(workspace({
+      '/workspace/.gitignore': `${many}\n`,
+      '/workspace/.ignore': 'a.txt\n',
+      '/workspace/a.txt': 'answer\n',
+      '/workspace/b.txt': 'answer\n',
+    }))
+    expect(answers(await search.run('grep', { pattern: 'answer' }))).toEqual(['b.txt'])
+  })
+
   it('charges a rule\'s brace alternates to the compile budget', async () => {
     const search = tools(workspace({
       // One rule that would expand to 65,536 matchers is not compiled.
