@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { apply, GREP_MAX_COLLECTED_CHARS, GREP_MAX_COLLECTED_MATCHES, GREP_MAX_FILE_BYTES, SEARCH_MAX_ENTRIES } from '../src/edge-fs-search.ts'
+import { apply, GREP_MAX_COLLECTED_CHARS, IGNORE_EVALUATIONS_MAX, IGNORE_FILE_MAX_BYTES, IGNORE_RULES_MAX, GREP_MAX_COLLECTED_MATCHES, GREP_MAX_FILE_BYTES, SEARCH_MAX_ENTRIES } from '../src/edge-fs-search.ts'
 
 type Tool = {
   name: string
@@ -12,7 +12,7 @@ function workspace(files: Record<string, string | { content: string; mtime: numb
   const entries = new Map(Object.entries(files).map(([path, value], index) =>
     [path, typeof value === 'string' ? { content: value, mtime: index + 1 } : value]))
   const isDirectory = (path: string) => [...entries.keys()].some(file => file.startsWith(`${path}/`))
-  const calls = { stat: 0, readdir: 0, widest: 0 }
+  const calls = { stat: 0, readdir: 0, readFile: 0, widest: 0 }
   const encoder = new TextEncoder()
   return {
     calls,
@@ -40,7 +40,10 @@ function workspace(files: Record<string, string | { content: string; mtime: numb
       return listed.map(([name, info]) => ({ name, ...info }))
     },
     async readFile(path: string) {
-      const bytes = encoder.encode(entries.get(path)!.content)
+      calls.readFile++
+      const file = entries.get(path)
+      if (file === undefined) throw Object.assign(new Error('missing'), { code: isDirectory(path) ? 'EISDIR' : 'ENOENT' })
+      const bytes = encoder.encode(file.content)
       let offset = 0
       return new ReadableStream<Uint8Array>({
         pull(controller) {
@@ -252,5 +255,162 @@ describe('grep over the workspace VFS', () => {
   it('refuses to collect more matches than its cap', async () => {
     const search = tools(workspace({ '/workspace/many.txt': 'hit\n'.repeat(GREP_MAX_COLLECTED_MATCHES + 1) }))
     await expect(search.run('grep', { pattern: 'hit' })).rejects.toMatchObject({ code: 'SEARCH_RAW_OUTPUT_OVERFLOW' })
+  })
+})
+
+describe('grep applies ripgrep ignore files', () => {
+  const answers = (value: unknown) => (value as { matches: Array<{ path: string }> }).matches.map(match => match.path)
+
+  it('skips what a repository .gitignore excludes, and prunes ignored directories before they count', async () => {
+    const vfs = workspace({
+      '/workspace/.git/HEAD': 'ref\n',
+      '/workspace/.gitignore': 'node_modules/\n*.log\n!keep.log\n/build\n',
+      ...Object.fromEntries(Array.from({ length: SEARCH_MAX_ENTRIES + 10 }, (_, index) => [`/workspace/node_modules/p${String(index)}/index.js`, 'answer\n'])),
+      '/workspace/src/app.ts': 'answer\n',
+      '/workspace/src/debug.log': 'answer\n',
+      '/workspace/src/keep.log': 'answer\n',
+      '/workspace/build/out.js': 'answer\n',
+      '/workspace/src/build/nested.js': 'answer\n',
+    })
+    const search = tools(vfs)
+    expect(answers(await search.run('grep', { pattern: 'answer' }))).toEqual(['src/app.ts', 'src/build/nested.js', 'src/keep.log'])
+    // Three listings (the root, src, src/build) of at most five entries: node_modules is one row of the root's.
+    expect(vfs.calls.readdir).toBe(3)
+    expect(vfs.calls.widest).toBe(5)
+    // glob keeps upstream's --no-ignore, so the same tree still passes its entry cap.
+    await expect(search.run('glob', { pattern: '*.ts' })).rejects.toMatchObject({ code: 'SEARCH_RAW_OUTPUT_OVERFLOW' })
+  })
+
+  it('searches inside an ignored directory named as the path, as ripgrep does for an explicit path', async () => {
+    const search = tools(workspace({
+      '/workspace/.git/HEAD': '',
+      '/workspace/.gitignore': 'vendor/\n',
+      '/workspace/vendor/lib/a.js': 'answer\n',
+      '/workspace/vendor/b.js': 'answer\n',
+    }))
+    expect(answers(await search.run('grep', { pattern: 'answer' }))).toEqual([])
+    expect(answers(await search.run('grep', { pattern: 'answer', path: 'vendor' }))).toEqual(['vendor/b.js', 'vendor/lib/a.js'])
+    expect(answers(await search.run('grep', { pattern: 'answer', path: 'vendor/b.js' }))).toEqual(['vendor/b.js'])
+  })
+
+  it('applies .gitignore only inside a repository, and .ignore and .rgignore always', async () => {
+    const files = {
+      '/workspace/.gitignore': 'a.txt\n',
+      '/workspace/.ignore': 'b.txt\n',
+      '/workspace/sub/.rgignore': 'c.txt\n',
+      '/workspace/a.txt': 'answer\n',
+      '/workspace/b.txt': 'answer\n',
+      '/workspace/sub/c.txt': 'answer\n',
+      '/workspace/sub/d.txt': 'answer\n',
+    }
+    expect(answers(await tools(workspace(files)).run('grep', { pattern: 'answer' }))).toEqual(['a.txt', 'sub/d.txt'])
+    expect(answers(await tools(workspace({ ...files, '/workspace/.git/HEAD': '' })).run('grep', { pattern: 'answer' }))).toEqual(['sub/d.txt'])
+    // A repository root above the search root counts too.
+    expect(answers(await tools(workspace({ ...files, '/.git/HEAD': '' })).run('grep', { pattern: 'answer' }))).toEqual(['sub/d.txt'])
+  })
+
+  it('lets a deeper file override a shallower one, and .rgignore beat .gitignore at any depth', async () => {
+    const search = tools(workspace({
+      '/workspace/.git/HEAD': '',
+      '/workspace/.gitignore': '*.gen.ts\n',
+      '/workspace/pkg/.gitignore': '!keep.gen.ts\n',
+      '/workspace/.rgignore': 'pkg/secret.ts\n',
+      '/workspace/pkg/sub/.gitignore': '!secret.ts\n',
+      '/workspace/pkg/keep.gen.ts': 'answer\n',
+      '/workspace/pkg/drop.gen.ts': 'answer\n',
+      '/workspace/pkg/secret.ts': 'answer\n',
+      '/workspace/pkg/sub/secret.ts': 'answer\n',
+    }))
+    expect(answers(await search.run('grep', { pattern: 'answer' }))).toEqual(['pkg/keep.gen.ts', 'pkg/sub/secret.ts'])
+  })
+
+  it('searches a hidden file only when an ignore file re-includes it', async () => {
+    const search = tools(workspace({
+      '/workspace/.ignore': '!.env.example\n',
+      '/workspace/.env': 'answer\n',
+      '/workspace/.env.example': 'answer\n',
+    }))
+    expect(answers(await search.run('grep', { pattern: 'answer' }))).toEqual(['.env.example'])
+  })
+
+  it('reads only the ignore files a listing shows, and probes ancestors by path', async () => {
+    const vfs = workspace({
+      '/workspace/a/b/c.txt': 'answer\n',
+      '/workspace/a/d.txt': 'answer\n',
+    })
+    expect(answers(await tools(vfs).run('grep', { pattern: 'answer' }))).toEqual(['a/b/c.txt', 'a/d.txt'])
+    // Two files read; one stat per root-ancestor candidate (`/.git` and three ignore files) plus the root's.
+    expect(vfs.calls.readFile).toBe(2)
+    expect(vfs.calls.stat).toBe(5)
+  })
+
+  it('skips an ignore file whose rules would pass the per-search compile budget', async () => {
+    const many = Array.from({ length: IGNORE_RULES_MAX }, (_, index) => `generated-${String(index)}.tmp`).join('\n')
+    const search = tools(workspace({
+      '/workspace/.ignore': `${many}\n`,
+      '/workspace/sub/.ignore': 'b.txt\n',
+      '/workspace/a.tmp': 'answer\n',
+      '/workspace/sub/b.txt': 'answer\n',
+      '/workspace/generated-1.tmp': 'answer\n',
+    }))
+    // The root file uses the whole budget, so the nested one is not applied.
+    expect(answers(await search.run('grep', { pattern: 'answer' }))).toEqual(['a.tmp', 'sub/b.txt'])
+  })
+
+  it('lets include override ignore files and hidden names for the files it matches, as ripgrep\'s --glob does', async () => {
+    const search = tools(workspace({
+      '/workspace/.ignore': '*.ts\nvendor/\n',
+      '/workspace/a.ts': 'answer\n',
+      '/workspace/.hidden.ts': 'answer\n',
+      '/workspace/b.js': 'answer\n',
+      '/workspace/vendor/c.ts': 'answer\n',
+    }))
+    expect(answers(await search.run('grep', { pattern: 'answer' }))).toEqual(['b.js'])
+    // The glob names files, so an ignored directory is still not entered.
+    expect(answers(await search.run('grep', { pattern: 'answer', include: '*.ts' }))).toEqual(['.hidden.ts', 'a.ts'])
+  })
+
+  it('fails a walk that would test ignore rules more than its budget allows', async () => {
+    const rules = Array.from({ length: 2_000 }, (_, index) => `never-${String(index)}.tmp`).join('\n')
+    const entries = Math.ceil(IGNORE_EVALUATIONS_MAX / 2_000) + 10
+    const files = Object.fromEntries(Array.from({ length: entries }, (_, index) => [`/workspace/f${String(index)}.txt`, '']))
+    const search = tools(workspace({ ...files, '/workspace/.ignore': `${rules}\n` }))
+    await expect(search.run('grep', { pattern: 'answer' })).rejects.toMatchObject({ code: 'SEARCH_RAW_OUTPUT_OVERFLOW' })
+    // Within it the same rules apply as usual.
+    const small = tools(workspace({ '/workspace/.ignore': `${rules}\nskip.txt\n`, '/workspace/a.txt': 'answer\n', '/workspace/skip.txt': 'answer\n' }))
+    expect(answers(await small.run('grep', { pattern: 'answer' }))).toEqual(['a.txt'])
+  }, 30_000)
+
+  it('spends the compile budget in precedence order, and not on a .gitignore outside a repository', async () => {
+    const many = Array.from({ length: IGNORE_RULES_MAX }, (_, index) => `generated-${String(index)}.tmp`).join('\n')
+    const search = tools(workspace({
+      '/workspace/.gitignore': `${many}\n`,
+      '/workspace/.ignore': 'a.txt\n',
+      '/workspace/a.txt': 'answer\n',
+      '/workspace/b.txt': 'answer\n',
+    }))
+    expect(answers(await search.run('grep', { pattern: 'answer' }))).toEqual(['b.txt'])
+  })
+
+  it('charges a rule\'s brace alternates to the compile budget', async () => {
+    const search = tools(workspace({
+      // One rule that would expand to 65,536 matchers is not compiled.
+      '/workspace/.ignore': `${'{a,b}'.repeat(16)}\nskip.txt\n`,
+      '/workspace/skip.txt': 'answer\n',
+      '/workspace/sub/.ignore': '*.{tmp,bak}\n',
+      '/workspace/sub/x.tmp': 'answer\n',
+      '/workspace/sub/y.txt': 'answer\n',
+    }))
+    expect(answers(await search.run('grep', { pattern: 'answer' }))).toEqual(['skip.txt', 'sub/y.txt'])
+  })
+
+  it('skips an oversized or binary ignore file', async () => {
+    const search = tools(workspace({
+      '/workspace/.ignore': `a.txt\n${'#'.repeat(IGNORE_FILE_MAX_BYTES)}`,
+      '/workspace/.rgignore': 'b.txt\n\u0000',
+      '/workspace/a.txt': 'answer\n',
+      '/workspace/b.txt': 'answer\n',
+    }))
+    expect(answers(await search.run('grep', { pattern: 'answer' }))).toEqual(['a.txt', 'b.txt'])
   })
 })

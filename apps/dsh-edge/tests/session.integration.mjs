@@ -2484,12 +2484,15 @@ try {
   assert.doesNotMatch(requestText(instructionsRequests[0]), /Guide rule/u)
   assert.match(requestText(instructionsRequests.at(-1)), /Guide rule: cite the guide\./u)
   // Edge's grep and glob, upstream's tool contracts over the workspace VFS: grep honors include at
-  // any depth and skips hidden files; an over-cap grep keeps 250 matches inline and spills the rest.
+  // any depth and skips what an ignore file excludes, while glob lists it; an over-cap grep keeps
+  // 250 matches inline and spills the rest.
   for (const [path, body] of [
     ['/workspace/haystack/a.txt', Array.from({ length: 260 }, (_, index) => `needle-${String(index)}`).join('\n') + '\n'],
     ['/workspace/haystack/deep/b.txt', 'needle-7\n'],
     ['/workspace/haystack/c.md', 'needle-1\n'],
     ['/workspace/haystack/.hidden.txt', 'needle-9\n'],
+    ['/workspace/haystack/.ignore', 'skipped/\n'],
+    ['/workspace/haystack/skipped/e.txt', 'needle-3\n'],
   ]) {
     assert.equal((await request(`/api/workspace/file?path=${path}`, { method: 'PUT', body })).status, 200)
   }
@@ -2498,11 +2501,12 @@ try {
   assert.equal(assistantText(vfsSearchEvents), 'search-finished', JSON.stringify(vfsSearchEvents.map(event => event.type)))
   const vfsSearchResult = callId => toolResultText(vfsSearchEvents.find(event => event.type === 'tool/result' && event.data.message.toolCallId === callId))
   const grepText = vfsSearchResult('call_mock_grep')
-  assert.match(grepText, /^Found 250 of 261 matches\n\nhaystack\/a\.txt\nLine 1: needle-0\n/u)
+  assert.match(grepText, /^Found 250 of 262 matches\n\nhaystack\/\.hidden\.txt\nLine 1: needle-9\n\nhaystack\/a\.txt\nLine 1: needle-0\n/u)
   assert.match(grepText, /Full grep result stored at: /u)
-  assert.doesNotMatch(grepText, /c\.md|\.hidden/u)
+  // As ripgrep's --glob, the include also selects the hidden .hidden.txt; the ignored directory stays out.
+  assert.doesNotMatch(grepText, /c\.md|skipped/u)
   assert.deepEqual(vfsSearchResult('call_mock_glob').split('\n').sort(),
-    ['haystack/.hidden.txt', 'haystack/a.txt', 'haystack/deep/b.txt'])
+    ['haystack/.hidden.txt', 'haystack/a.txt', 'haystack/deep/b.txt', 'haystack/skipped/e.txt'])
   // The agent-loop and web-search settings cards edit namespaces the Edge registers under the
   // upstream entry ids; a saved endpoint must pass the DEEPSEEK_SEARCH_BASE_URL check.
   const pluginSettings = async () => (await rpc('settings.describe', {})).body.result.value.namespaces
