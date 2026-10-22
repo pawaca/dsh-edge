@@ -348,7 +348,7 @@ SQLite 的 `DELETE` 操作也会消耗每日行写入额度。迁移格式时，
 - `PUT /api/workspace/file?path=/workspace/...` 写入 UTF-8 文件。
 - `GET /api/workspace/file?path=/workspace/...` 读取 UTF-8 文件。
 - `DELETE /api/workspace/file?path=/workspace/...` 删除文件。
-- `POST /api/workspace/exec` 接受 `{ "command": "...", "cwd": "/workspace/..." }`，`cwd` 默认为 `/workspace`；每次执行都会收到部署级默认 timeout，`timedOut` 会报告该 deadline 是否已过，输出超过保留边界时，`outputTruncated` 会报告这一状态。
+- `POST /api/workspace/exec` 接受 `{ "command": "...", "cwd": "/workspace/..." }`，`cwd` 默认为 `/workspace`；每次执行都会收到部署级默认 timeout，`timedOut` 会报告该 deadline 是否已过，`outputTruncated` 报告是否有输出未内联；`stdoutTruncated`/`stderrTruncated` 指出哪个流只显示了尾部，`stdoutSpillPath`/`stderrSpillPath` 给出完整输出的保存位置。
 - `POST /api/sessions` 使用必填 `title` 创建持久 session；API 返回前，标题会写成标准、用户来源的 `session/title` 事件。如果 session 已持久化但 Workspace attachment 失败，500 响应会使用 `session/workspace-attach-failed` 并携带完整的已创建 `session`，调用方可以恢复其 id，而不会创建重复 session。
 - `GET /api/sessions?after=...&limit=...` 列出一个有界 summary page；`GET /api/sessions/:sessionId` 读取一个 session。上游 persistence service 没有定义破坏性删除，因此这里不暴露 session deletion。
 - `POST /api/sessions/:sessionId/turn` 接受 `{ "message": "..." }` 并流式返回持久 SSE events。
@@ -378,7 +378,7 @@ SQLite 的 `DELETE` 操作也会消耗每日行写入额度。迁移格式时，
 - Request body 会增量消费。一旦越过路由上限，后续 chunk 只会排空而不会保留，路由返回 413。文件上传也会拒绝非法 UTF-8。
 - 读取文件时先检查 VFS metadata，再通过相同的 1 MiB 上限收集已打开的 byte stream，从而关闭 `stat()` 与 `readFile()` 之间的增长竞态，且不保留无界值。
 - 写入前，图片准入会完整解码声明的 raster 格式。
-- 组合 shell 输出越界时，runtime 会请求中断并停止累积后续输出。`cancelled` 反映 adapter 请求的中断；`timedOut` 独立记录 deadline expiry。
+- 与上游 `bash-local` 一致，输出超过上限后命令会继续运行：每个流内联保留最后 64,000 字节，整个流保存到 `/workspace/.spill/bash-<execution>.<stream>.txt`（与其他 spill 一样 30 天后删除），每个流最多 16 MiB（上游允许 64 MiB；每 512 KiB 约写 5 行 Durable Object 数据，且工作区存储不会释放已删除的字节，#358），超过后文件只保留开头部分，结果中会注明。内存只占尾部加每个流 1 MiB 的写入队列：写 spill 时会暂停读取命令输出。未超过上限的输出不写任何文件。轻量 shell（just-bash）一次性返回命令的完整输出而不是流式输出，所以输出超过 8 MiB 时仍会停止命令（exit 126，显示为 `[stopped: …]`）；这块缓冲位于它所在的 isolate 中，Direct 模式下就是 Durable Object。bash 工具按上游格式呈现结果：stdout、`[stderr]` 段、每个流的 `[output truncated; full output: <path>]`、`[timed out after Nms]`，最后是 `[exit code: N]`；终端卡片会显示工作目录。超过部署上限的 `timeoutMs` 会像上游一样被降到上限；HTTP exec 路由仍会拒绝它。`cancelled` 反映 adapter 请求的中断；`timedOut` 独立记录 deadline expiry。
 
 ### 持久性与并发
 

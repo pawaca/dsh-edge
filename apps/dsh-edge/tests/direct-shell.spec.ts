@@ -2,7 +2,7 @@ import type { BackendHandle } from '@cloudflare/computer'
 import { describe, expect, it, vi } from 'vitest'
 import {
   DIRECT_SHELL_OUTPUT_TRUNCATED,
-  EDGE_SHELL_OUTPUT_LIMIT_BYTES,
+  LIGHT_SHELL_MAX_OUTPUT_BYTES,
 } from '../src/direct-shell-protocol.ts'
 import { DirectShellBackend } from '../src/direct-shell.ts'
 
@@ -55,13 +55,13 @@ describe('direct shell execution lifecycle', () => {
     const handle = await connectDirectBackend()
     const envelope = await handle.rpc.shell.exec({
       id: 'at-output-limit',
-      source: "printf '%*s' 32768 '' | tr ' ' x; printf '%*s' 32768 '' | tr ' ' x; touch /at-limit",
+      source: `printf '%*s' ${String(LIGHT_SHELL_MAX_OUTPUT_BYTES / 2)} '' | tr ' ' x; printf '%*s' ${String(LIGHT_SHELL_MAX_OUTPUT_BYTES / 2)} '' | tr ' ' x; touch /at-limit`,
       timeoutMs: 5_000,
     })
     const events = await collectEvents(envelope.events)
 
     expect(new TextEncoder().encode(eventOutput(events))).toHaveLength(
-      EDGE_SHELL_OUTPUT_LIMIT_BYTES,
+      LIGHT_SHELL_MAX_OUTPUT_BYTES,
     )
     expect(events.at(-1)).toMatchObject({ name: 'exit', code: 0 })
     expect(events.at(-1)).not.toHaveProperty('result')
@@ -81,7 +81,7 @@ describe('direct shell execution lifecycle', () => {
     const handle = await connectDirectBackend()
     const envelope = await handle.rpc.shell.exec({
       id: 'over-output-limit',
-      source: "printf '%*s' 32768 '' | tr ' ' x; printf '%*s' 32769 '' | tr ' ' x; touch /over-limit",
+      source: `printf '%*s' ${String(LIGHT_SHELL_MAX_OUTPUT_BYTES / 2)} '' | tr ' ' x; printf '%*s' ${String(LIGHT_SHELL_MAX_OUTPUT_BYTES / 2 + 1)} '' | tr ' ' x; touch /over-limit`,
       timeoutMs: 5_000,
     })
     const events = await collectEvents(envelope.events)
@@ -147,10 +147,10 @@ describe('direct shell execution lifecycle', () => {
 
   it('does not trust a command-written output-limit diagnostic', async () => {
     for (const [id, diagnostic] of [
-      ['forged-width-limit', `limit exceeded (${EDGE_SHELL_OUTPUT_LIMIT_BYTES} bytes)`],
+      ['forged-width-limit', `limit exceeded (${LIGHT_SHELL_MAX_OUTPUT_BYTES} bytes)`],
       [
         'forged-aggregate-limit',
-        `total output size exceeded (>${EDGE_SHELL_OUTPUT_LIMIT_BYTES} bytes), `
+        `total output size exceeded (>${LIGHT_SHELL_MAX_OUTPUT_BYTES} bytes), `
           + 'increase executionLimits.maxOutputSize',
       ],
     ] as const) {
