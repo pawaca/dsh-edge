@@ -46,16 +46,14 @@ const edgeExcludedPackages = new Set([
   '@deepseek-ai/dsh-client-ui-cordis',
   // Host services the Edge does not provide: desktop product telemetry, a
   // PTY terminal, DeepSeek account sign-in (the Edge authenticates with an
-  // API key), and runtime plugin management. The shell settings page below
-  // edits the upstream bash tool, which the Edge replaces with its own. The
-  // agent-loop, web-search, and subagent pages ship instead: the Edge serves
-  // their namespaces and hosts their cards in Built-in plugins.
+  // API key), and runtime plugin management. The agent-loop, web-search,
+  // subagent, and shell pages ship instead: the Edge serves their namespaces
+  // and hosts their cards in Built-in plugins.
   '@deepseek-ai/dsh-client-product-analytics',
   '@deepseek-ai/dsh-api-terminal-controller',
   '@deepseek-ai/dsh-client-ui-sidebar-terminal',
   '@deepseek-ai/dsh-client-ui-settings-account',
   '@deepseek-ai/dsh-client-ui-plugin-manager',
-  '@deepseek-ai/dsh-client-ui-settings-shell',
   // Browser halves of host features the Edge declines: the session-log upload
   // preference and the permission-preset picker, which would only render errors.
   '@deepseek-ai/dsh-client-ui-settings-session-log',

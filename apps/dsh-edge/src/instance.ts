@@ -53,6 +53,7 @@ import {
 } from './runtime-provider.ts'
 import { parseRuntimeSettingsPatch } from './runtime-settings.ts'
 import { parseToolSettingsPatch } from './edge-tool-settings.ts'
+import { liveTimeoutPolicy } from './edge-shell-settings.ts'
 import type { WorkflowLoader } from './edge-workflow-engine.ts'
 import {
   resolveEdgeModel,
@@ -358,10 +359,10 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         ? { workerLoader: this.env.LOADER as unknown as WorkflowLoader }
         : {},
       shell: resolveEdgeRuntimeShell(this.env),
-      maxCommandTimeoutMs: resolveEdgeCommandTimeoutPolicy(
+      commandTimeoutPolicy: resolveEdgeCommandTimeoutPolicy(
         this.env.DSH_EDGE_DEFAULT_COMMAND_TIMEOUT_MS,
         this.env.DSH_EDGE_MAX_COMMAND_TIMEOUT_MS,
-      ).maxTimeoutMs,
+      ),
       withWorkspaceFiles: read => this.withWorkspaceFiles(read),
       openAttachmentFiles: async () => {
         const workspace = await getWorkspace(this)
@@ -1101,10 +1102,10 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
   async runWorkspaceCommand(command: string, cwd: string, requestContainer = false): Promise<EdgeShellResult> {
     // This RPC bypasses fetch(); routing must read the saved settings, not defaults.
     await this.sessions.waitForInitialization()
-    const timeoutPolicy = resolveEdgeCommandTimeoutPolicy(
+    const timeoutPolicy = liveTimeoutPolicy(resolveEdgeCommandTimeoutPolicy(
       this.env.DSH_EDGE_DEFAULT_COMMAND_TIMEOUT_MS,
       this.env.DSH_EDGE_MAX_COMMAND_TIMEOUT_MS,
-    )
+    ), this.sessions.shellSettings())
     const workspace = await this.workspace()
     return this.runShellCommand(workspace, requireCommand(command), requireWorkspacePath(cwd), timeoutPolicy, {
       requestContainer,
@@ -1176,12 +1177,13 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       ...options.requestContainer === true ? { requestContainer: true } : {},
     })
     if (container === undefined) {
-      return executeWorkspaceCommand(workspace, command, cwd, timeoutPolicy, options.timeoutMs, options.signal, undefined, false, undefined, options.env)
+      return executeWorkspaceCommand(workspace, command, cwd, timeoutPolicy, options.timeoutMs, options.signal, undefined, false, undefined, options.env, this.shellOutputBytes())
     }
     if (route === 'light' && policy !== 'auto') {
       // A forced light policy never reruns, so it needs no miss signals and no turns.
       const result = await executeWorkspaceCommand(
         workspace, command, cwd, timeoutPolicy, options.timeoutMs, options.signal, undefined, false, undefined, options.env,
+        this.shellOutputBytes(),
       )
       return { ...result, runtime: 'light' }
     }
@@ -1253,6 +1255,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     const boundaryMark = this.boundary.mark()
     const result = await executeWorkspaceCommand(
       workspace, command, cwd, timeoutPolicy, options.timeoutMs, options.signal, undefined, true, onDetached, options.env,
+      this.shellOutputBytes(),
     )
     return {
       result,
@@ -1294,7 +1297,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     try {
       const result = await executeWorkspaceCommand(
         workspace, command, cwd, timeoutPolicy, Math.max(1, budgetMs - queuedMs), options.signal, backend,
-        false, (late) => { lingering = late }, options.env,
+        false, (late) => { lingering = late }, options.env, this.shellOutputBytes(),
       )
       return { ...result, runtime: 'container', queuedMs }
     } finally {
@@ -2246,14 +2249,20 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
   /** The shell an agent's `bash` runs through: the resident workspace under the deployment's command timeouts. */
   private workspaceShell(workspace: EdgeWorkspace, commandTimeoutPolicy: EdgeCommandTimeoutPolicy): EdgeShell {
     return {
+      // The Shell card's timeout applies from the next command.
       exec: async (command, options) => this.runShellCommand(
         workspace,
         requireCommand(command),
         requireWorkspacePath(options.cwd),
-        commandTimeoutPolicy,
+        liveTimeoutPolicy(commandTimeoutPolicy, this.sessions.shellSettings()),
         options,
       ),
     }
+  }
+
+  /** The Shell card's per-stream inline cap, read for each command. */
+  private shellOutputBytes(): number {
+    return this.sessions.shellSettings().maxOutputBytes
   }
 
   private async runTurn(input: {

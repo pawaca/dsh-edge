@@ -67,11 +67,6 @@
       "status": "declined",
       "reason": "Attaches session logs or the plugin inventory to official DeepSeek API requests. On by default upstream; declined on the Edge for privacy."
     },
-    "@deepseek-ai/dsh-client-ui-settings-shell": {
-      "status": "gap",
-      "priority": "P3",
-      "reason": "Shell settings card: the executor's command timeout and per-stream output cap (shell namespace). The card mount exists since #278, but the Edge's bash is its own: createEdgeBashTool (agent.ts) forwards only a per-call timeoutMs, the timeout default and ceiling come from DSH_EDGE_DEFAULT/MAX_COMMAND_TIMEOUT_MS (workspace.ts), and the Direct output cap is the fixed EDGE_SHELL_OUTPUT_LIMIT_BYTES (direct-shell.ts). Restoring the card needs an Edge shell namespace that the timeout policy and both shell backends (Direct and the Isolated/container paths) read live."
-    },
     "@deepseek-ai/dsh-client-ui-sidebar-terminal": {
       "status": "tracked",
       "issue": 99,
@@ -325,6 +320,7 @@
     "@deepseek-ai/dsh-client-ui-settings-models": "Provider namespaces are mounted by edge-llm-settings.ts and credentials resolve through EdgeCredentialProvider.",
     "@deepseek-ai/dsh-client-ui-settings-plugin-inventory": "The inventory is projected by EdgeLoader (edge-plugin-loader.ts) from the runtime registry and the boot graph.",
     "@deepseek-ai/dsh-client-ui-settings-plugins": "Its tabs come from dsh-edge-client-ui instead of the excluded plugin manager.",
+    "@deepseek-ai/dsh-client-ui-settings-shell": "Hosted by dsh-edge-client-ui; its bash-sandbox namespace (timeoutMs, maxOutputBytes) is registered by edge-shell-settings.ts for the Edge's own bash, which reads it per command (instance.ts, workspace.ts).",
     "@deepseek-ai/dsh-client-ui-settings-subagent": "Hosted by dsh-edge-client-ui; its namespaces are mounted by edge-plugin-settings.ts.",
     "@deepseek-ai/dsh-client-ui-settings-web-search": "Hosted by dsh-edge-client-ui; the web, web-search-deepseek, and web-deepseek-api namespaces are mounted by edge-plugin-settings.ts.",
     "@deepseek-ai/dsh-client-ui-sidebar-documentpreview": "Office previews need officeToPdf, which the Edge does not serve; its other previews read file bytes through upstream's /api/file, which the Edge serves with a streamed body since 0.28.0 (#355).",
