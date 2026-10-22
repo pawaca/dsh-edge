@@ -48,6 +48,31 @@ function handleToolCall(name, args) {
   return { content: [{ type: 'text', text: `Unknown tool: ${name}` }], isError: true }
 }
 
+/** Resources, offered when the server is started with `{ resources: true }`. */
+const RESOURCES = [
+  { uri: 'file:///notes.txt', name: 'notes', mimeType: 'text/plain' },
+  { uri: 'file:///logo.png', name: 'logo', mimeType: 'image/png' },
+  { uri: 'file:///huge.bin', name: 'huge', mimeType: 'application/octet-stream' },
+]
+const RESOURCE_TEMPLATES = [{ uriTemplate: 'file:///logs/{day}.txt', name: 'daily log' }]
+
+function handleResource(method, params) {
+  // Two pages: the first ends with a cursor; a repeated cursor stays on the second.
+  if (method === 'resources/list') {
+    return params?.cursor === undefined
+      ? { resources: RESOURCES.slice(0, 2), nextCursor: 'page-2' }
+      : { resources: RESOURCES.slice(2) }
+  }
+  if (method === 'resources/templates/list') return { resourceTemplates: RESOURCE_TEMPLATES }
+  if (method === 'resources/read') {
+    if (params?.uri === 'file:///notes.txt') return { contents: [{ uri: params.uri, mimeType: 'text/plain', text: 'resource notes' }] }
+    if (params?.uri === 'file:///logo.png') return { contents: [{ uri: params.uri, mimeType: 'image/png', blob: TINY_PNG }] }
+    // Larger than the Edge's 1 MiB response cap.
+    if (params?.uri === 'file:///huge.bin') return { contents: [{ uri: params.uri, mimeType: 'application/octet-stream', blob: 'A'.repeat(2 * 1024 * 1024) }] }
+  }
+  return undefined
+}
+
 function jsonRpcResponse(id, result) {
   return JSON.stringify({ jsonrpc: '2.0', id, result })
 }
@@ -56,8 +81,9 @@ function jsonRpcError(id, code, message) {
   return JSON.stringify({ jsonrpc: '2.0', id, error: { code, message } })
 }
 
-export async function startMockMcpServer(port = 0) {
+export async function startMockMcpServer(port = 0, options = {}) {
   let sessionId = 0
+  const requests = []
 
   const server = createServer((req, res) => {
     if (req.method === 'POST' && req.url === '/mcp') {
@@ -73,6 +99,7 @@ export async function startMockMcpServer(port = 0) {
         }
 
         const { id, method, params } = message
+        requests.push(method)
 
         if (method === 'initialize') {
           sessionId++
@@ -82,7 +109,10 @@ export async function startMockMcpServer(port = 0) {
           })
           res.end(jsonRpcResponse(id, {
             protocolVersion: '2025-03-26',
-            capabilities: { tools: { listChanged: false } },
+            capabilities: {
+              ...options.tools === false ? {} : { tools: { listChanged: false } },
+              ...options.resources ? { resources: {} } : {},
+            },
             serverInfo: SERVER_INFO,
           }))
           return
@@ -98,6 +128,13 @@ export async function startMockMcpServer(port = 0) {
           const result = handleToolCall(params?.name, params?.arguments ?? {})
           res.writeHead(200, { 'content-type': 'application/json' })
           res.end(jsonRpcResponse(id, result))
+          return
+        }
+
+        const resource = options.resources ? handleResource(method, params) : undefined
+        if (resource !== undefined) {
+          res.writeHead(200, { 'content-type': 'application/json' })
+          res.end(jsonRpcResponse(id, resource))
           return
         }
 
@@ -125,6 +162,7 @@ export async function startMockMcpServer(port = 0) {
     url,
     port: address.port,
     tools: TOOLS,
+    requests,
     close: () => new Promise(resolve => { server.close(resolve) }),
   }
 }

@@ -139,11 +139,6 @@
       "status": "declined",
       "reason": "DeepSeek account sign-in. The Edge authenticates with the deployment API key, and the sign-in callback accepts only localhost."
     },
-    "@deepseek-ai/dsh-mcp-resources": {
-      "status": "gap",
-      "priority": "P2",
-      "reason": "MCP resource discovery and reads. The Edge connects to MCP servers per call (edge-mcp-client.ts) and probes only tools: it must record each server's resources capability and register a provider that forwards resources/list, resources/templates/list, and resources/read with a size limit. How content enters the context is already fixed by the package's renderer."
-    },
     "@deepseek-ai/dsh-office-to-pdf": {
       "status": "gap",
       "priority": "P2",
