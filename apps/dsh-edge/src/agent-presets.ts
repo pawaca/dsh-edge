@@ -155,7 +155,9 @@ export class EdgeAgentPresets extends CordisService {
     if (scope !== undefined && scopeParentOf(scope) === undefined) bindScopeParent(scope, this.compositionKey)
     if (id === PTC_AGENT_PRESET) {
       agentCtx.tools.presentAs('ptc')
-      agentCtx.tools.restrict({ deny: ['workflow'] })
+      // A ralph call from run_code would inherit the program's short-tool
+      // deadline and die mid-loop, so it leaves with workflow.
+      agentCtx.tools.restrict({ deny: ['workflow', 'ralph'] })
     }
   }
 

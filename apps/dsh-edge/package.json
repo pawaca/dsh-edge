@@ -176,6 +176,7 @@
     "@deepseek-ai/dsh-tool-fs-search": "0.2.1-rc.2",
     "@deepseek-ai/dsh-tool-goal": "0.2.1-rc.2",
     "@deepseek-ai/dsh-tool-jobs": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-tool-ralph": "0.2.1-rc.2",
     "@deepseek-ai/dsh-tool-schedule": "0.2.1-rc.2",
     "@deepseek-ai/dsh-tool-skill": "0.2.1-rc.2",
     "@deepseek-ai/dsh-tool-subagent": "0.2.1-rc.2",

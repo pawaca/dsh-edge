@@ -105,7 +105,7 @@ describe('Edge agent presets', () => {
     const parent = agentScope()
     presets.join(parent.ctx, PTC_AGENT_PRESET)
     expect(parent.presentAs).toHaveBeenCalledWith('ptc')
-    expect(parent.restrict).toHaveBeenCalledWith({ deny: ['workflow'] })
+    expect(parent.restrict).toHaveBeenCalledWith({ deny: ['workflow', 'ralph'] })
     expect(presets.composedPreset(parent.ctx)).toBe(PTC_AGENT_PRESET)
 
     const child = agentScope()

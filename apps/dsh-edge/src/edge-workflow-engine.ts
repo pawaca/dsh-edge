@@ -68,6 +68,8 @@ export interface WorkflowLoader {
 
 /** Compatibility date the workflow isolate runs with; a test keeps it equal to `wrangler.jsonc`. */
 export const WORKFLOW_COMPATIBILITY_DATE = '2026-08-14'
+/** Children one run may start, bounding a run's child-session row writes. */
+export const WORKFLOW_MAX_TOTAL_AGENTS = 100
 
 export interface EdgeWorkflowEngineConfig {
   /** Worker Loader that creates one isolate per run. */
@@ -100,7 +102,7 @@ export default class EdgeWorkflowEngine extends WorkflowEngine {
     cpuMs: z.natural().min(1).default(30_000),
     provider: z.string().default('spawn'),
     maxConcurrentAgents: z.natural().min(1).default(4),
-    maxTotalAgents: z.natural().min(1).default(100),
+    maxTotalAgents: z.natural().min(1).default(WORKFLOW_MAX_TOTAL_AGENTS),
     maxItemsPerCall: z.natural().min(1).default(1024),
     maxProgressEvents: z.natural().default(1_000),
     disposeGraceMs: z.natural().default(5_000),
