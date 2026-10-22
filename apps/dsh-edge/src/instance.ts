@@ -202,7 +202,7 @@ function remoteFailureOf(error: unknown): { code: string; message: string; detai
     }
   }
   return {
-    code: 'internal',
+    code: 'gateway/internal',
     message: error instanceof Error ? error.message : String(error),
     details: {},
   }
@@ -673,6 +673,21 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         if (expected !== null && ['/api/session.cancel', '/api/session.prompt', '/api/session.updateQueue'].includes(url.pathname)) {
           const body = await readJsonObject(request.clone() as Request, MAX_TURN_BODY_BYTES)
           const payload = body.payload as { sessionId?: string } | undefined
+          // A Stop for a run that already ended converges here as on the
+          // Typert route. This route parses its body before its handler would
+          // cancel, so a turn could start meanwhile; the answer is given here
+          // instead, and nothing is cancelled.
+          if (url.pathname === '/api/session.cancel' && typeof payload?.sessionId === 'string'
+            && !this.activeTurns.has(SessionId(payload.sessionId))) {
+            const sessionId = SessionId(payload.sessionId)
+            const result = await this.sessions.getApiSessionSummary(sessionId).then(
+              () => ({ ok: true, value: { accepted: true } }),
+              (error: unknown) => error instanceof EdgeSessionStoreError && error.code === 'NOT_FOUND'
+                ? { ok: false, error: { code: 'session/not-found', message: error.message, details: { sessionId } } }
+                : { ok: false, error: remoteFailureOf(error) },
+            )
+            return Response.json({ type: 'server-response', rpcId: body.rpcId, result })
+          }
           return await this.withObservedTurn(expected, payload?.sessionId, () => this.apiFetch(request))
         }
         return await this.apiFetch(request)
@@ -1529,7 +1544,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         // rejections stay correlated server-responses on the direct path.
         return Response.json({ type: 'server-response', rpcId, result: {
           ok: false,
-          error: { code: 'internal', message: String(error), details: {} },
+          error: { code: 'gateway/internal', message: String(error), details: {} },
         } })
       }
     }
@@ -1555,7 +1570,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       if (expected !== null && ['prompt', 'cancel', 'updateQueue'].includes(method)) {
         const flatArgs = Object.keys(args).length === 1 && 'request' in args
           ? args.request as { sessionId?: string } : args as { sessionId?: string }
-        return this.withObservedTurn(expected, flatArgs?.sessionId, edgeDispatch)
+        return this.withObservedTurn(expected, flatArgs?.sessionId, edgeDispatch, method === 'cancel')
       }
       return edgeDispatch()
     }
@@ -1629,8 +1644,14 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
   }
 
   /** Both HTTP spellings bind controls to the same observed run before dispatch. */
-  private withObservedTurn<T>(expected: string, sessionId: string | undefined, dispatch: () => Promise<T>): Promise<T> {
+  private withObservedTurn<T>(expected: string, sessionId: string | undefined, dispatch: () => Promise<T>, endedCancel = false): Promise<T> {
     const active = sessionId === undefined ? undefined : this.activeTurns.get(SessionId(sessionId))
+    // A Stop for a run that has already ended converges as upstream's cancel
+    // does: with no active turn it reaches the handler, which accepts it for
+    // an existing session. Only the Typert route (the Web client's) passes
+    // endedCancel: no await separates this check from its handler's cancel,
+    // so a turn cannot start in between and be stopped instead.
+    if (endedCancel && active === undefined) return dispatch()
     if (active === undefined || active.turnStartSeq === undefined || String(active.turnStartSeq) !== expected) throw new EdgeHttpError(409, 'The observed run has ended.')
     return this.controlTarget.run(active.turnId, dispatch)
   }

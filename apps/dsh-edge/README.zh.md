@@ -36,7 +36,7 @@
 
 owner Durable Object 同一时间只准入一个活跃主会话。普通输入先持久排队再确认收到；每次驻留准入一条普通输入，上游 loop 空闲且清理完成后，有待处理输入的会话回到就绪队尾。其他 tab 可以提交并观察同一份队列。显式 steer 仍指向当前运行。Edge 浏览器把 steer/取消绑定到它观察到的 canonical turn，防止延迟操作影响新运行；旧 API 客户端可通过 `x-dsh-edge-turn-seq` 启用同样的校验。
 
-每个 owner 最多接受 128 条未收尾输入和 2 MiB 的序列化输入数据。容量耗尽返回 HTTP 429（`QUEUE_FULL`）或 RPC `agent-busy`；待积压任务减少后重试。浏览器 RPC 重试复用 `requestId`（旧客户端复用 `rpcId`）；原始 SSE 调用可提供最长 128 字符的 `Idempotency-Key`。同一身份携带不同内容会失败。并发 steer 重试共享准入结果；被拒绝的 steer 再次重试仍返回拒绝，重启后也一样。若收件箱已接受变更但持久化屏障失败，则阻止模型消费并释放 steering 容量；从队列提升的输入保留原先已接受的收件状态。原始 SSE 先发送收件注释，并返回 `x-dsh-edge-input-id`；断开流不会取消排队输入，可通过 `session.updateQueue` 移除。
+每个 owner 最多接受 128 条未收尾输入和 2 MiB 的序列化输入数据。容量耗尽返回 HTTP 429（`QUEUE_FULL`）或 RPC `session/agent-busy`；待积压任务减少后重试。浏览器 RPC 重试复用 `requestId`（旧客户端复用 `rpcId`）；原始 SSE 调用可提供最长 128 字符的 `Idempotency-Key`。同一身份携带不同内容会失败。并发 steer 重试共享准入结果；被拒绝的 steer 再次重试仍返回拒绝，重启后也一样。若收件箱已接受变更但持久化屏障失败，则阻止模型消费并释放 steering 容量；从队列提升的输入保留原先已接受的收件状态。原始 SSE 先发送收件注释，并返回 `x-dsh-edge-input-id`；断开流不会取消排队输入，可通过 `session.updateQueue` 移除。
 
 实际工具执行共享两个许可，最多等待 32 项，排队期限 30 秒，合作式执行期限 60 秒。工具池期限是额外的上限：bash 配置更长的超时不会延长它，交互式 `ask_user_question` / `exit_plan_mode` 也必须在此期限内结束。取消后必须等清理结束才归还许可。上游的并行/独占分类继续有效；嵌套调用继承根执行预算。后台标题流单独使用一个有界许可，保留上游超时。这些限制不能中断无界同步代码，也不会为每个工具分配独立内存。
 
@@ -348,7 +348,7 @@ SQLite 的 `DELETE` 操作也会消耗每日行写入额度。迁移格式时，
 - `GET /api/workspace/file?path=/workspace/...` 读取 UTF-8 文件。
 - `DELETE /api/workspace/file?path=/workspace/...` 删除文件。
 - `POST /api/workspace/exec` 接受 `{ "command": "...", "cwd": "/workspace/..." }`，`cwd` 默认为 `/workspace`；每次执行都会收到部署级默认 timeout，`timedOut` 会报告该 deadline 是否已过，输出超过保留边界时，`outputTruncated` 会报告这一状态。
-- `POST /api/sessions` 使用必填 `title` 创建持久 session；API 返回前，标题会写成标准、用户来源的 `session/title` 事件。如果 session 已持久化但 Workspace attachment 失败，500 响应会使用 `workspace-attach-failed` 并携带完整的已创建 `session`，调用方可以恢复其 id，而不会创建重复 session。
+- `POST /api/sessions` 使用必填 `title` 创建持久 session；API 返回前，标题会写成标准、用户来源的 `session/title` 事件。如果 session 已持久化但 Workspace attachment 失败，500 响应会使用 `session/workspace-attach-failed` 并携带完整的已创建 `session`，调用方可以恢复其 id，而不会创建重复 session。
 - `GET /api/sessions?after=...&limit=...` 列出一个有界 summary page；`GET /api/sessions/:sessionId` 读取一个 session。上游 persistence service 没有定义破坏性删除，因此这里不暴露 session deletion。
 - `POST /api/sessions/:sessionId/turn` 接受 `{ "message": "..." }` 并流式返回持久 SSE events。
 - `GET /api/sessions/:sessionId/events?after=...&limit=...` 重放一个有界 event page，并返回 continuation headers。
@@ -356,7 +356,7 @@ SQLite 的 `DELETE` 操作也会消耗每日行写入额度。迁移格式时，
 
 ### Session 与 Workspace 行为
 
-- Session 创建与 fork 在发布成功但 Workspace attachment 失败时返回 `workspace-attach-failed`，并携带已发布的 session 与 Workspace id。诊断路由返回相同 code 及完整的已创建 session。
+- Session 创建与 fork 在发布成功但 Workspace attachment 失败时返回 `session/workspace-attach-failed`，并携带已发布的 session 与 Workspace id。诊断路由返回相同 code 及完整的已创建 session。
 - Prompt 和 queue-edit 文本共用 64 KiB 语义上限。10 MiB RPC 载体为 7 MiB 原始图片在 base64 与 envelope 膨胀后留出空间。
 - Edge 没有目录流 provider，因此上游浏览器会在仅剩一个 Workspace 时隐藏 Delete，并在仍有恢复路径时重新显示。
 - `@file` 补全通过 Computer VFS 为上游 `fileReferences/list` Remote 每次只列出一个目录：裸片段对应会话工作目录，末尾斜杠对应它命名的目录。每次列目录都是一次 Computer 调用，因此没有递归模糊索引。`@session` 提及及其 pre-step 快照原样来自上游 session-reference 服务；它的候选发现以及任一 agent 作用域 Remote 都会通过上游 controller 恢复冷 session，并使其常驻直到 Durable Object 被驱逐。

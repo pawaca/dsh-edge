@@ -83,6 +83,6 @@ export async function dispatchEdgeApi(api: EdgeApi, request: Request): Promise<R
     if (result === undefined) return new Response('not found', { status: 404 })
     return Response.json({ type: 'server-response', rpcId: result.rpcId, result: result.result })
   } catch (error) {
-    return errorResponse(rpcId, { code: 'internal', message: String(error), details: {} })
+    return errorResponse(rpcId, { code: 'gateway/internal', message: String(error), details: {} })
   }
 }
