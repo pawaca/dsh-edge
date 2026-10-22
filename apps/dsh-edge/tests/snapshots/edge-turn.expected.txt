@@ -395,7 +395,7 @@ Elapsed since the preceding model-visible message: unavailable.",
               },
             },
             {
-              "description": "Search file contents with an RE2 regular expression (ripgrep's syntax, without lookaround or backreferences). Returns matching lines with line numbers, grouped by file. Skips hidden and binary files. Returns up to 250 matches; a larger result reports where the complete match list was saved.",
+              "description": "Search file contents with an RE2 regular expression (ripgrep's syntax, without lookaround or backreferences). Returns matching lines with line numbers, grouped by file. Skips hidden and binary files and those .gitignore, .ignore, or .rgignore files exclude. Returns up to 250 matches; a larger result reports where the complete match list was saved.",
               "name": "grep",
               "parameters": {
                 "properties": {
@@ -1485,7 +1485,7 @@ Elapsed since the preceding model-visible message: unavailable.",
               },
             },
             {
-              "description": "Search file contents with an RE2 regular expression (ripgrep's syntax, without lookaround or backreferences). Returns matching lines with line numbers, grouped by file. Skips hidden and binary files. Returns up to 250 matches; a larger result reports where the complete match list was saved.",
+              "description": "Search file contents with an RE2 regular expression (ripgrep's syntax, without lookaround or backreferences). Returns matching lines with line numbers, grouped by file. Skips hidden and binary files and those .gitignore, .ignore, or .rgignore files exclude. Returns up to 250 matches; a larger result reports where the complete match list was saved.",
               "name": "grep",
               "parameters": {
                 "properties": {
@@ -2724,7 +2724,7 @@ Elapsed since the preceding model-visible message: unavailable.",
               },
             },
             {
-              "description": "Search file contents with an RE2 regular expression (ripgrep's syntax, without lookaround or backreferences). Returns matching lines with line numbers, grouped by file. Skips hidden and binary files. Returns up to 250 matches; a larger result reports where the complete match list was saved.",
+              "description": "Search file contents with an RE2 regular expression (ripgrep's syntax, without lookaround or backreferences). Returns matching lines with line numbers, grouped by file. Skips hidden and binary files and those .gitignore, .ignore, or .rgignore files exclude. Returns up to 250 matches; a larger result reports where the complete match list was saved.",
               "name": "grep",
               "parameters": {
                 "properties": {
@@ -3814,7 +3814,7 @@ Elapsed since the preceding model-visible message: unavailable.",
               },
             },
             {
-              "description": "Search file contents with an RE2 regular expression (ripgrep's syntax, without lookaround or backreferences). Returns matching lines with line numbers, grouped by file. Skips hidden and binary files. Returns up to 250 matches; a larger result reports where the complete match list was saved.",
+              "description": "Search file contents with an RE2 regular expression (ripgrep's syntax, without lookaround or backreferences). Returns matching lines with line numbers, grouped by file. Skips hidden and binary files and those .gitignore, .ignore, or .rgignore files exclude. Returns up to 250 matches; a larger result reports where the complete match list was saved.",
               "name": "grep",
               "parameters": {
                 "properties": {
@@ -4896,7 +4896,7 @@ Only files under /workspace persist across sessions.",
           "name": "glob",
         },
         {
-          "description": "Search file contents with an RE2 regular expression (ripgrep's syntax, without lookaround or backreferences). Returns matching lines with line numbers, grouped by file. Skips hidden and binary files. Returns up to 250 matches; a larger result reports where the complete match list was saved.",
+          "description": "Search file contents with an RE2 regular expression (ripgrep's syntax, without lookaround or backreferences). Returns matching lines with line numbers, grouped by file. Skips hidden and binary files and those .gitignore, .ignore, or .rgignore files exclude. Returns up to 250 matches; a larger result reports where the complete match list was saved.",
           "input_schema": {
             "properties": {
               "include": {
@@ -5872,7 +5872,7 @@ Only files under /workspace persist across sessions.",
           "name": "glob",
         },
         {
-          "description": "Search file contents with an RE2 regular expression (ripgrep's syntax, without lookaround or backreferences). Returns matching lines with line numbers, grouped by file. Skips hidden and binary files. Returns up to 250 matches; a larger result reports where the complete match list was saved.",
+          "description": "Search file contents with an RE2 regular expression (ripgrep's syntax, without lookaround or backreferences). Returns matching lines with line numbers, grouped by file. Skips hidden and binary files and those .gitignore, .ignore, or .rgignore files exclude. Returns up to 250 matches; a larger result reports where the complete match list was saved.",
           "input_schema": {
             "properties": {
               "include": {

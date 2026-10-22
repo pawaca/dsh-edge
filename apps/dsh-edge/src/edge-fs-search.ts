@@ -8,8 +8,10 @@
  *
  * - files come from a walk of the workspace's directories (one `readdir`
  *   per directory, which also yields each file's size and mtime), skipping
- *   VCS metadata as upstream's argv does and, for `grep`, hidden entries as
- *   ripgrep's defaults do; `.gitignore` files are not applied;
+ *   VCS metadata as upstream's argv does; `grep` also applies ripgrep's
+ *   defaults, skipping hidden entries and those its `.rgignore`, `.ignore`,
+ *   and `.gitignore` files exclude (`edge-search-ignore.ts`), while `glob`
+ *   keeps upstream's `--no-ignore --hidden`;
  * - globs use minimatch with ripgrep's rule that a pattern with no `/`
  *   matches the basename at any depth;
  * - `grep` patterns compile with re2js, the linear-time RE2 engine just-bash
@@ -48,6 +50,7 @@ import { defineTool, type ToolDefinition, type ToolExecution } from '@deepseek-a
 import { minimatch } from 'minimatch'
 import { RE2JS } from 're2js'
 import type { EdgeFileSystem, EdgeVfs } from './edge-filesystem.ts'
+import { IGNORE_FILES, IgnoreRules, IgnoreStack, parseIgnoreRules, ruleMatcherCount, type IgnoreKind } from './edge-search-ignore.ts'
 
 export const name = 'edge-fs-search'
 export const inject = ['tools', 'systemPrompt', 'fs', 'workingDirectory']
@@ -68,10 +71,24 @@ export const GREP_MAX_FILE_BYTES = 4 * 1024 * 1024
  * memory before the match cap is reached.
  */
 export const GREP_MAX_COLLECTED_CHARS = RAW_OUTPUT_MAX_BYTES
+/** An ignore file larger than this, or binary, is not applied. */
+export const IGNORE_FILE_MAX_BYTES = 256 * 1024
+/**
+ * Matchers one search may compile across all its ignore files: one per rule,
+ * or one per alternative of a rule's `{a,b}` groups. Each is kept for the
+ * whole walk, so a file whose rules would pass this budget is not applied;
+ * real repositories use a few hundred.
+ */
+export const IGNORE_RULES_MAX = 5_000
 
 const VCS_NAMES = new Set(GLOB_VCS_EXCLUDES)
-const skipVcs = (name: string) => VCS_NAMES.has(name)
-const skipVcsAndHidden = (name: string) => VCS_NAMES.has(name) || name.startsWith('.')
+const IGNORE_FILE_KINDS = new Map<string, IgnoreKind>(IGNORE_FILES)
+
+/**
+ * What a walk skips besides VCS metadata: `glob` lists every file, as
+ * upstream's `--no-ignore --hidden`; `grep` applies ripgrep's defaults.
+ */
+type WalkFilter = 'all' | 'ripgrep-defaults'
 
 interface WalkedFile {
   readonly path: string
@@ -134,7 +151,7 @@ function applyGlobTool(ctx: Context): void {
       assertValidGlob('glob', input.pattern)
       const scope = await searchScope(ctx, exec, input.path)
       const root = input.path === undefined ? '.' : workspaceRelative(input.path, scope.workdir)
-      const files = await listFiles(scope, 'glob', skipVcs, exec.signal)
+      const files = await listFiles(scope, 'glob', 'all', exec.signal)
       const matched = files.filter(file => globMatches(input.pattern, relativeTo(file.path, scope.root)))
       // ripgrep's --sort=modified: oldest first, the path breaking ties.
       matched.sort((left, right) => left.mtime - right.mtime || (left.path < right.path ? -1 : left.path > right.path ? 1 : 0))
@@ -171,7 +188,7 @@ function applyGrepTool(ctx: Context): void {
   })
   const tool: ToolDefinition = defineTool({
     name: 'grep',
-    description: `Search file contents with an RE2 regular expression (ripgrep's syntax, without lookaround or backreferences). Returns matching lines with line numbers, grouped by file. Skips hidden and binary files. Returns up to ${String(GREP_MAX_MATCHES)} matches; a larger result reports where the complete match list was saved.`,
+    description: `Search file contents with an RE2 regular expression (ripgrep's syntax, without lookaround or backreferences). Returns matching lines with line numbers, grouped by file. Skips hidden and binary files and those .gitignore, .ignore, or .rgignore files exclude. Returns up to ${String(GREP_MAX_MATCHES)} matches; a larger result reports where the complete match list was saved.`,
     parameters: {
       pattern: {
         type: 'string',
@@ -224,13 +241,13 @@ function applyGrepTool(ctx: Context): void {
       }
       if (input.include !== undefined) assertValidGlob('grep', input.include)
       const scope = await searchScope(ctx, exec, input.path)
-      const files = await listFiles(scope, 'grep', skipVcsAndHidden, exec.signal)
+      const files = await listFiles(scope, 'grep', 'ripgrep-defaults', exec.signal)
       const matches: GrepMatch[] = []
       let collectedChars = 0
       for (const { path } of files) {
         throwIfAborted('grep', exec.signal)
         if (input.include !== undefined && path !== scope.root && !globMatches(input.include, relativeTo(path, scope.root))) continue
-        const text = await readTextFile(scope.vfs, path, exec.signal)
+        const text = await readTextFile(scope.vfs, path, exec.signal, GREP_MAX_FILE_BYTES)
         if (text === undefined) continue
         const display = workspaceRelative(path, scope.workdir)
         const lines = text.split('\n')
@@ -285,15 +302,20 @@ async function searchScope(ctx: Context, exec: ToolExecution, path: string | und
 /**
  * Every file under the search root (or the root itself when it is a file),
  * depth-first in name order, with the mtime its directory listing reports.
- * A skipped directory is not entered. Each listing asks for at most the
- * remaining budget plus one entry, so the walk fails once it would pass
+ * A skipped directory is not entered, so an ignored `node_modules` costs one
+ * entry of the parent's listing. Each listing asks for at most the remaining
+ * budget plus one entry, so the walk fails once it would pass
  * {@link SEARCH_MAX_ENTRIES} without reading further rows, and it stops at
  * the next listing once the call is cancelled or times out.
+ *
+ * With ripgrep's defaults, a directory's ignore files are found in its own
+ * listing and read only when present; the search root's ancestors are probed
+ * by path, a few lookups per level.
  */
 async function listFiles(
   scope: SearchScope,
   toolName: string,
-  skip: (name: string) => boolean,
+  filter: WalkFilter,
   signal: AbortSignal,
 ): Promise<WalkedFile[]> {
   let info
@@ -302,10 +324,12 @@ async function listFiles(
   } catch (error) {
     throw new SearchError(`${toolName} path not found: ${scope.root}`, 'SEARCH_FAILED', { cause: error })
   }
+  // An explicit file is searched whatever the ignore files say, as ripgrep does.
   if (!info.isDirectory) return [{ path: scope.root, mtime: info.mtime }]
   const files: WalkedFile[] = []
   let listed = 0
-  const visit = async (directory: string): Promise<void> => {
+  const budget: RuleBudget = { remaining: IGNORE_RULES_MAX }
+  const visit = async (directory: string, inherited: IgnoreStack | undefined): Promise<void> => {
     throwIfAborted(toolName, signal)
     const entries = await scope.vfs.readdir(directory, { limit: SEARCH_MAX_ENTRIES - listed + 1 })
     throwIfAborted(toolName, signal)
@@ -314,23 +338,94 @@ async function listFiles(
       throw new SearchError(`${toolName} would walk more than ${String(SEARCH_MAX_ENTRIES)} entries under ${scope.root}; narrow path`, 'SEARCH_RAW_OUTPUT_OVERFLOW')
     }
     entries.sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0)
+    const ignores = inherited === undefined
+      ? undefined
+      : await withIgnoreFrame(scope.vfs, inherited, directory, entries.map(entry => entry.name), signal, budget)
     for (const entry of entries) {
-      if (skip(entry.name)) continue
+      if (VCS_NAMES.has(entry.name)) continue
       const path = directory === '/' ? `/${entry.name}` : `${directory}/${entry.name}`
-      if (entry.isDirectory) await visit(path)
+      if (ignores !== undefined) {
+        const verdict = ignores.decide(path, entry.isDirectory)
+        // A hidden entry is skipped unless an ignore file re-includes it.
+        if (verdict === 'ignore' || (verdict === undefined && entry.name.startsWith('.'))) continue
+      }
+      if (entry.isDirectory) await visit(path, ignores)
       else if (entry.isFile) files.push({ path, mtime: entry.mtime })
     }
   }
-  await visit(scope.root)
+  await visit(scope.root, filter === 'all' ? undefined : await ancestorIgnores(scope.vfs, scope.root, signal, budget))
   return files
+}
+
+/** Rules a search may still compile; see {@link IGNORE_RULES_MAX}. */
+interface RuleBudget { remaining: number }
+
+/** The ignore frames of the search root's ancestors, from `/` down. */
+async function ancestorIgnores(vfs: EdgeVfs, root: string, signal: AbortSignal, budget: RuleBudget): Promise<IgnoreStack> {
+  let stack = IgnoreStack.empty()
+  const segments = root.split('/').filter(Boolean)
+  for (let depth = 0; depth < segments.length; depth++) {
+    const directory = `/${segments.slice(0, depth).join('/')}`
+    const names: string[] = []
+    for (const name of ['.git', ...IGNORE_FILE_KINDS.keys()]) {
+      try {
+        await vfs.stat(directory === '/' ? `/${name}` : `${directory}/${name}`)
+        names.push(name)
+      } catch {
+        // Absent: nothing to apply.
+      }
+    }
+    stack = await withIgnoreFrame(vfs, stack, directory, names, signal, budget)
+  }
+  return stack
+}
+
+/** `stack` with `directory`'s frame when it holds ignore files or a `.git` entry. */
+async function withIgnoreFrame(
+  vfs: EdgeVfs,
+  stack: IgnoreStack,
+  directory: string,
+  names: readonly string[],
+  signal: AbortSignal,
+  budget: RuleBudget,
+): Promise<IgnoreStack> {
+  const files: Partial<Record<IgnoreKind, IgnoreRules>> = {}
+  let found = false
+  for (const name of names) {
+    const kind = IGNORE_FILE_KINDS.get(name)
+    if (kind === undefined) continue
+    const path = directory === '/' ? `/${name}` : `${directory}/${name}`
+    let text: string | undefined
+    try {
+      text = await readTextFile(vfs, path, signal, IGNORE_FILE_MAX_BYTES)
+    } catch (error) {
+      if (signal.aborted) throw error
+      // A directory named like an ignore file, or one removed since the listing.
+      continue
+    }
+    if (text === undefined) continue
+    const parsed = parseIgnoreRules(text)
+    if (parsed.length === 0) continue
+    let cost = 0
+    for (const rule of parsed) {
+      cost += ruleMatcherCount(rule, budget.remaining)
+      if (cost > budget.remaining) break
+    }
+    if (cost > budget.remaining) continue
+    budget.remaining -= cost
+    files[kind] = new IgnoreRules(parsed)
+    found = true
+  }
+  const hasGit = names.includes('.git')
+  return found || hasGit ? stack.push({ dir: directory, files, hasGit }) : stack
 }
 
 /**
  * A file's UTF-8 text, or undefined when it is binary (contains NUL) or its
- * bytes pass {@link GREP_MAX_FILE_BYTES}: the read stops there, so a file
- * replaced by a larger one after the walk is still never loaded whole.
+ * bytes pass `maxBytes`: the read stops there, so a file replaced by a larger
+ * one after the walk is still never loaded whole.
  */
-async function readTextFile(vfs: EdgeVfs, path: string, signal: AbortSignal): Promise<string | undefined> {
+async function readTextFile(vfs: EdgeVfs, path: string, signal: AbortSignal, maxBytes: number): Promise<string | undefined> {
   const reader = (await vfs.readFile(path)).getReader()
   const chunks: Uint8Array[] = []
   let total = 0
@@ -343,7 +438,7 @@ async function readTextFile(vfs: EdgeVfs, path: string, signal: AbortSignal): Pr
       const { done, value } = await reader.read()
       if (done) break
       total += value.byteLength
-      if (total > GREP_MAX_FILE_BYTES || value.includes(0)) {
+      if (total > maxBytes || value.includes(0)) {
         await reader.cancel()
         return undefined
       }
