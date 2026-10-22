@@ -342,7 +342,7 @@
     "@deepseek-ai/dsh-client-ui-settings-plugins": "Its tabs come from dsh-edge-client-ui instead of the excluded plugin manager.",
     "@deepseek-ai/dsh-client-ui-settings-subagent": "Hosted by dsh-edge-client-ui; its namespaces are mounted by edge-plugin-settings.ts.",
     "@deepseek-ai/dsh-client-ui-settings-web-search": "Hosted by dsh-edge-client-ui; the web, web-search-deepseek, and web-deepseek-api namespaces are mounted by edge-plugin-settings.ts.",
-    "@deepseek-ai/dsh-client-ui-sidebar-documentpreview": "Office previews need officeToPdf, which the Edge does not serve, and /api/file images are not dispatched (#347).",
+    "@deepseek-ai/dsh-client-ui-sidebar-documentpreview": "Office previews need officeToPdf, which the Edge does not serve; image and text previews load through upstream's /api/file, which the Edge serves with a streamed body since 0.28.0 (#355).",
     "@deepseek-ai/dsh-client-ui-skill": "Skills come from edge-workspace-skills.ts and the /api/skills store; which skills/list answers is open (#353).",
     "@deepseek-ai/dsh-client-ui-theme": "The ui-theme namespace is Edge-registered and the saved theme is not injected at boot.",
     "@deepseek-ai/dsh-client-ui-workflow-run": "Its nodes come from the Edge workflow engine (edge-workflow-engine.ts), Isolated deployments only.",
