@@ -48,6 +48,14 @@
       - combobox "Web fetch tools":
         - option "Always ask before running"
         - option "Trust all (no confirmation)" [selected]
+  - region "Optional tools":
+    - heading "Optional tools" [level=3]
+    - term: Session history search
+    - definition:
+      - combobox "Session history search":
+        - option "Off" [selected]
+        - option "On"
+      - paragraph: Lets the model search, trace, and read earlier sessions of this deployment (five tools from upstream). Every session can read every other, and each request carries the five tool definitions. Applies from the next request.
   - region "Owner session":
     - heading "Owner session" [level=3]
     - paragraph: Signing out clears this browser’s owner session. Your deployment and data remain unchanged.

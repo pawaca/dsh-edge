@@ -30,10 +30,11 @@ const RUNTIME = {
 
 function approvalResponse(): Response { return response({ mode: 'ask' }) }
 function mcpResponse(): Response { return response({ servers: [] }) }
+function toolSettingsResponse(sessionQuery = false): Response { return response({ sessionQuery }) }
 
 describe('Edge settings controller', () => {
   it('loads authenticated deployment health lazily', async () => {
-    const fetch = vi.fn().mockResolvedValueOnce(response(HEALTH)).mockResolvedValueOnce(approvalResponse()).mockResolvedValueOnce(mcpResponse()).mockResolvedValueOnce(response({ version: '1.2.3' }))
+    const fetch = vi.fn().mockResolvedValueOnce(response(HEALTH)).mockResolvedValueOnce(approvalResponse()).mockResolvedValueOnce(toolSettingsResponse()).mockResolvedValueOnce(mcpResponse()).mockResolvedValueOnce(response({ version: '1.2.3' }))
     const controller = new EdgeSettingsController({ fetch, copy: vi.fn(), navigate: vi.fn() })
     expect(controller.store.getSnapshot().status).toBe('idle')
     await controller.load()
@@ -45,11 +46,25 @@ describe('Edge settings controller', () => {
 
   it('loads runtime settings and container status only on a Container deployment', async () => {
     const health = { ...HEALTH, shell: 'linux-container' as const }
-    const fetch = vi.fn().mockResolvedValueOnce(response(health)).mockResolvedValueOnce(approvalResponse()).mockResolvedValueOnce(response(RUNTIME)).mockResolvedValueOnce(mcpResponse()).mockResolvedValueOnce(response({ version: '1.2.3' }))
+    const fetch = vi.fn().mockResolvedValueOnce(response(health)).mockResolvedValueOnce(approvalResponse()).mockResolvedValueOnce(toolSettingsResponse()).mockResolvedValueOnce(response(RUNTIME)).mockResolvedValueOnce(mcpResponse()).mockResolvedValueOnce(response({ version: '1.2.3' }))
     const controller = new EdgeSettingsController({ fetch, copy: vi.fn(), navigate: vi.fn() })
     await controller.load()
-    expect(fetch).toHaveBeenNthCalledWith(3, '/api/runtime', { credentials: 'same-origin' })
+    expect(fetch).toHaveBeenNthCalledWith(4, '/api/runtime', { credentials: 'same-origin' })
     expect(controller.store.getSnapshot()).toMatchObject({ status: 'ready', health, runtime: RUNTIME })
+  })
+
+  it('loads and saves the session-query tools switch', async () => {
+    const fetch = vi.fn().mockResolvedValueOnce(response(HEALTH)).mockResolvedValueOnce(approvalResponse()).mockResolvedValueOnce(toolSettingsResponse(true)).mockResolvedValueOnce(mcpResponse()).mockResolvedValueOnce(response({ version: '1.2.3' }))
+    const controller = new EdgeSettingsController({ fetch, copy: vi.fn(), navigate: vi.fn() })
+    await controller.load()
+    expect(fetch).toHaveBeenNthCalledWith(3, '/api/tool-settings', { credentials: 'same-origin' })
+    expect(controller.store.getSnapshot().sessionQueryTools).toBe(true)
+    fetch.mockResolvedValueOnce(response({ sessionQuery: false })).mockResolvedValueOnce(response({ error: 'bad' }, 400))
+    await controller.setSessionQueryTools(false)
+    expect(fetch).toHaveBeenLastCalledWith('/api/tool-settings', expect.objectContaining({ method: 'PUT', body: JSON.stringify({ sessionQuery: false }) }))
+    expect(controller.store.getSnapshot()).toMatchObject({ sessionQueryTools: false, toolSettingsSaved: true, toolSettingsSaving: false })
+    await controller.setSessionQueryTools(true)
+    expect(controller.store.getSnapshot()).toMatchObject({ sessionQueryTools: false, toolSettingsSaving: false, toolSettingsError: 'HTTP 400' })
   })
 
   it('saves runtime settings and reports a failed save', async () => {
@@ -106,7 +121,7 @@ describe('Edge settings controller', () => {
     const fetch = vi.fn()
       .mockImplementationOnce(() => first.promise)
       .mockResolvedValueOnce(response({ ...HEALTH, deploymentId: 'fresh' }))
-      .mockResolvedValueOnce(approvalResponse())
+      .mockResolvedValueOnce(approvalResponse()).mockResolvedValueOnce(toolSettingsResponse())
       .mockResolvedValueOnce(mcpResponse())
     const controller = new EdgeSettingsController({
       fetch,
@@ -128,6 +143,7 @@ describe('Edge settings controller', () => {
     const fetch = vi.fn((input: string, init?: RequestInit) => {
       if (input === '/api/auth/logout' && init?.method === 'POST') return logout.promise
       if (input === '/api/approval-mode') return Promise.resolve(approvalResponse())
+      if (input === '/api/tool-settings') return Promise.resolve(toolSettingsResponse())
       if (input === '/api/mcp-servers') return Promise.resolve(mcpResponse())
       if (input.startsWith('https://registry.npmjs.org/')) return Promise.resolve(response({ version: '1.2.3' }))
       healthCalls += 1
@@ -160,7 +176,7 @@ describe('Edge settings controller', () => {
     const copy = vi.fn().mockResolvedValue(undefined)
     const fetch = vi.fn<(input: string, init?: RequestInit) => Promise<Response>>()
       .mockResolvedValueOnce(response(HEALTH))
-      .mockResolvedValueOnce(approvalResponse())
+      .mockResolvedValueOnce(approvalResponse()).mockResolvedValueOnce(toolSettingsResponse())
       .mockResolvedValueOnce(mcpResponse())
       .mockResolvedValueOnce(response({ version: '2.0.0' }))
     const controller = new EdgeSettingsController({ fetch, copy, navigate: vi.fn() })
@@ -180,7 +196,7 @@ describe('Edge settings controller', () => {
     const copy = vi.fn().mockResolvedValue(undefined)
     const fetch = vi.fn<(input: string, init?: RequestInit) => Promise<Response>>()
       .mockResolvedValueOnce(response({ ...HEALTH, version: '2.0.0-alpha.1' }))
-      .mockResolvedValueOnce(approvalResponse())
+      .mockResolvedValueOnce(approvalResponse()).mockResolvedValueOnce(toolSettingsResponse())
       .mockResolvedValueOnce(mcpResponse())
       .mockResolvedValueOnce(response({ version: '2.0.0-alpha.2' }))
     const controller = new EdgeSettingsController({ fetch, copy, navigate: vi.fn() })

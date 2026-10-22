@@ -157,6 +157,7 @@ import {
 } from './agent-presets.ts'
 import { installEdgeApprovalPolicy, type EdgeApprovalMode, type EdgeApprovalSettings } from './approval-policy.ts'
 import { installEdgeRuntimeSettings, type EdgeRuntimeSettings } from './runtime-settings.ts'
+import { installEdgeToolSettings, type EdgeToolSettings, type EdgeToolSettingsHandle } from './edge-tool-settings.ts'
 import { installEdgeWebSearch } from './web-search.ts'
 import { mountAgentLoop, mountSubagentModelSelection, mountSubagentRuntime } from './edge-plugin-settings.ts'
 import { DurableEventDeliveryQueue, ImmediateFlushLimiter } from './durable-event-delivery.ts'
@@ -360,6 +361,7 @@ export class EdgeSessionStore {
   private readonly publishesLateEvents: boolean
   private readonly residentAgents = new Map<SessionId, AgentHandle>()
   private approvalScope?: EdgeSettingsScope<EdgeApprovalSettings>
+  private toolSettings?: EdgeToolSettingsHandle
   private runtimeScope?: EdgeSettingsScope<EdgeRuntimeSettings>
   private mcpToolManager?: McpToolManager
   private refreshWorkspaceSkills: EdgeWorkspaceSkills.EdgeSkillRefresh | undefined
@@ -762,6 +764,8 @@ export class EdgeSessionStore {
       resolveMcpPolicy: name => this.mcpToolManager!.resolveToolPolicy(name),
     })
     this.runtimeScope = installEdgeRuntimeSettings(this.context)
+    // Optional upstream tools the owner turns on in Settings (off by default).
+    this.toolSettings = await installEdgeToolSettings(this.context)
     if (config.onRuntimeSettingsChanged !== undefined) this.runtimeScope.watch(config.onRuntimeSettingsChanged)
     await this.mcpToolManager.ready
     const mcpSummary = await this.mcpToolManager.getServerSummary()
@@ -1170,7 +1174,7 @@ export class EdgeSessionStore {
         }
       },
       pages: (id, abort) => persistence.exportEventPages(id, SESSION_LOG_EXPORT_PAGE, abort),
-      descendants: async (id, abort) => (await this.context.sessionQuery.traceSession(id, abort)).descendants,
+      descendants: async (id, abort) => (await (this.context.sessionQuery as EdgeSessionQuery).traceSessionForExport(id, abort)).descendants,
       readImage: (ref, abort) => attachments.readImage(ref, abort),
       readFileStream: (ref, abort) => attachments.readFileStream(ref, abort),
     }, sessionId, includeDescendants, signal)
@@ -1466,6 +1470,30 @@ export class EdgeSessionStore {
     await this.ready
     if (mode !== 'ask' && mode !== 'never') throw new Error('Invalid approval mode.')
     await this.approvalScope?.update({ mode })
+  }
+
+  async getToolSettings(): Promise<EdgeToolSettings> {
+    await this.ready
+    return { ...this.toolSettings!.scope.get() }
+  }
+
+  /**
+   * Save and apply a change before answering, so the next request carries
+   * the new tool set; a change whose mount fails is reverted and rethrown.
+   */
+  async updateToolSettings(patch: Partial<EdgeToolSettings>): Promise<EdgeToolSettings> {
+    await this.ready
+    const { scope, sync } = this.toolSettings!
+    const previous = { ...scope.get() }
+    await scope.update(patch)
+    try {
+      await sync()
+    } catch (error) {
+      await scope.update(previous)
+      await sync().catch(() => {})
+      throw error
+    }
+    return { ...scope.get() }
   }
 
   /** Record the zone of the owner's latest prompt; a change is written once. */
@@ -2509,6 +2537,8 @@ export class EdgeSessionStore {
     if (this.context.agents.get(agent.id) !== agent || sessions.get(agent.id) !== agent.session) {
       throw new EdgeSessionStoreError('INVALID_DATA', 'Agent is not the live persistence owner.')
     }
+    // A saved "on" whose mount failed (at start, say) is retried before the turn's requests.
+    await this.toolSettings?.ensure()
 
     if (this.shells.get(agent.id) === undefined) {
       this.shells.bind(agent.id, input.shell, agent.session.header.cwd ?? '/workspace')

@@ -78,6 +78,7 @@ export function apply(ctx: Context): void {
     copyUpgrade: () => controller.copyUpgrade(),
     signOut: () => controller.signOut(),
     setApprovalMode: (mode) => controller.setApprovalMode(mode),
+    setSessionQueryTools: (enabled) => controller.setSessionQueryTools(enabled),
     refreshRuntime: () => controller.refreshRuntime(),
     setRuntimeSettings: (patch) => controller.setRuntimeSettings(patch),
     stopContainer: () => controller.stopContainer(),

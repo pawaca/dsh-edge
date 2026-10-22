@@ -2507,6 +2507,27 @@ try {
   assert.doesNotMatch(grepText, /c\.md|skipped/u)
   assert.deepEqual(vfsSearchResult('call_mock_glob').split('\n').sort(),
     ['haystack/.hidden.txt', 'haystack/a.txt', 'haystack/deep/b.txt', 'haystack/skipped/e.txt'])
+  // Upstream's session-query tools are off until the owner turns them on in Settings; the
+  // switch applies from the next request and the model then finds an earlier session's words.
+  const sessionToolNames = ['session_event_read', 'session_event_search', 'session_event_trace', 'session_search', 'session_trace']
+  const offeredSessionTools = () => (turnRequests().at(-1).tools ?? []).map(tool => tool.name).filter(name => name.startsWith('session_')).sort()
+  assert.deepEqual(offeredSessionTools(), [])
+  assert.deepEqual(await (await request('/api/tool-settings')).json(), { sessionQuery: false })
+  assert.equal((await request('/api/tool-settings', { method: 'PUT', body: JSON.stringify({ sessionQuery: 'yes' }) })).status, 400)
+  const enabledTools = await request('/api/tool-settings', { method: 'PUT', body: JSON.stringify({ sessionQuery: true }) })
+  assert.deepEqual(await enabledTools.json(), { sessionQuery: true })
+  const notedSessionId = (await rpc('session.create', {})).body.result.value.sessionId
+  await turn(notedSessionId, 'note the heron-4471 sighting')
+  const searchingSessionId = (await rpc('session.create', {})).body.result.value.sessionId
+  const sessionSearchEvents = await turn(searchingSessionId, 'search earlier sessions')
+  assert.equal(assistantText(sessionSearchEvents), 'session-search-finished')
+  const sessionSearchText = toolResultText(sessionSearchEvents.find(event => event.type === 'tool/result'))
+  assert.match(sessionSearchText, new RegExp(`Session ${notedSessionId} `, 'u'))
+  assert.match(sessionSearchText, /heron-4471/u)
+  assert.deepEqual(offeredSessionTools(), sessionToolNames)
+  await request('/api/tool-settings', { method: 'PUT', body: JSON.stringify({ sessionQuery: false }) })
+  await turn(notedSessionId, 'note the heron again')
+  assert.deepEqual(offeredSessionTools(), [])
   // The agent-loop and web-search settings cards edit namespaces the Edge registers under the
   // upstream entry ids; a saved endpoint must pass the DEEPSEEK_SEARCH_BASE_URL check.
   const pluginSettings = async () => (await rpc('settings.describe', {})).body.result.value.namespaces

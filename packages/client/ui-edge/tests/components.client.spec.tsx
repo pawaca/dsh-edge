@@ -32,6 +32,9 @@ const READY: EdgeSettingsState = {
   approvalMode: 'ask',
   approvalSaving: false,
   approvalSaved: false,
+  sessionQueryTools: false,
+  toolSettingsSaving: false,
+  toolSettingsSaved: false,
   mcpServers: [],
   mcpLoaded: true,
   mcpSaving: false,
@@ -54,6 +57,7 @@ function runtimeActions() {
     refreshRuntime: vi.fn(() => Promise.resolve()),
     setRuntimeSettings: vi.fn(() => Promise.resolve()),
     stopContainer: vi.fn(() => Promise.resolve()),
+    setSessionQueryTools: vi.fn((_enabled: boolean) => Promise.resolve()),
   }
 }
 
@@ -110,6 +114,26 @@ describe('Edge settings section', () => {
     expect(actions.stopContainer).toHaveBeenCalledOnce()
   })
 
+  it('turns the session history tools on from the optional tools card', () => {
+    const actions = runtimeActions()
+    render(<EdgeSettingsSection
+      {...runtime}
+      close={() => {}}
+      t={t}
+      useEdgeSettings={selector => selector(READY)}
+      load={vi.fn(() => Promise.resolve())}
+      copyUpgrade={vi.fn(() => Promise.resolve())}
+      signOut={vi.fn(() => Promise.resolve())}
+      setApprovalMode={vi.fn(() => Promise.resolve())}
+      {...actions}
+    />)
+    const select = screen.getByRole('combobox', { name: 'Session history search' }) as HTMLSelectElement
+    expect(select.value).toBe('off')
+    expect(screen.getByText(en.sessionQueryHelp)).toBeTruthy()
+    fireEvent.change(select, { target: { value: 'on' } })
+    expect(actions.setSessionQueryTools).toHaveBeenCalledWith(true)
+  })
+
   it('offers sleep now only for an idle running container', () => {
     const busy: EdgeSettingsState = {
       ...CONTAINER_READY,
@@ -146,6 +170,7 @@ describe('Edge settings section', () => {
       useEdgeSettings={selector => selector({
         status: 'error', error: 'private transport detail', copied: false, signingOut: false,
         approvalMode: 'ask', approvalSaving: false, approvalSaved: false,
+        sessionQueryTools: false, toolSettingsSaving: false, toolSettingsSaved: false,
         mcpServers: [], mcpLoaded: false, mcpSaving: false,
         runtimeSaving: false, runtimeSaved: false, containerStopping: false,
       })}
