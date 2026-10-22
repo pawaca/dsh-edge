@@ -52,6 +52,7 @@ import {
   resolveEdgeRuntimeShell,
 } from './runtime-provider.ts'
 import { parseRuntimeSettingsPatch } from './runtime-settings.ts'
+import { parseToolSettingsPatch } from './edge-tool-settings.ts'
 import type { WorkflowLoader } from './edge-workflow-engine.ts'
 import {
   resolveEdgeModel,
@@ -545,6 +546,24 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
           }
           await this.sessions.setApprovalMode(body.mode)
           return jsonResponse({ mode: body.mode })
+        }
+      }
+      if (url.pathname === '/api/tool-settings') {
+        if (request.method === 'GET') return jsonResponse(await this.sessions.getToolSettings())
+        if (request.method === 'PUT') {
+          let body: unknown
+          try {
+            body = await request.json()
+          } catch {
+            return jsonResponse({ error: 'invalid JSON body' }, 400)
+          }
+          const patch = parseToolSettingsPatch(body)
+          if (typeof patch === 'string') return jsonResponse({ error: patch }, 400)
+          try {
+            return jsonResponse(await this.sessions.updateToolSettings(patch))
+          } catch {
+            return jsonResponse({ error: 'could not apply the tool settings; they were left unchanged' }, 500)
+          }
         }
       }
       if (url.pathname === '/api/runtime') {

@@ -85,6 +85,11 @@ export interface EdgeSettingsState {
   approvalSaving: boolean
   approvalSaved: boolean
   approvalError?: string
+  /** Whether upstream's session-query tools are mounted (`/api/tool-settings`). */
+  sessionQueryTools: boolean
+  toolSettingsSaving: boolean
+  toolSettingsSaved: boolean
+  toolSettingsError?: string
   /** Loaded only on Container deployments, where the settings apply. */
   runtime?: EdgeRuntimeState
   runtimeSaving: boolean
@@ -144,11 +149,13 @@ export class EdgeSettingsController {
   readonly store: SnapshotStore<EdgeSettingsState> = createSnapshotStore({
     status: 'idle', copied: false, signingOut: false,
     approvalMode: 'never', approvalSaving: false, approvalSaved: false,
+    sessionQueryTools: false, toolSettingsSaving: false, toolSettingsSaved: false,
     runtimeSaving: false, runtimeSaved: false, containerStopping: false,
     mcpServers: [], mcpLoaded: false, mcpSaving: false,
   })
   private loadGeneration = 0
   private approvalGeneration = 0
+  private toolSettingsGeneration = 0
   private runtimeGeneration = 0
   private mcpGeneration = 0
   private oauthMessageHandler: ((e: MessageEvent) => void) | undefined
@@ -204,6 +211,23 @@ export class EdgeSettingsController {
       } catch {
         if (approvalGen === this.approvalGeneration) {
           this.store.update((state) => { state.approvalError = 'Could not load approval setting.' })
+        }
+      }
+
+      const toolGen = ++this.toolSettingsGeneration
+      try {
+        const toolResponse = await this.io.fetch('/api/tool-settings', { credentials: 'same-origin' })
+        if (toolGen === this.toolSettingsGeneration) {
+          if (!toolResponse.ok) throw new Error(`HTTP ${String(toolResponse.status)}`)
+          const data = await toolResponse.json() as { sessionQuery?: unknown }
+          if (toolGen === this.toolSettingsGeneration && typeof data.sessionQuery === 'boolean') {
+            const sessionQuery = data.sessionQuery
+            this.store.update((state) => { state.sessionQueryTools = sessionQuery; delete state.toolSettingsError })
+          }
+        }
+      } catch (error) {
+        if (toolGen === this.toolSettingsGeneration) {
+          this.store.update((state) => { state.toolSettingsError = messageOf(error) })
         }
       }
 
@@ -279,6 +303,35 @@ export class EdgeSettingsController {
       this.store.update((state) => {
         state.approvalSaving = false
         state.approvalError = messageOf(error)
+      })
+    }
+  }
+
+  /** Turn upstream's session-query tools on or off. */
+  async setSessionQueryTools(enabled: boolean): Promise<void> {
+    this.toolSettingsGeneration++
+    this.store.update((state) => {
+      state.toolSettingsSaving = true
+      state.toolSettingsSaved = false
+      delete state.toolSettingsError
+    })
+    try {
+      const response = await this.io.fetch('/api/tool-settings', {
+        method: 'PUT',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sessionQuery: enabled }),
+      })
+      if (!response.ok) throw new Error(`HTTP ${String(response.status)}`)
+      this.store.update((state) => {
+        state.sessionQueryTools = enabled
+        state.toolSettingsSaving = false
+        state.toolSettingsSaved = true
+      })
+    } catch (error) {
+      this.store.update((state) => {
+        state.toolSettingsSaving = false
+        state.toolSettingsError = messageOf(error)
       })
     }
   }

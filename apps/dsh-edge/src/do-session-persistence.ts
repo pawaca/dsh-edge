@@ -656,13 +656,19 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
     limit: number,
     maxStoredBytes: number,
     signal?: AbortSignal,
+    /**
+     * Read each row's payload size before selecting it, so a row over the
+     * budget is never loaded. It reads the rows twice, so only the few-row
+     * reads of the session-query tools ask for it.
+     */
+    options: { preflight?: boolean } = {},
   ): Promise<EdgeEventPage> {
     if (!Number.isSafeInteger(maxStoredBytes) || maxStoredBytes <= 0) {
       throw new TypeError(
         `readEventPage maxStoredBytes must be a positive safe integer, got ${String(maxStoredBytes)}`,
       )
     }
-    const page = await this.loadStoredPage(id, fromSeq, limit, maxStoredBytes, signal)
+    const page = await this.loadStoredPage(id, fromSeq, limit, maxStoredBytes, signal, undefined, options.preflight === true)
     if (page === undefined) {
       throw new SessionPersistenceNotFoundError(id)
     }
@@ -830,22 +836,27 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
     maxStoredBytes: number,
     signal?: AbortSignal,
     toSeqExclusive?: number,
+    preflight = false,
   ): Promise<EdgeEventPage | undefined> {
     return promiseFromSync(() => {
       signal?.throwIfAborted()
       const page = this.storage.transactionSync(() => {
         const headerRow = this.rowFor(id)
         if (headerRow === undefined) return undefined
-        const sqlRows = this.eventRowRangeContaining(id, fromSeq, limit, toSeqExclusive)
+        const { rows: sqlRows, overBudget } = this.eventRowRangeContaining(id, fromSeq, limit, toSeqExclusive, preflight ? maxStoredBytes : undefined)
         const lastTurnEnd = this.lastCommittedSequence(id)
         const events: SessionEvent[] = []
         let storedBytes = 0
         let hasMore = false
         let nextSeq = fromSeq
+        let stopped = false
         for (const row of sqlRows) {
+          // Both payload columns are decoded, so both count toward the budget.
           const rowBytes = new TextEncoder().encode(row.data).byteLength
+            + (row.source_event_seqs === null ? 0 : new TextEncoder().encode(row.source_event_seqs).byteLength)
           if (events.length >= limit || rowBytes > maxStoredBytes - storedBytes) {
             hasMore = true
+            stopped = true
             break
           }
           let decoded: SessionEvent[]
@@ -855,6 +866,7 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
             if (row.seq <= lastTurnEnd) {
               throw new Error(`corrupt session log: unparsable committed event at seq ${row.seq}`)
             }
+            stopped = true
             break
           }
           storedBytes += rowBytes
@@ -875,6 +887,8 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
             nextSeq = event.seq + 1
           }
         }
+        // Rows past the budget were never selected; the page ends before them.
+        if (overBudget && !stopped) hasMore = true
         return {
           meta: rowToHeader(headerRow),
           events,
@@ -1036,6 +1050,31 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
   }
 
   /** Read one canonical header/title summary without materializing its event log. */
+  /**
+   * Stored sessions (canonical and blank), counted only up to `limit + 1`:
+   * reads at most that many rows of each table.
+   */
+  sessionCountUpTo(limit: number): number {
+    const count = (table: string) => this.storage.sql.exec<{ n: number }>(
+      `SELECT COUNT(*) AS n FROM (SELECT 1 FROM ${table} LIMIT ?)`, limit + 1,
+    ).toArray()[0]?.n ?? 0
+    return Math.min(limit + 1, count('dsh_sessions') + count('dsh_edge_blank_sessions'))
+  }
+
+  /**
+   * Characters of a session's stored event rows (each row's event data and
+   * its cited source sequences, the two columns a load decodes), summed
+   * without decoding them: one aggregate over the session's rows, for callers
+   * that must bound a whole-log load first.
+   */
+  storedEventCharacters(id: SessionId): number {
+    return this.storage.sql.exec<{ characters: number }>(
+      `SELECT COALESCE(SUM(LENGTH(data) + COALESCE(LENGTH(source_event_seqs), 0)), 0) AS characters
+       FROM dsh_session_events WHERE session_id = ?`,
+      id,
+    ).toArray()[0]?.characters ?? 0
+  }
+
   readSessionSummary(id: SessionId): EdgeStoredSessionSummary | undefined {
     const row = this.storage.sql.exec<SessionSummaryRow>(
       `${SESSION_SUMMARY_MATERIALIZED} WHERE s.id = ?`,
@@ -1410,12 +1449,20 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
     ).toArray()
   }
 
+  /**
+   * The stored rows from the one containing `fromSeq`, at most `limit + 1`.
+   * With `maxStoredBytes`, their payload sizes are read first, without the
+   * payloads, so a row that would pass it (counting both decoded columns) is
+   * never selected: `overBudget` says the range stopped before it. Without
+   * it, one query reads the rows and the caller measures them.
+   */
   private eventRowRangeContaining(
     id: SessionId,
     fromSeq: number,
     limit: number,
-    toSeqExclusive?: number,
-  ): EventRow[] {
+    toSeqExclusive: number | undefined,
+    maxStoredBytes: number | undefined,
+  ): { rows: EventRow[]; overBudget: boolean } {
     const startSeq = this.storage.sql.exec<{ seq: number }>(
       `SELECT MAX(seq) AS seq FROM dsh_session_events
        WHERE session_id = ? AND seq <= ?`,
@@ -1423,23 +1470,41 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
       fromSeq,
     ).toArray()[0]?.seq ?? fromSeq
     const sqlLimit = limit + 1
-    if (toSeqExclusive !== undefined) {
-      return this.storage.sql.exec<EventRow>(
+    const upper = toSeqExclusive === undefined ? '' : ' AND seq < ?'
+    const bounds: SqlStorageValue[] = toSeqExclusive === undefined ? [id, startSeq] : [id, startSeq, toSeqExclusive]
+    if (maxStoredBytes === undefined) {
+      const rows = this.storage.sql.exec<EventRow>(
         `SELECT seq, type, time, data, source_event_seqs, surface_op, ignorable
-         FROM dsh_session_events WHERE session_id = ? AND seq >= ? AND seq < ? ORDER BY seq LIMIT ?`,
-        id,
-        startSeq,
-        toSeqExclusive,
+         FROM dsh_session_events WHERE session_id = ? AND seq >= ?${upper} ORDER BY seq LIMIT ?`,
+        ...bounds,
         sqlLimit,
       ).toArray()
+      return { rows, overBudget: false }
     }
-    return this.storage.sql.exec<EventRow>(
-      `SELECT seq, type, time, data, source_event_seqs, surface_op, ignorable
-       FROM dsh_session_events WHERE session_id = ? AND seq >= ? ORDER BY seq LIMIT ?`,
-      id,
-      startSeq,
+    let fitting = 0
+    let bytes = 0
+    let overBudget = false
+    for (const row of this.storage.sql.exec<{ bytes: number }>(
+      `SELECT LENGTH(CAST(data AS BLOB)) + COALESCE(LENGTH(CAST(source_event_seqs AS BLOB)), 0) AS bytes
+       FROM dsh_session_events WHERE session_id = ? AND seq >= ?${upper} ORDER BY seq LIMIT ?`,
+      ...bounds,
       sqlLimit,
+    )) {
+      if (bytes + row.bytes > maxStoredBytes) {
+        overBudget = true
+        break
+      }
+      bytes += row.bytes
+      fitting += 1
+    }
+    if (fitting === 0) return { rows: [], overBudget }
+    const rows = this.storage.sql.exec<EventRow>(
+      `SELECT seq, type, time, data, source_event_seqs, surface_op, ignorable
+       FROM dsh_session_events WHERE session_id = ? AND seq >= ?${upper} ORDER BY seq LIMIT ?`,
+      ...bounds,
+      fitting,
     ).toArray()
+    return { rows, overBudget }
   }
 
   /** Find the newest parseable commit marker without materializing marker rows. */

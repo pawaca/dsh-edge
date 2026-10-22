@@ -262,11 +262,6 @@
       "status": "not-applicable",
       "reason": "Persistent PowerShell; it needs the terminal seam (ctx.subprocess) and a pwsh binary, neither of which the Edge has."
     },
-    "@deepseek-ai/dsh-tool-session-query": {
-      "status": "gap",
-      "priority": "P2",
-      "reason": "Five read-only session search and trace tools over ctx.sessionQuery, which the Edge already serves; it can be mounted unmodified."
-    },
     "@deepseek-ai/dsh-tool-str-replace-editor": {
       "status": "declined",
       "reason": "Alternative editor tool; the Edge offers the dsh-tool-fs file tools."

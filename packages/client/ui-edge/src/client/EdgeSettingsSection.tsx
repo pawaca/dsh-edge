@@ -20,6 +20,7 @@ export interface EdgeSettingsInjected {
   copyUpgrade(): Promise<void>
   signOut(): Promise<void>
   setApprovalMode(mode: ApprovalMode): Promise<void>
+  setSessionQueryTools(enabled: boolean): Promise<void>
   refreshRuntime(): Promise<void>
   setRuntimeSettings(patch: Partial<EdgeRuntimeState['settings']>): Promise<void>
   stopContainer(): Promise<void>
@@ -128,7 +129,7 @@ function ContainerCard(props: EdgeSettingsSectionProps & { state: EdgeSettingsSt
 }
 
 export function EdgeSettingsSection(props: EdgeSettingsSectionProps): ReactNode {
-  const { useEdgeSettings, load, copyUpgrade, signOut, setApprovalMode, t } = props
+  const { useEdgeSettings, load, copyUpgrade, signOut, setApprovalMode, setSessionQueryTools, t } = props
   useEffect(() => { void load() }, [load])
   const state = useEdgeSettings(snapshot => snapshot)
   const deploymentDetails = state.status === 'idle' || state.status === 'loading'
@@ -202,6 +203,28 @@ export function EdgeSettingsSection(props: EdgeSettingsSectionProps): ReactNode 
         </dl>
         {state.approvalSaved ? <p className={css.status}>{t('approvalSaved')}</p> : null}
         {state.approvalError !== undefined ? <p className={css.error} role="alert">{t('approvalError')}</p> : null}
+      </section>
+      <section className={css.card} aria-labelledby="edge-optional-tools-title">
+        <h3 id="edge-optional-tools-title">{t('optionalTools')}</h3>
+        <dl>
+          <Row label={t('sessionQueryTools')} value={
+            <>
+              <select
+                className={css.select}
+                value={state.sessionQueryTools ? 'on' : 'off'}
+                disabled={state.toolSettingsSaving || state.status !== 'ready'}
+                aria-label={t('sessionQueryTools')}
+                onChange={e => { void setSessionQueryTools(e.target.value === 'on') }}
+              >
+                <option value="off">{t('toolOff')}</option>
+                <option value="on">{t('toolOn')}</option>
+              </select>
+              <p className={css.notice}>{t('sessionQueryHelp')}</p>
+            </>
+          } />
+        </dl>
+        {state.toolSettingsSaved ? <p className={css.status}>{t('toolSettingsSaved')}</p> : null}
+        {state.toolSettingsError !== undefined ? <p className={css.error} role="alert">{t('toolSettingsError')}</p> : null}
       </section>
       <section className={css.card} aria-labelledby="edge-owner-title">
         <h3 id="edge-owner-title">{t('ownerSession')}</h3>
