@@ -174,6 +174,8 @@ export default {
           ...result.stderrSpillPath === undefined ? {} : { stderrSpillPath: result.stderrSpillPath },
           ...result.stdoutSpillPartial === true ? { stdoutSpillPartial: true } : {},
           ...result.stderrSpillPartial === true ? { stderrSpillPartial: true } : {},
+          ...result.stdoutSpillPending === true ? { stdoutSpillPending: true } : {},
+          ...result.stderrSpillPending === true ? { stderrSpillPending: true } : {},
           ...result.stoppedAtLightLimit === true ? { stoppedAtLightLimit: true } : {},
         } satisfies EdgeShellResult)
       }

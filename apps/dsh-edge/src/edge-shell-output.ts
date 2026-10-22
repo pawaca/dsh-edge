@@ -44,6 +44,8 @@ export interface CapturedStream {
   readonly spillPath?: string
   /** The stream passed {@link SHELL_SPILL_MAX_BYTES}, so the spill holds only its start. */
   readonly spillPartial?: boolean
+  /** The spill was still being written when the result was taken, so it may be incomplete. */
+  readonly spillPending?: boolean
 }
 
 export interface StreamCaptureLimits {
@@ -86,14 +88,16 @@ export class StreamCapture {
       this.startSpill()
       for (const prefix of this.held) await this.write(prefix)
     }
-    await this.write(chunk)
-    // Only the part that can still be in the tail is copied.
+    // The tail takes the chunk before its spill write waits for storage, so a
+    // result taken while that write is pending still ends with it. Only the
+    // part that can still be in the tail is copied.
     const keep = chunk.byteLength > this.limits.tailBytes
       ? chunk.slice(chunk.byteLength - this.limits.tailBytes)
       : chunk.slice()
     this.held.push(keep)
     this.heldBytes += keep.byteLength
     this.trimTail()
+    await this.write(chunk)
   }
 
   /**
@@ -106,11 +110,13 @@ export class StreamCapture {
    */
   async finish(options: { wait?: boolean } = {}): Promise<CapturedStream> {
     let spillPath: string | undefined
+    let pending = false
     if (this.spill !== undefined) {
       // Started once; a later call (no longer waiting) reuses it.
       const settling = this.settling ??= this.settle(this.spill)
       if (options.wait !== false) await settling
       if (!this.spillFailed) spillPath = this.spill.path
+      pending = !this.settled
     }
     const bytes = concat(this.held, this.heldBytes)
     return {
@@ -118,10 +124,12 @@ export class StreamCapture {
       truncated: this.overflowed,
       ...spillPath === undefined ? {} : { spillPath },
       ...spillPath !== undefined && this.spillPartial ? { spillPartial: true } : {},
+      ...spillPath !== undefined && pending ? { spillPending: true } : {},
     }
   }
 
   private settling: Promise<void> | undefined
+  private settled = false
 
   private async settle({ writer, stored }: NonNullable<StreamCapture['spill']>): Promise<void> {
     try {
@@ -130,6 +138,8 @@ export class StreamCapture {
       await stored
     } catch {
       this.spillFailed = true
+    } finally {
+      this.settled = true
     }
   }
 

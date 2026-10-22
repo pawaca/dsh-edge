@@ -346,8 +346,8 @@ const SHELL_SPILL_DIRECTORY = '/workspace/.spill'
 function streamFacts(stream: ShellStream, captured: Awaited<ReturnType<StreamCapture['finish']>>): Partial<EdgeShellResult> {
   if (!captured.truncated) return {}
   return stream === 'stdout'
-    ? { stdoutTruncated: true, ...captured.spillPath === undefined ? {} : { stdoutSpillPath: captured.spillPath }, ...captured.spillPartial === true ? { stdoutSpillPartial: true } : {} }
-    : { stderrTruncated: true, ...captured.spillPath === undefined ? {} : { stderrSpillPath: captured.spillPath }, ...captured.spillPartial === true ? { stderrSpillPartial: true } : {} }
+    ? { stdoutTruncated: true, ...captured.spillPath === undefined ? {} : { stdoutSpillPath: captured.spillPath }, ...captured.spillPartial === true ? { stdoutSpillPartial: true } : {}, ...captured.spillPending === true ? { stdoutSpillPending: true } : {} }
+    : { stderrTruncated: true, ...captured.spillPath === undefined ? {} : { stderrSpillPath: captured.spillPath }, ...captured.spillPartial === true ? { stderrSpillPartial: true } : {}, ...captured.spillPending === true ? { stderrSpillPending: true } : {} }
 }
 
 /**

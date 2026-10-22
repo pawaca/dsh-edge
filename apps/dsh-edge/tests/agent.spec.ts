@@ -268,6 +268,8 @@ describe('dsh-edge native agent runtime', () => {
       + '[timed out after 5000ms]\n[exit code: 1]')
     expect(render({ exitCode: 0, stdout: 'x', outputTruncated: true, stdoutTruncated: true, stdoutSpillPath: '/s', stdoutSpillPartial: true }))
       .toBe('x\n[output truncated; first 16 MiB saved: /s]')
+    expect(render({ exitCode: 0, stdout: 'x', outputTruncated: true, stdoutTruncated: true, stdoutSpillPath: '/s', stdoutSpillPending: true }))
+      .toBe('x\n[output truncated; full output still being written, may be incomplete: /s]')
     expect(render({ exitCode: 0, stderr: 'y', outputTruncated: true, stderrTruncated: true }))
       .toBe('[stderr]\ny\n[output truncated; full output: (unavailable)]')
     expect(render({ exitCode: 126, stdout: '', outputTruncated: true, stoppedAtLightLimit: true }))

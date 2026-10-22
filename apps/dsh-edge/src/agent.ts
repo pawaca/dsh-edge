@@ -123,6 +123,9 @@ export interface EdgeShellResult {
   /** The stream passed the spill cap, so its file holds only the start. */
   stdoutSpillPartial?: boolean
   stderrSpillPartial?: boolean
+  /** The spill was still being written when the result was returned, so it may be incomplete. */
+  stdoutSpillPending?: boolean
+  stderrSpillPending?: boolean
   /** The lightweight shell, which buffers output, stopped the command at its output bound. */
   stoppedAtLightLimit?: boolean
   /** The session working directory the command ran in. */
@@ -258,6 +261,8 @@ export function createEdgeBashTool(
           stderrSpillPath: { type: 'string' },
           stdoutSpillPartial: { type: 'boolean' },
           stderrSpillPartial: { type: 'boolean' },
+          stdoutSpillPending: { type: 'boolean' },
+          stderrSpillPending: { type: 'boolean' },
           stoppedAtLightLimit: { type: 'boolean' },
           cwd: { type: 'string' },
           runtime: { type: 'string', enum: ['light', 'container'] },
@@ -311,11 +316,19 @@ function detachedCommandNotice(command: string) {
 const SHELL_SPILL_MAX_MIB = SHELL_SPILL_MAX_BYTES / 1024 / 1024
 
 /** One stream's text, with upstream's notice when only its tail is shown. */
-function streamText(text: string, truncated: boolean | undefined, spillPath: string | undefined, partial: boolean | undefined): string {
+function streamText(
+  text: string,
+  truncated: boolean | undefined,
+  spillPath: string | undefined,
+  partial: boolean | undefined,
+  pending: boolean | undefined,
+): string {
   if (truncated !== true) return text
   const saved = spillPath === undefined
     ? 'full output: (unavailable)'
-    : partial === true ? `first ${String(SHELL_SPILL_MAX_MIB)} MiB saved: ${spillPath}` : `full output: ${spillPath}`
+    : pending === true
+      ? `full output still being written, may be incomplete: ${spillPath}`
+      : partial === true ? `first ${String(SHELL_SPILL_MAX_MIB)} MiB saved: ${spillPath}` : `full output: ${spillPath}`
   return `${text}\n[output truncated; ${saved}]`
 }
 
@@ -327,8 +340,8 @@ function formatExecution(result: Omit<EdgeShellResult, 'executionId'>): string {
   // Results recorded before per-stream tails kept the first 64 KiB of both streams.
   const legacy = result.outputTruncated && result.stdoutTruncated === undefined && result.stderrTruncated === undefined
     && result.stoppedAtLightLimit === undefined
-  const out = streamText(result.stdout, result.stdoutTruncated, result.stdoutSpillPath, result.stdoutSpillPartial)
-  const err = streamText(result.stderr, result.stderrTruncated, result.stderrSpillPath, result.stderrSpillPartial)
+  const out = streamText(result.stdout, result.stdoutTruncated, result.stdoutSpillPath, result.stdoutSpillPartial, result.stdoutSpillPending)
+  const err = streamText(result.stderr, result.stderrTruncated, result.stderrSpillPath, result.stderrSpillPartial, result.stderrSpillPending)
   let body = out
   if (err.length > 0) {
     if (body.length > 0 && !body.endsWith('\n')) body += '\n'

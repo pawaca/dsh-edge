@@ -311,6 +311,8 @@ describe('dsh-edge workspace command execution', () => {
       expect(result.detached).toBe(true)
       expect(result.status).toBe('cancelled')
       expect(result.stdoutTruncated).toBe(true)
+      // The 3 MiB event whose spill write stalled is already in the tail.
+      expect(result.stdout).toBe('c'.repeat(SHELL_OUTPUT_TAIL_BYTES))
     } finally {
       vi.useRealTimers()
     }
@@ -355,6 +357,8 @@ describe('dsh-edge workspace command execution', () => {
       expect(result.status).toBe('completed')
       expect(result.detached).toBeUndefined()
       expect(result.stdoutSpillPath).toBe('/workspace/.spill/bash-exec-1.stdout.txt')
+      // Storage never committed, so the result says the file may be incomplete.
+      expect(result.stdoutSpillPending).toBe(true)
     } finally {
       vi.useRealTimers()
     }
