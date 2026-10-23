@@ -15,32 +15,62 @@ function entry(name: string, kind: 'file' | 'directory' = 'file'): EdgeReference
   return { name, isFile: kind === 'file', isDirectory: kind === 'directory' }
 }
 
-function agentAt(cwd: string | undefined): Agent {
-  return { session: { header: { cwd } } } as unknown as Agent
+function agentAt(cwd: string | undefined, id = 'session-a'): Agent {
+  return { session: { id, header: { cwd } } } as unknown as Agent
 }
 
-async function provider(tree: Record<string, EdgeReferenceEntry[]>, maxResults?: number) {
+async function provider(tree: Record<string, EdgeReferenceEntry[]>, config: { maxResults?: number, maxEntries?: number } = {}) {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt, { personaPrefix: 'test persona' })
-  const reads: string[] = []
+  const agents = new Map<string, Agent>()
+  class Agents extends Service {
+    constructor(c: Context) { super(c, 'agents') }
+    get(id: string) { return agents.get(id) }
+  }
+  await ctx.plugin(Agents)
+  const reads: { path: string, limit?: number }[] = []
   await ctx.plugin(EdgeFileReferenceService, {
-    ...(maxResults === undefined ? {} : { maxResults }),
+    ...config,
     withFiles: read => read({
-      readdir: (path: string) => {
-        reads.push(path)
+      readdir: (path: string, options?: { limit?: number }) => {
+        reads.push({ path, ...options?.limit === undefined ? {} : { limit: options.limit } })
         const entries = tree[path]
         return entries === undefined
           ? Promise.reject(new Error(`ENOENT: ${path}`))
-          : Promise.resolve(entries)
+          : Promise.resolve(entries.slice(0, options?.limit))
       },
     }),
   })
-  return { ctx, reads, service: ctx.fileReferences }
+  const paths = () => reads.map(read => read.path)
+  return { ctx, reads, paths, agents, service: ctx.fileReferences }
 }
 
+const signal = () => AbortSignal.timeout(1_000)
+
 describe('EdgeFileReferenceService', () => {
-  it('lists the directory working_directory selected, not the one the session began in', async () => {
-    const { ctx, service, reads } = await provider({
+  it('fuzzy-ranks a recursive index for a bare fragment, skipping excluded and hidden directories', async () => {
+    const { service, paths } = await provider({
+      '/workspace': [entry('docs', 'directory'), entry('node_modules', 'directory'), entry('.cache', 'directory'), entry('read.txt')],
+      '/workspace/docs': [entry('README.md'), entry('guide', 'directory')],
+      '/workspace/docs/guide': [entry('intro.md')],
+      '/workspace/node_modules': [entry('README.md')],
+      '/workspace/.cache': [entry('README.md')],
+    })
+    const agent = agentAt('/workspace')
+    // `rdm` is an in-order subsequence of docs/README.md only; for `read`, the exact name ranks first.
+    expect(await service.list(agent, 'rdm', signal())).toEqual([{ path: 'docs/README.md', kind: 'file' }])
+    expect(await service.list(agent, 'read', signal())).toEqual([
+      { path: 'read.txt', kind: 'file' },
+      { path: 'docs/README.md', kind: 'file' },
+    ])
+    expect(await service.list(agent, 'intro', signal())).toEqual([{ path: 'docs/guide/intro.md', kind: 'file' }])
+    // One walk serves every bare query; excluded directories are never read, and a
+    // hidden one is walked but kept out of a bare query's results.
+    expect(paths()).toEqual(['/workspace', '/workspace/.cache', '/workspace/docs', '/workspace/docs/guide'])
+  })
+
+  it('indexes the directory working_directory selected, not the one the session began in', async () => {
+    const { ctx, service, paths } = await provider({
       '/workspace': [entry('top.txt')],
       '/workspace/proj': [entry('inner.txt')],
     })
@@ -49,54 +79,69 @@ describe('EdgeFileReferenceService', () => {
       get() { return '/workspace/proj' }
     }
     await ctx.plugin(Current)
-    const candidates = await service.list(agentAt('/workspace'), 'i', AbortSignal.timeout(1_000))
-    expect(candidates).toEqual([{ path: 'inner.txt', kind: 'file' }])
-    expect(reads).toEqual(['/workspace/proj'])
+    expect(await service.list(agentAt('/workspace'), 'i', signal())).toEqual([{ path: 'inner.txt', kind: 'file' }])
+    expect(paths()).toEqual(['/workspace/proj'])
   })
 
-  it('lists the session working directory for a bare fragment', async () => {
+  it('bounds the index by maxEntries and asks each listing for no more than remains', async () => {
     const { service, reads } = await provider({
-      '/workspace': [entry('src', 'directory'), entry('README.md'), entry('.env'), entry('release.txt')],
-    })
-    const candidates = await service.list(agentAt('/workspace'), 're', AbortSignal.timeout(1_000))
-    expect(candidates).toEqual([
-      { path: 'README.md', kind: 'file' },
-      { path: 'release.txt', kind: 'file' },
+      '/workspace': [entry('a', 'directory'), entry('b', 'directory')],
+      '/workspace/a': [entry('a1.txt'), entry('a2.txt'), entry('a3.txt')],
+      '/workspace/b': [entry('b1.txt')],
+    }, { maxEntries: 4 })
+    expect(await service.list(agentAt('/workspace'), 'txt', signal())).toEqual([
+      { path: 'a/a1.txt', kind: 'file' },
+      { path: 'a/a2.txt', kind: 'file' },
     ])
-    expect(reads).toEqual(['/workspace'])
+    expect(reads).toEqual([{ path: '/workspace', limit: 4 }, { path: '/workspace/a', limit: 2 }])
   })
 
-  it('descends into the directory a slash names and keeps the display prefix', async () => {
-    const { service, reads } = await provider({
-      '/workspace/src': [entry('index.ts'), entry('lib', 'directory'), entry('.hidden')],
+  it('answers from a stale index after a tool result and reads its replacement behind the query', async () => {
+    const tree: Record<string, EdgeReferenceEntry[]> = { '/workspace': [entry('old.txt')] }
+    const { ctx, service, agents, paths } = await provider(tree)
+    const agent = agentAt('/workspace')
+    agents.set('session-a', agent)
+    expect(await service.list(agent, 'txt', signal())).toEqual([{ path: 'old.txt', kind: 'file' }])
+    tree['/workspace'] = [entry('old.txt'), entry('new.txt')]
+    ;(ctx.emit as (...args: unknown[]) => void)('session/event', agent.session, { type: 'tool/result' })
+    // The stale index answers at once; its replacement is read in the background.
+    expect(await service.list(agent, 'new', signal())).toEqual([])
+    await new Promise(resolve => { setTimeout(resolve, 0) })
+    expect(await service.list(agent, 'new', signal())).toEqual([{ path: 'new.txt', kind: 'file' }])
+    expect(paths()).toEqual(['/workspace', '/workspace'])
+  })
+
+  it('lists one directory for a query with a slash, relative or absolute inside the working directory', async () => {
+    const { service, paths } = await provider({
+      '/workspace/src': [entry('index.ts'), entry('lib', 'directory'), entry('dist', 'directory'), entry('.hidden')],
     })
-    const candidates = await service.list(agentAt('/workspace/'), 'src/', AbortSignal.timeout(1_000))
-    expect(candidates).toEqual([
+    expect(await service.list(agentAt('/workspace/'), 'src/', signal())).toEqual([
       { path: 'src/lib', kind: 'directory' },
       { path: 'src/index.ts', kind: 'file' },
     ])
-    expect(reads).toEqual(['/workspace/src'])
+    expect(await service.list(agentAt('/workspace'), '/workspace/src/in', signal())).toEqual([
+      { path: '/workspace/src/index.ts', kind: 'file' },
+    ])
+    expect(paths()).toEqual(['/workspace/src', '/workspace/src'])
   })
 
-  it('returns no candidates for paths that escape the working directory or do not exist', async () => {
-    const { service, reads } = await provider({ '/workspace': [entry('a.txt')] })
-    const signal = AbortSignal.timeout(1_000)
-    expect(await service.list(agentAt('/workspace'), '../', signal)).toEqual([])
-    expect(await service.list(agentAt('/workspace'), 'missing/', signal)).toEqual([])
-    expect(await service.list(agentAt('/workspace'), 'bad"quote', signal)).toEqual([])
-    expect(reads).toEqual(['/workspace/missing'])
+  it('returns no candidates for paths outside the working directory, excluded, or missing', async () => {
+    const { service, paths } = await provider({ '/workspace': [entry('a.txt')] })
+    for (const query of ['../', '/etc/', '/workspace-other/', 'node_modules/', 'missing/', 'bad"quote']) {
+      expect(await service.list(agentAt('/workspace'), query, signal())).toEqual([])
+    }
+    expect(paths()).toEqual(['/workspace/missing'])
   })
 
-  it('defaults to /workspace, honors the result cap, and rejects cancelled reads', async () => {
+  it('lists the working directory for an empty query, honors the result cap, and rejects cancelled reads', async () => {
     const { service } = await provider({
       '/workspace': [entry('c.txt'), entry('b.txt'), entry('a.txt')],
-    }, 2)
-    expect(await service.list(agentAt(undefined), '', AbortSignal.timeout(1_000))).toEqual([
+    }, { maxResults: 2 })
+    expect(await service.list(agentAt(undefined), '', signal())).toEqual([
       { path: 'a.txt', kind: 'file' },
       { path: 'b.txt', kind: 'file' },
     ])
-    await expect(service.list(agentAt(undefined), '', AbortSignal.abort(new Error('gone'))))
-      .rejects.toThrow('gone')
+    await expect(service.list(agentAt(undefined), 'a', AbortSignal.abort(new Error('gone')))).rejects.toThrow('gone')
   })
 
   it('installs the upstream file-reference guidance as a prompt section', async () => {
@@ -116,27 +161,34 @@ describe('file reference query helpers', () => {
     expect(splitQuery('bad\u0000')).toBeUndefined()
   })
 
-  it('resolves display directories inside the root only', () => {
+  it('resolves relative and absolute display directories inside the root only', () => {
     expect(resolveWithin('/workspace', '')).toBe('/workspace')
     expect(resolveWithin('/workspace/', './src/../lib/')).toBe('/workspace/lib')
     expect(resolveWithin('/workspace', 'src/../../')).toBeUndefined()
+    expect(resolveWithin('/workspace', '/workspace/src/')).toBe('/workspace/src')
+    expect(resolveWithin('/workspace', '/workspace/')).toBe('/workspace')
+    expect(resolveWithin('/workspace', '/workspacex/')).toBeUndefined()
+    expect(resolveWithin('/workspace', '/')).toBeUndefined()
     expect(resolveWithin('/', 'a/')).toBe('/a')
   })
 
-  it('ranks exact, prefix, and substring matches with directories first', () => {
+  it('ranks exact, prefix, substring, path, and subsequence matches, directories first', () => {
     const ranked = rankCandidates([
-      entry('zfoo.ts'),
-      entry('foo', 'directory'),
-      entry('foo.ts'),
-      entry('bar.ts'),
-      entry('Foobar', 'directory'),
-      entry('.foo'),
-    ], { directory: 'x/', fragment: 'foo' }, 10)
+      { path: 'zfoo.ts', kind: 'file' },
+      { path: 'foo', kind: 'directory' },
+      { path: 'foo.ts', kind: 'file' },
+      { path: 'bar.ts', kind: 'file' },
+      { path: 'Foobar', kind: 'directory' },
+      { path: 'foo/bar.ts', kind: 'file' },
+      { path: 'f/x/o/o.md', kind: 'file' },
+    ], 'foo', 10)
     expect(ranked).toEqual([
-      { path: 'x/foo', kind: 'directory' },
-      { path: 'x/Foobar', kind: 'directory' },
-      { path: 'x/foo.ts', kind: 'file' },
-      { path: 'x/zfoo.ts', kind: 'file' },
+      { path: 'foo', kind: 'directory' },
+      { path: 'Foobar', kind: 'directory' },
+      { path: 'foo.ts', kind: 'file' },
+      { path: 'zfoo.ts', kind: 'file' },
+      { path: 'foo/bar.ts', kind: 'file' },
+      { path: 'f/x/o/o.md', kind: 'file' },
     ])
   })
 })

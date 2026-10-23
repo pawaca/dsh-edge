@@ -59,7 +59,6 @@ import {
 import type { MessageId } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
-import { isUserInvocable } from '@deepseek-ai/dsh-skill'
 import { edgeSystemPrompt } from './agent.ts'
 import { normalizeAgentPreset, PTC_AGENT_PRESET } from './agent-presets.ts'
 import type { EdgeDeploymentProfile } from './deployment.ts'
@@ -655,36 +654,6 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
         } catch (error) {
           return sessionFailure(request, error, sessionId)
         }
-      },
-    },
-
-    skills: {
-      async list(request: RpcRequest<{ sessionId?: string }>, signal?: AbortSignal) {
-        const registry = await runtime.sessions.skillRegistry()
-        if (registry === undefined) return ok(request, { skills: [] })
-        // Workspace skills depend on the session's directory (its project root), so
-        // the `/` trigger lists what that session's agent would see.
-        const sessionId = typeof request.payload?.sessionId === 'string' ? SessionId(request.payload.sessionId) : undefined
-        let cwd = '/workspace'
-        if (sessionId !== undefined) {
-          try {
-            cwd = (await runtime.sessions.getApiSessionSummary(sessionId)).cwd ?? cwd
-            // Skills follow where the session is now, as the model's own skill lookup does.
-            cwd = await runtime.sessions.currentDirectory(sessionId, cwd)
-          } catch (error) {
-            return sessionFailure(request, error, sessionId)
-          }
-        }
-        await runtime.sessions.refreshSkills(cwd, signal)
-        const skills = (await registry.list({ cwd, ...signal === undefined ? {} : { signal } })).filter(isUserInvocable)
-        return ok(request, {
-          skills: skills.map(skill => ({
-            name: skill.name,
-            description: skill.description,
-            ...skill.whenToUse === undefined ? {} : { whenToUse: skill.whenToUse },
-            modelInvocable: skill.invocation.modelInvocable,
-          })),
-        })
       },
     },
 
