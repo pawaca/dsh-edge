@@ -1410,6 +1410,21 @@ try {
     reasoningEffort: 'high',
   })
 
+  // A rename while the first-prompt title is still being generated wins, as
+  // upstream's sessionTitle.rename supersedes the automatic title work.
+  const heldTitleSessionId = (await rpc('session.create', {})).body.result.value.sessionId
+  await turn(heldTitleSessionId, 'held-title greeting')
+  await waitFor(() => mock.requests.some(body => JSON.stringify(body).includes('Create a concise title')
+    && JSON.stringify(body).includes('held-title greeting')))
+  const heldRename = await rpc('session.rename', { sessionId: heldTitleSessionId, title: 'Chosen while titling' })
+  assert.equal(heldRename.body.result.ok, true)
+  assert.equal(mock.releaseHeldTitles(), 1)
+  await new Promise(resolve => { setTimeout(resolve, 1_000) })
+  const heldTitles = parseEvents(await (await request(`/api/sessions/${heldTitleSessionId}/events`)).text())
+    .filter(event => event.type === 'session/title').map(event => event.data.title)
+  assert.equal(heldTitles.at(-1), 'Chosen while titling', JSON.stringify(heldTitles))
+  assert.equal(heldTitles.includes('Automatic held title'), false)
+
   const forked = await rpc('session.fork', {
     sessionId: protocolSessionId,
     atSeq: protocolUser.event.seq,
@@ -1447,6 +1462,31 @@ try {
     forkHistory.body.result.value.events.some(entry => entry.event.type === 'session/end-seed'),
     true,
   )
+  // As upstream, atSeq is the exact inclusive cut: the fork inherits through
+  // the prompt, not through the end of its turn, and closes the open turn as forked.
+  const forkLog = parseEvents(await (await request(`/api/sessions/${forkedSessionId}/events`)).text())
+  // The source log already holds earlier seed markers; the fork's own follows the cut.
+  const forkSeed = forkLog[protocolUser.event.seq + 1]
+  assert.equal(forkSeed.type, 'session/end-seed')
+  assert.equal(forkLog[protocolUser.event.seq].type, 'user/message')
+  const forkCloser = forkLog.slice(forkSeed.seq + 1).find(event => event.type === 'turn/end')
+  assert.equal(forkCloser?.data.reason.kind, 'forked', JSON.stringify(forkLog.slice(forkSeed.seq)))
+  const missingCut = await rpc('session.fork', { sessionId: protocolSessionId, atSeq: 1_000_000 })
+  assert.equal(missingCut.body.result.error.code, 'session/fork-unavailable')
+  assert.match(missingCut.body.result.error.message, /does not exist/u)
+  const negativeCut = await rpc('session.fork', { sessionId: protocolSessionId, atSeq: -1 })
+  assert.equal(negativeCut.body.result.error.code, 'gateway/bad-request')
+  // Without atSeq the fork takes the latest completed-turn prefix; the Edge
+  // has already migrated every stored session, so allowMigration: false passes.
+  const latestFork = await rpc('session.fork', { sessionId: protocolSessionId, allowMigration: false })
+  assert.equal(latestFork.body.result.ok, true, JSON.stringify(latestFork.body))
+  const protocolLog = parseEvents(await (await request(`/api/sessions/${protocolSessionId}/events`)).text())
+  const latestLog = parseEvents(await (await request(`/api/sessions/${latestFork.body.result.value.sessionId}/events`)).text())
+  const protocolLastTurnEnd = protocolLog.findLast(event => event.type === 'turn/end').seq
+  const latestSeed = latestLog.find(event => event.type === 'session/end-seed' && event.seq > protocolLastTurnEnd)
+  assert.ok(latestSeed !== undefined, JSON.stringify(latestLog.map(event => [event.seq, event.type])))
+  assert.deepEqual(latestLog.slice(0, latestSeed.seq).map(event => event.type), protocolLog.slice(0, latestSeed.seq).map(event => event.type))
+  assert.equal(latestLog.slice(latestSeed.seq + 1).some(event => event.data?.reason?.kind === 'forked'), false)
   const listWithFork = await rpc('session.list', {})
   const forkSummary = listWithFork.body.result.value.items
     .find(item => item.sessionId === forkedSessionId)
@@ -1541,7 +1581,8 @@ try {
     < reorderedWorkspace.body.result.value.workspace.sessionIds.indexOf(forkedSessionId))
   const reorderedWorkspaceFrame = await host.next(message =>
     message.payload.type === 'host/workspace-changed'
-      && message.payload.workspace.sessionIds[0] === protocolSessionId)
+      && message.payload.workspace.sessionIds.indexOf(protocolSessionId)
+        === message.payload.workspace.sessionIds.indexOf(forkedSessionId) - 1)
   assert.equal(reorderedWorkspaceFrame.payload.workspace.title, 'Edge project')
 
   const invalidWorkspaceMove = await rpc('workspace.insertSessionBefore', {
@@ -2311,8 +2352,9 @@ try {
   // the nested workspace adds one; the reminder the schedule Remote manages
   // adds a tool-call request and its continuation; the uploaded-file read
   // adds a tool-call request and its continuation, and the turn that holds
-  // the main slot while a file prompt is queued adds one.
-  assert.equal(turnRequests().length, (runtimeMode === 'isolated' ? 46 : 33) + LARGE_LOG_TURNS)
+  // the main slot while a file prompt is queued adds one, and so does the turn
+  // renamed while its title is generating.
+  assert.equal(turnRequests().length, (runtimeMode === 'isolated' ? 47 : 34) + LARGE_LOG_TURNS)
   await worker.stop()
   worker = undefined
   const { physicalRows, writeBatches } = sessionEventStorageStats(batchedSessionId)

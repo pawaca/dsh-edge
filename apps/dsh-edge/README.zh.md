@@ -324,7 +324,8 @@ pnpm --filter dsh-edge example:install
 - Web client 使用 session list/search/create/history/models/select/prompt/updateQueue/rename/fork/cancel；host description；Workspace list/create/rename/delete/reorder/archive；skills；agent presets；settings 与 credential description；以及 LLM catalog。
 - `agentPreset.read` 通过上游只读 viewer 渲染程序化 Edge composition。`credentials.describe` 返回不含 value 的 credential state。
 - Search 投影 canonical current-message surface，并返回有界的上游 result value。
-- Fork 通过 canonical session seed format 复制 completed-turn prefix，并保留 parent lineage。Edge 拒绝超过 8,192 个事件或 8 MiB 的 seed，不会物化无界 history。
+- Fork 与上游 session controller 一致：`atSeq` 是包含在内的精确切点（不存在的事件会被拒绝），省略时选最近的完整回合前缀，并由上游的 `buildForkSeed` 标记切点、把未结束的回合以 forked 收尾；fork 保留 parent lineage。对已存的源会话，Edge 只读到切点为止，并拒绝超过 8,192 个事件或 8 MiB 的 seed，不会物化无界 history。`allowMigration` 会被接受；Edge 在 Durable Object 启动时已迁移所有已存会话，因此 fork 不会遇到仍需迁移的会话。
+- 改名通过上游的 `sessionTitle.rename` 进行，它会同时停止仍在运行的自动标题生成，因此晚到的自动标题不会覆盖用户设置的标题。
 - Queue mutation 通过 live upstream Agent inbox 编辑、移除或提升条目。同步 mutation 是接纳点；后续 write-behind 与 retirement retry 由 persistence coordinator 负责。
 - Workspace mutation 通过 Durable Object backend 持久化上游 workspace-domain global 与 record shape。Archive 保留 session log 与 Workspace slot；unary response 与 Host frame 携带和上游一致的完整 snapshot。
 - Goal mutation（create、edit、pause、resume、complete、clear）通过 `TypertGatewayService` 路由到 `/api/goals/<method>`。每个 `@Remote` Service 需要通过 `ctx.typert.register()` 注册其 Typert 描述符；不需要编写 per-method HTTP handler。
