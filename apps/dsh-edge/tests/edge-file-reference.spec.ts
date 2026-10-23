@@ -19,7 +19,7 @@ function agentAt(cwd: string | undefined, id = 'session-a'): Agent {
   return { session: { id, header: { cwd } } } as unknown as Agent
 }
 
-async function provider(tree: Record<string, EdgeReferenceEntry[]>, config: { maxResults?: number, maxEntries?: number, staleAfterMs?: number, now?: () => number } = {}) {
+async function provider(tree: Record<string, EdgeReferenceEntry[]>, config: { maxResults?: number, maxEntries?: number, maxIndexes?: number } = {}) {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt, { personaPrefix: 'test persona' })
   const reads: { path: string, limit?: number }[] = []
@@ -105,21 +105,34 @@ describe('EdgeFileReferenceService', () => {
     expect(paths()).toEqual(['/workspace', '/workspace'])
   })
 
-  it('refreshes an index older than staleAfterMs behind the next bare query, for changes made outside tools', async () => {
+  it('keeps an index without a tool result, as upstream, while directory queries read the directory', async () => {
     const tree: Record<string, EdgeReferenceEntry[]> = { '/workspace': [entry('old.txt')] }
-    let clock = 0
-    const { service, paths } = await provider(tree, { staleAfterMs: 1_000, now: () => clock })
+    const { service, paths } = await provider(tree)
     const agent = agentAt('/workspace')
     expect(await service.list(agent, 'txt', signal())).toEqual([{ path: 'old.txt', kind: 'file' }])
-    // An owner API write: no tool result.
+    // An owner API write: no tool result, so the index is not reread.
     tree['/workspace'] = [entry('old.txt'), entry('uploaded.txt')]
-    clock = 999
-    expect(await service.list(agent, 'uploaded', signal())).toEqual([])
-    clock = 1_000
-    expect(await service.list(agent, 'uploaded', signal())).toEqual([])
     await new Promise(resolve => { setTimeout(resolve, 0) })
-    expect(await service.list(agent, 'uploaded', signal())).toEqual([{ path: 'uploaded.txt', kind: 'file' }])
+    expect(await service.list(agent, 'uploaded', signal())).toEqual([])
+    expect(await service.list(agent, '/workspace/up', signal())).toEqual([{ path: '/workspace/uploaded.txt', kind: 'file' }])
     expect(paths()).toEqual(['/workspace', '/workspace'])
+  })
+
+  it('shares one index per working directory across sessions and keeps at most maxIndexes', async () => {
+    const { service, paths } = await provider({
+      '/workspace': [entry('a.txt')],
+      '/workspace/one': [entry('one.txt')],
+      '/workspace/two': [entry('two.txt')],
+    }, { maxIndexes: 2 })
+    expect(await service.list(agentAt('/workspace', 'session-a'), 'a', signal())).toEqual([{ path: 'a.txt', kind: 'file' }])
+    expect(await service.list(agentAt('/workspace', 'session-b'), 'a', signal())).toEqual([{ path: 'a.txt', kind: 'file' }])
+    expect(paths()).toEqual(['/workspace'])
+    await service.list(agentAt('/workspace/one', 'session-c'), 'o', signal())
+    // A third directory drops the least recently queried index, /workspace.
+    await service.list(agentAt('/workspace/two', 'session-d'), 't', signal())
+    await service.list(agentAt('/workspace/one', 'session-c'), 'o', signal())
+    await service.list(agentAt('/workspace', 'session-a'), 'a', signal())
+    expect(paths()).toEqual(['/workspace', '/workspace/one', '/workspace/two', '/workspace'])
   })
 
   it('lists one directory for a query with a slash, relative or absolute inside the working directory', async () => {

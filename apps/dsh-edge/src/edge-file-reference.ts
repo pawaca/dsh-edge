@@ -27,10 +27,8 @@ export interface EdgeFileReferenceConfig {
   maxResults?: number
   /** Maximum files and directories one working directory's index holds. */
   maxEntries?: number
-  /** Age after which an index is refreshed behind the next bare query. */
-  staleAfterMs?: number
-  /** Clock for index age; tests replace it. */
-  now?: () => number
+  /** Maximum working directories whose indexes are kept at once. */
+  maxIndexes?: number
 }
 
 const DEFAULT_MAX_RESULTS = 20
@@ -41,12 +39,11 @@ const DEFAULT_MAX_RESULTS = 20
  */
 export const DEFAULT_MAX_ENTRIES = 10_000
 /**
- * Files also change outside tools: owner API writes, uploads, and commands
- * run through the HTTP exec route reach the workspace without a tool result,
- * and some never pass through this Durable Object. An index older than this
- * is refreshed behind the next bare query, as after a tool result.
+ * Sessions in one working directory share its index, and the least recently
+ * queried directories' indexes are dropped beyond this many, so resident
+ * sessions cannot hold more than this many indexes in Durable Object memory.
  */
-export const DEFAULT_STALE_AFTER_MS = 30_000
+export const DEFAULT_MAX_INDEXES = 4
 const DEFAULT_CWD = '/workspace'
 /** Upstream dsh-file-reference-local's default exclusions: VCS, dependency, and build-output directories. */
 export const EXCLUDED_DIRECTORIES: ReadonlySet<string> = new Set([
@@ -60,28 +57,29 @@ export const EXCLUDED_DIRECTORIES: ReadonlySet<string> = new Set([
  * with a `/` (or an empty one) lists that directory, and a bare fragment
  * fuzzy-ranks a recursive index of the working directory, so `rdm` finds
  * `README.md` anywhere below it. The index skips upstream's excluded
- * directories and holds at most `maxEntries` paths. Only the first bare query
- * waits for it; after a tool result in any session (they share one
- * workspace), or once it is older than `staleAfterMs`, it is stale, and the
- * next bare query answers from it while its replacement is read behind the
- * caret.
+ * directories and holds at most `maxEntries` paths, and sessions in the same
+ * working directory share it. Only the first bare query waits for it; as
+ * upstream, a tool result (in any session, since they share one workspace)
+ * makes it stale, and the next bare query answers from it while its
+ * replacement is read behind the caret. Like upstream's, it does not see files
+ * changed outside tools (owner API writes, uploads) until the next tool result;
+ * directory queries always read the directory.
  */
 export class EdgeFileReferenceService extends FileReferenceService {
   private readonly withFiles: EdgeFileReferenceConfig['withFiles']
   private readonly maxResults: number
   private readonly maxEntries: number
-  private readonly staleAfterMs: number
-  private readonly now: () => number
-  private readonly searches = new Map<Agent, WorkspaceSearch>()
+  private readonly maxIndexes: number
+  /** Indexes by working directory, least recently queried first. */
+  private readonly searches = new Map<string, WorkspaceSearch>()
 
   constructor(ctx: Context, config: EdgeFileReferenceConfig) {
     super(ctx)
     this.withFiles = read => config.withFiles(read)
     this.maxResults = config.maxResults ?? DEFAULT_MAX_RESULTS
     this.maxEntries = config.maxEntries ?? DEFAULT_MAX_ENTRIES
-    this.staleAfterMs = config.staleAfterMs ?? DEFAULT_STALE_AFTER_MS
-    this.now = config.now ?? Date.now
-    for (const [name, value] of [['maxResults', this.maxResults], ['maxEntries', this.maxEntries], ['staleAfterMs', this.staleAfterMs]] as const) {
+    this.maxIndexes = config.maxIndexes ?? DEFAULT_MAX_INDEXES
+    for (const [name, value] of [['maxResults', this.maxResults], ['maxEntries', this.maxEntries], ['maxIndexes', this.maxIndexes]] as const) {
       if (!Number.isSafeInteger(value) || value <= 0) {
         throw new Error(`dsh-edge: file reference ${name} must be a positive safe integer`)
       }
@@ -98,14 +96,10 @@ export class EdgeFileReferenceService extends FileReferenceService {
     })
     // As upstream, a tool may have changed the tree, so the index goes stale.
     // Every Edge session shares one workspace, so a tool result in any session
-    // makes every session's index stale, not only its own.
+    // makes every index stale, not only its own directory's.
     ctx.on('session/event', (_session, event) => {
       if (event.type !== 'tool/result') return
       for (const search of this.searches.values()) search.invalidate()
-    })
-    ctx.on('agent/disposed', ({ agent }) => {
-      this.searches.get(agent)?.dispose()
-      this.searches.delete(agent)
     })
     ctx.effect(() => () => {
       for (const search of this.searches.values()) search.dispose()
@@ -117,12 +111,17 @@ export class EdgeFileReferenceService extends FileReferenceService {
     signal.throwIfAborted()
     // The session's current directory: `working_directory` can move it after the session began.
     const root = normalizeRoot(this.ctx.get('workingDirectory')?.get(agent.session) ?? agent.session.header.cwd ?? DEFAULT_CWD)
-    let search = this.searches.get(agent)
-    if (search?.root !== root) {
-      // As upstream, a new working directory discards the previous index.
-      search?.dispose()
-      search = new WorkspaceSearch(root, this.withFiles, this.maxResults, this.maxEntries, this.staleAfterMs, this.now)
-      this.searches.set(agent, search)
+    let search = this.searches.get(root)
+    if (search === undefined) {
+      search = new WorkspaceSearch(root, this.withFiles, this.maxResults, this.maxEntries)
+    } else {
+      this.searches.delete(root)
+    }
+    this.searches.set(root, search)
+    for (const [stale, evicted] of this.searches) {
+      if (this.searches.size <= this.maxIndexes) break
+      evicted.dispose()
+      this.searches.delete(stale)
     }
     return search.list(query, signal)
   }
@@ -132,7 +131,7 @@ export class EdgeFileReferenceService extends FileReferenceService {
 class WorkspaceSearch {
   /** Bumped by each invalidation; a settled index started below it is stale. */
   private invalidations = 0
-  private settled: { entries: FileReferenceCandidate[], startedAt: number, readAt: number } | undefined
+  private settled: { entries: FileReferenceCandidate[], startedAt: number } | undefined
   private building: Promise<FileReferenceCandidate[]> | undefined
   private readonly lifetime = new AbortController()
 
@@ -141,8 +140,6 @@ class WorkspaceSearch {
     private readonly withFiles: EdgeFileReferenceConfig['withFiles'],
     private readonly maxResults: number,
     private readonly maxEntries: number,
-    private readonly staleAfterMs: number,
-    private readonly now: () => number,
   ) {}
 
   async list(rawQuery: string, signal: AbortSignal): Promise<FileReferenceCandidate[]> {
@@ -168,18 +165,17 @@ class WorkspaceSearch {
   private async index(signal: AbortSignal): Promise<FileReferenceCandidate[]> {
     const settled = this.settled
     if (settled === undefined) return await abortable(this.build(), signal)
-    if (settled.startedAt < this.invalidations || this.now() - settled.readAt >= this.staleAfterMs) this.build().catch(() => {})
+    if (settled.startedAt < this.invalidations) this.build().catch(() => {})
     return settled.entries
   }
 
   private build(): Promise<FileReferenceCandidate[]> {
     if (this.building !== undefined) return this.building
     const startedAt = this.invalidations
-    const readAt = this.now()
     const building = this.withFiles(files => this.scan(files)).then(entries => {
       if (this.building === building) {
         this.building = undefined
-        if (!this.lifetime.signal.aborted) this.settled = { entries, startedAt, readAt }
+        if (!this.lifetime.signal.aborted) this.settled = { entries, startedAt }
       }
       return entries
     }, (error: unknown) => {
