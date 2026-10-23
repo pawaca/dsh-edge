@@ -4,8 +4,8 @@
  * stored downscaled into upstream's 2048 x 2048 pixel budget, and WebP and
  * GIF are advertised (unit tests cover their conversion). Wrangler's local Images binding is a low-fidelity version that
  * resizes and converts but does not apply EXIF orientation, so a rotated JPEG
- * is checked only for not being reported as resized; Images in production
- * applies the orientation (edge-image-normalization.ts).
+ * shows only the upright resize box; Images in production applies the
+ * orientation first (edge-image-normalization.ts).
  */
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -84,9 +84,11 @@ it('normalizes a 4K PNG through the Images binding and advertises upstream forma
     expect(fourK).toMatchObject({ mediaType: 'image/jpeg', width: 2730, height: 1536, originalDimensions: { width: 3840, height: 2160 } })
     expect(fourK.bytes).toBeLessThanOrEqual(4 * 1024 * 1024)
 
+    // The resize box is on the upright axes (300 x 400). Images in production turns the
+    // image first and keeps it whole; the local binding does not turn, so it fits the
+    // unturned 400 x 300 into that box.
     const rotated = await store('image/jpeg', rotatedJpeg(400, 300, 6), 'rotated.jpg')
-    expect(rotated.mediaType).toBe('image/jpeg')
-    expect(rotated.originalDimensions).toBeUndefined()
+    expect(rotated).toMatchObject({ mediaType: 'image/jpeg', width: 300, height: 225, originalDimensions: { width: 400, height: 300 } })
   } finally {
     await worker?.stop()
     await mock.close()

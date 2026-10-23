@@ -65,19 +65,28 @@ function webp(width: number, height: number, alpha: boolean): Uint8Array {
 interface Call { width?: number, height?: number, fit?: string, format: string, quality?: number, anim?: boolean }
 
 /** An Images binding that records each transform and answers with an image of the requested size and format. */
+/**
+ * An Images binding that records each transform and answers as Images does:
+ * with `turn`, it first applies a quarter-turn EXIF orientation (production);
+ * without, it does not (wrangler's local mode). It then scales the source down
+ * to fit the requested box.
+ */
 function fakeImages(options: { fail?: Error, padding?: (quality: number | undefined) => number, turn?: boolean } = {}) {
   const calls: Call[] = []
   const images: ImagesBinding = {
-    input: () => ({
+    input: stream => ({
       transform: transform => ({
         output: async output => {
           calls.push({ ...transform, ...output })
           if (options.fail !== undefined) throw options.fail
-          // `turn` applies a quarter-turn EXIF orientation as Images in production does.
-          const width = (options.turn === true ? transform.height : transform.width) ?? 1
-          const height = (options.turn === true ? transform.width : transform.height) ?? 1
+          const source = readImageHeader(new Uint8Array(await new Response(stream).arrayBuffer()))
+          const turned = options.turn === true && source.orientation >= 5
+          const upright = turned ? { width: source.height, height: source.width } : source
+          const scale = Math.min(1, (transform.width ?? upright.width) / upright.width, (transform.height ?? upright.height) / upright.height)
+          const width = Math.max(1, Math.round(upright.width * scale))
+          const height = Math.max(1, Math.round(upright.height * scale))
           const image = output.format === 'image/webp' ? webp(width, height, true) : jpeg(Math.min(width, 64), Math.min(height, 64))
-          // A JPEG's header names its own size, so the fake stamps the requested one into the SOF0 segment.
+          // A JPEG's header names its own size, so the fake stamps the produced one into the SOF0 segment.
           if (output.format === 'image/jpeg') stampJpegSize(image, width, height)
           return new Response(Uint8Array.from([...image, ...new Uint8Array(options.padding?.(output.quality) ?? 0)]))
         },
@@ -203,11 +212,12 @@ describe('attachment store with the Images binding', () => {
     expect(turning.calls).toHaveLength(1)
     expect(upright).toMatchObject({ mediaType: 'image/jpeg', width: 30, height: 40 })
     expect(upright.originalDimensions).toBeUndefined()
-    // Its local development mode does not turn, which must not read as a resize.
-    const unturned = await optimizedStore(fakeImages().images).saveImage({ data: rotatedJpeg(40, 30, 6), mediaType: 'image/jpeg' })
-    expect(unturned).toMatchObject({ width: 40, height: 30 })
-    expect(unturned.originalDimensions).toBeUndefined()
+    // Its local development mode does not turn: the unturned source is fitted to the upright
+    // box, so it is stored smaller, and the output's shape reports the source's own sides.
+    const unturned = await optimizedStore(fakeImages().images).saveImage({ data: rotatedJpeg(400, 300, 6), mediaType: 'image/jpeg' })
+    expect(unturned).toMatchObject({ width: 300, height: 225, originalDimensions: { width: 400, height: 300 } })
     // A turned downscale records the upright original.
+    // The resize target is on the upright axes, so a turned 4000 x 2000 fills the budget as 1448 x 2896.
     const large = await optimizedStore(fakeImages({ turn: true }).images).saveImage({ data: rotatedJpeg(4000, 2000, 6), mediaType: 'image/jpeg' })
     expect(large).toMatchObject({ width: 1448, height: 2896, originalDimensions: { width: 2000, height: 4000 } })
   })

@@ -83,7 +83,11 @@ export async function normalizeWithImages(
   header: ImageHeader,
   signal?: AbortSignal,
 ): Promise<{ data: Uint8Array, header: ImageHeader }> {
-  const target = normalizedDimensions(header.width, header.height)
+  // Images applies the EXIF orientation first and reads width and height on the
+  // upright axes, so a quarter turn (orientations 5 to 8) swaps the sides.
+  const target = header.orientation >= 5
+    ? normalizedDimensions(header.height, header.width)
+    : normalizedDimensions(header.width, header.height)
   const format = header.hasAlpha ? 'image/webp' : 'image/jpeg'
   let smallest: Uint8Array | undefined
   for (const quality of QUALITIES) {
