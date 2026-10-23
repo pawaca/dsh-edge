@@ -1043,6 +1043,10 @@ try {
     assert.equal(codeEvents.filter(event => event.type === 'tool/ptc-dispatch').length, 2)
     const ptcTools = (turnRequests().at(-1).tools ?? []).map(tool => tool.name)
     assert.deepEqual(ptcTools, ['run_code'])
+    // The description tells the model what a Dynamic Worker program can reach and its limits.
+    const runCodeDescription = turnRequests().at(-1).tools[0].description
+    assert.match(runCodeDescription, /no file system, network, process, environment variables, Node APIs, or module imports/u)
+    assert.match(runCodeDescription, /at most 200 tool calls/u)
     // As workflow, ralph is not offered to run_code programs.
     assert.doesNotMatch(JSON.stringify(turnRequests().at(-1).tools), /\bralph\b/u)
     const locked = await rpc('agentPreset.select', { agentId: ptcSessionId, agentPreset: 'standard' })
