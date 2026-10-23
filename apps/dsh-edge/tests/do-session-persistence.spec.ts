@@ -1499,24 +1499,47 @@ describe('storage-contract checks over Durable Object rows', () => {
     type: 'session/title', seq: SessionSeq(seq), time: 1, data: { title: 't', messageSeqs: [], source: { kind: 'user' } },
   }) as SessionEvent
 
-  it('writes over an ignorable unknown type, and refuses assistant/chunk and a retired header reason before appending', async () => {
+  const eventTypes = (storage: TestDurableObjectStorage, id: string) =>
+    storage.sql.exec('SELECT event_types FROM dsh_session_summaries WHERE session_id = ?', id).toArray()[0]?.event_types
+
+  it('keeps each session\'s stored types in its summary and checks a write open against them', async () => {
     const { storage, persistence, dispose } = await openStore()
     try {
       const writer = await persistence.create(header('vocabulary'))
+      expect(eventTypes(storage, 'vocabulary')).toBe('[]')
       await writer.append([title(0), { type: 'future/note', seq: SessionSeq(1), time: 1, data: {}, ignorable: true } as unknown as SessionEvent])
+      await writer.append([{ type: 'turn/start', seq: SessionSeq(2), time: 1, data: { turn: 1 } } as SessionEvent])
       await writer.close()
+      // Ignorable events are not recorded; the append that writes the summary row records the rest.
+      expect(eventTypes(storage, 'vocabulary')).toBe('["session/title","turn/start"]')
+      const queries = storage.queries.length
       const reopened = await persistence.open(SessionId('vocabulary'), 'write')
-      expect((await reopened.read()).events.map(event => event.type)).toEqual(['session/title', 'future/note'])
+      // The open reads the summary row, not the log.
+      expect(storage.queries.slice(queries).some(query => /FROM dsh_session_events/u.test(query))).toBe(false)
+      expect((await reopened.read()).events.map(event => event.type)).toEqual(['session/title', 'future/note', 'turn/start'])
       await reopened.close()
 
-      // The current format has no assistant/chunk; stored alone or packed into a run, it is refused on open as on read.
+      // The current format has no assistant/chunk, so a write open refuses it as a read does.
       const chunks = await persistence.create(header('chunk-run'))
       await chunks.append([chunk(0, 'a'), chunk(1, 'b')])
       await chunks.close()
-      // A write open does not scan; the refusal comes before anything is appended.
-      const chunkWriter = await persistence.open(SessionId('chunk-run'), 'write')
-      await expect(chunkWriter.read()).rejects.toBeInstanceOf(SessionFormatUnsupportedError)
-      await chunkWriter.close()
+      await expect(persistence.open(SessionId('chunk-run'), 'write')).rejects.toBeInstanceOf(SessionFormatUnsupportedError)
+    } finally { await dispose() }
+  })
+
+  it('scans a session without recorded types once, refusing a retired header reason', async () => {
+    const { storage, persistence, dispose } = await openStore()
+    try {
+      const writer = await persistence.create(header('unrecorded'))
+      await writer.append([title(0), title(1)])
+      await writer.close()
+      // As a session stored by an earlier release, or repaired or migrated since.
+      storage.sql.exec('UPDATE dsh_session_summaries SET event_types = NULL WHERE session_id = ?', 'unrecorded')
+      await (await persistence.open(SessionId('unrecorded'), 'write')).close()
+      expect(eventTypes(storage, 'unrecorded')).toBe('["session/title"]')
+      const queries = storage.queries.length
+      await (await persistence.open(SessionId('unrecorded'), 'write')).close()
+      expect(storage.queries.slice(queries).some(query => /FROM dsh_session_events/u.test(query))).toBe(false)
 
       const retired = await persistence.create(header('retired-header'))
       await retired.append([title(0)])
@@ -1525,13 +1548,10 @@ describe('storage-contract checks over Durable Object rows', () => {
         "UPDATE dsh_session_events SET type = 'request/header', data = ? WHERE session_id = ? AND seq = 0",
         JSON.stringify({ reason: 'fallback' }), 'retired-header',
       )
-      // An append without a prior read scans the type columns first and stores nothing.
-      const retiredWriter = await persistence.open(SessionId('retired-header'), 'write')
-      await expect(retiredWriter.append([title(1)])).rejects.toThrow(/fallback/u)
-      await retiredWriter.close()
-      expect(storage.sql.exec('SELECT seq FROM dsh_session_events WHERE session_id = ?', 'retired-header').toArray()).toHaveLength(1)
-      // Closing released the claim: the next write open is not refused as owned.
-      await (await persistence.open(SessionId('retired-header'), 'write')).close()
+      storage.sql.exec('UPDATE dsh_session_summaries SET event_types = NULL WHERE session_id = ?', 'retired-header')
+      await expect(persistence.open(SessionId('retired-header'), 'write')).rejects.toThrow(/fallback/u)
+      // The refused open released its claim: a retry is refused the same way, not as owned.
+      await expect(persistence.open(SessionId('retired-header'), 'write')).rejects.toBeInstanceOf(SessionFormatUnsupportedError)
     } finally { await dispose() }
   })
 
@@ -1584,9 +1604,6 @@ runPersistenceContract('durable-object', async () => {
   const primary = await instance()
   return { ...primary, reopen: instance, dispose: async () => { await primary.dispose(); storage.close() } }
 }, new Map([
-  // A write open does not scan the log; its first full read checks every event and an
-  // append before one scans the stored types, so the refusal comes before any append.
-  ['vocabulary fail-closed: an unknown stored event type refuses reads and write opens', 'refused at the first read or append'],
   // The Edge writes a created session's header row at create; upstream defers it to the first append or flush.
   ['a created-but-unappended session is visible to this instance and invisible to a fresh one', 'header written at create'],
   // Flush does not mark an empty created session materialized, so its close erases it;
