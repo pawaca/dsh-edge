@@ -82,6 +82,8 @@ export class EdgeFileReferenceService extends FileReferenceService {
   private readonly maxIndexCharacters: number
   /** Indexes by working directory, least recently queried first. */
   private readonly searches = new Map<string, WorkspaceSearch>()
+  /** The last recursive read queued; they run one at a time across every index. */
+  private scanning: Promise<unknown> = Promise.resolve()
 
   constructor(ctx: Context, config: EdgeFileReferenceConfig) {
     super(ctx)
@@ -129,7 +131,7 @@ export class EdgeFileReferenceService extends FileReferenceService {
     const root = normalizeRoot(this.ctx.get('workingDirectory')?.get(agent.session) ?? agent.session.header.cwd ?? DEFAULT_CWD)
     let search = this.searches.get(root)
     if (search === undefined) {
-      search = new WorkspaceSearch(root, this.withFiles, this.maxResults, this.maxEntries, this.maxIndexCharacters)
+      search = new WorkspaceSearch(root, this.withFiles, read => this.scanInTurn(read), this.maxResults, this.maxEntries, this.maxIndexCharacters)
     } else {
       this.searches.delete(root)
     }
@@ -141,6 +143,18 @@ export class EdgeFileReferenceService extends FileReferenceService {
       this.searches.delete(stale)
     }
     return search.list(query, signal)
+  }
+
+  /**
+   * Run one recursive read after every earlier one. A dropped index's read
+   * still finishes for the query waiting on it, so without this many working
+   * directories could hold reads in memory at once; this way at most one
+   * index is being read beside the `maxIndexes` kept.
+   */
+  private scanInTurn<T>(read: () => Promise<T>): Promise<T> {
+    const run = this.scanning.then(read, read)
+    this.scanning = run.catch(() => {})
+    return run
   }
 }
 
@@ -155,6 +169,7 @@ class WorkspaceSearch {
   constructor(
     readonly root: string,
     private readonly withFiles: EdgeFileReferenceConfig['withFiles'],
+    private readonly inTurn: <T>(read: () => Promise<T>) => Promise<T>,
     private readonly maxResults: number,
     private readonly maxEntries: number,
     private readonly maxIndexCharacters: number,
@@ -190,7 +205,7 @@ class WorkspaceSearch {
   private build(): Promise<FileReferenceCandidate[]> {
     if (this.building !== undefined) return this.building
     const startedAt = this.invalidations
-    const building = this.withFiles(files => this.scan(files)).then(entries => {
+    const building = this.inTurn(() => this.withFiles(files => this.scan(files))).then(entries => {
       if (this.building === building) {
         this.building = undefined
         if (!this.lifetime.signal.aborted) this.settled = { entries, startedAt }

@@ -164,9 +164,40 @@ describe('EdgeFileReferenceService', () => {
       }),
     })
     const first = ctx.fileReferences.list(agentAt('/workspace/one'), 'txt', signal())
-    expect(await ctx.fileReferences.list(agentAt('/workspace/two'), 'txt', signal())).toEqual([{ path: 'two.txt', kind: 'file' }])
+    // The second directory drops the first's index while its read is open.
+    const second = ctx.fileReferences.list(agentAt('/workspace/two'), 'txt', signal())
+    await new Promise(resolve => { setTimeout(resolve, 0) })
     release()
     expect(await first).toEqual([{ path: 'sub/sub.txt', kind: 'file' }])
+    expect(await second).toEqual([{ path: 'two.txt', kind: 'file' }])
+  })
+
+  it('reads one index at a time across working directories', async () => {
+    let active = 0
+    let peak = 0
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt, { personaPrefix: 'test persona' })
+    await ctx.plugin(EdgeFileReferenceService, {
+      maxIndexes: 1,
+      withFiles: async read => {
+        active += 1
+        peak = Math.max(peak, active)
+        try {
+          return await read({
+            readdir: async (path: string) => {
+              await new Promise(resolve => { setTimeout(resolve, 1) })
+              return [entry(`${path.slice(path.lastIndexOf('/') + 1)}.txt`)]
+            },
+          })
+        } finally {
+          active -= 1
+        }
+      },
+    })
+    const names = ['one', 'two', 'three', 'four']
+    const results = await Promise.all(names.map(name => ctx.fileReferences.list(agentAt(`/workspace/${name}`), 'txt', signal())))
+    expect(results).toEqual(names.map(name => [{ path: `${name}.txt`, kind: 'file' }]))
+    expect(peak).toBe(1)
   })
 
   it('lists one directory for a query with a slash, relative or absolute inside the working directory', async () => {
