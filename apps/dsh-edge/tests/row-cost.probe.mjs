@@ -171,6 +171,28 @@ async function measure(label, appDirectory) {
     for (let index = 9; index <= 12; index += 1) await step('plain turn', `hello ${String(index)}`)
     // The schedule step arms an alarm; no span for it means the names above no longer match workerd's.
     assert.ok((await totals(worker)).armed > 0, `${label}: no setAlarm span was recorded, so alarm writes are not being counted`)
+    // `@file` completion over a 10 x 20 workspace tree: the first bare query reads
+    // whatever the build reads for it (since 0.30 the recursive index), and the
+    // second answers a bare query again. Printed for review, not gated.
+    for (let directory = 0; directory < 10; directory += 1) {
+      for (let file = 0; file < 20; file += 1) {
+        const path = `/workspace/tree/d${String(directory)}/f${String(file)}.txt`
+        const put = await worker.fetch(`/api/workspace/file?path=${path}`, { method: 'PUT', headers: { cookie }, body: 'x' })
+        assert.equal(put.status, 200, `${label}: writing ${path} answered ${String(put.status)}`)
+      }
+    }
+    await quiet()
+    const fileQuery = async name => {
+      const before = await totals(worker)
+      const response = await post('/api/fileReferences/list', { type: 'client-request', rpcId: crypto.randomUUID(), payload: { args: { agentId: sessionId, query: 'f19' } } })
+      const body = await response.json()
+      assert.equal(body.result?.ok, true, `${label}: @file query failed: ${JSON.stringify(body)}`)
+      await quiet()
+      const after = await totals(worker)
+      rows.push([name, after.written - before.written, after.read - before.read, after.kv - before.kv])
+    }
+    await fileQuery('@file bare query (first)')
+    await fileQuery('@file bare query (again)')
     await worker.stop()
     // A new Worker process on the same persisted state is a cold resume.
     ;({ worker, cookie } = await boot('cold'))

@@ -600,6 +600,8 @@ try {
     .find(content => content.includes('<referenced-sessions>'))
   assert.match(referenceContext ?? '', /fixture prompt/u)
   assert.match(referenceContext ?? '', /fixture response/u)
+  // Written before the session's first bare query, which builds its index.
+  assert.equal((await request('/api/workspace/file?path=/workspace/deep/nested/needle-ref.md', { method: 'PUT', body: 'x' })).status, 200)
   const fileCandidates = await typertRpc('fileReferences', 'list', {
     agentId: referenceSessionId,
     query: 'rel',
@@ -611,6 +613,13 @@ try {
     query: '../',
   })
   assert.deepEqual(escapedCandidates.body.result.value, [])
+  // As upstream's local provider: a bare fragment fuzzy-searches the working
+  // directory recursively, and an absolute directory inside it is listed.
+  const nestedCandidates = await typertRpc('fileReferences', 'list', { agentId: referenceSessionId, query: 'ndlref' })
+  assert.deepEqual(nestedCandidates.body.result.value, [{ path: 'deep/nested/needle-ref.md', kind: 'file' }])
+  const absoluteCandidates = await typertRpc('fileReferences', 'list', { agentId: referenceSessionId, query: '/workspace/deep/' })
+  assert.deepEqual(absoluteCandidates.body.result.value, [{ path: '/workspace/deep/nested', kind: 'directory' }])
+  await request('/api/workspace/file?path=/workspace/deep/nested/needle-ref.md', { method: 'DELETE' })
   const sessionCandidates = await typertRpc('sessionReferenceResolver', 'candidates', {
     agentId: referenceSessionId,
     query: '',
@@ -2887,12 +2896,17 @@ try {
   }
   const projectSession = await rpc('session.create', { cwd: '/workspace/skillproj' })
   assert.equal(projectSession.body.result.ok, true, JSON.stringify(projectSession.body))
-  const listedFor = async id => (await rpc('skills.list', { sessionId: id })).body.result.value.skills.map(entry => entry.name)
+  // Upstream's skill catalog answers, as the Web client calls it, and its rows
+  // carry the skill file's path, which the client opens from a skill reference.
+  const listSessionSkills = async id => (await typertRpc('skills', 'list', { request: { sessionId: id } })).body.result
+  const listedFor = async id => { const result = await listSessionSkills(id); assert.equal(result.ok, true, JSON.stringify(result)); return result.value.skills.map(entry => entry.name) }
+  assert.deepEqual((await listSessionSkills(projectSession.body.result.value.sessionId)).value.skills.map(entry => entry.path),
+    [projectSkill])
   const projectListed = await listedFor(projectSession.body.result.value.sessionId)
   assert.ok(projectListed.includes('proj-skill') && !projectListed.includes('root-skill'), JSON.stringify(projectListed))
   const rootListed = await listedFor(skillSessionId)
   assert.ok(rootListed.includes('root-skill') && !rootListed.includes('proj-skill'), JSON.stringify(rootListed))
-  assert.equal((await rpc('skills.list', { sessionId: 'session-missing' })).body.result.ok, false)
+  assert.equal((await listSessionSkills('session-missing')).error.code, 'session/not-found')
   // A skill written after that listing appears in the next one without a turn
   // in between: the `/` listing rechecks the roots before the cached catalog.
   const lateSkill = '/workspace/.dsh/skills/late-skill/SKILL.md'

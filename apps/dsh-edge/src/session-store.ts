@@ -1062,11 +1062,6 @@ export class EdgeSessionStore {
     try { return this.context.fs as EdgeFileSystem } catch { return undefined }
   }
 
-  async skillRegistry(): Promise<SkillRegistry | undefined> {
-    await this.ready
-    try { return this.context.skills } catch { return undefined }
-  }
-
   /**
    * Where a session is now: the working-directory projection, from the live
    * agent or read cold from the stored session, else the directory it started

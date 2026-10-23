@@ -17,7 +17,7 @@ export interface EdgeReferenceEntry {
 
 /** The subset of the Computer workspace filesystem that discovery reads. */
 export interface EdgeReferenceFiles {
-  readdir(path: string): Promise<readonly EdgeReferenceEntry[]>
+  readdir(path: string, options?: { limit?: number }): Promise<readonly EdgeReferenceEntry[]>
 }
 
 export interface EdgeFileReferenceConfig {
@@ -25,30 +25,82 @@ export interface EdgeFileReferenceConfig {
   withFiles<T>(read: (files: EdgeReferenceFiles) => Promise<T>): Promise<T>
   /** Maximum candidates returned for one query. */
   maxResults?: number
+  /** Maximum files and directories one working directory's index holds. */
+  maxEntries?: number
+  /** Maximum working directories whose indexes are kept at once. */
+  maxIndexes?: number
+  /** Maximum path characters one index holds, so long paths cannot outgrow the entry bound. */
+  maxIndexCharacters?: number
 }
 
 const DEFAULT_MAX_RESULTS = 20
+/**
+ * Upstream indexes up to 50,000 entries from the local disk. Each Edge
+ * directory listing reads Durable Object rows, so one index read is bounded
+ * at a fifth of that.
+ */
+export const DEFAULT_MAX_ENTRIES = 10_000
+/**
+ * Sessions in one working directory share its index, and the least recently
+ * queried directories' indexes are dropped beyond this many, so resident
+ * sessions cannot hold more than this many indexes in Durable Object memory.
+ */
+export const DEFAULT_MAX_INDEXES = 4
+/**
+ * About 2 MiB of path strings per index: with at most four kept and one
+ * replacement read at a time, indexes stay a small share of the isolate's
+ * 128 MiB, whatever the path lengths.
+ */
+export const DEFAULT_MAX_INDEX_CHARACTERS = 1_000_000
 const DEFAULT_CWD = '/workspace'
+/** Upstream dsh-file-reference-local's default exclusions: VCS, dependency, and build-output directories. */
+export const EXCLUDED_DIRECTORIES: ReadonlySet<string> = new Set([
+  '.git', 'node_modules', 'dist', 'build', 'out', 'coverage', 'target', '.next', '.nuxt', '.turbo',
+  '.venv', '__pycache__', '.pytest_cache', '.mypy_cache', '.gradle',
+])
 
 /**
- * Directory-scoped `@file` completion over the Computer VFS.
- *
- * The upstream local provider walks a native filesystem into a fuzzy index;
- * on Workers every directory read is a Computer RPC, so the Edge answers each
- * query from exactly one listing: the directory the query names (the session
- * working directory for a bare fragment). Users descend with a trailing slash,
- * which is the grammar the shared reference UI already drives.
+ * `@file` completion over the Computer VFS, following upstream
+ * dsh-file-reference-local, whose node:fs walk Workers cannot run: a query
+ * with a `/` (or an empty one) lists that directory, and a bare fragment
+ * fuzzy-ranks a recursive index of the working directory, so `rdm` finds
+ * `README.md` anywhere below it. The index skips upstream's excluded
+ * directories and holds at most `maxEntries` paths and `maxIndexCharacters`
+ * path characters, and sessions in the same
+ * working directory share it. Only the first bare query waits for it; as
+ * upstream, a tool result (in any session, since they share one workspace)
+ * makes it stale, and the next bare query answers from it while its
+ * replacement is read behind the caret. Like upstream's, it does not see files
+ * changed outside tools (owner API writes, uploads) until the next tool result;
+ * directory queries always read the directory.
  */
 export class EdgeFileReferenceService extends FileReferenceService {
   private readonly withFiles: EdgeFileReferenceConfig['withFiles']
   private readonly maxResults: number
+  private readonly maxEntries: number
+  private readonly maxIndexes: number
+  private readonly maxIndexCharacters: number
+  /** Indexes by working directory, least recently queried first. */
+  private readonly searches = new Map<string, WorkspaceSearch>()
+  /** The last recursive read queued; they run one at a time across every index. */
+  private scanning: Promise<unknown> = Promise.resolve()
 
   constructor(ctx: Context, config: EdgeFileReferenceConfig) {
     super(ctx)
     this.withFiles = read => config.withFiles(read)
     this.maxResults = config.maxResults ?? DEFAULT_MAX_RESULTS
-    if (!Number.isSafeInteger(this.maxResults) || this.maxResults <= 0) {
-      throw new Error('dsh-edge: file reference maxResults must be a positive safe integer')
+    this.maxEntries = config.maxEntries ?? DEFAULT_MAX_ENTRIES
+    this.maxIndexes = config.maxIndexes ?? DEFAULT_MAX_INDEXES
+    this.maxIndexCharacters = config.maxIndexCharacters ?? DEFAULT_MAX_INDEX_CHARACTERS
+    for (const [name, value] of [
+      ['maxResults', this.maxResults],
+      ['maxEntries', this.maxEntries],
+      ['maxIndexes', this.maxIndexes],
+      ['maxIndexCharacters', this.maxIndexCharacters],
+    ] as const) {
+      if (!Number.isSafeInteger(value) || value <= 0) {
+        throw new Error(`dsh-edge: file reference ${name} must be a positive safe integer`)
+      }
     }
     // Every Edge agent mounts the upstream `read` tool, so the shared guidance
     // applies to every assembly instead of the per-agent check the local
@@ -60,15 +112,168 @@ export class EdgeFileReferenceService extends FileReferenceService {
         text: FILE_REFERENCE_PROMPT,
       })
     })
+    // As upstream, a tool may have changed the tree, so the index goes stale.
+    // Every Edge session shares one workspace, so a tool result in any session
+    // makes every index stale, not only its own directory's.
+    ctx.on('session/event', (_session, event) => {
+      if (event.type !== 'tool/result') return
+      for (const search of this.searches.values()) search.invalidate()
+    })
+    ctx.effect(() => () => {
+      for (const search of this.searches.values()) search.dispose()
+      this.searches.clear()
+    }, 'edge file-reference indexes')
   }
 
   async list(agent: Agent, query: string, signal: AbortSignal): Promise<FileReferenceCandidate[]> {
     signal.throwIfAborted()
     // The session's current directory: `working_directory` can move it after the session began.
-    const root = this.ctx.get('workingDirectory')?.get(agent.session) ?? agent.session.header.cwd ?? DEFAULT_CWD
-    const scope = splitQuery(query)
-    if (scope === undefined) return []
-    const directory = resolveWithin(root, scope.directory)
+    const root = normalizeRoot(this.ctx.get('workingDirectory')?.get(agent.session) ?? agent.session.header.cwd ?? DEFAULT_CWD)
+    let search = this.searches.get(root)
+    if (search === undefined) {
+      search = new WorkspaceSearch(root, this.withFiles, read => this.scanInTurn(read), this.maxResults, this.maxEntries, this.maxIndexCharacters)
+    } else {
+      this.searches.delete(root)
+    }
+    this.searches.set(root, search)
+    // A dropped index's read still finishes for a query waiting on it, and
+    // is abandoned, queued or running, once no query is.
+    for (const [stale, evicted] of this.searches) {
+      if (this.searches.size <= this.maxIndexes) break
+      this.searches.delete(stale)
+      evicted.evict()
+    }
+    return search.list(query, signal)
+  }
+
+  /**
+   * Run one recursive read after every earlier one. A dropped index's read
+   * still finishes for the query waiting on it, so without this many working
+   * directories could hold reads in memory at once; this way at most one
+   * index is being read beside the `maxIndexes` kept. A read abandoned while
+   * queued fails at its turn without touching the workspace.
+   */
+  private scanInTurn<T>(read: () => Promise<T>): Promise<T> {
+    const run = this.scanning.then(read, read)
+    this.scanning = run.catch(() => {})
+    return run
+  }
+}
+
+/** One working directory's completion surface: live directory listings plus a shared recursive index. */
+class WorkspaceSearch {
+  /** Bumped by each invalidation; a settled index started below it is stale. */
+  private invalidations = 0
+  private settled: { entries: FileReferenceCandidate[], startedAt: number } | undefined
+  private building: Promise<FileReferenceCandidate[]> | undefined
+  private readonly lifetime = new AbortController()
+  /** Dropped from the service's cache: kept only while a first query waits. */
+  private evicted = false
+  /** First queries waiting for this index to be read. */
+  private waiters = 0
+
+  constructor(
+    readonly root: string,
+    private readonly withFiles: EdgeFileReferenceConfig['withFiles'],
+    private readonly inTurn: <T>(read: () => Promise<T>) => Promise<T>,
+    private readonly maxResults: number,
+    private readonly maxEntries: number,
+    private readonly maxIndexCharacters: number,
+  ) {}
+
+  async list(rawQuery: string, signal: AbortSignal): Promise<FileReferenceCandidate[]> {
+    const scope = splitQuery(rawQuery)
+    if (scope === undefined || this.lifetime.signal.aborted) return []
+    if (scope.directory !== '' || scope.fragment === '') return this.listDirectory(scope, signal)
+    const entries = await this.index(signal)
+    signal.throwIfAborted()
+    return rankCandidates(entries.filter(entry => visibleForBareQuery(entry.path, scope.fragment)), scope.fragment, this.maxResults)
+  }
+
+  invalidate(): void {
+    this.invalidations += 1
+  }
+
+  evict(): void {
+    this.evicted = true
+    if (this.waiters === 0) this.dispose()
+  }
+
+  dispose(): void {
+    this.lifetime.abort(new Error('file reference index disposed'))
+    this.settled = undefined
+    this.building = undefined
+  }
+
+  /** The indexed paths, at most one invalidation behind the tree; only a first query waits. */
+  private async index(signal: AbortSignal): Promise<FileReferenceCandidate[]> {
+    const settled = this.settled
+    if (settled === undefined) {
+      this.waiters += 1
+      try {
+        return await abortable(this.build(), signal)
+      } finally {
+        this.waiters -= 1
+        if (this.evicted && this.waiters === 0) this.dispose()
+      }
+    }
+    if (settled.startedAt < this.invalidations) this.build().catch(() => {})
+    return settled.entries
+  }
+
+  private build(): Promise<FileReferenceCandidate[]> {
+    if (this.building !== undefined) return this.building
+    const startedAt = this.invalidations
+    const building = this.inTurn(() => {
+      this.lifetime.signal.throwIfAborted()
+      return this.withFiles(files => this.scan(files))
+    }).then(entries => {
+      if (this.building === building) {
+        this.building = undefined
+        if (!this.lifetime.signal.aborted) this.settled = { entries, startedAt }
+      }
+      return entries
+    }, (error: unknown) => {
+      if (this.building === building) this.building = undefined
+      throw error
+    })
+    this.building = building
+    return building
+  }
+
+  /**
+   * Breadth-first, in name order, reading each directory up to the entries
+   * still allowed, and stopping at the first path past the character bound. An unreadable root fails the build, so a transient failure
+   * keeps the previous index; an unreadable subdirectory adds nothing.
+   */
+  private async scan(files: EdgeReferenceFiles): Promise<FileReferenceCandidate[]> {
+    const indexed: FileReferenceCandidate[] = []
+    const directories = [{ absolute: this.root, relative: '' }]
+    let characters = 0
+    for (let cursor = 0; cursor < directories.length && indexed.length < this.maxEntries; cursor += 1) {
+      this.lifetime.signal.throwIfAborted()
+      const directory = directories[cursor]!
+      const limit = { limit: this.maxEntries - indexed.length }
+      const entries = cursor === 0
+        ? await files.readdir(directory.absolute, limit)
+        : await files.readdir(directory.absolute, limit).catch(() => [])
+      for (const entry of [...entries].sort((left, right) => compareText(left.name, right.name))) {
+        const path = directory.relative === '' ? entry.name : `${directory.relative}/${entry.name}`
+        const kind = entry.isDirectory ? 'directory' : entry.isFile ? 'file' : undefined
+        if (kind === undefined || (kind === 'directory' && EXCLUDED_DIRECTORIES.has(entry.name))) continue
+        characters += path.length
+        if (characters > this.maxIndexCharacters) return indexed
+        indexed.push({ path, kind })
+        if (kind === 'directory') directories.push({ absolute: joinPath(directory.absolute, entry.name), relative: path })
+        if (indexed.length >= this.maxEntries) break
+      }
+    }
+    return indexed
+  }
+
+  private async listDirectory(scope: FileReferenceQueryScope, signal: AbortSignal): Promise<FileReferenceCandidate[]> {
+    if (scope.directory.split('/').some(segment => EXCLUDED_DIRECTORIES.has(segment))) return []
+    const directory = resolveWithin(this.root, scope.directory)
     if (directory === undefined) return []
     let entries: readonly EdgeReferenceEntry[]
     try {
@@ -80,7 +285,16 @@ export class EdgeFileReferenceService extends FileReferenceService {
       return []
     }
     signal.throwIfAborted()
-    return rankCandidates(entries, scope, this.maxResults)
+    const candidates: FileReferenceCandidate[] = []
+    for (const entry of entries) {
+      if (entry.name.startsWith('.') && !scope.fragment.startsWith('.')) continue
+      if (entry.isDirectory && !EXCLUDED_DIRECTORIES.has(entry.name)) {
+        candidates.push({ path: `${scope.directory}${entry.name}`, kind: 'directory' })
+      } else if (entry.isFile) {
+        candidates.push({ path: `${scope.directory}${entry.name}`, kind: 'file' })
+      }
+    }
+    return rankCandidates(candidates, scope.fragment, this.maxResults)
   }
 }
 
@@ -104,9 +318,13 @@ export function splitQuery(rawQuery: string): FileReferenceQueryScope | undefine
   return { directory: query.slice(0, slash + 1), fragment: query.slice(slash + 1) }
 }
 
-/** Resolve a display directory under the working directory, refusing escapes. */
+/**
+ * Resolve a display directory, relative to the working directory or absolute,
+ * refusing anything outside the working directory, as upstream does.
+ */
 export function resolveWithin(root: string, displayDirectory: string): string | undefined {
-  const parts: string[] = []
+  const base = normalizeRoot(root)
+  const parts = displayDirectory.startsWith('/') ? [] : base.split('/').filter(Boolean)
   for (const segment of displayDirectory.split('/')) {
     if (segment === '' || segment === '.') continue
     if (segment === '..') {
@@ -116,45 +334,84 @@ export function resolveWithin(root: string, displayDirectory: string): string | 
     }
     parts.push(segment)
   }
-  const base = root.endsWith('/') ? root.slice(0, -1) : root
-  if (parts.length === 0) return base === '' ? '/' : base
-  return `${base}/${parts.join('/')}`
+  const resolved = `/${parts.join('/')}`
+  return resolved === base || base === '/' || resolved.startsWith(`${base}/`) ? resolved : undefined
 }
 
-/** Rank one directory listing for a fragment the way the upstream local provider ranks a scoped query. */
+/** Rank candidates for a query as upstream dsh-file-reference-local does. */
 export function rankCandidates(
-  entries: readonly EdgeReferenceEntry[],
-  scope: FileReferenceQueryScope,
+  candidates: readonly FileReferenceCandidate[],
+  query: string,
   limit: number,
 ): FileReferenceCandidate[] {
-  const needle = scope.fragment.toLowerCase()
-  const ranked: { candidate: FileReferenceCandidate; score: number }[] = []
-  for (const entry of entries) {
-    if (entry.name.startsWith('.') && !scope.fragment.startsWith('.')) continue
-    const kind = entry.isDirectory ? 'directory' : entry.isFile ? 'file' : undefined
-    if (kind === undefined) continue
-    const score = scoreName(entry.name.toLowerCase(), needle, kind)
-    if (score === undefined) continue
-    ranked.push({ candidate: { path: `${scope.directory}${entry.name}`, kind }, score })
+  const ranked: { candidate: FileReferenceCandidate, score: number }[] = []
+  for (const candidate of candidates) {
+    const score = scoreCandidate(candidate, query)
+    if (score !== undefined) ranked.push({ candidate, score })
   }
   ranked.sort((left, right) =>
     right.score - left.score
     || kindRank(left.candidate.kind) - kindRank(right.candidate.kind)
+    || (query === '' ? 0 : left.candidate.path.length - right.candidate.path.length)
     || compareText(left.candidate.path, right.candidate.path))
   return ranked.slice(0, limit).map(entry => entry.candidate)
 }
 
-function scoreName(
-  name: string,
-  needle: string,
-  kind: FileReferenceCandidate['kind'],
-): number | undefined {
-  const directoryBonus = kind === 'directory' ? 25 : 0
-  if (needle === '') return directoryBonus
+/** Exact, prefix, and substring name matches, then path substrings, then in-order subsequences. */
+function scoreCandidate(candidate: FileReferenceCandidate, query: string): number | undefined {
+  if (query === '') return 0
+  const path = candidate.path.toLowerCase()
+  const name = path.slice(path.lastIndexOf('/') + 1)
+  const needle = query.toLowerCase()
+  const directoryBonus = candidate.kind === 'directory' ? 25 : 0
   if (name === needle) return 1_000 + directoryBonus
   if (name.startsWith(needle)) return 900 + directoryBonus
   if (name.includes(needle)) return 700 + directoryBonus
-  return undefined
+  if (path.includes(needle)) return 500 + directoryBonus
+  const subsequence = subsequenceScore(path, needle)
+  return subsequence === undefined ? undefined : 300 + subsequence + directoryBonus
+}
+
+function subsequenceScore(target: string, query: string): number | undefined {
+  let targetIndex = 0
+  let gap = 0
+  for (const character of query) {
+    const found = target.indexOf(character, targetIndex)
+    if (found < 0) return undefined
+    gap += found - targetIndex
+    targetIndex = found + 1
+  }
+  return Math.max(0, 100 - gap)
+}
+
+/** A bare query skips paths under hidden names unless it asks for one. */
+function visibleForBareQuery(path: string, query: string): boolean {
+  if (query.startsWith('.') || query.includes('/.')) return true
+  return !path.split('/').some(segment => segment.startsWith('.'))
+}
+
+function normalizeRoot(root: string): string {
+  const trimmed = root.replace(/\/+$/u, '')
+  return trimmed === '' ? '/' : trimmed
+}
+
+function joinPath(directory: string, name: string): string {
+  return directory === '/' ? `/${name}` : `${directory}/${name}`
+}
+
+function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  signal.throwIfAborted()
+  return new Promise((resolve, reject) => {
+    const onAbort = () => { reject(signal.reason) }
+    signal.addEventListener('abort', onAbort, { once: true })
+    promise.then(value => {
+      signal.removeEventListener('abort', onAbort)
+      resolve(value)
+    }, (error: unknown) => {
+      signal.removeEventListener('abort', onAbort)
+      reject(error)
+    })
+  })
 }
 
 function kindRank(kind: FileReferenceCandidate['kind']): number {

@@ -1604,6 +1604,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         ? AbortSignal.any([request.signal, AbortSignal.timeout(MAIN_RUN_TIMEOUT_MS)])
         : AbortSignal.timeout(30_000)
       const invoke = () => interceptor.dispatch(`${ns}/${method}`, payload ?? { args }, deadline)
+      if (ns === 'skills' && method === 'list') await this.refreshSessionSkills(args)
       // Agent-scoped commands (including /plan) use the same residency budget.
       // Their upstream lookup may otherwise leave a cold Agent permanently live.
       // Session feedback appends to the session, which may be cold; the Edge
@@ -1611,6 +1612,10 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       const feedback = ns === 'sessionFeedback' && method === 'record' ? feedbackRequest(args) : undefined
       const result = ns === 'workspaceFiles'
         ? await this.withWorkspaceFileScope(invoke)
+        // A live session's listing checks its working directory, which needs file
+        // metadata outside a turn.
+        : ns === 'skills' && method === 'list'
+          ? await this.withBorrowedWorkspaceMetadata(invoke)
         : ns === 'subagents' && method === 'prompt'
           ? await this.withSubagentPrompt(args, invoke)
         : feedback !== undefined
@@ -1634,6 +1639,21 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         error: remoteFailureOf(error),
       } })
     }
+  }
+
+  /**
+   * Upstream's skill catalog (`skills/list`) answers the `/` menu, and the
+   * Edge has no file watches to keep it current, so the session's skill roots
+   * are rechecked first, as before a turn. A session that cannot be read is
+   * left to upstream, which reports it.
+   */
+  private async refreshSessionSkills(args: Record<string, unknown>): Promise<void> {
+    const sessionId = (args.request as { sessionId?: unknown } | undefined)?.sessionId
+    if (typeof sessionId !== 'string') return
+    try {
+      const summary = await this.sessions.getApiSessionSummary(SessionId(sessionId))
+      await this.sessions.refreshSkills(await this.sessions.currentDirectory(SessionId(sessionId), summary.cwd ?? '/workspace'))
+    } catch {}
   }
 
   /**
