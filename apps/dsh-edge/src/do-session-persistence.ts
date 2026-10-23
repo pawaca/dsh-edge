@@ -5,6 +5,7 @@ import { initializeMainQueue, acknowledgeMainInputs } from './main-session-queue
 import { Context } from '@deepseek-ai/cordis'
 import { decodeStorageRecord, packChunkRuns } from './chunk-rows.ts'
 import {
+  KNOWN_SESSION_EVENT_TYPES,
   SESSION_FORMAT_VERSION,
   SessionLogOffset,
   SessionSeq,
@@ -25,7 +26,10 @@ import {
   SessionPersistenceNotFoundError,
   SessionPersistenceRevision,
   SessionReadOnlyError,
+  assertContiguous,
   assertVersion,
+  materializeAppendBatch,
+  materializeCreateHeader,
   validateStoredEvents,
   type SessionAccess,
   type SessionHandle,
@@ -256,19 +260,28 @@ class DurableObjectSessionHandle implements SessionHandle {
   ): Promise<SessionHandleReadResult> {
     if (this.closed) throw new SessionHandleClosedError(this.id, 'read')
     options?.signal?.throwIfAborted()
+    for (const value of [offset, length]) {
+      if (value !== undefined && !(Number.isSafeInteger(value) && value >= 0)) {
+        throw new RangeError(`read offset and length must be a non-negative safe integer, got ${String(value)}`)
+      }
+    }
     const fromSeq = offset ?? 0
-    const rows = this.backend.eventRowsFrom(this.id, fromSeq)
-    const scanned = scanRows(rows, fromSeq)
+    // A bounded read selects at most `length` rows (each holds one event or a
+    // run of them), and takes the committed boundary from the last turn/end
+    // so a torn tail is told apart from corruption exactly as a full read does.
+    const rows = this.backend.eventRowsFrom(this.id, fromSeq, length)
+    const scanned = scanRows(rows, fromSeq, length === undefined ? undefined : this.backend.lastTurnEndSeq(this.id))
     let preserved = scanned.preserved
     const tornFrom = scanned.tornFrom
-    if (this.access === 'write' && fromSeq === 0 && tornFrom !== undefined) {
+    if (this.access === 'write' && fromSeq === 0 && length === undefined && tornFrom !== undefined) {
       preserved = await this.backend.repairTornTail(this.id, this.inheritedEventCount)
     }
     options?.signal?.throwIfAborted()
     const events = length === undefined
       ? preserved
       : preserved.slice(0, length)
-    return { eventState: 'detached', events }
+    // As upstream backends: refuse vocabulary this build does not know.
+    return { eventState: 'detached', events: validateStoredEvents(this.header, events) }
   }
 
   async append(
@@ -356,6 +369,7 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
     options?: SessionPersistenceCreateOptions,
   ): Promise<SessionHandle> {
     options?.signal?.throwIfAborted()
+    header = materializeCreateHeader(header)
     if (this.rowFor(header.id) !== undefined) {
       throw new SessionAlreadyExistsError(header.id)
     }
@@ -394,13 +408,14 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
         throw new SessionAlreadyOwnedError(id)
       }
       this.activeWriteOwners.add(id)
-      if (blank !== undefined) {
-        try {
-          await this.materializeBlankSession(id)
-        } catch (error) {
-          this.activeWriteOwners.delete(id)
-          throw error
-        }
+      try {
+        if (blank !== undefined) await this.materializeBlankSession(id)
+        // A write open refuses a log it could not interpret, as upstream's
+        // backends do, before anything is appended to it.
+        else this.assertKnownVocabulary(rowToHeader(row!))
+      } catch (error) {
+        this.activeWriteOwners.delete(id)
+        throw error
       }
     }
     const header = row !== undefined ? rowToHeader(row) : blank!
@@ -905,8 +920,13 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
     events: readonly SessionEvent[],
     isMaterialized: boolean,
   ): Promise<void> {
+    // As upstream backends: store exactly the checked lossless-JSON snapshot,
+    // and only when it continues the stored log.
+    events = materializeAppendBatch(events)
     const write = () => {
       if (!isMaterialized) this.writeRow(storage.meta, storage.inheritedEventCount)
+      const summary = this.readSummary(storage.meta.id)
+      assertContiguous(storage.meta.id, events, (summary?.last_seq ?? -1) + 1)
       const packed = packChunkRuns(events as SessionEvent[])
       for (const record of packed) this.insertStorageRecord(storage.meta.id, record)
       const updated = this.storage.sql.exec(
@@ -915,7 +935,7 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
       )
       if (updated.rowsWritten !== 1) throw new Error(`session ${storage.meta.id} is not materialized`)
       this.storage.sql.exec('DELETE FROM dsh_edge_blank_sessions WHERE id = ?', storage.meta.id)
-      this.updateSummaryFromBatch(storage.meta.id, events)
+      this.updateSummaryFromBatch(storage.meta.id, events, undefined, summary)
       // A blank session's preset selection rewrites its durable header with
       // the event, so summaries, resume, and fork read one bounded value.
       const selected = events.findLast(event => event.type === 'agent-preset/selected')
@@ -1127,8 +1147,41 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
   }
 
   /** Expose eventRows for DurableObjectSessionHandle read path. */
-  eventRowsFrom(id: SessionId, fromSeq: number): EventRow[] {
-    return this.eventRows(id, fromSeq)
+  eventRowsFrom(id: SessionId, fromSeq: number, limitRows?: number): EventRow[] {
+    return this.eventRows(id, fromSeq, limitRows)
+  }
+
+  /** The seq of the session's last turn/end, read backwards from the log's end; -1 without one. */
+  lastTurnEndSeq(id: SessionId): number {
+    return this.storage.sql.exec<{ seq: number }>(
+      `SELECT seq FROM dsh_session_events
+       WHERE session_id = ? AND type = 'turn/end' ORDER BY seq DESC LIMIT 1`,
+      id,
+    ).toArray()[0]?.seq ?? -1
+  }
+
+  /**
+   * Refuse a stored log holding an event type this build does not know and its
+   * writer did not mark ignorable, or a retired request/header reason. Only the
+   * type columns are scanned; an offending row is decoded to raise upstream's
+   * own refusal.
+   */
+  private assertKnownVocabulary(header: SessionHeader): void {
+    // Packed assistant/chunk runs are not allowed either: the current format has
+    // no assistant/chunk, so a read of such a row is refused the same way.
+    const known = [...KNOWN_SESSION_EVENT_TYPES].map(type => `'${type.replaceAll("'", "''")}'`).join(', ')
+    const row = this.storage.sql.exec<EventRow>(
+      `SELECT seq, type, time, data, source_event_seqs, surface_op, ignorable
+       FROM dsh_session_events
+       WHERE session_id = ?
+         AND ((type NOT IN (${known}) AND ignorable IS NOT 1)
+           OR (type = 'request/header' AND json_extract(data, '$.reason') = 'fallback'))
+       ORDER BY seq LIMIT 1`,
+      header.id,
+    ).toArray()[0]
+    if (row === undefined) return
+    validateStoredEvents(header, rowToEvents(row))
+    throw new SessionFormatUnsupportedError(`session "${header.id}" contains event ${String(row.seq)} of type "${row.type}" that this build cannot interpret`)
   }
 
   private createEventTable(name: EventTable): void {
@@ -1337,20 +1390,20 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
     )
   }
 
-  private updateSummaryFromBatch(id: SessionId, events: readonly SessionEvent[], reset?: HeaderRow): void {
-    const lastEvent = events.at(-1)
-    if (lastEvent === undefined && reset === undefined) return
-    const existing = reset === undefined ? this.storage.sql.exec<{
-      blank: number
-      last_prompt_at: number | null
-      title_seq: number | null
-      title_time: number | null
-      title_data: string | null
-    }>(
-      `SELECT blank, last_prompt_at, title_seq, title_time, title_data
+  /** The summary row an append reads once: its cursor and the fields it carries forward. */
+  private readSummary(id: SessionId): SummaryRow | undefined {
+    return this.storage.sql.exec<SummaryRow>(
+      `SELECT blank, last_prompt_at, title_seq, title_time, title_data, last_seq
        FROM dsh_session_summaries WHERE session_id = ?`,
       id,
-    ).toArray()[0] : undefined
+    ).toArray()[0]
+  }
+
+  private updateSummaryFromBatch(id: SessionId, events: readonly SessionEvent[], reset?: HeaderRow,
+    current?: SummaryRow): void {
+    const lastEvent = events.at(-1)
+    if (lastEvent === undefined && reset === undefined) return
+    const existing = reset === undefined ? current ?? this.readSummary(id) : undefined
 
     let blank = existing?.blank ?? 1
     let lastPromptAt: number | null = existing?.last_prompt_at ?? null
@@ -1433,7 +1486,7 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
     ).toArray()[0]
   }
 
-  private eventRows(id: SessionId, fromSeq: number): EventRow[] {
+  private eventRows(id: SessionId, fromSeq: number, limitRows?: number): EventRow[] {
     const startSeq = fromSeq === 0 ? 0 : (this.storage.sql.exec<{ seq: number }>(
       `SELECT MAX(seq) AS seq FROM dsh_session_events
        WHERE session_id = ? AND seq <= ?`,
@@ -1443,9 +1496,10 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
     return this.storage.sql.exec<EventRow>(
       `SELECT seq, type, time, data, source_event_seqs, surface_op, ignorable
        FROM dsh_session_events
-       WHERE session_id = ? AND seq >= ? ORDER BY seq`,
+       WHERE session_id = ? AND seq >= ? ORDER BY seq LIMIT ?`,
       id,
       startSeq,
+      limitRows ?? -1,
     ).toArray()
   }
 
@@ -1568,6 +1622,15 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
 }
 
 type EventTable = 'dsh_session_events' | 'dsh_session_events_migrating'
+
+type SummaryRow = {
+  blank: number
+  last_prompt_at: number | null
+  title_seq: number | null
+  title_time: number | null
+  title_data: string | null
+  last_seq: number
+}
 
 /** The stored columns of one storage record, as `insertStorageRecord` writes them. */
 function storageColumns(record: Record<string, unknown>): EventRow {

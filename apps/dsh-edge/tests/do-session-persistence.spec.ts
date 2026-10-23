@@ -14,9 +14,11 @@ import SessionStore, {
   type SessionEvent,
   type SessionHeader,
 } from '@deepseek-ai/dsh-session'
+import { SessionFormatUnsupportedError } from '@deepseek-ai/dsh-session-persistence'
 import { describe, expect, it } from 'vitest'
 import { MainSessionQueue } from '../src/main-session-queue.ts'
 import DurableObjectSessionPersistence from '../src/do-session-persistence.ts'
+import { runPersistenceContract } from './fixtures/upstream-persistence-contract.ts'
 
 async function readAll(persistence: DurableObjectSessionPersistence, id: ReturnType<typeof SessionId>) {
   const handle = await persistence.open(id, 'read')
@@ -1423,7 +1425,7 @@ describe('session log export pages', () => {
         seqs.push(...page.map(event => event.seq))
         if (seqs.length === 2) {
           // A resume repairs the tail from the tear on and its new turn takes those seqs.
-          storage.sql.exec('DELETE FROM dsh_session_events WHERE session_id = ? AND seq >= 5', id)
+          await persistence.repairTornTail(id, SessionLogOffset(0))
           await persistence.appendBatch(storageOf(id), [5, 6, 7].map(seq => titleEvent(seq, `new ${String(seq)}`)), true)
         }
       }
@@ -1444,7 +1446,8 @@ describe('session log export pages', () => {
       }
       await expect(rewrite(() => storage.sql.exec("UPDATE dsh_session_events SET data = '{' WHERE session_id = ? AND seq = 3", id)))
         .rejects.toThrow('changed during export')
-      storage.sql.exec('DELETE FROM dsh_session_events WHERE session_id = ? AND seq = 3', id)
+      // The unparsable seq 3 follows no turn end, so a resume repairs it away.
+      await persistence.repairTornTail(id, SessionLogOffset(0))
       await persistence.appendBatch(storageOf(id), [titleEvent(3, 't3')], true)
       await expect(rewrite(() => storage.sql.exec('DELETE FROM dsh_session_events WHERE session_id = ? AND seq >= 2', id)))
         .rejects.toThrow('changed during export')
@@ -1478,3 +1481,101 @@ describe('session log export pages', () => {
 function isEventPayloadQuery(query: string): boolean {
   return /SELECT seq, type, time, data, source_event_seqs, surface_op, ignorable/u.test(query)
 }
+
+describe('storage-contract checks over Durable Object rows', () => {
+  async function openStore() {
+    const storage = new TestDurableObjectStorage()
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(DurableObjectSessionPersistence, { storage: storage as never })
+    return { storage, persistence: ctx.sessionPersistence as DurableObjectSessionPersistence, dispose: async () => { await fiber.dispose(); storage.close() } }
+  }
+  const header = (id: string): SessionHeader => ({ id: SessionId(id), version: SESSION_FORMAT_VERSION, createdAt: 1, isSeeded: false })
+  const chunk = (seq: number, text: string) => ({
+    type: 'assistant/chunk', seq: SessionSeq(seq), time: 1,
+    data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text } },
+  }) as unknown as SessionEvent
+  const title = (seq: number) => ({
+    type: 'session/title', seq: SessionSeq(seq), time: 1, data: { title: 't', messageSeqs: [], source: { kind: 'user' } },
+  }) as SessionEvent
+
+  it('opens for write over an ignorable unknown type, and refuses assistant/chunk and a retired header reason', async () => {
+    const { storage, persistence, dispose } = await openStore()
+    try {
+      const writer = await persistence.create(header('vocabulary'))
+      await writer.append([title(0), { type: 'future/note', seq: SessionSeq(1), time: 1, data: {}, ignorable: true } as unknown as SessionEvent])
+      await writer.close()
+      const reopened = await persistence.open(SessionId('vocabulary'), 'write')
+      expect((await reopened.read()).events.map(event => event.type)).toEqual(['session/title', 'future/note'])
+      await reopened.close()
+
+      // The current format has no assistant/chunk; stored alone or packed into a run, it is refused on open as on read.
+      const chunks = await persistence.create(header('chunk-run'))
+      await chunks.append([chunk(0, 'a'), chunk(1, 'b')])
+      await chunks.close()
+      await expect(persistence.open(SessionId('chunk-run'), 'write')).rejects.toBeInstanceOf(SessionFormatUnsupportedError)
+
+      const retired = await persistence.create(header('retired-header'))
+      await retired.append([title(0)])
+      await retired.close()
+      storage.sql.exec(
+        "UPDATE dsh_session_events SET type = 'request/header', data = ? WHERE session_id = ? AND seq = 0",
+        JSON.stringify({ reason: 'fallback' }), 'retired-header',
+      )
+      await expect(persistence.open(SessionId('retired-header'), 'write')).rejects.toBeInstanceOf(SessionFormatUnsupportedError)
+      await expect(persistence.open(SessionId('retired-header'), 'write')).rejects.toThrow(/fallback/u)
+    } finally { await dispose() }
+  })
+
+  it('rejects NaN in event data and stores nothing', async () => {
+    const { persistence, dispose } = await openStore()
+    try {
+      const writer = await persistence.create(header('nan'))
+      await expect(writer.append([{ ...title(0), data: { ...title(0).data, extra: Number.NaN } } as unknown as SessionEvent]))
+        .rejects.toThrow(TypeError)
+      expect((await writer.read()).events).toEqual([])
+      await writer.close()
+    } finally { await dispose() }
+  })
+
+  it('selects only the rows a bounded read returns', async () => {
+    const { storage, persistence, dispose } = await openStore()
+    try {
+      const writer = await persistence.create(header('bounded'))
+      await writer.append(Array.from({ length: 200 }, (_, seq) => title(seq)))
+      const selected: number[] = []
+      const exec = storage.sql.exec
+      storage.sql.exec = ((query: string, ...bindings: SQLInputValue[]) => {
+        const result = exec(query, ...bindings)
+        if (/SELECT seq, type, time, data/u.test(query)) selected.push(result.toArray().length)
+        return result
+      }) as typeof exec
+      expect((await writer.read(50, 3)).events.map(event => event.seq)).toEqual([50, 51, 52])
+      storage.sql.exec = exec
+      expect(selected).toEqual([3])
+      await writer.close()
+    } finally { await dispose() }
+  })
+})
+
+// Upstream's backend-agnostic contract, over one Durable Object storage that a
+// reopened instance shares. Its optional torn-tail hook stays unset: an append
+// commits in one SQL transaction, so the physical tear it simulates for JSONL
+// cannot occur; the semantic torn-tail repair is covered above.
+runPersistenceContract('durable-object', async () => {
+  const storage = new TestDurableObjectStorage()
+  const instance = async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(DurableObjectSessionPersistence, { storage: storage as never })
+    return { persistence: ctx.sessionPersistence, dispose: async () => { await fiber.dispose() } }
+  }
+  const primary = await instance()
+  return { ...primary, reopen: instance, dispose: async () => { await primary.dispose(); storage.close() } }
+}, new Map([
+  // The Edge writes a created session's header row at create; upstream defers it to the first append or flush.
+  ['a created-but-unappended session is visible to this instance and invisible to a fresh one', 'header written at create'],
+  // Flush does not mark an empty created session materialized, so its close erases it;
+  // the Edge keeps sessions without events as retained blanks instead.
+  ['flush materializes an empty session durably for a fresh instance', 'an empty session is kept as a retained blank'],
+]))
