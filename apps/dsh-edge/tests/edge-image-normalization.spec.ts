@@ -238,6 +238,18 @@ describe('attachment store with the Images binding', () => {
 })
 
 describe('attachment store without the Images binding', () => {
+  it('still reads images stored while the binding was bound', async () => {
+    const bucket = memoryBucket()
+    const optimized = new EdgeR2AttachmentStore(new Context(), { bucket, images: fakeImages().images })
+    const webpRef = await optimized.saveImage({ data: gif(300, 200), mediaType: 'image/gif' })
+    const wideRef = await optimized.saveImage({ data: jpeg(4000, 10), mediaType: 'image/jpeg' })
+    expect(webpRef.mediaType).toBe('image/webp')
+    expect(wideRef).toMatchObject({ mediaType: 'image/jpeg', width: 4000 })
+    const plain = new EdgeR2AttachmentStore(new Context(), { bucket })
+    expect((await plain.readImage(webpRef)).ref).toEqual(webpRef)
+    expect((await plain.readImage(wideRef)).ref).toEqual(wideRef)
+  })
+
   it('keeps PNG and JPEG only, decoded in the Worker, as before', async () => {
     const images = vi.fn()
     const attachments = new EdgeR2AttachmentStore(new Context(), { bucket: memoryBucket() })

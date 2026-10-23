@@ -229,7 +229,9 @@ abstract class EdgeImageAttachmentStore extends AttachmentStore {
         'ATTACHMENT_CORRUPT',
       )
     }
-    const metadata = await inspectImage(data, ref.mediaType, this.imageLimits, false)
+    // Checked against the widest contract any release stored under: a deployment
+    // that drops its Images binding must still read its normalized images.
+    const metadata = await inspectImage(data, ref.mediaType, EDGE_OPTIMIZED_IMAGE_LIMITS, false)
     if (data.byteLength !== ref.bytes
       || metadata.width !== ref.width
       || metadata.height !== ref.height) {
