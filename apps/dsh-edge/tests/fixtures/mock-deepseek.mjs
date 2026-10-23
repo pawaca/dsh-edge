@@ -38,6 +38,7 @@ export async function startMockDeepSeek(port = 0) {
   const requests = []
   const searchRequests = []
   const slowResponseReleases = []
+  const heldTitleReleases = []
   let rateLimitedOnce = 0
   let origin
   const server = createServer((request, response) => {
@@ -465,6 +466,21 @@ export async function startMockDeepSeek(port = 0) {
           } }] } }] },
           { choices: [{ delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 8, completion_tokens: 3 } },
         ])
+        return
+      }
+
+      // A first-prompt title request for a message carrying `held-title`
+      // waits for releaseHeldTitles(), so a test can rename meanwhile.
+      if (prompt.includes('held-title') && JSON.stringify(body).includes('Create a concise title')) {
+        const released = new Promise(resolve => { heldTitleReleases.push(resolve) })
+        sendEvents(response, [
+          { choices: [{ delta: { role: 'assistant', content: null, reasoning_content: '' } }] },
+          { choices: [{ delta: { content: 'Automatic held title' } }] },
+          {
+            choices: [{ delta: { content: '' }, finish_reason: 'stop' }],
+            usage: { prompt_tokens: 4, completion_tokens: 3 },
+          },
+        ], 0, released)
         return
       }
 
@@ -931,6 +947,12 @@ export async function startMockDeepSeek(port = 0) {
     searchRequests,
     releaseSlowResponses() {
       for (const release of slowResponseReleases.splice(0)) release()
+    },
+    /** Release held title responses; resolves to how many were waiting. */
+    releaseHeldTitles() {
+      const releases = heldTitleReleases.splice(0)
+      for (const release of releases) release()
+      return releases.length
     },
     close: () => new Promise(resolve => { server.close(resolve) }),
   }

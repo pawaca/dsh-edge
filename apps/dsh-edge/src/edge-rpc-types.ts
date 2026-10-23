@@ -88,7 +88,15 @@ export interface SessionHistoryPayload { sessionId: SessionId; beforeSeq?: numbe
 export interface SessionModelsPayload { sessionId: SessionId }
 export interface SessionSelectModelPayload { sessionId: SessionId; provider: string; model: string; reasoningEffort?: string }
 export interface SessionRenamePayload { sessionId: SessionId; title: string }
-export interface SessionForkPayload { sessionId: SessionId; atSeq?: number }
+export interface SessionForkPayload {
+  sessionId: SessionId
+  atSeq?: number
+  /**
+   * Upstream's migration preflight. The Edge migrates every stored session when
+   * its Durable Object starts, so a fork never meets one that still needs it.
+   */
+  allowMigration?: boolean
+}
 export interface SessionPromptPayload {
   sessionId: SessionId
   mode: 'queue' | 'steer'

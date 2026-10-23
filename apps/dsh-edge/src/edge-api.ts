@@ -343,6 +343,9 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
 
       async fork(request: RpcRequest<SessionForkPayload>) {
         const { sessionId, atSeq } = request.payload
+        if (atSeq !== undefined && !(Number.isSafeInteger(atSeq) && atSeq >= 0)) {
+          return fail(request, { code: 'gateway/bad-request', message: 'atSeq must be a non-negative safe integer', details: {} })
+        }
         try {
           const workspaceId = await runtime.workspaceForSession(sessionId)
           const child = await runtime.sessions.forkSession(sessionId, atSeq, runtime.model)

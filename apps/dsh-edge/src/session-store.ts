@@ -36,6 +36,7 @@ import type { QueuedInboxItem, RpcId } from './edge-rpc-types.ts'
 import SessionStore, {
   SessionId,
   SessionLogOffset,
+  SessionSeq,
   SessionPreparation,
   SESSION_FORMAT_VERSION,
   isAppendSurfaceEvent,
@@ -56,6 +57,7 @@ import {
   normalizeSessionTitle,
 } from '@deepseek-ai/dsh-session-title'
 import SessionTitleService from '@deepseek-ai/dsh-session-title'
+import { buildForkSeed } from '@deepseek-ai/dsh-session/fork'
 import * as FirstPromptTitle from '@deepseek-ai/dsh-session-title-first-prompt-llm'
 import BasicCompactionEngine from '@deepseek-ai/dsh-compaction-basic'
 import * as RepeatToolReminder from '@deepseek-ai/dsh-repeat-tool-reminder'
@@ -2178,7 +2180,12 @@ export class EdgeSessionStore {
     }
   }
 
-  /** Fork one completed-turn prefix through the upstream Session seed format. */
+  /**
+   * Fork an exact event prefix as upstream's session controller does: an
+   * explicit `atSeq` is the inclusive cut, an omitted one selects the latest
+   * completed-turn prefix, and an open cut gets upstream's fork closers. A cold
+   * source is read only through the cut, within the Edge fork bounds.
+   */
   async forkSession(
     id: SessionId,
     atSeq: number | undefined,
@@ -2204,13 +2211,17 @@ export class EdgeSessionStore {
       if (persistence.readSessionHeader(id) === undefined) {
         throw new EdgeSessionStoreError('NOT_FOUND', 'Session not found.')
       }
+      // An explicit cut needs only the events through it; one more than the
+      // bound is read so a longer prefix is refused rather than cut short.
+      const wanted = atSeq === undefined ? MAX_FORK_EVENTS : Math.min(atSeq + 1, MAX_FORK_EVENTS + 1)
       const page = await persistence.readEventPage(
         id,
         0,
-        MAX_FORK_EVENTS,
+        wanted,
         MAX_FORK_STORED_BYTES,
       )
-      if (page.hasMore) {
+      if (page.events.length > MAX_FORK_EVENTS
+        || (page.hasMore && (atSeq === undefined || page.events.length < wanted))) {
         throw new EdgeSessionStoreError(
           'FORK_UNAVAILABLE',
           `Session ${id} exceeds the Edge fork history limit.`,
@@ -2231,17 +2242,18 @@ export class EdgeSessionStore {
     atSeq: number | undefined,
     model: string,
   ): Promise<EdgeApiSessionSummary> {
-    const seed = completedForkSeed(id, events, atSeq)
+    const boundary = forkBoundary(id, events, atSeq)
+    const seed = buildForkSeed(events as SessionEvent[], SessionSeq(boundary))
     assertForkSeedWithinLimits(id, seed)
     const childId = SessionId(`session-${crypto.randomUUID()}`)
     const handle = await agents.create({
       sessionId: childId,
       seed,
-      inheritedEventCount: SessionLogOffset(seed.length),
+      inheritedEventCount: SessionLogOffset(boundary + 1),
       meta: {
         ...header.cwd === undefined ? {} : { cwd: header.cwd },
         parentSession: id,
-        isSeeded: seed.length > 0,
+        isSeeded: true,
         agentPreset: sessionAgentPreset(header),
       },
       agentOptions: { provider: EDGE_PROVIDER, model },
@@ -2258,7 +2270,9 @@ export class EdgeSessionStore {
   }
 
   /**
-   * Append the canonical user-owned title event to a live or cold session.
+   * Rename a live or cold session through upstream's `sessionTitle.rename`,
+   * which also supersedes automatic title work still running, so a late
+   * generated title cannot replace the user's.
    *
    * Upstream defines the synchronous append as the rename commit point. Its
    * persistence coordinator owns write-behind and retirement retries, so this
@@ -2280,19 +2294,20 @@ export class EdgeSessionStore {
       throw new EdgeSessionStoreError('TITLE_INVALID', 'Session title must contain visible text.')
     }
     const { agents } = await this.services()
+    const titles = this.context.sessionTitle
     const live = agents.get(id)
     // Retained blanks still belong to this store: claim and retire their
     // handle below. Every other registered agent may be running; metadata
     // appends are valid while its turn owns the process-local handle.
     if (live !== undefined) {
       const publishRequired = !this.turnPublishedAgents.has(live) && !this.publishesLateEvents
-      return { title: normalized, event: appendUserTitle(live, normalized), publishRequired }
+      return { title: normalized, event: renameTitle(titles, live, normalized), publishRequired }
     }
 
     const handle = await this.getOrResumeAgent(id, model)
     return {
       title: normalized,
-      event: appendUserTitle(handle.agent, normalized),
+      event: renameTitle(titles, handle.agent, normalized),
       publishRequired: !this.publishesLateEvents,
     }
   }
@@ -2779,12 +2794,11 @@ export class EdgeSessionStore {
   }
 }
 
-function appendUserTitle(agent: Agent, title: string): SessionEvent<'session/title'> {
-  return agent.session.append('session/title', {
-    title,
-    messageSeqs: [],
-    source: { kind: 'user' },
-  })
+function renameTitle(titles: SessionTitleService, agent: Agent, title: string): SessionEvent<'session/title'> {
+  const { eventSeq } = titles.rename(agent.session, title)
+  const event = agent.session.snapshotEvents()[eventSeq]
+  if (event?.type !== 'session/title') throw new Error(`session ${agent.session.id}: renamed title event ${String(eventSeq)} is missing`)
+  return event as SessionEvent<'session/title'>
 }
 
 function referencedImage(
@@ -2955,30 +2969,34 @@ export function searchSnippet(text: string, query: string, maximum: number): str
   return `${prefix}${characters.slice(start, end).join('')}${suffix}`
 }
 
-function completedForkSeed(
-  id: SessionId,
-  events: readonly SessionEvent[],
-  atSeq: number | undefined,
-): SessionEvent[] {
-  const lastSeq = events.at(-1)?.seq ?? -1
-  const anchoredBoundary = atSeq === undefined
-    ? undefined
-    : events.find(event => event.type === 'turn/end' && event.seq >= atSeq)
-  const boundary = anchoredBoundary
-    ?? (atSeq === undefined || atSeq > lastSeq
-      ? events.findLast(event => event.type === 'turn/end')
-      : undefined)
-  if (boundary === undefined) {
-    throw new EdgeSessionStoreError(
-      'FORK_UNAVAILABLE',
-      atSeq !== undefined && atSeq <= lastSeq
-        ? `Session ${id} has not completed the turn containing event ${String(atSeq)}.`
-        : `Session ${id} has no completed turn to fork from.`,
-    )
+/**
+ * The inclusive seq a fork inherits through. An explicit `atSeq` must name an
+ * existing event; an omitted one selects upstream's latest completed-turn
+ * prefix: the last `turn/end` and what follows it up to the next turn, an
+ * appended prompt, or a spliced inbox.
+ */
+function forkBoundary(id: SessionId, events: readonly SessionEvent[], atSeq: number | undefined): number {
+  if (atSeq !== undefined) {
+    if (events[atSeq]?.seq !== atSeq) {
+      throw new EdgeSessionStoreError(
+        'FORK_UNAVAILABLE',
+        `Event ${String(atSeq)} does not exist in session ${id} (last seq: ${String(events.at(-1)?.seq ?? 'none')}).`,
+      )
+    }
+    return atSeq
   }
-  let cut = boundary.seq + 1
-  while (cut < events.length && events[cut]?.type !== 'turn/start') cut++
-  return events.slice(0, cut)
+  const lastTurnEnd = events.findLast(event => event.type === 'turn/end')
+  if (lastTurnEnd === undefined) {
+    throw new EdgeSessionStoreError('FORK_UNAVAILABLE', `Session ${id} has no completed turn to fork from.`)
+  }
+  let boundary = lastTurnEnd.seq
+  for (const next of events.slice(boundary + 1)) {
+    if (next.type === 'turn/start'
+      || (next.type === 'user/message' && (next as { surfaceOp?: string }).surfaceOp === 'append')
+      || (next.type as string) === 'agent/inbox/spliced') break
+    boundary = next.seq
+  }
+  return boundary
 }
 
 function assertForkSeedWithinLimits(id: SessionId, seed: readonly SessionEvent[]): void {
