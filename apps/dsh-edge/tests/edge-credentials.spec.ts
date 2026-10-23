@@ -10,7 +10,7 @@ function createMockStorage(): DurableObjectStorage {
   return {
     get: (key: string) => Promise.resolve(store.get(key)),
     put: (key: string, value: unknown) => { store.set(key, value); return Promise.resolve() },
-    delete: (key: string) => { store.delete(key); return Promise.resolve(true) },
+    delete: (key: string) => Promise.resolve(store.delete(key)),
   } as unknown as DurableObjectStorage
 }
 
@@ -108,6 +108,25 @@ describe('dsh-edge credential provider', () => {
         value: 'env-key',
         source: 'worker-secret',
       })
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('announces each committed write as credentials/reference-updated', async () => {
+    const ctx = new Context()
+    const storage = createMockStorage()
+    const updated: string[] = []
+    ctx.on('credentials/reference-updated', ref => { updated.push(ref) })
+    await ctx.plugin(EdgeCredentialProvider, { storage, readDeepSeekApiKey: () => 'env-key' })
+    try {
+      await ctx.credentials.set(EDGE_DEEPSEEK_API_KEY_REF, 'do-key')
+      await ctx.credentials.unset(EDGE_DEEPSEEK_API_KEY_REF)
+      // Removing a key that is not stored changes nothing, so nothing is announced.
+      await ctx.credentials.unset(EDGE_DEEPSEEK_API_KEY_REF)
+      // A refused write is not announced either.
+      await expect(ctx.credentials.set(EDGE_DEEPSEEK_API_KEY_REF, ' ')).rejects.toThrow(/empty/u)
+      expect(updated).toEqual(['DEEPSEEK_API_KEY', 'DEEPSEEK_API_KEY'])
     } finally {
       await ctx.fiber.dispose()
     }

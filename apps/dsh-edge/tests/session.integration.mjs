@@ -1062,6 +1062,15 @@ try {
     const refused = await rpc('session.create', { agentPreset: 'ptc' })
     assert.equal(refused.body.result.error.code, 'agent-preset/not-found')
   }
+  // Saving or removing a key reaches every `$events` client as upstream's
+  // `credentials/reference-updated`, which the Models page, the model picker,
+  // and the web-search card refresh on.
+  const credentialUpdate = () => remoteMux.next(frame => frame.type === 'item' && frame.streamId === 'events-1'
+    && frame.value.type === 'emit' && frame.value.event === 'credentials/reference-updated')
+  assert.equal((await rpc('credentials.set', { ref: 'EVENTS_PROBE_API_KEY', value: 'sk-events-probe-0123456789' })).body.result.ok, true)
+  assert.deepEqual((await credentialUpdate()).value.args, ['EVENTS_PROBE_API_KEY'])
+  assert.equal((await rpc('credentials.unset', { ref: 'EVENTS_PROBE_API_KEY' })).body.result.ok, true)
+  assert.deepEqual((await credentialUpdate()).value.args, ['EVENTS_PROBE_API_KEY'])
   remoteMux.send({ type: 'cancel', streamId: 'events-1' })
   remoteMux.close()
   const preset = await rpc('agentPreset.read', { agentPreset: 'standard' })

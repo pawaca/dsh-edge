@@ -60,17 +60,21 @@ export class EdgeCredentialProvider extends CredentialProvider {
     }
   }
 
-  /** Store a credential in Durable Object storage. */
+  /**
+   * Store a credential in Durable Object storage, then announce it as
+   * upstream's providers do, so open Web pages refresh what depends on it.
+   */
   override async set(ref: CredentialRef, value: string): Promise<void> {
     if (value.trim().length === 0) {
       throw new Error('Credential value must not be empty.')
     }
     await this.storage.put(storageKey(ref), value)
+    this.notifyUpdated(ref)
   }
 
-  /** Remove a credential from Durable Object storage. */
+  /** Remove a stored credential; only a removal that changed storage is announced. */
   override async unset(ref: CredentialRef): Promise<void> {
-    await this.storage.delete(storageKey(ref))
+    if (await this.storage.delete(storageKey(ref))) this.notifyUpdated(ref)
   }
 
   /** Edge currently exposes deployment-secret references, not provider-owned authorization records. */
