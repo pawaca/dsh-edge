@@ -19,7 +19,7 @@ function agentAt(cwd: string | undefined, id = 'session-a'): Agent {
   return { session: { id, header: { cwd } } } as unknown as Agent
 }
 
-async function provider(tree: Record<string, EdgeReferenceEntry[]>, config: { maxResults?: number, maxEntries?: number } = {}) {
+async function provider(tree: Record<string, EdgeReferenceEntry[]>, config: { maxResults?: number, maxEntries?: number, staleAfterMs?: number, now?: () => number } = {}) {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt, { personaPrefix: 'test persona' })
   const reads: { path: string, limit?: number }[] = []
@@ -102,6 +102,23 @@ describe('EdgeFileReferenceService', () => {
     expect(await service.list(agent, 'new', signal())).toEqual([])
     await new Promise(resolve => { setTimeout(resolve, 0) })
     expect(await service.list(agent, 'new', signal())).toEqual([{ path: 'new.txt', kind: 'file' }])
+    expect(paths()).toEqual(['/workspace', '/workspace'])
+  })
+
+  it('refreshes an index older than staleAfterMs behind the next bare query, for changes made outside tools', async () => {
+    const tree: Record<string, EdgeReferenceEntry[]> = { '/workspace': [entry('old.txt')] }
+    let clock = 0
+    const { service, paths } = await provider(tree, { staleAfterMs: 1_000, now: () => clock })
+    const agent = agentAt('/workspace')
+    expect(await service.list(agent, 'txt', signal())).toEqual([{ path: 'old.txt', kind: 'file' }])
+    // An owner API write: no tool result.
+    tree['/workspace'] = [entry('old.txt'), entry('uploaded.txt')]
+    clock = 999
+    expect(await service.list(agent, 'uploaded', signal())).toEqual([])
+    clock = 1_000
+    expect(await service.list(agent, 'uploaded', signal())).toEqual([])
+    await new Promise(resolve => { setTimeout(resolve, 0) })
+    expect(await service.list(agent, 'uploaded', signal())).toEqual([{ path: 'uploaded.txt', kind: 'file' }])
     expect(paths()).toEqual(['/workspace', '/workspace'])
   })
 

@@ -27,6 +27,10 @@ export interface EdgeFileReferenceConfig {
   maxResults?: number
   /** Maximum files and directories one working directory's index holds. */
   maxEntries?: number
+  /** Age after which an index is refreshed behind the next bare query. */
+  staleAfterMs?: number
+  /** Clock for index age; tests replace it. */
+  now?: () => number
 }
 
 const DEFAULT_MAX_RESULTS = 20
@@ -36,6 +40,13 @@ const DEFAULT_MAX_RESULTS = 20
  * at a fifth of that.
  */
 export const DEFAULT_MAX_ENTRIES = 10_000
+/**
+ * Files also change outside tools: owner API writes, uploads, and commands
+ * run through the HTTP exec route reach the workspace without a tool result,
+ * and some never pass through this Durable Object. An index older than this
+ * is refreshed behind the next bare query, as after a tool result.
+ */
+export const DEFAULT_STALE_AFTER_MS = 30_000
 const DEFAULT_CWD = '/workspace'
 /** Upstream dsh-file-reference-local's default exclusions: VCS, dependency, and build-output directories. */
 export const EXCLUDED_DIRECTORIES: ReadonlySet<string> = new Set([
@@ -51,13 +62,16 @@ export const EXCLUDED_DIRECTORIES: ReadonlySet<string> = new Set([
  * `README.md` anywhere below it. The index skips upstream's excluded
  * directories and holds at most `maxEntries` paths. Only the first bare query
  * waits for it; after a tool result in any session (they share one
- * workspace) it is stale, and the next bare query answers from it while its
- * replacement is read behind the caret.
+ * workspace), or once it is older than `staleAfterMs`, it is stale, and the
+ * next bare query answers from it while its replacement is read behind the
+ * caret.
  */
 export class EdgeFileReferenceService extends FileReferenceService {
   private readonly withFiles: EdgeFileReferenceConfig['withFiles']
   private readonly maxResults: number
   private readonly maxEntries: number
+  private readonly staleAfterMs: number
+  private readonly now: () => number
   private readonly searches = new Map<Agent, WorkspaceSearch>()
 
   constructor(ctx: Context, config: EdgeFileReferenceConfig) {
@@ -65,7 +79,9 @@ export class EdgeFileReferenceService extends FileReferenceService {
     this.withFiles = read => config.withFiles(read)
     this.maxResults = config.maxResults ?? DEFAULT_MAX_RESULTS
     this.maxEntries = config.maxEntries ?? DEFAULT_MAX_ENTRIES
-    for (const [name, value] of [['maxResults', this.maxResults], ['maxEntries', this.maxEntries]] as const) {
+    this.staleAfterMs = config.staleAfterMs ?? DEFAULT_STALE_AFTER_MS
+    this.now = config.now ?? Date.now
+    for (const [name, value] of [['maxResults', this.maxResults], ['maxEntries', this.maxEntries], ['staleAfterMs', this.staleAfterMs]] as const) {
       if (!Number.isSafeInteger(value) || value <= 0) {
         throw new Error(`dsh-edge: file reference ${name} must be a positive safe integer`)
       }
@@ -105,7 +121,7 @@ export class EdgeFileReferenceService extends FileReferenceService {
     if (search?.root !== root) {
       // As upstream, a new working directory discards the previous index.
       search?.dispose()
-      search = new WorkspaceSearch(root, this.withFiles, this.maxResults, this.maxEntries)
+      search = new WorkspaceSearch(root, this.withFiles, this.maxResults, this.maxEntries, this.staleAfterMs, this.now)
       this.searches.set(agent, search)
     }
     return search.list(query, signal)
@@ -116,7 +132,7 @@ export class EdgeFileReferenceService extends FileReferenceService {
 class WorkspaceSearch {
   /** Bumped by each invalidation; a settled index started below it is stale. */
   private invalidations = 0
-  private settled: { entries: FileReferenceCandidate[], startedAt: number } | undefined
+  private settled: { entries: FileReferenceCandidate[], startedAt: number, readAt: number } | undefined
   private building: Promise<FileReferenceCandidate[]> | undefined
   private readonly lifetime = new AbortController()
 
@@ -125,6 +141,8 @@ class WorkspaceSearch {
     private readonly withFiles: EdgeFileReferenceConfig['withFiles'],
     private readonly maxResults: number,
     private readonly maxEntries: number,
+    private readonly staleAfterMs: number,
+    private readonly now: () => number,
   ) {}
 
   async list(rawQuery: string, signal: AbortSignal): Promise<FileReferenceCandidate[]> {
@@ -150,17 +168,18 @@ class WorkspaceSearch {
   private async index(signal: AbortSignal): Promise<FileReferenceCandidate[]> {
     const settled = this.settled
     if (settled === undefined) return await abortable(this.build(), signal)
-    if (settled.startedAt < this.invalidations) this.build().catch(() => {})
+    if (settled.startedAt < this.invalidations || this.now() - settled.readAt >= this.staleAfterMs) this.build().catch(() => {})
     return settled.entries
   }
 
   private build(): Promise<FileReferenceCandidate[]> {
     if (this.building !== undefined) return this.building
     const startedAt = this.invalidations
+    const readAt = this.now()
     const building = this.withFiles(files => this.scan(files)).then(entries => {
       if (this.building === building) {
         this.building = undefined
-        if (!this.lifetime.signal.aborted) this.settled = { entries, startedAt }
+        if (!this.lifetime.signal.aborted) this.settled = { entries, startedAt, readAt }
       }
       return entries
     }, (error: unknown) => {
