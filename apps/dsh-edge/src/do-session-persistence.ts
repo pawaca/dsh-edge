@@ -1165,13 +1165,16 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
       header.id,
     ).toArray()[0]
     const types = stored?.event_types == null ? this.recordEventTypes(header) : JSON.parse(stored.event_types) as string[]
+    if (types.includes(RETIRED_FALLBACK_HEADER)) {
+      throw new SessionFormatUnsupportedError(`session "${header.id}" contains a request/header event with the unsupported legacy reason "fallback"; refusing to interpret the log — it was written by a retired pre-release harness`)
+    }
     const unknown = types.find(type => !KNOWN_SESSION_EVENT_TYPES.has(type))
     if (unknown !== undefined) {
       throw new SessionFormatUnsupportedError(`session "${header.id}" contains event type "${unknown}" unknown to this harness and not marked ignorable; refusing to interpret the log — it was likely written by a newer harness`)
     }
   }
 
-  /** Scan one session's stored types once, refuse a retired header reason, and record them. */
+  /** Scan one session's stored types once and record them, the retired header reason included. */
   private recordEventTypes(header: SessionHeader): string[] {
     const rows = this.storage.sql.exec<{ type: string, fallback: number }>(
       // CASE evaluates lazily, so a torn row's malformed data is never parsed here.
@@ -1180,10 +1183,10 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
        FROM dsh_session_events WHERE session_id = ? AND ignorable IS NOT 1 GROUP BY type`,
       header.id,
     ).toArray()
-    if (rows.some(row => row.fallback === 1)) {
-      throw new SessionFormatUnsupportedError(`session "${header.id}" contains a request/header event with the unsupported legacy reason "fallback"; refusing to interpret the log — it was written by a retired pre-release harness`)
-    }
-    const types = rows.map(row => row.type).sort()
+    const types = [
+      ...rows.map(row => row.type),
+      ...rows.some(row => row.fallback === 1) ? [RETIRED_FALLBACK_HEADER] : [],
+    ].sort()
     this.storage.sql.exec('UPDATE dsh_session_summaries SET event_types = ? WHERE session_id = ?', JSON.stringify(types), header.id)
     return types
   }
@@ -1428,7 +1431,7 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
       : new Set(JSON.parse(existing.event_types) as string[])
 
     for (const event of events) {
-      if (event.ignorable !== true) eventTypes?.add(event.type)
+      if (event.ignorable !== true) eventTypes?.add(storedTypeOf(event))
       if (event.type === 'turn/start') blank = 0
       if (event.type === 'user/message') {
         const data = event.data as unknown as Record<string, unknown>
@@ -1641,6 +1644,22 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
 }
 
 type EventTable = 'dsh_session_events' | 'dsh_session_events_migrating'
+
+/**
+ * Recorded in a summary's `event_types` for a request/header with the retired
+ * reason "fallback", which upstream's validation refuses although its type is
+ * known; it is never an event type.
+ */
+const RETIRED_FALLBACK_HEADER = 'request/header#fallback'
+
+/** The type an append records for an event, marking the retired header reason. */
+function storedTypeOf(event: SessionEvent): string {
+  const data = event.data as unknown
+  return event.type === 'request/header' && typeof data === 'object' && data !== null
+    && (data as Record<string, unknown>).reason === 'fallback'
+    ? RETIRED_FALLBACK_HEADER
+    : event.type
+}
 
 type SummaryRow = {
   blank: number

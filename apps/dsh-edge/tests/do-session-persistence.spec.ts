@@ -18,7 +18,6 @@ import { SessionFormatUnsupportedError } from '@deepseek-ai/dsh-session-persiste
 import { describe, expect, it } from 'vitest'
 import { MainSessionQueue } from '../src/main-session-queue.ts'
 import DurableObjectSessionPersistence from '../src/do-session-persistence.ts'
-import { runPersistenceContract } from './fixtures/upstream-persistence-contract.ts'
 
 async function readAll(persistence: DurableObjectSessionPersistence, id: ReturnType<typeof SessionId>) {
   const handle = await persistence.open(id, 'read')
@@ -1555,6 +1554,70 @@ describe('storage-contract checks over Durable Object rows', () => {
     } finally { await dispose() }
   })
 
+  it('records the retired request/header reason an append stores, and refuses the next write open', async () => {
+    const { storage, persistence, dispose } = await openStore()
+    try {
+      const writer = await persistence.create(header('appended-fallback'))
+      await writer.append([{ type: 'request/header', seq: SessionSeq(0), time: 1, data: { reason: 'fallback' } } as unknown as SessionEvent])
+      await writer.close()
+      expect(eventTypes(storage, 'appended-fallback')).toBe('["request/header#fallback"]')
+      await expect(persistence.open(SessionId('appended-fallback'), 'write')).rejects.toThrow(/fallback/u)
+    } finally { await dispose() }
+  })
+
+  // The checks below follow upstream's backend contract (dsh-session-persistence), in the Edge's own tests.
+  it('reads offsets and lengths as upstream: slices, past-the-end empty, and only non-negative safe integers', async () => {
+    const { persistence, dispose } = await openStore()
+    try {
+      const writer = await persistence.create(header('slices'))
+      const log = [0, 1, 2, 3, 4, 5].map(title)
+      await writer.append(log)
+      await writer.append([])
+      expect((await writer.read()).events).toEqual(log)
+      expect((await writer.read(3)).events).toEqual(log.slice(3))
+      expect((await writer.read(0, 2)).events).toEqual(log.slice(0, 2))
+      expect((await writer.read(1, 3)).events).toEqual(log.slice(1, 4))
+      expect((await writer.read(6)).events).toEqual([])
+      expect((await writer.read(106)).events).toEqual([])
+      for (const [offset, length] of [[-1, undefined], [1.5, undefined], [0, -1]]) {
+        await expect(writer.read(offset, length)).rejects.toThrow(/non-negative safe integer/u)
+      }
+      await writer.close()
+    } finally { await dispose() }
+  })
+
+  it('rejects an append that does not continue the log, or that is not lossless JSON, and stores nothing', async () => {
+    const { persistence, dispose } = await openStore()
+    try {
+      const writer = await persistence.create(header('contiguity'))
+      await writer.append([0, 1, 2].map(title))
+      await expect(writer.append([0, 1, 2].map(title))).rejects.toThrow(/expected 3/u)
+      await expect(writer.append([title(3), title(5)])).rejects.toThrow(/expected 4/u)
+      for (const extra of [1n, undefined]) {
+        await expect(writer.append([{ ...title(3), data: { ...title(3).data, extra } } as unknown as SessionEvent]))
+          .rejects.toThrow(/losslessly JSON-serializable/u)
+      }
+      expect((await writer.read()).events.map(event => event.seq)).toEqual([0, 1, 2])
+      await expect(persistence.create({ ...header('bad-created-at'), createdAt: -1 })).rejects.toThrow(/createdAt/u)
+      await writer.close()
+    } finally { await dispose() }
+  })
+
+  it('refuses an unknown stored type on every write open and on read, naming it', async () => {
+    const { persistence, dispose } = await openStore()
+    try {
+      const writer = await persistence.create(header('foreign'))
+      await writer.append([title(0), { type: 'mystery/event', seq: SessionSeq(1), time: 1, data: {} } as unknown as SessionEvent])
+      await writer.close()
+      await expect(persistence.open(SessionId('foreign'), 'write')).rejects.toBeInstanceOf(SessionFormatUnsupportedError)
+      // The refused open released its claim, so a retry is refused the same way rather than as owned.
+      await expect(persistence.open(SessionId('foreign'), 'write')).rejects.toThrow(/mystery\/event/u)
+      const reader = await persistence.open(SessionId('foreign'), 'read')
+      await expect(reader.read()).rejects.toThrow(/mystery\/event/u)
+      await reader.close()
+    } finally { await dispose() }
+  })
+
   it('rejects NaN in event data and stores nothing', async () => {
     const { persistence, dispose } = await openStore()
     try {
@@ -1588,25 +1651,3 @@ describe('storage-contract checks over Durable Object rows', () => {
     } finally { await dispose() }
   })
 })
-
-// Upstream's backend-agnostic contract, over one Durable Object storage that a
-// reopened instance shares. Its optional torn-tail hook stays unset: an append
-// commits in one SQL transaction, so the physical tear it simulates for JSONL
-// cannot occur; the semantic torn-tail repair is covered above.
-runPersistenceContract('durable-object', async () => {
-  const storage = new TestDurableObjectStorage()
-  const instance = async () => {
-    const ctx = new Context()
-    await ctx.plugin(SessionStore)
-    const fiber = await ctx.plugin(DurableObjectSessionPersistence, { storage: storage as never })
-    return { persistence: ctx.sessionPersistence, dispose: async () => { await fiber.dispose() } }
-  }
-  const primary = await instance()
-  return { ...primary, reopen: instance, dispose: async () => { await primary.dispose(); storage.close() } }
-}, new Map([
-  // The Edge writes a created session's header row at create; upstream defers it to the first append or flush.
-  ['a created-but-unappended session is visible to this instance and invisible to a fresh one', 'header written at create'],
-  // Flush does not mark an empty created session materialized, so its close erases it;
-  // the Edge keeps sessions without events as retained blanks instead.
-  ['flush materializes an empty session durably for a fresh instance', 'an empty session is kept as a retained blank'],
-]))
