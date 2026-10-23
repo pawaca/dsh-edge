@@ -5,6 +5,7 @@ import { initializeMainQueue, acknowledgeMainInputs } from './main-session-queue
 import { Context } from '@deepseek-ai/cordis'
 import { decodeStorageRecord, packChunkRuns } from './chunk-rows.ts'
 import {
+  KNOWN_SESSION_EVENT_TYPES,
   SESSION_FORMAT_VERSION,
   SessionLogOffset,
   SessionSeq,
@@ -25,7 +26,10 @@ import {
   SessionPersistenceNotFoundError,
   SessionPersistenceRevision,
   SessionReadOnlyError,
+  assertContiguous,
   assertVersion,
+  materializeAppendBatch,
+  materializeCreateHeader,
   validateStoredEvents,
   type SessionAccess,
   type SessionHandle,
@@ -256,19 +260,28 @@ class DurableObjectSessionHandle implements SessionHandle {
   ): Promise<SessionHandleReadResult> {
     if (this.closed) throw new SessionHandleClosedError(this.id, 'read')
     options?.signal?.throwIfAborted()
+    for (const value of [offset, length]) {
+      if (value !== undefined && !(Number.isSafeInteger(value) && value >= 0)) {
+        throw new RangeError(`read offset and length must be a non-negative safe integer, got ${String(value)}`)
+      }
+    }
     const fromSeq = offset ?? 0
-    const rows = this.backend.eventRowsFrom(this.id, fromSeq)
-    const scanned = scanRows(rows, fromSeq)
+    // A bounded read selects at most `length` rows (each holds one event or a
+    // run of them). It never repairs, and an append commits in one SQL
+    // transaction, so an unparsable row in its range is corruption, not a tear.
+    const rows = this.backend.eventRowsFrom(this.id, fromSeq, length)
+    const scanned = scanRows(rows, fromSeq, length === undefined ? undefined : Number.POSITIVE_INFINITY)
     let preserved = scanned.preserved
     const tornFrom = scanned.tornFrom
-    if (this.access === 'write' && fromSeq === 0 && tornFrom !== undefined) {
+    if (this.access === 'write' && fromSeq === 0 && length === undefined && tornFrom !== undefined) {
       preserved = await this.backend.repairTornTail(this.id, this.inheritedEventCount)
     }
     options?.signal?.throwIfAborted()
     const events = length === undefined
       ? preserved
       : preserved.slice(0, length)
-    return { eventState: 'detached', events }
+    // As upstream backends: refuse vocabulary this build does not know.
+    return { eventState: 'detached', events: validateStoredEvents(this.header, events) }
   }
 
   async append(
@@ -356,6 +369,7 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
     options?: SessionPersistenceCreateOptions,
   ): Promise<SessionHandle> {
     options?.signal?.throwIfAborted()
+    header = materializeCreateHeader(header)
     if (this.rowFor(header.id) !== undefined) {
       throw new SessionAlreadyExistsError(header.id)
     }
@@ -394,13 +408,14 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
         throw new SessionAlreadyOwnedError(id)
       }
       this.activeWriteOwners.add(id)
-      if (blank !== undefined) {
-        try {
-          await this.materializeBlankSession(id)
-        } catch (error) {
-          this.activeWriteOwners.delete(id)
-          throw error
-        }
+      try {
+        if (blank !== undefined) await this.materializeBlankSession(id)
+        // A write open refuses a log it could not interpret, as upstream's
+        // backends do, before anything is appended to it.
+        else this.assertKnownVocabulary(rowToHeader(row!))
+      } catch (error) {
+        this.activeWriteOwners.delete(id)
+        throw error
       }
     }
     const header = row !== undefined ? rowToHeader(row) : blank!
@@ -905,8 +920,13 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
     events: readonly SessionEvent[],
     isMaterialized: boolean,
   ): Promise<void> {
+    // As upstream backends: store exactly the checked lossless-JSON snapshot,
+    // and only when it continues the stored log.
+    events = materializeAppendBatch(events)
     const write = () => {
       if (!isMaterialized) this.writeRow(storage.meta, storage.inheritedEventCount)
+      const summary = this.readSummary(storage.meta.id)
+      assertContiguous(storage.meta.id, events, (summary?.last_seq ?? -1) + 1)
       const packed = packChunkRuns(events as SessionEvent[])
       for (const record of packed) this.insertStorageRecord(storage.meta.id, record)
       const updated = this.storage.sql.exec(
@@ -915,7 +935,7 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
       )
       if (updated.rowsWritten !== 1) throw new Error(`session ${storage.meta.id} is not materialized`)
       this.storage.sql.exec('DELETE FROM dsh_edge_blank_sessions WHERE id = ?', storage.meta.id)
-      this.updateSummaryFromBatch(storage.meta.id, events)
+      this.updateSummaryFromBatch(storage.meta.id, events, undefined, summary)
       // A blank session's preset selection rewrites its durable header with
       // the event, so summaries, resume, and fork read one bounded value.
       const selected = events.findLast(event => event.type === 'agent-preset/selected')
@@ -1127,8 +1147,48 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
   }
 
   /** Expose eventRows for DurableObjectSessionHandle read path. */
-  eventRowsFrom(id: SessionId, fromSeq: number): EventRow[] {
-    return this.eventRows(id, fromSeq)
+  eventRowsFrom(id: SessionId, fromSeq: number, limitRows?: number): EventRow[] {
+    return this.eventRows(id, fromSeq, limitRows)
+  }
+
+  /**
+   * Refuse a stored log holding an event type this build does not know and its
+   * writer did not mark ignorable. The summary row keeps the session's stored
+   * types, maintained by every append, so the check reads that one row. A
+   * session without them (stored before this release, or repaired or migrated
+   * since) is scanned once, which also refuses the retired request/header
+   * reason, and its types are recorded.
+   */
+  assertKnownVocabulary(header: SessionHeader): void {
+    const stored = this.storage.sql.exec<{ event_types: string | null }>(
+      'SELECT event_types FROM dsh_session_summaries WHERE session_id = ?',
+      header.id,
+    ).toArray()[0]
+    const types = stored?.event_types == null ? this.recordEventTypes(header) : JSON.parse(stored.event_types) as string[]
+    if (types.includes(RETIRED_FALLBACK_HEADER)) {
+      throw new SessionFormatUnsupportedError(`session "${header.id}" contains a request/header event with the unsupported legacy reason "fallback"; refusing to interpret the log — it was written by a retired pre-release harness`)
+    }
+    const unknown = types.find(type => !KNOWN_SESSION_EVENT_TYPES.has(type))
+    if (unknown !== undefined) {
+      throw new SessionFormatUnsupportedError(`session "${header.id}" contains event type "${unknown}" unknown to this harness and not marked ignorable; refusing to interpret the log — it was likely written by a newer harness`)
+    }
+  }
+
+  /** Scan one session's stored types once and record them, the retired header reason included. */
+  private recordEventTypes(header: SessionHeader): string[] {
+    const rows = this.storage.sql.exec<{ type: string, fallback: number }>(
+      // CASE evaluates lazily, so a torn row's malformed data is never parsed here.
+      `SELECT type, MAX(CASE WHEN type = 'request/header' AND json_valid(data)
+                             THEN json_extract(data, '$.reason') = 'fallback' ELSE 0 END) AS fallback
+       FROM dsh_session_events WHERE session_id = ? AND ignorable IS NOT 1 GROUP BY type`,
+      header.id,
+    ).toArray()
+    const types = [
+      ...rows.map(row => row.type),
+      ...rows.some(row => row.fallback === 1) ? [RETIRED_FALLBACK_HEADER] : [],
+    ].sort()
+    this.storage.sql.exec('UPDATE dsh_session_summaries SET event_types = ? WHERE session_id = ?', JSON.stringify(types), header.id)
+    return types
   }
 
   private createEventTable(name: EventTable): void {
@@ -1208,6 +1268,12 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
         title_time INTEGER,
         title_data TEXT
       ) STRICT`)
+      // The session's stored event types (JSON), kept by each append so a write
+      // open checks its vocabulary from one row; NULL until first recorded.
+      const hasEventTypes = this.storage.sql.exec<{ count: number }>(
+        "SELECT count(*) AS count FROM pragma_table_info('dsh_session_summaries') WHERE name = 'event_types'",
+      ).toArray()[0]!.count
+      if (hasEventTypes === 0) this.storage.sql.exec('ALTER TABLE dsh_session_summaries ADD COLUMN event_types TEXT')
       // The session log export's former size check (#318, never released) counted
       // stored event bytes here. The export now pages the log and needs no count;
       // dropping the table, rather than leaving it, keeps a build of that commit
@@ -1324,7 +1390,8 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
          blank = excluded.blank,
          title_seq = excluded.title_seq,
          title_time = excluded.title_time,
-         title_data = excluded.title_data`,
+         title_data = excluded.title_data,
+         event_types = NULL`,
       id,
       row.revision,
       row.updated_at ?? row.created_at,
@@ -1337,28 +1404,34 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
     )
   }
 
-  private updateSummaryFromBatch(id: SessionId, events: readonly SessionEvent[], reset?: HeaderRow): void {
-    const lastEvent = events.at(-1)
-    if (lastEvent === undefined && reset === undefined) return
-    const existing = reset === undefined ? this.storage.sql.exec<{
-      blank: number
-      last_prompt_at: number | null
-      title_seq: number | null
-      title_time: number | null
-      title_data: string | null
-    }>(
-      `SELECT blank, last_prompt_at, title_seq, title_time, title_data
+  /** The summary row an append reads once: its cursor and the fields it carries forward. */
+  private readSummary(id: SessionId): SummaryRow | undefined {
+    return this.storage.sql.exec<SummaryRow>(
+      `SELECT blank, last_prompt_at, title_seq, title_time, title_data, last_seq, event_types
        FROM dsh_session_summaries WHERE session_id = ?`,
       id,
-    ).toArray()[0] : undefined
+    ).toArray()[0]
+  }
+
+  private updateSummaryFromBatch(id: SessionId, events: readonly SessionEvent[], reset?: HeaderRow,
+    current?: SummaryRow): void {
+    const lastEvent = events.at(-1)
+    if (lastEvent === undefined && reset === undefined) return
+    const existing = reset === undefined ? current ?? this.readSummary(id) : undefined
 
     let blank = existing?.blank ?? 1
     let lastPromptAt: number | null = existing?.last_prompt_at ?? null
     let titleSeq: number | null = existing?.title_seq ?? null
     let titleTime: number | null = existing?.title_time ?? null
     let titleData: string | null = existing?.title_data ?? null
+    // The stored types grow with each append; a repair or an unknown starting
+    // set leaves them unrecorded, and the next write open scans once.
+    const eventTypes: Set<string> | undefined = existing?.event_types == null
+      ? undefined
+      : new Set(JSON.parse(existing.event_types) as string[])
 
     for (const event of events) {
+      if (event.ignorable !== true) eventTypes?.add(storedTypeOf(event))
       if (event.type === 'turn/start') blank = 0
       if (event.type === 'user/message') {
         const data = event.data as unknown as Record<string, unknown>
@@ -1380,8 +1453,8 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
     this.storage.sql.exec(
       `INSERT INTO dsh_session_summaries
         (session_id, revision, updated_at, last_prompt_at, last_seq, blank,
-         title_seq, title_time, title_data)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         title_seq, title_time, title_data, event_types)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(session_id) DO UPDATE SET
          revision = excluded.revision,
          updated_at = excluded.updated_at,
@@ -1390,7 +1463,8 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
          blank = excluded.blank,
          title_seq = excluded.title_seq,
          title_time = excluded.title_time,
-         title_data = excluded.title_data`,
+         title_data = excluded.title_data,
+         event_types = excluded.event_types`,
       id,
       rev,
       lastEvent?.time ?? reset!.created_at,
@@ -1400,6 +1474,7 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
       titleSeq,
       titleTime,
       titleData,
+      eventTypes === undefined ? null : JSON.stringify([...eventTypes].sort()),
     )
   }
 
@@ -1407,8 +1482,8 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
     this.storage.sql.exec(
       `INSERT OR IGNORE INTO dsh_session_summaries
         (session_id, revision, updated_at, last_prompt_at, last_seq, blank,
-         title_seq, title_time, title_data)
-       VALUES (?, 0, ?, NULL, -1, 1, NULL, NULL, NULL)`,
+         title_seq, title_time, title_data, event_types)
+       VALUES (?, 0, ?, NULL, -1, 1, NULL, NULL, NULL, '[]')`,
       id,
       createdAt,
     )
@@ -1433,7 +1508,7 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
     ).toArray()[0]
   }
 
-  private eventRows(id: SessionId, fromSeq: number): EventRow[] {
+  private eventRows(id: SessionId, fromSeq: number, limitRows?: number): EventRow[] {
     const startSeq = fromSeq === 0 ? 0 : (this.storage.sql.exec<{ seq: number }>(
       `SELECT MAX(seq) AS seq FROM dsh_session_events
        WHERE session_id = ? AND seq <= ?`,
@@ -1443,9 +1518,10 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
     return this.storage.sql.exec<EventRow>(
       `SELECT seq, type, time, data, source_event_seqs, surface_op, ignorable
        FROM dsh_session_events
-       WHERE session_id = ? AND seq >= ? ORDER BY seq`,
+       WHERE session_id = ? AND seq >= ? ORDER BY seq LIMIT ?`,
       id,
       startSeq,
+      limitRows ?? -1,
     ).toArray()
   }
 
@@ -1568,6 +1644,32 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
 }
 
 type EventTable = 'dsh_session_events' | 'dsh_session_events_migrating'
+
+/**
+ * Recorded in a summary's `event_types` for a request/header with the retired
+ * reason "fallback", which upstream's validation refuses although its type is
+ * known; it is never an event type.
+ */
+const RETIRED_FALLBACK_HEADER = 'request/header#fallback'
+
+/** The type an append records for an event, marking the retired header reason. */
+function storedTypeOf(event: SessionEvent): string {
+  const data = event.data as unknown
+  return event.type === 'request/header' && typeof data === 'object' && data !== null
+    && (data as Record<string, unknown>).reason === 'fallback'
+    ? RETIRED_FALLBACK_HEADER
+    : event.type
+}
+
+type SummaryRow = {
+  blank: number
+  last_prompt_at: number | null
+  title_seq: number | null
+  title_time: number | null
+  title_data: string | null
+  last_seq: number
+  event_types: string | null
+}
 
 /** The stored columns of one storage record, as `insertStorageRecord` writes them. */
 function storageColumns(record: Record<string, unknown>): EventRow {
