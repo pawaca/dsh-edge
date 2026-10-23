@@ -168,7 +168,11 @@ abstract class EdgeImageAttachmentStore extends AttachmentStore {
     originalDimensions?: { width: number, height: number }
   }> {
     const header = admitHeader(input.data, input.mediaType, this.imageLimits)
-    if (passesThrough(header, input.data.byteLength)) return { data: input.data, metadata: metadataOf(header) }
+    // A pass-through image is at most 2048 x 2048 pixels (a 16 MiB bitmap), so
+    // its pixels are decoded here, as without Images, before it is kept as sent.
+    if (passesThrough(header, input.data.byteLength)) {
+      return { data: input.data, metadata: await inspectImage(input.data, input.mediaType, this.imageLimits, true) }
+    }
     let normalized: Awaited<ReturnType<typeof normalizeWithImages>>
     try {
       normalized = await normalizeWithImages(images, input.data, header)

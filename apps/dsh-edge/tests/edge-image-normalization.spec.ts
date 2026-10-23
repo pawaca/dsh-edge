@@ -167,6 +167,13 @@ describe('attachment store with the Images binding', () => {
     expect((await attachments.readImage(ref)).data).toEqual(data)
   })
 
+  it('decodes a pass-through image before keeping it, refusing one whose pixels are not image data', async () => {
+    const { images, calls } = fakeImages()
+    await expect(optimizedStore(images).saveImage({ data: pngHeaderOnly(100, 100), mediaType: 'image/png' }))
+      .rejects.toMatchObject({ code: 'INVALID_IMAGE' })
+    expect(calls).toEqual([])
+  })
+
   it('downscales a 4K PNG through Images without decoding it in the Worker', async () => {
     const { images, calls } = fakeImages()
     const attachments = optimizedStore(images)
