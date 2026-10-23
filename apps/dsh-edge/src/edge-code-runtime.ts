@@ -103,6 +103,11 @@ export default class EdgeCodeRuntime extends PtcRuntime {
     ctx.effect(() => () => this.teardown(), 'edge code-runtime teardown')
   }
 
+  /** What a program can reach and how far it may go, appended to `run_code`'s description. */
+  override get executionInstructions(): string {
+    return codeRunInstructions(this.config)
+  }
+
   /**
    * Complete a request into a run spec. Programs run against the workspace
    * under the `maxWallMs` ceiling. This runtime declares no per-run `timeout`
@@ -149,6 +154,33 @@ export default class EdgeCodeRuntime extends PtcRuntime {
     for (const run of runs) run.settle({ kind: 'abort', message: 'runtime disposed' })
     await Promise.all(runs.map(run => run.result))
   }
+}
+
+/**
+ * The program's environment in the model's terms. Upstream's Node runtime
+ * describes a Node process with imports and a file system; a Dynamic Worker
+ * has neither, and its limits are this deployment's configuration.
+ */
+export function codeRunInstructions(config: Pick<EdgeCodeRuntimeConfig,
+  'cpuMs' | 'maxWallMs' | 'maxOutputBytes' | 'maxBindingCalls' | 'maxBindingReplyBytes'>): string {
+  return [
+    'Each call runs in a fresh isolate, so nothing is kept between calls.',
+    'The program has no file system, network, process, environment variables, Node APIs, or module imports; use `tools.*` for files, commands, and the web.',
+    `A run may make at most ${config.maxBindingCalls} tool calls, each tool result it receives is at most ${byteSize(config.maxBindingReplyBytes)},`
+    + ` and its printed output and returned value together are at most ${byteSize(config.maxOutputBytes)}.`,
+    `A run stops after ${seconds(config.maxWallMs)}, or after ${seconds(config.cpuMs)} of CPU time.`,
+  ].join(' ')
+}
+
+function byteSize(bytes: number): string {
+  if (bytes % (1024 * 1024) === 0) return `${bytes / (1024 * 1024)} MiB`
+  if (bytes % 1024 === 0) return `${bytes / 1024} KiB`
+  return `${bytes} bytes`
+}
+
+function seconds(ms: number): string {
+  const value = ms / 1000
+  return `${Number.isInteger(value) ? value : value.toFixed(1)} second${value === 1 ? '' : 's'}`
 }
 
 /** Reject malformed binding globals or error classes as seam misuse, mirroring the worker-thread runtime. */

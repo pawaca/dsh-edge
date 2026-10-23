@@ -121,6 +121,18 @@ describe('edge code runtime', () => {
     expect(() => runtime.resolve({ program: 'return 1', bindings: [], timeoutMs: 10 })).toThrow(/not supported/u)
   })
 
+  it('describes the isolate and this deployment\'s limits to the model', async () => {
+    const { runtime } = await setup()
+    expect(runtime.executionInstructions).toBe(
+      'Each call runs in a fresh isolate, so nothing is kept between calls.'
+      + ' The program has no file system, network, process, environment variables, Node APIs, or module imports; use `tools.*` for files, commands, and the web.'
+      + ' A run may make at most 200 tool calls, each tool result it receives is at most 2 MiB, and its printed output and returned value together are at most 1 MiB.'
+      + ' A run stops after 300 seconds, or after 30 seconds of CPU time.',
+    )
+    const tight = await setup({ maxBindingCalls: 5, maxBindingReplyBytes: 1500, maxOutputBytes: 64 * 1024, maxWallMs: 1500, cpuMs: 1000 })
+    expect(tight.runtime.executionInstructions).toMatch(/at most 5 tool calls, each tool result it receives is at most 1500 bytes, .* at most 64 KiB\. A run stops after 1\.5 seconds, or after 1 second of CPU time\.$/u)
+  })
+
   it('runs a TypeScript program in a Dynamic Worker against the tools binding', async () => {
     const { runtime, loader } = await setup()
     const result = await runtime.run(runtime.resolve({
