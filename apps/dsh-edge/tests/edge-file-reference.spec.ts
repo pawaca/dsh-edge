@@ -22,12 +22,6 @@ function agentAt(cwd: string | undefined, id = 'session-a'): Agent {
 async function provider(tree: Record<string, EdgeReferenceEntry[]>, config: { maxResults?: number, maxEntries?: number } = {}) {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt, { personaPrefix: 'test persona' })
-  const agents = new Map<string, Agent>()
-  class Agents extends Service {
-    constructor(c: Context) { super(c, 'agents') }
-    get(id: string) { return agents.get(id) }
-  }
-  await ctx.plugin(Agents)
   const reads: { path: string, limit?: number }[] = []
   await ctx.plugin(EdgeFileReferenceService, {
     ...config,
@@ -42,7 +36,7 @@ async function provider(tree: Record<string, EdgeReferenceEntry[]>, config: { ma
     }),
   })
   const paths = () => reads.map(read => read.path)
-  return { ctx, reads, paths, agents, service: ctx.fileReferences }
+  return { ctx, reads, paths, service: ctx.fileReferences }
 }
 
 const signal = () => AbortSignal.timeout(1_000)
@@ -96,14 +90,14 @@ describe('EdgeFileReferenceService', () => {
     expect(reads).toEqual([{ path: '/workspace', limit: 4 }, { path: '/workspace/a', limit: 2 }])
   })
 
-  it('answers from a stale index after a tool result and reads its replacement behind the query', async () => {
+  it('answers from a stale index after a tool result in any session and reads its replacement behind the query', async () => {
     const tree: Record<string, EdgeReferenceEntry[]> = { '/workspace': [entry('old.txt')] }
-    const { ctx, service, agents, paths } = await provider(tree)
+    const { ctx, service, paths } = await provider(tree)
     const agent = agentAt('/workspace')
-    agents.set('session-a', agent)
     expect(await service.list(agent, 'txt', signal())).toEqual([{ path: 'old.txt', kind: 'file' }])
     tree['/workspace'] = [entry('old.txt'), entry('new.txt')]
-    ;(ctx.emit as (...args: unknown[]) => void)('session/event', agent.session, { type: 'tool/result' })
+    // Another session's tool wrote to the shared workspace.
+    ;(ctx.emit as (...args: unknown[]) => void)('session/event', agentAt('/workspace', 'session-b').session, { type: 'tool/result' })
     // The stale index answers at once; its replacement is read in the background.
     expect(await service.list(agent, 'new', signal())).toEqual([])
     await new Promise(resolve => { setTimeout(resolve, 0) })

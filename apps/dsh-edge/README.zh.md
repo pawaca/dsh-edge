@@ -361,7 +361,7 @@ SQLite 的 `DELETE` 操作也会消耗每日行写入额度。迁移格式时，
 - Session 创建与 fork 在发布成功但 Workspace attachment 失败时返回 `session/workspace-attach-failed`，并携带已发布的 session 与 Workspace id。诊断路由返回相同 code 及完整的已创建 session。
 - Prompt 和 queue-edit 文本共用 64 KiB 语义上限。10 MiB RPC 载体为 7 MiB 原始图片在 base64 与 envelope 膨胀后留出空间。
 - Edge 没有目录流 provider，因此上游浏览器会在仅剩一个 Workspace 时隐藏 Delete，并在仍有恢复路径时重新显示。
-- `@file` 补全通过 Computer VFS 为上游 `fileReferences/list` Remote 提供服务，行为与上游本地 provider（`dsh-file-reference-local`）一致：带 `/` 的查询列出那个目录，可以相对会话工作目录，也可以是工作目录内的绝对路径；裸片段在工作目录的递归索引上模糊排序（依次是完全相同、前缀、包含的文件名，然后是包含于路径和按顺序的子序列，因此 `rdm` 能找到 `docs/README.md`）。索引跳过上游排除的目录（`.git`、`node_modules`、`dist`、`build` 以及其他依赖和构建输出目录），最多保存 10,000 个条目，而上游是 50,000 个，因为每次列目录都会读取 Durable Object 的行：读取索引大约每个条目 3.5 行。只有会话的第一次裸查询需要等待索引；工具返回结果后索引变为过期，下一次裸查询先用它回答，同时读取替换的索引。`@session` 提及及其 pre-step 快照原样来自上游 session-reference 服务；它的候选发现以及任一 agent 作用域 Remote 都会通过上游 controller 恢复冷 session，并使其常驻直到 Durable Object 被驱逐。
+- `@file` 补全通过 Computer VFS 为上游 `fileReferences/list` Remote 提供服务，行为与上游本地 provider（`dsh-file-reference-local`）一致：带 `/` 的查询列出那个目录，可以相对会话工作目录，也可以是工作目录内的绝对路径；裸片段在工作目录的递归索引上模糊排序（依次是完全相同、前缀、包含的文件名，然后是包含于路径和按顺序的子序列，因此 `rdm` 能找到 `docs/README.md`）。索引跳过上游排除的目录（`.git`、`node_modules`、`dist`、`build` 以及其他依赖和构建输出目录），最多保存 10,000 个条目，而上游是 50,000 个，因为每次列目录都会读取 Durable Object 的行：读取索引大约每个条目 3.5 行。只有会话的第一次裸查询需要等待索引；任一会话的工具返回结果后（各会话共用一个工作区）索引变为过期，下一次裸查询先用它回答，同时读取替换的索引。`@session` 提及及其 pre-step 快照原样来自上游 session-reference 服务；它的候选发现以及任一 agent 作用域 Remote 都会通过上游 controller 恢复冷 session，并使其常驻直到 Durable Object 被驱逐。
 
 ### 限制与请求准入
 

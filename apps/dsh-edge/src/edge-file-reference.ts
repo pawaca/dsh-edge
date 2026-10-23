@@ -50,8 +50,9 @@ export const EXCLUDED_DIRECTORIES: ReadonlySet<string> = new Set([
  * fuzzy-ranks a recursive index of the working directory, so `rdm` finds
  * `README.md` anywhere below it. The index skips upstream's excluded
  * directories and holds at most `maxEntries` paths. Only the first bare query
- * waits for it; after a tool result it is stale, and the next bare query
- * answers from it while its replacement is read behind the caret.
+ * waits for it; after a tool result in any session (they share one
+ * workspace) it is stale, and the next bare query answers from it while its
+ * replacement is read behind the caret.
  */
 export class EdgeFileReferenceService extends FileReferenceService {
   private readonly withFiles: EdgeFileReferenceConfig['withFiles']
@@ -79,11 +80,12 @@ export class EdgeFileReferenceService extends FileReferenceService {
         text: FILE_REFERENCE_PROMPT,
       })
     })
-    // As upstream: a tool may have changed the tree, so the index goes stale.
-    ctx.on('session/event', (session, event) => {
+    // As upstream, a tool may have changed the tree, so the index goes stale.
+    // Every Edge session shares one workspace, so a tool result in any session
+    // makes every session's index stale, not only its own.
+    ctx.on('session/event', (_session, event) => {
       if (event.type !== 'tool/result') return
-      const agent = ctx.get('agents')?.get(session.id)
-      if (agent !== undefined) this.searches.get(agent)?.invalidate()
+      for (const search of this.searches.values()) search.invalidate()
     })
     ctx.on('agent/disposed', ({ agent }) => {
       this.searches.get(agent)?.dispose()
