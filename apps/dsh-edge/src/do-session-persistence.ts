@@ -202,6 +202,11 @@ export interface EdgeStoredHistoryPage {
 class DurableObjectSessionHandle implements SessionHandle {
   private closed = false
   private materialized = false
+  /**
+   * Whether this build has checked the stored vocabulary. A full read checks
+   * every event it returns; an append before one scans the type columns first.
+   */
+  private vocabularyChecked: boolean
   private readonly liveBuffer: SessionEvent[] = []
   private appendedThrough = -1
   private draining: Promise<void> | undefined
@@ -213,8 +218,17 @@ class DurableObjectSessionHandle implements SessionHandle {
     readonly access: SessionAccess,
     private readonly backend: DurableObjectSessionPersistence,
     materialized = false,
+    vocabularyChecked = true,
   ) {
     this.materialized = materialized
+    this.vocabularyChecked = vocabularyChecked
+  }
+
+  /** Refuse to append to a stored log this build has not checked it can interpret. */
+  private checkVocabulary(): void {
+    if (this.vocabularyChecked) return
+    this.backend.assertKnownVocabulary(this.header)
+    this.vocabularyChecked = true
   }
 
   enqueueLive(event: SessionEvent): void {
@@ -244,6 +258,7 @@ class DurableObjectSessionHandle implements SessionHandle {
         inheritedEventCount: this.inheritedEventCount,
       }
       try {
+        this.checkVocabulary()
         await this.backend.appendBatch(storage, batch, this.backend.hasSession(this.id))
         this.materialized = true
       } catch (error) {
@@ -267,10 +282,10 @@ class DurableObjectSessionHandle implements SessionHandle {
     }
     const fromSeq = offset ?? 0
     // A bounded read selects at most `length` rows (each holds one event or a
-    // run of them), and takes the committed boundary from the last turn/end
-    // so a torn tail is told apart from corruption exactly as a full read does.
+    // run of them). It never repairs, and an append commits in one SQL
+    // transaction, so an unparsable row in its range is corruption, not a tear.
     const rows = this.backend.eventRowsFrom(this.id, fromSeq, length)
-    const scanned = scanRows(rows, fromSeq, length === undefined ? undefined : this.backend.lastTurnEndSeq(this.id))
+    const scanned = scanRows(rows, fromSeq, length === undefined ? undefined : Number.POSITIVE_INFINITY)
     let preserved = scanned.preserved
     const tornFrom = scanned.tornFrom
     if (this.access === 'write' && fromSeq === 0 && length === undefined && tornFrom !== undefined) {
@@ -281,7 +296,9 @@ class DurableObjectSessionHandle implements SessionHandle {
       ? preserved
       : preserved.slice(0, length)
     // As upstream backends: refuse vocabulary this build does not know.
-    return { eventState: 'detached', events: validateStoredEvents(this.header, events) }
+    validateStoredEvents(this.header, events)
+    if (fromSeq === 0 && length === undefined) this.vocabularyChecked = true
+    return { eventState: 'detached', events }
   }
 
   async append(
@@ -296,6 +313,7 @@ class DurableObjectSessionHandle implements SessionHandle {
       meta: this.header,
       inheritedEventCount: this.inheritedEventCount,
     }
+    this.checkVocabulary()
     await this.backend.appendBatch(storage, events, this.backend.hasSession(this.id))
     this.materialized = true
     const lastEvent = events.at(-1)
@@ -408,14 +426,13 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
         throw new SessionAlreadyOwnedError(id)
       }
       this.activeWriteOwners.add(id)
-      try {
-        if (blank !== undefined) await this.materializeBlankSession(id)
-        // A write open refuses a log it could not interpret, as upstream's
-        // backends do, before anything is appended to it.
-        else this.assertKnownVocabulary(rowToHeader(row!))
-      } catch (error) {
-        this.activeWriteOwners.delete(id)
-        throw error
+      if (blank !== undefined) {
+        try {
+          await this.materializeBlankSession(id)
+        } catch (error) {
+          this.activeWriteOwners.delete(id)
+          throw error
+        }
       }
     }
     const header = row !== undefined ? rowToHeader(row) : blank!
@@ -429,6 +446,9 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
       access,
       this,
       row !== undefined,
+      // A write open does not scan the log: the handle's first full read checks
+      // every event, and an append before one scans the type columns.
+      row === undefined,
     )
     if (access === 'write') this.writeHandles.set(id, handle)
     return handle
@@ -1151,22 +1171,13 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
     return this.eventRows(id, fromSeq, limitRows)
   }
 
-  /** The seq of the session's last turn/end, read backwards from the log's end; -1 without one. */
-  lastTurnEndSeq(id: SessionId): number {
-    return this.storage.sql.exec<{ seq: number }>(
-      `SELECT seq FROM dsh_session_events
-       WHERE session_id = ? AND type = 'turn/end' ORDER BY seq DESC LIMIT 1`,
-      id,
-    ).toArray()[0]?.seq ?? -1
-  }
-
   /**
    * Refuse a stored log holding an event type this build does not know and its
    * writer did not mark ignorable, or a retired request/header reason. Only the
    * type columns are scanned; an offending row is decoded to raise upstream's
    * own refusal.
    */
-  private assertKnownVocabulary(header: SessionHeader): void {
+  assertKnownVocabulary(header: SessionHeader): void {
     // Packed assistant/chunk runs are not allowed either: the current format has
     // no assistant/chunk, so a read of such a row is refused the same way.
     const known = [...KNOWN_SESSION_EVENT_TYPES].map(type => `'${type.replaceAll("'", "''")}'`).join(', ')
