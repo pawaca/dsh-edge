@@ -114,8 +114,7 @@ import { FILE_UPLOAD_PATH, type EdgeAttachmentFiles } from './edge-file-attachme
 import { WorkspaceOrderInvalidError } from '@deepseek-ai/dsh-workspace'
 import { DSH_EDGE_VERSION } from './release.ts'
 import {
-  EDGE_DO_IMAGE_LIMITS,
-  EDGE_R2_IMAGE_LIMITS,
+  edgeImageLimits,
   resolveEdgeAttachmentStorage,
 } from './edge-attachment-store.ts'
 
@@ -421,9 +420,8 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     sessions: this.sessions,
     model: this.model,
     version: DSH_EDGE_VERSION,
-    imageLimits: this.attachmentStorage === 'temporary-do'
-      ? EDGE_DO_IMAGE_LIMITS
-      : EDGE_R2_IMAGE_LIMITS,
+    // The attachment store derives the same limits from the same binding.
+    imageLimits: edgeImageLimits((this.env as unknown as Record<string, unknown>).IMAGES !== undefined),
     deploymentProfile: () => resolveEdgeDeploymentProfile(this.env, this.attachmentStorage),
     describeCredential: ref => this.sessions.describeCredential(ref),
     setCredential: (ref, value) => this.sessions.setCredential(ref, value),
