@@ -200,6 +200,36 @@ describe('EdgeFileReferenceService', () => {
     expect(peak).toBe(1)
   })
 
+  it('abandons a dropped index read once no query waits for it', async () => {
+    let release!: () => void
+    const gate = new Promise<void>(resolve => { release = resolve })
+    const reads: string[] = []
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt, { personaPrefix: 'test persona' })
+    await ctx.plugin(EdgeFileReferenceService, {
+      maxIndexes: 1,
+      withFiles: read => read({
+        readdir: async (path: string) => {
+          reads.push(path)
+          if (path === '/workspace/one') await gate
+          return [entry(`${path.slice(path.lastIndexOf('/') + 1)}.txt`)]
+        },
+      }),
+    })
+    const first = ctx.fileReferences.list(agentAt('/workspace/one'), 'txt', signal())
+    // Queued behind the first read, then cancelled and dropped before its turn.
+    const cancel = new AbortController()
+    const queued = ctx.fileReferences.list(agentAt('/workspace/two'), 'txt', cancel.signal)
+    cancel.abort(new Error('switched session'))
+    await expect(queued).rejects.toThrow('switched session')
+    const third = ctx.fileReferences.list(agentAt('/workspace/three'), 'txt', signal())
+    await new Promise(resolve => { setTimeout(resolve, 0) })
+    release()
+    expect(await first).toEqual([{ path: 'one.txt', kind: 'file' }])
+    expect(await third).toEqual([{ path: 'three.txt', kind: 'file' }])
+    expect(reads).toEqual(['/workspace/one', '/workspace/three'])
+  })
+
   it('lists one directory for a query with a slash, relative or absolute inside the working directory', async () => {
     const { service, paths } = await provider({
       '/workspace/src': [entry('index.ts'), entry('lib', 'directory'), entry('dist', 'directory'), entry('.hidden')],

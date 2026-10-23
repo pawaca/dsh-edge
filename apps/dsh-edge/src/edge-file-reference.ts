@@ -136,11 +136,12 @@ export class EdgeFileReferenceService extends FileReferenceService {
       this.searches.delete(root)
     }
     this.searches.set(root, search)
-    // Forgetting an index, rather than disposing it, lets a read already
-    // serving a query finish; nothing keeps it once that query settles.
-    for (const stale of this.searches.keys()) {
+    // A dropped index's read still finishes for a query waiting on it, and
+    // is abandoned, queued or running, once no query is.
+    for (const [stale, evicted] of this.searches) {
       if (this.searches.size <= this.maxIndexes) break
       this.searches.delete(stale)
+      evicted.evict()
     }
     return search.list(query, signal)
   }
@@ -149,7 +150,8 @@ export class EdgeFileReferenceService extends FileReferenceService {
    * Run one recursive read after every earlier one. A dropped index's read
    * still finishes for the query waiting on it, so without this many working
    * directories could hold reads in memory at once; this way at most one
-   * index is being read beside the `maxIndexes` kept.
+   * index is being read beside the `maxIndexes` kept. A read abandoned while
+   * queued fails at its turn without touching the workspace.
    */
   private scanInTurn<T>(read: () => Promise<T>): Promise<T> {
     const run = this.scanning.then(read, read)
@@ -165,6 +167,10 @@ class WorkspaceSearch {
   private settled: { entries: FileReferenceCandidate[], startedAt: number } | undefined
   private building: Promise<FileReferenceCandidate[]> | undefined
   private readonly lifetime = new AbortController()
+  /** Dropped from the service's cache: kept only while a first query waits. */
+  private evicted = false
+  /** First queries waiting for this index to be read. */
+  private waiters = 0
 
   constructor(
     readonly root: string,
@@ -188,6 +194,11 @@ class WorkspaceSearch {
     this.invalidations += 1
   }
 
+  evict(): void {
+    this.evicted = true
+    if (this.waiters === 0) this.dispose()
+  }
+
   dispose(): void {
     this.lifetime.abort(new Error('file reference index disposed'))
     this.settled = undefined
@@ -197,7 +208,15 @@ class WorkspaceSearch {
   /** The indexed paths, at most one invalidation behind the tree; only a first query waits. */
   private async index(signal: AbortSignal): Promise<FileReferenceCandidate[]> {
     const settled = this.settled
-    if (settled === undefined) return await abortable(this.build(), signal)
+    if (settled === undefined) {
+      this.waiters += 1
+      try {
+        return await abortable(this.build(), signal)
+      } finally {
+        this.waiters -= 1
+        if (this.evicted && this.waiters === 0) this.dispose()
+      }
+    }
     if (settled.startedAt < this.invalidations) this.build().catch(() => {})
     return settled.entries
   }
@@ -205,7 +224,10 @@ class WorkspaceSearch {
   private build(): Promise<FileReferenceCandidate[]> {
     if (this.building !== undefined) return this.building
     const startedAt = this.invalidations
-    const building = this.inTurn(() => this.withFiles(files => this.scan(files))).then(entries => {
+    const building = this.inTurn(() => {
+      this.lifetime.signal.throwIfAborted()
+      return this.withFiles(files => this.scan(files))
+    }).then(entries => {
       if (this.building === building) {
         this.building = undefined
         if (!this.lifetime.signal.aborted) this.settled = { entries, startedAt }
