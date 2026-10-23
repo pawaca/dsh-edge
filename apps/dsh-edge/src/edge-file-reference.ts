@@ -29,6 +29,8 @@ export interface EdgeFileReferenceConfig {
   maxEntries?: number
   /** Maximum working directories whose indexes are kept at once. */
   maxIndexes?: number
+  /** Maximum path characters one index holds, so long paths cannot outgrow the entry bound. */
+  maxIndexCharacters?: number
 }
 
 const DEFAULT_MAX_RESULTS = 20
@@ -44,6 +46,12 @@ export const DEFAULT_MAX_ENTRIES = 10_000
  * sessions cannot hold more than this many indexes in Durable Object memory.
  */
 export const DEFAULT_MAX_INDEXES = 4
+/**
+ * About 2 MiB of path strings per index: with at most four kept and one
+ * replacement read at a time, indexes stay a small share of the isolate's
+ * 128 MiB, whatever the path lengths.
+ */
+export const DEFAULT_MAX_INDEX_CHARACTERS = 1_000_000
 const DEFAULT_CWD = '/workspace'
 /** Upstream dsh-file-reference-local's default exclusions: VCS, dependency, and build-output directories. */
 export const EXCLUDED_DIRECTORIES: ReadonlySet<string> = new Set([
@@ -57,7 +65,8 @@ export const EXCLUDED_DIRECTORIES: ReadonlySet<string> = new Set([
  * with a `/` (or an empty one) lists that directory, and a bare fragment
  * fuzzy-ranks a recursive index of the working directory, so `rdm` finds
  * `README.md` anywhere below it. The index skips upstream's excluded
- * directories and holds at most `maxEntries` paths, and sessions in the same
+ * directories and holds at most `maxEntries` paths and `maxIndexCharacters`
+ * path characters, and sessions in the same
  * working directory share it. Only the first bare query waits for it; as
  * upstream, a tool result (in any session, since they share one workspace)
  * makes it stale, and the next bare query answers from it while its
@@ -70,6 +79,7 @@ export class EdgeFileReferenceService extends FileReferenceService {
   private readonly maxResults: number
   private readonly maxEntries: number
   private readonly maxIndexes: number
+  private readonly maxIndexCharacters: number
   /** Indexes by working directory, least recently queried first. */
   private readonly searches = new Map<string, WorkspaceSearch>()
 
@@ -79,7 +89,13 @@ export class EdgeFileReferenceService extends FileReferenceService {
     this.maxResults = config.maxResults ?? DEFAULT_MAX_RESULTS
     this.maxEntries = config.maxEntries ?? DEFAULT_MAX_ENTRIES
     this.maxIndexes = config.maxIndexes ?? DEFAULT_MAX_INDEXES
-    for (const [name, value] of [['maxResults', this.maxResults], ['maxEntries', this.maxEntries], ['maxIndexes', this.maxIndexes]] as const) {
+    this.maxIndexCharacters = config.maxIndexCharacters ?? DEFAULT_MAX_INDEX_CHARACTERS
+    for (const [name, value] of [
+      ['maxResults', this.maxResults],
+      ['maxEntries', this.maxEntries],
+      ['maxIndexes', this.maxIndexes],
+      ['maxIndexCharacters', this.maxIndexCharacters],
+    ] as const) {
       if (!Number.isSafeInteger(value) || value <= 0) {
         throw new Error(`dsh-edge: file reference ${name} must be a positive safe integer`)
       }
@@ -113,14 +129,15 @@ export class EdgeFileReferenceService extends FileReferenceService {
     const root = normalizeRoot(this.ctx.get('workingDirectory')?.get(agent.session) ?? agent.session.header.cwd ?? DEFAULT_CWD)
     let search = this.searches.get(root)
     if (search === undefined) {
-      search = new WorkspaceSearch(root, this.withFiles, this.maxResults, this.maxEntries)
+      search = new WorkspaceSearch(root, this.withFiles, this.maxResults, this.maxEntries, this.maxIndexCharacters)
     } else {
       this.searches.delete(root)
     }
     this.searches.set(root, search)
-    for (const [stale, evicted] of this.searches) {
+    // Forgetting an index, rather than disposing it, lets a read already
+    // serving a query finish; nothing keeps it once that query settles.
+    for (const stale of this.searches.keys()) {
       if (this.searches.size <= this.maxIndexes) break
-      evicted.dispose()
       this.searches.delete(stale)
     }
     return search.list(query, signal)
@@ -140,6 +157,7 @@ class WorkspaceSearch {
     private readonly withFiles: EdgeFileReferenceConfig['withFiles'],
     private readonly maxResults: number,
     private readonly maxEntries: number,
+    private readonly maxIndexCharacters: number,
   ) {}
 
   async list(rawQuery: string, signal: AbortSignal): Promise<FileReferenceCandidate[]> {
@@ -188,12 +206,13 @@ class WorkspaceSearch {
 
   /**
    * Breadth-first, in name order, reading each directory up to the entries
-   * still allowed. An unreadable root fails the build, so a transient failure
+   * still allowed, and stopping at the first path past the character bound. An unreadable root fails the build, so a transient failure
    * keeps the previous index; an unreadable subdirectory adds nothing.
    */
   private async scan(files: EdgeReferenceFiles): Promise<FileReferenceCandidate[]> {
     const indexed: FileReferenceCandidate[] = []
     const directories = [{ absolute: this.root, relative: '' }]
+    let characters = 0
     for (let cursor = 0; cursor < directories.length && indexed.length < this.maxEntries; cursor += 1) {
       this.lifetime.signal.throwIfAborted()
       const directory = directories[cursor]!
@@ -203,13 +222,12 @@ class WorkspaceSearch {
         : await files.readdir(directory.absolute, limit).catch(() => [])
       for (const entry of [...entries].sort((left, right) => compareText(left.name, right.name))) {
         const path = directory.relative === '' ? entry.name : `${directory.relative}/${entry.name}`
-        if (entry.isDirectory) {
-          if (EXCLUDED_DIRECTORIES.has(entry.name)) continue
-          indexed.push({ path, kind: 'directory' })
-          directories.push({ absolute: joinPath(directory.absolute, entry.name), relative: path })
-        } else if (entry.isFile) {
-          indexed.push({ path, kind: 'file' })
-        }
+        const kind = entry.isDirectory ? 'directory' : entry.isFile ? 'file' : undefined
+        if (kind === undefined || (kind === 'directory' && EXCLUDED_DIRECTORIES.has(entry.name))) continue
+        characters += path.length
+        if (characters > this.maxIndexCharacters) return indexed
+        indexed.push({ path, kind })
+        if (kind === 'directory') directories.push({ absolute: joinPath(directory.absolute, entry.name), relative: path })
         if (indexed.length >= this.maxEntries) break
       }
     }

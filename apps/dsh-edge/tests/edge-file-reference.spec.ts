@@ -19,7 +19,7 @@ function agentAt(cwd: string | undefined, id = 'session-a'): Agent {
   return { session: { id, header: { cwd } } } as unknown as Agent
 }
 
-async function provider(tree: Record<string, EdgeReferenceEntry[]>, config: { maxResults?: number, maxEntries?: number, maxIndexes?: number } = {}) {
+async function provider(tree: Record<string, EdgeReferenceEntry[]>, config: { maxResults?: number, maxEntries?: number, maxIndexes?: number, maxIndexCharacters?: number } = {}) {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt, { personaPrefix: 'test persona' })
   const reads: { path: string, limit?: number }[] = []
@@ -133,6 +133,40 @@ describe('EdgeFileReferenceService', () => {
     await service.list(agentAt('/workspace/one', 'session-c'), 'o', signal())
     await service.list(agentAt('/workspace', 'session-a'), 'a', signal())
     expect(paths()).toEqual(['/workspace', '/workspace/one', '/workspace/two', '/workspace'])
+  })
+
+  it('bounds an index by path characters', async () => {
+    const { service } = await provider({
+      '/workspace': [entry('node_modules', 'directory'), entry('aaaa.txt'), entry('bbbb.txt'), entry('cccc.txt')],
+    }, { maxIndexCharacters: 16 })
+    // Two 8-character paths fit; the excluded directory costs nothing.
+    expect(await service.list(agentAt('/workspace'), 'txt', signal())).toEqual([
+      { path: 'aaaa.txt', kind: 'file' },
+      { path: 'bbbb.txt', kind: 'file' },
+    ])
+  })
+
+  it('lets a read already serving a query finish when its index is dropped', async () => {
+    let release!: () => void
+    const gate = new Promise<void>(resolve => { release = resolve })
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt, { personaPrefix: 'test persona' })
+    await ctx.plugin(EdgeFileReferenceService, {
+      maxIndexes: 1,
+      withFiles: read => read({
+        readdir: async (path: string) => {
+          if (path === '/workspace/one') {
+            await gate
+            return [entry('sub', 'directory')]
+          }
+          return [entry(`${path.slice(path.lastIndexOf('/') + 1)}.txt`)]
+        },
+      }),
+    })
+    const first = ctx.fileReferences.list(agentAt('/workspace/one'), 'txt', signal())
+    expect(await ctx.fileReferences.list(agentAt('/workspace/two'), 'txt', signal())).toEqual([{ path: 'two.txt', kind: 'file' }])
+    release()
+    expect(await first).toEqual([{ path: 'sub/sub.txt', kind: 'file' }])
   })
 
   it('lists one directory for a query with a slash, relative or absolute inside the working directory', async () => {
