@@ -125,8 +125,8 @@ type WorkspaceStubLike = {
   runtime: unknown
   git: unknown
   assets: unknown
+  hasAssets: boolean
   artifacts: unknown
-  useThink: unknown
   [Symbol.dispose]?: () => void
 }
 
@@ -146,6 +146,6 @@ export class RecordingWorkspaceStub extends RpcTarget {
   get runtime() { return this.#stub.runtime }
   get git() { return this.#stub.git }
   get assets() { return this.#stub.assets }
+  get hasAssets() { return this.#stub.hasAssets }
   get artifacts() { return this.#stub.artifacts }
-  get useThink() { return this.#stub.useThink }
 }

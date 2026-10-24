@@ -11,9 +11,9 @@ import {
   type DurableObjectStorageLike,
 } from '@cloudflare/computer'
 import {
-  CloudflareContainerBackend,
-  withWorkspaceContainer,
-} from '@cloudflare/computer/backends/container'
+  LegacyContainerBackend,
+  withLegacyWorkspaceContainer,
+} from '@cloudflare/computer/backends/container-legacy'
 import type { WorkerShellLoader } from '@cloudflare/computer/backends/worker-shell'
 import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
 import type { SessionListMetadata, QueueAction } from '@deepseek-ai/dsh-api-session-controller/types'
@@ -248,7 +248,7 @@ export interface EdgeEnv {
 
 // Every build carries the Container mixin; it touches `ctx.container` only
 // when the container provider serves a layer.
-class DshEdgeObjectBase extends withWorkspaceContainer(class extends DurableObject<EdgeEnv> {}) {
+class DshEdgeObjectBase extends withLegacyWorkspaceContainer(class extends DurableObject<EdgeEnv> {}) {
   // Backends bind when the Durable Object is constructed, from its bindings.
   protected readonly runtimeBackends = resolveEdgeRuntimeBackends({
     env: this.env,
@@ -269,13 +269,17 @@ class DshEdgeObjectBase extends withWorkspaceContainer(class extends DurableObje
       // differ only in their type parameter; both expose the same runtime API.
       storage: this.ctx.storage as unknown as DurableObjectStorageLike,
       backends: this.runtimeBackends,
+      // The bash tool keeps each stream's tail and spills the rest itself
+      // (SHELL_SPILL_DIRECTORY); Computer saving a second copy would double
+      // the writes.
+      output: false as const,
     }
   }
 
   /** The Container backend when the container provider serves a layer. */
-  protected containerBackend(): CloudflareContainerBackend | undefined {
+  protected containerBackend(): LegacyContainerBackend | undefined {
     return this.runtimeBackends.find(
-      (backend): backend is CloudflareContainerBackend => backend instanceof CloudflareContainerBackend,
+      (backend): backend is LegacyContainerBackend => backend instanceof LegacyContainerBackend,
     )
   }
 }

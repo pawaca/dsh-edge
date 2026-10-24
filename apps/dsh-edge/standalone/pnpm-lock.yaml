@@ -7,7 +7,7 @@ settings:
 pnpmfileChecksum: sha256-1crgu0N1myGOJCJigDNrWMiZp7pJmwkPRbW1loQiak4=
 
 patchedDependencies:
-  '@cloudflare/computer@0.3.1': abb7977762b448a82b0255563e80356fd6e4046c460bb68e9eb6436132d56607
+  '@cloudflare/computer@0.7.0': d40eb90e965628bc8233c375d0120e8aa3519649c8f96a9c3f61c9affb9f0a1f
   '@deepseek-ai/dsh-api-gateway@0.2.1-rc.2': 3498aa17cfdc2f927b5b96f988f56a597486a0c100e4bf945b00a918b040eeff
   '@deepseek-ai/dsh-api-session-controller@0.2.1-rc.2': 49be82d4ce350f91081e642c1b205f2ba0cd0335dc439a666394995e265b21bd
   '@deepseek-ai/dsh-llm@0.2.1-rc.2': ffb92bf0913f9cde44eedc5330ad729245165eed06a2ffa7384de76746252d7f
@@ -21,8 +21,8 @@ importers:
   .:
     dependencies:
       '@cloudflare/computer':
-        specifier: 0.3.1
-        version: 0.3.1(patch_hash=abb7977762b448a82b0255563e80356fd6e4046c460bb68e9eb6436132d56607)(zod@4.4.3)
+        specifier: 0.7.0
+        version: 0.7.0(patch_hash=d40eb90e965628bc8233c375d0120e8aa3519649c8f96a9c3f61c9affb9f0a1f)(just-bash@3.4.2)(zod@4.4.3)
       '@deepseek-ai/cordis':
         specifier: 4.0.5
         version: 4.0.5(@deepseek-ai/cordis-plugin-include@1.0.6)(@deepseek-ai/cordis-plugin-loader@1.0.6)
@@ -596,16 +596,25 @@ packages:
   '@cfworker/json-schema@4.1.1':
     resolution: {integrity: sha512-gAmrUZSGtKc3AiBL71iNWxDsyUC5uMaKKGdvzYsBoTW/xi42JQHl7eKV2OYzCUqvc+D2RCcf7EXY2iCyFIk6og==}
 
-  '@cloudflare/computer@0.3.1':
-    resolution: {integrity: sha512-am79tH9IukXidlJZTXeMAs7rvy4KgdlbBoOM1HgLBdxrlpeP1aQf2YLvXhxKGzSh6PkV/NmxSz0R2BcwSoRzPA==}
+  '@cloudflare/computer@0.7.0':
+    resolution: {integrity: sha512-pVO4+6tg0W0aNHcAoDoq9rTnTuEXSxixeaXUHozyga7UjgVZ+brmi68sX+eQQb1kdGngtAofvmthgV/mgCXZaw==}
     peerDependencies:
+      '@cloudflare/workers-types': ^4.20260616.1 || ^5.20260921.1
       '@platformatic/vfs': '*'
       ai: ^6.0.196 || ^7.0.0
+      just-bash: ^3.0.1
+      vite: ^6.0.0 || ^7.0.0 || ^8.0.0
       zod: ^4.4.3
     peerDependenciesMeta:
+      '@cloudflare/workers-types':
+        optional: true
       '@platformatic/vfs':
         optional: true
       ai:
+        optional: true
+      just-bash:
+        optional: true
+      vite:
         optional: true
       zod:
         optional: true
@@ -5857,15 +5866,12 @@ snapshots:
 
   '@cfworker/json-schema@4.1.1': {}
 
-  '@cloudflare/computer@0.3.1(patch_hash=abb7977762b448a82b0255563e80356fd6e4046c460bb68e9eb6436132d56607)(zod@4.4.3)':
+  '@cloudflare/computer@0.7.0(patch_hash=d40eb90e965628bc8233c375d0120e8aa3519649c8f96a9c3f61c9affb9f0a1f)(just-bash@3.4.2)(zod@4.4.3)':
     dependencies:
-      acorn: 8.18.0
       capnweb: 0.10.0
-      just-bash: 3.4.2
     optionalDependencies:
+      just-bash: 3.4.2
       zod: 4.4.3
-    transitivePeerDependencies:
-      - supports-color
 
   '@cloudflare/kv-asset-handler@0.5.0': {}
 

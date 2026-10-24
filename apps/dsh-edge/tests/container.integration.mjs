@@ -211,6 +211,19 @@ try {
   const [spilled, expected] = sums.stdout.trim().split('\n')
   assert.equal(spilled, expected, 'the spill file differs from the command output')
 
+  // Output written after the command's shell has exited (a background job
+  // holding the pipes) used to stop computerd and the container with it
+  // (#373). The command now finishes, the late output is dropped, and the
+  // same container serves the next command: a file kept on its own disk
+  // survives.
+  assert.equal((await exec('echo kept > /tmp/edge-alive', true)).status, 'completed')
+  const late = await exec('(sleep 1; seq 1 200000) & echo started', true)
+  assert.equal(late.status, 'completed', late.stderr.slice(-300))
+  assert.equal(late.stdout, 'started\n')
+  await new Promise(resolve => setTimeout(resolve, 3_000))
+  const alive = await exec('cat /tmp/edge-alive', true)
+  assert.equal(alive.stdout, 'kept\n', 'the container restarted after late output')
+
   // The first command after a restart routes by the saved policy, not the default.
   await putRuntime({ bashRouting: 'light' })
   await worker.stop()

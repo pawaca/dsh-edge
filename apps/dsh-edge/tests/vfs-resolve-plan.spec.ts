@@ -3,11 +3,11 @@ import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
 
 // The Worker bundles @cloudflare/computer from the standalone lock with
-// standalone/patches/@cloudflare__computer@0.3.1.patch applied. This spec reads the
+// standalone/patches/@cloudflare__computer@0.7.0.patch applied. This spec reads the
 // unpatched published file (the app's own dev install), applies that patch's hunk,
 // and asks SQLite how each version of the path-resolution query probes vfs_dirents.
 const published = readFileSync(new URL('../node_modules/@cloudflare/computer/dist/index.js', import.meta.url), 'utf8')
-const patch = readFileSync(new URL('../standalone/patches/@cloudflare__computer@0.3.1.patch', import.meta.url), 'utf8').replace(/\r\n/gu, '\n')
+const patch = readFileSync(new URL('../standalone/patches/@cloudflare__computer@0.7.0.patch', import.meta.url), 'utf8').replace(/\r\n/gu, '\n')
 
 function applyHunk(source: string): string {
   const hunk = patch.slice(patch.indexOf('\n@@')).split('\n').slice(2)

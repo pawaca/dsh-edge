@@ -35,7 +35,7 @@ SOFTWARE.
 
 ## Bundled component inventory
 
-`dsh-edge` also applies a version-bound fix to `@cloudflare/computer@0.3.1`, recorded with its reason in `standalone/patches/audit.json`; the component's license below is unchanged.
+`dsh-edge` also applies a version-bound fix to `@cloudflare/computer@0.7.0`, recorded with its reason in `standalone/patches/audit.json`; the component's license below is unchanged.
 
 The following 674 package versions form the conservative, platform-neutral production closure used to assemble the Web and Worker artifacts in this distribution. Platform-specific build binaries that are not distributed in those artifacts are excluded; tree shaking can omit additional code. The inventory and legal texts are generated during packaging rather than referring recipients to a source checkout. License expressions are SPDX identifiers supplied by each package. Dependencies installed separately by npm remain declared in this package's `package.json`.
 
@@ -67,7 +67,7 @@ The following 674 package versions form the conservative, platform-neutral produ
 | `@babel/runtime@7.29.7` | `MIT` |
 | `@borewit/text-codec@0.2.2` | `MIT` |
 | `@cfworker/json-schema@4.1.1` | `MIT` |
-| `@cloudflare/computer@0.3.1` | `MIT` |
+| `@cloudflare/computer@0.7.0` | `MIT` |
 | `@cloudflare/kv-asset-handler@0.5.0` | `MIT OR Apache-2.0` |
 | `@cloudflare/unenv-preset@2.16.1` | `MIT OR Apache-2.0` |
 | `@cspotcode/source-map-support@0.8.1` | `MIT` |
@@ -5205,6 +5205,40 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
+### License/notice 6fa9bddd7579
+
+Applies to:
+
+- `@cloudflare/computer@0.7.0` (`package metadata fallback`)
+
+```text
+The published @cloudflare/computer@0.7.0 package declared MIT but did not include a license or notice file. Attribution from its package metadata: contributors to @cloudflare/computer. Repository: git+https://github.com/cloudflare/computer.git.
+
+The MIT branch is reproduced for this distribution:
+
+MIT License
+
+Published package author: contributors to @cloudflare/computer
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
 ### License/notice 700e990091f6
 
 Applies to:
@@ -7532,40 +7566,6 @@ NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
 LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-```
-
-### License/notice 8f56920dec6e
-
-Applies to:
-
-- `@cloudflare/computer@0.3.1` (`package metadata fallback`)
-
-```text
-The published @cloudflare/computer@0.3.1 package declared MIT but did not include a license or notice file. Attribution from its package metadata: contributors to @cloudflare/computer. Repository: git+https://github.com/cloudflare/computer.git.
-
-The MIT branch is reproduced for this distribution:
-
-MIT License
-
-Published package author: contributors to @cloudflare/computer
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
 ```
 
 ### License/notice 9116bd624634

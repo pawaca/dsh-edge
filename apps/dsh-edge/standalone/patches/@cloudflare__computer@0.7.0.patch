@@ -1,8 +1,8 @@
 diff --git a/dist/index.js b/dist/index.js
-index fcfda5c422956bbebba061a49bcf5f57801f4661..37ecaf3094ce5f9625704a20175dd760e69fc4ac 100644
+index 2b99981f1300219e62ca4155f1d6314f88be99d2..78d7bffc73c9b4e0484d9090ea00300886f8cbbf 100644
 --- a/dist/index.js
 +++ b/dist/index.js
-@@ -459,10 +459,11 @@ function resolveViaCte(db, parts) {
+@@ -485,10 +485,11 @@ function resolveViaCte(db, parts) {
           UNION ALL
           SELECT w.level + 1, n.inode, n.type, n.mode, n.mtime, n.size, n.link_target
             FROM walk w

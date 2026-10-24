@@ -6,7 +6,7 @@
 # Worker bundles (the wire protocol has no negotiation), so bump both together.
 # Both base images are pinned by digest.
 
-FROM ghcr.io/cloudflare/computer-computerd-linux-x64:0.3.1@sha256:627c5cbadfb1d7ffa2df647c5c9fdf3fa78396cd382f6b3558fac02552f23a01 AS computerd
+FROM ghcr.io/cloudflare/computer-computerd-linux-x64:0.7.0@sha256:1b8068c6ff97471b2aead69d8fd18ae55b487db2b67cf0bc330795a3c99c495c AS computerd
 
 FROM debian:stable-slim@sha256:5bc3287b25407c965a30f38e32603dc253a3869e1b12a21ac09bfc27fd8b13ce
 

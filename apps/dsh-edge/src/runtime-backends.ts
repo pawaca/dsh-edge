@@ -2,9 +2,9 @@
 
 import type { WorkspaceRegisteredBackend } from '@cloudflare/computer'
 import {
-  CloudflareContainerBackend,
-  type IWorkspaceContainerAPI,
-} from '@cloudflare/computer/backends/container'
+  LegacyContainerBackend,
+  type ILegacyWorkspaceContainerAPI,
+} from '@cloudflare/computer/backends/container-legacy'
 import {
   WorkerShellBackend,
   type WorkerShellLoader,
@@ -31,7 +31,7 @@ export interface EdgeRuntimeHost {
   env: EdgeRuntimeEnv
   ctx: DurableObjectState
   /** The owning Durable Object's Container handle, present on container-enabled classes. */
-  container?: () => { getWorkspaceContainer(): IWorkspaceContainerAPI | Promise<IWorkspaceContainerAPI> }
+  container?: () => { getWorkspaceContainer(): ILegacyWorkspaceContainerAPI | Promise<ILegacyWorkspaceContainerAPI> }
 }
 
 /** A provider descriptor plus the backend factory it contributes to the workspace. */
@@ -67,7 +67,11 @@ const ContainerProvider: EdgeRuntimeProvider = {
     if (container === undefined) {
       throw new Error('The container runtime requires a container-enabled Durable Object.')
     }
-    return [new CloudflareContainerBackend({
+    // The platform-scheduled backend: the containers block in wrangler.jsonc
+    // chooses the image and size. Computer's durable_object-scheduled
+    // ContainerBackend needs a new Durable Object class, which would leave
+    // this object's storage behind.
+    return [new LegacyContainerBackend({
       container,
       workspace: {
         binding: 'DSH_EDGE_INSTANCE',
