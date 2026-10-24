@@ -375,7 +375,7 @@ describe('legacy Edge cancellation migration', () => {
     } finally { await ctx.fiber.dispose(); storage.close() }
   })
 
-  it('starts with a legacy log too large to migrate, migrates the rest, and refuses only that session', async () => {
+  it('starts with a legacy log too large to migrate, migrates the rest, and unlists and refuses only that session', async () => {
     const storage = cancelledStorage('cancelled by the user')
     storage.sql.exec(`INSERT INTO dsh_sessions
       SELECT 'legacy-large', version, created_at, cwd, parent_session, seed_length, origin,
@@ -397,8 +397,15 @@ describe('legacy Edge cancellation migration', () => {
       expect(warn).toHaveBeenCalledWith(expect.stringContaining('legacy-large keeps format version 0'))
       const opening = persistence.open(SessionId('legacy-large'), 'read')
       await expect(opening).rejects.toBeInstanceOf(SessionFormatUnsupportedError)
-      await expect(opening).rejects.toThrow(/format version 0 with 8\.0 MiB of events, more than the 8\.0 MiB .* only be deleted/u)
-      expect((await persistence.list()).map(s => s.header.id)).toContain('legacy-large')
+      await expect(opening).rejects.toThrow(/format version 0 with 8\.0 MiB of events, more than the 8\.0 MiB .* cannot be opened here/u)
+      // Unlisted before the page limit applies: it sorts first (same created_at,
+      // lower id), and a one-session page still holds the migrated session.
+      const page = persistence.readSessionSummaryPage(undefined, 1)!
+      expect(page.sessions.map(s => s.meta.id)).toEqual(['session-v0-1-3'])
+      expect(page.hasMore).toBe(false)
+      expect(persistence.readRecentSessionSummaries(1).map(s => s.meta.id)).toEqual(['session-v0-1-3'])
+      expect(persistence.readAllSessionSummaries().map(s => s.meta.id)).toEqual(['session-v0-1-3'])
+      expect(persistence.readSessionSummary(SessionId('legacy-large'))).toBeUndefined()
       expect(storage.sql.exec("SELECT * FROM dsh_session_events WHERE session_id = 'legacy-large' ORDER BY seq").toArray()).toEqual(largeBefore)
       expect(storage.sql.exec("SELECT version FROM dsh_sessions WHERE id = 'legacy-large'").toArray()).toEqual([{ version: 0 }])
     } finally { warn.mockRestore(); await ctx.fiber.dispose(); storage.close() }

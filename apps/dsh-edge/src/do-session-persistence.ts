@@ -62,8 +62,8 @@ const DO_SESSION_SCHEMA_VERSION = 2
  * Upstream's format restore converts a whole log in one pass, so migrating a
  * session stored in an earlier format holds about four times its stored event
  * data in memory (measured under a 128 MiB heap: 22 MiB migrated, 26 MiB ran
- * out). A larger legacy session is left as stored and refused when opened,
- * rather than taking the isolate, and at startup the whole instance, with it.
+ * out). A larger legacy session is left as stored, unlisted, and refused when
+ * opened, rather than taking the isolate, and at startup the whole instance, with it.
  */
 export const LEGACY_MIGRATION_MAX_BYTES = 8 * 1024 * 1024
 
@@ -171,12 +171,16 @@ const SESSION_SUMMARY_SELECT = `SELECT s.id, s.version, s.created_at, s.cwd, s.p
          ORDER BY e.seq DESC LIMIT 1) AS title_data
  FROM dsh_sessions s`
 
+// A legacy log left as stored for its size (LEGACY_MIGRATION_MAX_BYTES) is
+// not listed: it cannot be opened, and filtering it here, before any LIMIT,
+// keeps every page full and its cursor moving. A newer format still reaches
+// rowToStoredSessionSummary, which refuses it.
 const SESSION_SUMMARY_MATERIALIZED = `SELECT s.id, s.version, s.created_at, s.cwd, s.parent_session,
         s.seed_length, s.origin, s.delegation_depth, s.agent_preset, s.incarnation, s.revision,
         sm.updated_at, sm.last_prompt_at, sm.last_seq, sm.blank,
         sm.title_seq, sm.title_time, sm.title_data
  FROM dsh_sessions s
- JOIN dsh_session_summaries sm ON s.id = sm.session_id`
+ JOIN dsh_session_summaries sm ON s.id = sm.session_id AND s.version >= ${String(SESSION_FORMAT_VERSION)}`
 
 /** One cheap session-list item derived from canonical header/event rows. */
 export interface EdgeStoredSessionSummary {
@@ -593,7 +597,7 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
     const mib = (n: number) => (n / (1024 * 1024)).toFixed(1)
     throw new SessionFormatUnsupportedError(
       `Session ${id} is stored in format version ${String(row.version)} with ${mib(bytes)} MiB of events, `
-      + `more than the ${mib(LEGACY_MIGRATION_MAX_BYTES)} MiB the Edge can migrate in memory. It can only be deleted.`,
+      + `more than the ${mib(LEGACY_MIGRATION_MAX_BYTES)} MiB the Edge can migrate in memory, so it cannot be opened here. Its stored events are kept unchanged.`,
     )
   }
 
