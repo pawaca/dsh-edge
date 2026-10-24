@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { CloudflareContainerBackend } from '@cloudflare/computer/backends/container'
+import { LegacyContainerBackend } from '@cloudflare/computer/backends/container-legacy'
 import { WorkerShellBackend } from '@cloudflare/computer/backends/worker-shell'
 import { DirectShellBackend } from '../src/direct-shell.ts'
 import { resolveEdgeRuntimeBackends } from '../src/runtime-backends.ts'
@@ -24,8 +24,8 @@ vi.mock('@cloudflare/computer/backends/worker-shell', () => ({
     constructor(readonly options: unknown) {}
   },
 }))
-vi.mock('@cloudflare/computer/backends/container', () => ({
-  CloudflareContainerBackend: class {
+vi.mock('@cloudflare/computer/backends/container-legacy', () => ({
+  LegacyContainerBackend: class {
     readonly id = 'container-shell'
     constructor(readonly options: unknown) {}
   },
@@ -96,7 +96,7 @@ describe('Edge runtime providers', () => {
     // so only routing reaches the container.
     expect(backends.map(backend => (backend as { id: string }).id)).toEqual(['worker-shell', 'container-shell'])
     expect(backends[0]).toBeInstanceOf(WorkerShellBackend)
-    expect(backends[1]).toBeInstanceOf(CloudflareContainerBackend)
+    expect(backends[1]).toBeInstanceOf(LegacyContainerBackend)
     expect((backends[1] as unknown as { options: unknown }).options).toEqual({
       container,
       workspace: { binding: 'DSH_EDGE_INSTANCE', id: 'workspace-id' },

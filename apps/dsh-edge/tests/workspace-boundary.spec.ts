@@ -68,7 +68,7 @@ describe('workspace boundary', () => {
     })
     const runtime = {}
     const stub = new RecordingWorkspaceStub(
-      { fs, runtime, git: 'git', assets: undefined, artifacts: 'artifacts', useThink: false } as never,
+      { fs, runtime, git: 'git', assets: undefined, hasAssets: false, artifacts: 'artifacts' } as never,
       recorder,
     )
     const mark = recorder.mark()
@@ -92,6 +92,6 @@ describe('workspace boundary', () => {
     expect(stub.runtime).toBe(runtime)
     expect(stub.git).toBe('git')
     expect(stub.artifacts).toBe('artifacts')
-    expect(stub.useThink).toBe(false)
+    expect(stub.hasAssets).toBe(false)
   })
 })
