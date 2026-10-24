@@ -58,6 +58,16 @@ import {
 /** Versions the DO table layout; SessionHeader.version owns the event format. */
 const DO_SESSION_SCHEMA_VERSION = 2
 
+/**
+ * Upstream's format restore converts a whole log in one pass, so migrating a
+ * session stored in an earlier format holds about four times its stored event
+ * data in memory (measured under a 128 MiB heap: 22 MiB migrated, 26 MiB ran
+ * out). A larger legacy session is left as stored and treated as absent: it is
+ * unlisted, summary reads by id miss it, and a decode refuses it, rather than
+ * taking the isolate, and at startup the whole instance, with it.
+ */
+export const LEGACY_MIGRATION_MAX_BYTES = 8 * 1024 * 1024
+
 interface DurableObjectSessionPersistenceConfig {
   storage: DurableObjectStorage
 }
@@ -162,12 +172,16 @@ const SESSION_SUMMARY_SELECT = `SELECT s.id, s.version, s.created_at, s.cwd, s.p
          ORDER BY e.seq DESC LIMIT 1) AS title_data
  FROM dsh_sessions s`
 
+// A legacy log left as stored for its size (LEGACY_MIGRATION_MAX_BYTES) is
+// not listed: it cannot be opened, and filtering it here, before any LIMIT,
+// keeps every page full and its cursor moving. A newer format still reaches
+// rowToStoredSessionSummary, which refuses it.
 const SESSION_SUMMARY_MATERIALIZED = `SELECT s.id, s.version, s.created_at, s.cwd, s.parent_session,
         s.seed_length, s.origin, s.delegation_depth, s.agent_preset, s.incarnation, s.revision,
         sm.updated_at, sm.last_prompt_at, sm.last_seq, sm.blank,
         sm.title_seq, sm.title_time, sm.title_data
  FROM dsh_sessions s
- JOIN dsh_session_summaries sm ON s.id = sm.session_id`
+ JOIN dsh_session_summaries sm ON s.id = sm.session_id AND s.version >= ${String(SESSION_FORMAT_VERSION)}`
 
 /** One cheap session-list item derived from canonical header/event rows. */
 export interface EdgeStoredSessionSummary {
@@ -568,9 +582,30 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
     })
   }
 
+  /** Stored event bytes of one session, counted by SQLite without materializing the log. */
+  private storedEventBytes(id: SessionId): number {
+    return this.storage.sql.exec<{ bytes: number }>(
+      `SELECT coalesce(sum(length(CAST(data AS BLOB))), 0) AS bytes
+       FROM dsh_session_events WHERE session_id = ?`,
+      id,
+    ).toArray()[0]?.bytes ?? 0
+  }
+
+  /** Refuse a legacy log too large to convert in memory (see LEGACY_MIGRATION_MAX_BYTES). */
+  private assertMigratable(id: SessionId, row: HeaderRow): void {
+    const bytes = this.storedEventBytes(id)
+    if (bytes <= LEGACY_MIGRATION_MAX_BYTES) return
+    const mib = (n: number) => (n / (1024 * 1024)).toFixed(1)
+    throw new SessionFormatUnsupportedError(
+      `Session ${id} is stored in format version ${String(row.version)} with ${mib(bytes)} MiB of events, `
+      + `more than the ${mib(LEGACY_MIGRATION_MAX_BYTES)} MiB the Edge can migrate in memory, so it cannot be opened here. Its stored events are kept unchanged.`,
+    )
+  }
+
   /** Feed one stored generation's rows to a restore, applying Edge-only legacy repairs. */
   private decodeStoredRows(id: SessionId, row: HeaderRow, restore: SessionFormatRestore,
     stored?: Map<number, string>): number {
+    if (row.version !== SESSION_FORMAT_VERSION) this.assertMigratable(id, row)
     const eventRows = this.eventRows(id, 0)
     // Stored columns by seq, captured before the in-memory v0 repair reorders seqs.
     if (stored !== undefined) for (const eventRow of eventRows) stored.set(eventRow.seq, storedColumnsKey(eventRow))
@@ -1294,12 +1329,21 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
   }
 
   private migrateStoredSessions(): void {
+    let skipped = 0
     const outdated = this.storage.sql.exec<HeaderRow>(
       `SELECT id, version, created_at, cwd, parent_session, seed_length, origin,
               delegation_depth, agent_preset, incarnation, revision
        FROM dsh_sessions WHERE version != ?`,
       SESSION_FORMAT_VERSION,
-    ).toArray()
+    ).toArray().filter((row) => {
+      // A log too large to convert stays as stored, so the instance starts;
+      // opening that session reports why it cannot be read.
+      const bytes = this.storedEventBytes(row.id as SessionId)
+      if (bytes <= LEGACY_MIGRATION_MAX_BYTES) return true
+      console.warn(`dsh-edge: session ${row.id} keeps format version ${String(row.version)}: ${String(bytes)} bytes of events is over the migration limit.`)
+      skipped++
+      return false
+    })
     if (outdated.length > 0) {
       // Validate every old log before the first migration write. Discard each
       // artifact after preflight to avoid retaining all decoded histories at once.
@@ -1313,7 +1357,10 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
         rewriteWrites += prepared?.rewriteWrites ?? 0
         migratedRows += prepared?.packed.length ?? 0
       }
-      const rebuild = this.isEventTableRebuildCheaper(rewriteWrites, migratedRows)
+      // A rebuild keeps only current and migrated logs, so a skipped legacy
+      // log rules it out; at over the migration limit, copying it would not be
+      // cheaper anyway.
+      const rebuild = skipped === 0 && this.isEventTableRebuildCheaper(rewriteWrites, migratedRows)
       const target: EventTable = rebuild ? 'dsh_session_events_migrating' : 'dsh_session_events'
       if (rebuild) {
         this.createEventTable(target)
