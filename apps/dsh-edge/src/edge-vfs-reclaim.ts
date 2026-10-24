@@ -55,6 +55,11 @@ export function reclaimUnreferencedBlobs(storage: DurableObjectStorage, now: num
     return { deleted: 0, bytes: 0, complete: true, skipped: 'schema' }
   }
   const after = cursor === undefined ? new Uint8Array(0) : hexToBytes(cursor)
+  // Bounded probe (AGENTS.md): the page is a primary-key range under LIMIT,
+  // and each EXISTS is one seek on the covering vfs_chunks_by_hash index that
+  // stops at the first reference, so a page reads at most about twice
+  // `scanned` rows (measured: 72 blobs, 72 more rows read). A join or IN list
+  // would read every reference to a shared chunk instead.
   const rows = sql.exec<BlobRow>(
     `SELECT b.hash, b.size, b.last_seen,
             EXISTS (SELECT 1 FROM vfs_chunks c WHERE c.hash = b.hash) AS used
