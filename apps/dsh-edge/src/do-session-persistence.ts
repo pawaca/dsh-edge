@@ -1324,6 +1324,7 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
   }
 
   private migrateStoredSessions(): void {
+    let skipped = 0
     const outdated = this.storage.sql.exec<HeaderRow>(
       `SELECT id, version, created_at, cwd, parent_session, seed_length, origin,
               delegation_depth, agent_preset, incarnation, revision
@@ -1335,6 +1336,7 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
       const bytes = this.storedEventBytes(row.id as SessionId)
       if (bytes <= LEGACY_MIGRATION_MAX_BYTES) return true
       console.warn(`dsh-edge: session ${row.id} keeps format version ${String(row.version)}: ${String(bytes)} bytes of events is over the migration limit.`)
+      skipped++
       return false
     })
     if (outdated.length > 0) {
@@ -1350,7 +1352,10 @@ export class DurableObjectSessionPersistence extends SessionPersistence {
         rewriteWrites += prepared?.rewriteWrites ?? 0
         migratedRows += prepared?.packed.length ?? 0
       }
-      const rebuild = this.isEventTableRebuildCheaper(rewriteWrites, migratedRows)
+      // A rebuild keeps only current and migrated logs, so a skipped legacy
+      // log rules it out; at over the migration limit, copying it would not be
+      // cheaper anyway.
+      const rebuild = skipped === 0 && this.isEventTableRebuildCheaper(rewriteWrites, migratedRows)
       const target: EventTable = rebuild ? 'dsh_session_events_migrating' : 'dsh_session_events'
       if (rebuild) {
         this.createEventTable(target)

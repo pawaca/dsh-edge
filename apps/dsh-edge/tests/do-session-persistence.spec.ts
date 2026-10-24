@@ -404,6 +404,32 @@ describe('legacy Edge cancellation migration', () => {
     } finally { warn.mockRestore(); await ctx.fiber.dispose(); storage.close() }
   })
 
+  it('keeps a skipped legacy log when the other migrations would rebuild the event table', async () => {
+    const storage = cancelledStorage('cancelled by the user')
+    storage.sql.exec(`INSERT INTO dsh_sessions
+      SELECT 'legacy-large', version, created_at, cwd, parent_session, seed_length, origin,
+      delegation_depth, agent_preset, 'large-incarnation', revision FROM dsh_sessions`)
+    storage.sql.exec(
+      'INSERT INTO dsh_session_events (session_id, seq, type, time, data) VALUES (?, ?, ?, ?, ?)',
+      'legacy-large', 0, 'system/message', 2000, JSON.stringify({ text: 'x'.repeat(LEGACY_MIGRATION_MAX_BYTES) }),
+    )
+    // Token deltas packing into one row make a rebuild the cheaper migration on their own.
+    insertLegacyDeltas(storage, 200)
+    const largeBefore = storage.sql.exec("SELECT * FROM dsh_session_events WHERE session_id = 'legacy-large' ORDER BY seq").toArray()
+    storage.queries.length = 0
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const persistence = new DurableObjectSessionPersistence(ctx, { storage: storage as never })
+      expect(storage.queries).not.toContain('DROP TABLE dsh_session_events')
+      expect(storage.sql.exec("SELECT * FROM dsh_session_events WHERE session_id = 'legacy-large' ORDER BY seq").toArray()).toEqual(largeBefore)
+      const migrated = await readAll(persistence, SessionId('session-v0-1-3'))
+      expect(migrated.meta.version).toBe(SESSION_FORMAT_VERSION)
+      expect(JSON.stringify(migrated.events)).toContain('x'.repeat(200))
+    } finally { warn.mockRestore(); await ctx.fiber.dispose(); storage.close() }
+  })
+
   it('preserves the legacy log after a migration write failure and retries successfully', async () => {
     const storage = cancelledStorage('cancelled by the user')
     const before = storage.sql.exec('SELECT * FROM dsh_session_events ORDER BY seq').toArray()
