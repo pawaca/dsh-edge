@@ -15,9 +15,9 @@ import SessionStore, {
   type SessionHeader,
 } from '@deepseek-ai/dsh-session'
 import { SessionFormatUnsupportedError } from '@deepseek-ai/dsh-session-persistence'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { MainSessionQueue } from '../src/main-session-queue.ts'
-import DurableObjectSessionPersistence from '../src/do-session-persistence.ts'
+import DurableObjectSessionPersistence, { LEGACY_MIGRATION_MAX_BYTES } from '../src/do-session-persistence.ts'
 
 async function readAll(persistence: DurableObjectSessionPersistence, id: ReturnType<typeof SessionId>) {
   const handle = await persistence.open(id, 'read')
@@ -373,6 +373,68 @@ describe('legacy Edge cancellation migration', () => {
       }
       expect(tables.map(table => storage.sql.exec(`SELECT * FROM ${table}`).toArray())).toEqual(before)
     } finally { await ctx.fiber.dispose(); storage.close() }
+  })
+
+  it('starts with a legacy log too large to migrate, migrates the rest, and unlists and refuses only that session', async () => {
+    const storage = cancelledStorage('cancelled by the user')
+    storage.sql.exec(`INSERT INTO dsh_sessions
+      SELECT 'legacy-large', version, created_at, cwd, parent_session, seed_length, origin,
+      delegation_depth, agent_preset, 'large-incarnation', revision FROM dsh_sessions`)
+    storage.sql.exec(`INSERT INTO dsh_session_events
+      SELECT 'legacy-large', seq, type, time, data, source_event_seqs, surface_op, ignorable FROM dsh_session_events`)
+    // Never decoded: the size alone keeps it out of the migration.
+    storage.sql.exec(
+      'INSERT INTO dsh_session_events (session_id, seq, type, time, data) VALUES (?, ?, ?, ?, ?)',
+      'legacy-large', 100, 'system/message', 2000, JSON.stringify({ text: 'x'.repeat(LEGACY_MIGRATION_MAX_BYTES) }),
+    )
+    const largeBefore = storage.sql.exec("SELECT * FROM dsh_session_events WHERE session_id = 'legacy-large' ORDER BY seq").toArray()
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const persistence = new DurableObjectSessionPersistence(ctx, { storage: storage as never })
+      expect((await readAll(persistence, SessionId('session-v0-1-3'))).meta.version).toBe(SESSION_FORMAT_VERSION)
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('legacy-large keeps format version 0'))
+      const opening = persistence.open(SessionId('legacy-large'), 'read')
+      await expect(opening).rejects.toBeInstanceOf(SessionFormatUnsupportedError)
+      await expect(opening).rejects.toThrow(/format version 0 with 8\.0 MiB of events, more than the 8\.0 MiB .* cannot be opened here/u)
+      // Unlisted before the page limit applies: it sorts first (same created_at,
+      // lower id), and a one-session page still holds the migrated session.
+      const page = persistence.readSessionSummaryPage(undefined, 1)!
+      expect(page.sessions.map(s => s.meta.id)).toEqual(['session-v0-1-3'])
+      expect(page.hasMore).toBe(false)
+      expect(persistence.readRecentSessionSummaries(1).map(s => s.meta.id)).toEqual(['session-v0-1-3'])
+      expect(persistence.readAllSessionSummaries().map(s => s.meta.id)).toEqual(['session-v0-1-3'])
+      expect(persistence.readSessionSummary(SessionId('legacy-large'))).toBeUndefined()
+      expect(storage.sql.exec("SELECT * FROM dsh_session_events WHERE session_id = 'legacy-large' ORDER BY seq").toArray()).toEqual(largeBefore)
+      expect(storage.sql.exec("SELECT version FROM dsh_sessions WHERE id = 'legacy-large'").toArray()).toEqual([{ version: 0 }])
+    } finally { warn.mockRestore(); await ctx.fiber.dispose(); storage.close() }
+  })
+
+  it('keeps a skipped legacy log when the other migrations would rebuild the event table', async () => {
+    const storage = cancelledStorage('cancelled by the user')
+    storage.sql.exec(`INSERT INTO dsh_sessions
+      SELECT 'legacy-large', version, created_at, cwd, parent_session, seed_length, origin,
+      delegation_depth, agent_preset, 'large-incarnation', revision FROM dsh_sessions`)
+    storage.sql.exec(
+      'INSERT INTO dsh_session_events (session_id, seq, type, time, data) VALUES (?, ?, ?, ?, ?)',
+      'legacy-large', 0, 'system/message', 2000, JSON.stringify({ text: 'x'.repeat(LEGACY_MIGRATION_MAX_BYTES) }),
+    )
+    // Token deltas packing into one row make a rebuild the cheaper migration on their own.
+    insertLegacyDeltas(storage, 200)
+    const largeBefore = storage.sql.exec("SELECT * FROM dsh_session_events WHERE session_id = 'legacy-large' ORDER BY seq").toArray()
+    storage.queries.length = 0
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const persistence = new DurableObjectSessionPersistence(ctx, { storage: storage as never })
+      expect(storage.queries).not.toContain('DROP TABLE dsh_session_events')
+      expect(storage.sql.exec("SELECT * FROM dsh_session_events WHERE session_id = 'legacy-large' ORDER BY seq").toArray()).toEqual(largeBefore)
+      const migrated = await readAll(persistence, SessionId('session-v0-1-3'))
+      expect(migrated.meta.version).toBe(SESSION_FORMAT_VERSION)
+      expect(JSON.stringify(migrated.events)).toContain('x'.repeat(200))
+    } finally { warn.mockRestore(); await ctx.fiber.dispose(); storage.close() }
   })
 
   it('preserves the legacy log after a migration write failure and retries successfully', async () => {
