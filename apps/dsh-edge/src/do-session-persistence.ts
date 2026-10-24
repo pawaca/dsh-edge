@@ -62,8 +62,9 @@ const DO_SESSION_SCHEMA_VERSION = 2
  * Upstream's format restore converts a whole log in one pass, so migrating a
  * session stored in an earlier format holds about four times its stored event
  * data in memory (measured under a 128 MiB heap: 22 MiB migrated, 26 MiB ran
- * out). A larger legacy session is left as stored, unlisted, and refused when
- * opened, rather than taking the isolate, and at startup the whole instance, with it.
+ * out). A larger legacy session is left as stored and treated as absent: it is
+ * unlisted, summary reads by id miss it, and a decode refuses it, rather than
+ * taking the isolate, and at startup the whole instance, with it.
  */
 export const LEGACY_MIGRATION_MAX_BYTES = 8 * 1024 * 1024
 
