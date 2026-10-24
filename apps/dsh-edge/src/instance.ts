@@ -2,6 +2,7 @@
 
 import { initializeSchedules, nextSchedule, scheduleWakeTime, setScheduleRetry, dispatchDueSchedules } from './schedule-store.ts'
 import { nextSpillSweep } from './edge-spill-store.ts'
+import { reclaimUnreferencedBlobs } from './edge-vfs-reclaim.ts'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import type { EdgeMcpServerConfig } from './edge-mcp-manager.ts'
 
@@ -130,6 +131,8 @@ const DEFAULT_REPLAY_EVENT_LIMIT = 128
 const MAX_REPLAY_EVENT_LIMIT = 256
 /** When old spills were last swept, and where the next sweep resumes, so a Durable Object that restarts often sweeps at most daily. */
 const SPILL_SWEPT_AT_KEY = 'dsh-edge:spill-swept-at'
+/** The daily sweep's progress: the spill directory offset and the VFS blob hash to continue after. */
+interface SpillSweepRecord { at: number; cursor: number; complete: boolean; blobCursor?: string }
 /** Upstream's route for showing a workspace file in the Web client (`SessionMediaReferences`). */
 const WORKSPACE_FILE_ROUTE = '/api/file'
 
@@ -1131,7 +1134,8 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
    * Delete old spills in the background. Upstream sweeps once per process
    * start; a Durable Object starts after every idle eviction, so the Edge
    * sweeps one bounded page at most once a day, or hourly until an
-   * unfinished pass completes, each recorded in one KV write.
+   * unfinished pass completes, each recorded in one KV write. The same run
+   * reclaims one page of workspace content no file references (#358).
    */
   private async sweepSpills(): Promise<void> {
     const store = this.sessions.spillStore()
@@ -1140,15 +1144,26 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     this.nextSpillSweepAt = Date.now() + 60 * 60 * 1000
     try {
       const now = Date.now()
-      const last = await this.ctx.storage.get<{ at: number; cursor: number; complete: boolean }>(SPILL_SWEPT_AT_KEY)
+      const last = await this.ctx.storage.get<SpillSweepRecord>(SPILL_SWEPT_AT_KEY)
       if (last !== undefined && now < nextSpillSweep(last)) {
         this.nextSpillSweepAt = nextSpillSweep(last)
         return
       }
       // One bounded page per run; an eviction mid-sweep leaves the record
       // unchanged, so the next start retries.
-      const { cursor, complete } = await store.sweep(now, last?.cursor ?? 0)
-      const swept = { at: now, cursor, complete }
+      const spills = await store.sweep(now, last?.cursor ?? 0)
+      // Then one page of the content deleted files left behind, including
+      // these spills'. A running container may be pulling content it has not
+      // linked yet, so the page waits for the next run.
+      const blobs = this.ctx.container?.running === true
+        ? { complete: false, ...last?.blobCursor === undefined ? {} : { cursor: last.blobCursor } }
+        : reclaimUnreferencedBlobs(this.ctx.storage, now, last?.blobCursor)
+      const swept: SpillSweepRecord = {
+        at: now,
+        cursor: spills.cursor,
+        complete: spills.complete && blobs.complete,
+        ...blobs.cursor === undefined ? {} : { blobCursor: blobs.cursor },
+      }
       this.nextSpillSweepAt = nextSpillSweep(swept)
       await this.ctx.storage.put(SPILL_SWEPT_AT_KEY, swept)
     } catch (error) {
