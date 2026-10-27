@@ -11,10 +11,10 @@ Nhánh này bổ sung **chế độ Public Chat** độc lập vào `dsh-edge`:
 
 ## Cloudflare: thiết lập
 
-1. Chạy build từ repo; deploy theo các script gốc để đảm bảo artifacts có thay đổi mới, **không** dùng `npx dsh-edge install` từ npm vì đó là bản upstream chưa chứa tính năng này.
+1. Clone đúng nhánh thay đổi, dùng Node.js >= 22.19 và pnpm 11.7.0. Chạy `pnpm --dir apps/dsh-edge/standalone install --frozen-lockfile` trước, sau đó `pnpm install --frozen-lockfile`. Kiểm tra với `pnpm run check` và chạy `pnpm --filter dsh-edge run deploy:public` để **build từ source chính nhánh này** rồi triển khai chế độ Direct lên Worker `dsh-edge`. Lệnh này dùng Wrangler đã đăng nhập hoặc Cloudflare token trong môi trường; không chạy `npx dsh-edge install` từ npm. Nếu tên Worker đang triển khai khác `dsh-edge`, chạy riêng: `pnpm --filter dsh-edge run bundle:direct && node apps/dsh-edge/scripts/deploy-public.mjs TEN_WORKER`.
 2. Đặt `DEEPSEEK_API_KEY` dưới dạng secret trong Cloudflare Workers, không đặt vào `vars` hay HTML. Ví dụ, từ `apps/dsh-edge`: `npx wrangler secret put DEEPSEEK_API_KEY` (cần dùng đúng environment nếu deploy isolated/container).
 3. `wrangler.jsonc` đã có `DSH_EDGE_PUBLIC_CHAT=enabled`, `DSH_EDGE_PUBLIC_MAX_TOKENS=1024`, giới hạn 5 lượt / 60 giây và `observability.enabled=false`.
-4. Đặt `DEEPSEEK_MODEL=deepseek-flash` trong Worker vars (hoặc `deepseek-v4-pro` nếu chủ website muốn). Mặc định `deepseek-flash`; website không cho khách đổi model.
+4. `DEEPSEEK_MODEL=deepseek-flash` đã được khai báo trong `wrangler.jsonc` cho Direct, Isolated và Container. Chỉ chủ website có thể chỉnh model; không cho khách đổi model.
 5. Vẫn phải cấu hình secret `DSH_EDGE_ACCESS_KEY` (chuỗi ngẫu nhiên tối thiểu 32 byte) cho quyền quản trị gốc.
 6. Kiểm tra `GET /api/public/config` trả về model và `ready:true`. Mở `/` sẽ vào BilaBot không đăng nhập. `/login` là cửa đăng nhập chủ sở hữu; đăng nhập thành công sẽ chuyển tới `/owner` (Harness nguyên gốc).
 
@@ -32,3 +32,7 @@ Giới hạn dùng Workers rate limiting mang tính **ước lượng theo vị 
 - Sai Origin bị 403; payload rỗng bị 400; quá 5 lượt có thể bị 429.
 - Không cookie: `GET /api/sessions` phải bị 401, `GET /login` vẫn có trang owner.
 - Chạy `pnpm run check` và `pnpm run build` trước khi merge/deploy. **Nhánh chưa được xác nhận CI hay triển khai Cloudflare thực tế**.
+
+## Giới hạn truy cập dashboard
+
+Có quyền xem Dashboard Cloudflare trên máy cá nhân **không tự động cho phép tác nhân ChatGPT trong chat gọi API**. Cần chạy Wrangler bằng máy đã đăng nhập (`npx wrangler login`) hoặc một công cụ có quyền Worker deployment và secrets. Đừng gửi DeepSeek key hay Owner key trong hội thoại; điền trực tiếp trong Cloudflare Dashboard > Workers & Pages > dsh-edge > Settings > Variables and Secrets > Add > Secret > Deploy. Tên secrets: `DEEPSEEK_API_KEY`, `DSH_EDGE_ACCESS_KEY`. Bản deploy không chứa các giá trị này.
