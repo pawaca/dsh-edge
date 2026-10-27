@@ -58,6 +58,9 @@ const edgeExcludedPackages = new Set([
   // preference and the permission-preset picker, which would only render errors.
   '@deepseek-ai/dsh-client-ui-settings-session-log',
   '@deepseek-ai/dsh-client-ui-permission-presets',
+  // The More menus' plugin actions need the plugin page and the Creator
+  // preset; dsh-edge-client-ui lists the folded Conversation Views instead.
+  '@deepseek-ai/dsh-client-ui-entry-customization',
 ])
 const shellStaticPackages = new Set(['@deepseek-ai/dsh-client-ui-primitives'])
 // The shipped settings cards wait on the plugin manager, whose page declares

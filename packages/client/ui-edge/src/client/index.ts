@@ -6,6 +6,7 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import { EdgeSettingsSection, type EdgeSettingsInjected } from './EdgeSettingsSection.tsx'
 import { EdgeMcpSection, type EdgeMcpInjected } from './EdgeMcpSection.tsx'
 import { EdgePluginSettingsTab, type EdgePluginSettingsInjected, type PluginSettingsItem } from './EdgePluginSettingsTab.tsx'
+import { EdgeViewsMenu } from './EdgeViewsMenu.tsx'
 import { resolveSlotLabel, type SlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
 import { EdgeSettingsController } from './store.ts'
 import { en, zh, type EdgeSettingsKey } from './locales.ts'
@@ -115,6 +116,14 @@ export function apply(ctx: Context): void {
     inject: pluginSettingsInjected,
     children: { 'plugins.item': { kind: 'list', scope: 'root' } },
   }, EdgePluginSettingsTab))
+  // Upstream's entry-customization package fills the Conversation header's
+  // More menu, but its plugin actions need a plugin page and the Creator
+  // preset the Edge lacks; the Edge registers the folded Views alone.
+  slots.inject('conversation.session.header.views.actions', () => slots.register({
+    name: 'conversation.session.header.views.actions',
+    id: 'edge-views',
+    locale: 'settings.edge',
+  }, EdgeViewsMenu))
   slots.inject('settings.section', () => slots.register({
     name: 'settings.section',
     id: 'mcp-connectors',

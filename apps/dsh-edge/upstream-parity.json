@@ -36,7 +36,7 @@
     },
     "@deepseek-ai/dsh-authorization": {
       "status": "declined",
-      "reason": "Human-in-the-loop credential flows for subscription providers. The Edge credential service stores no records (readRecord returns nothing, modifyRecord rejects), and in 0.2.1-rc.2 the only Web surface that calls begin() is DeepSeek account sign-in, which the Edge declines. Revisit when upstream ships a sign-in surface for dsh-llm-pi-ai providers; device-code flows need only fetch."
+      "reason": "Human-in-the-loop credential flows for subscription providers. The Edge credential service stores no records (readRecord returns nothing, modifyRecord rejects), and in 0.2.1-rc.3 the only Web surface that calls begin() is DeepSeek account sign-in, which the Edge declines. Revisit when upstream ships a sign-in surface for dsh-llm-pi-ai providers; device-code flows need only fetch."
     },
     "@deepseek-ai/dsh-bash-sandbox": {
       "status": "not-applicable",
@@ -280,6 +280,10 @@
     "@deepseek-ai/dsh-workflow-ptc": {
       "status": "substitute",
       "reason": "edge-workflow-engine.ts runs each workflow in its own Dynamic Worker (Isolated only)."
+    },
+    "@deepseek-ai/dsh-client-ui-entry-customization": {
+      "status": "substitute",
+      "reason": "The More menus' Browse other plugins and Create your plugin actions need the plugin page (pluginNavigation) and the Creator (cordis) preset, which the Edge does not serve. dsh-edge-client-ui (EdgeViewsMenu) registers into conversation.session.header.views.actions instead and lists only the folded Conversation Views, so a View that does not fit the tab row stays reachable; the sidebar and guide More menus are not shown."
     },
     "@deepseek-ai/dsh-workspace-changes": {
       "status": "substitute",
