@@ -36,3 +36,21 @@ Giới hạn dùng Workers rate limiting mang tính **ước lượng theo vị 
 ## Giới hạn truy cập dashboard
 
 Có quyền xem Dashboard Cloudflare trên máy cá nhân **không tự động cho phép tác nhân ChatGPT trong chat gọi API**. Cần chạy Wrangler bằng máy đã đăng nhập (`npx wrangler login`) hoặc một công cụ có quyền Worker deployment và secrets. Đừng gửi DeepSeek key hay Owner key trong hội thoại; điền trực tiếp trong Cloudflare Dashboard > Workers & Pages > dsh-edge > Settings > Variables and Secrets > Add > Secret > Deploy. Tên secrets: `DEEPSEEK_API_KEY`, `DSH_EDGE_ACCESS_KEY`. Bản deploy không chứa các giá trị này.
+
+## Cloudflare Workers Builds (Git integration, monorepo)
+
+Cloudflare tự chạy `pnpm install --frozen-lockfile` ở root. Repo còn một lockfile riêng ở `apps/dsh-edge/standalone`, nên bản trước bị lỗi `tsdown: not found`. Root `pnpm run build` hiện đã tự động cài dependencies của standalone để giải quyết lỗi này.
+
+Trong **Worker > Settings > Builds > Edit configuration**:
+
+| Trường | Giá trị |
+| --- | --- |
+| Production branch | `feature/public-bilabot-private-browser-history` |
+| Root directory | `/` (gốc repository) |
+| Build command | `pnpm run build` |
+| Deploy command | `node apps/dsh-edge/scripts/deploy-public.mjs dsh-edge` |
+| Worker name | `dsh-edge` (phải trùng tên Worker được tạo trên Cloudflare) |
+
+Nếu Worker tên khác, đổi đối số cuối của Deploy command cho đúng. **Không để Deploy command mặc định `npx wrangler deploy` tại root**: mã nguồn Worker nằm trong monorepo, cần dùng helper để dựng đường dẫn cấu hình đến bản đã build và giữ lại Durable Object bindings. Sau khi lưu hãy nhấn Retry deployment; nếu branch đang dùng là nhánh khác, chuyển nhánh production về nhánh tính năng hoặc merge đã kiểm thử trước.
+
+Cloudflare workers.dev public URL được tạo sau khi Deploy command chạy thành công. Khi chưa đặt đủ cả hai secret, public site có thể hiển thị giao diện nhưng không trả lời AI; API config sẽ có `ready:false`. Tránh bật web search, terminal, MCP cho khách.
