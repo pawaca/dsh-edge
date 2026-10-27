@@ -46,7 +46,7 @@ Trong **Worker > Settings > Builds > Edit configuration**:
 | Trường | Giá trị |
 | --- | --- |
 | Production branch | `feature/public-bilabot-private-browser-history` |
-| Root directory | `/` (gốc repository) |
+| Root directory | để trống (mặc định gốc repository; nếu bắt buộc, thử `.`) |
 | Build command | `pnpm run build` |
 | Deploy command | `node apps/dsh-edge/scripts/deploy-public.mjs dsh-edge` |
 | Worker name | `dsh-edge` (phải trùng tên Worker được tạo trên Cloudflare) |
