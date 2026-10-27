@@ -1095,7 +1095,7 @@ Elapsed since the preceding model-visible message: unavailable.",
     },
     {
       "data": {
-        "contextWindow": 1000000,
+        "contextWindow": 1048576,
         "model": "deepseek-flash",
         "provider": "deepseek-official",
         "systemPromptUpdate": "in-history",
@@ -3429,7 +3429,7 @@ Elapsed since the preceding model-visible message: unavailable.",
     },
     {
       "data": {
-        "contextWindow": 1000000,
+        "contextWindow": 1048576,
         "model": "deepseek-flash",
         "provider": "deepseek-official",
         "systemPromptUpdate": "in-history",

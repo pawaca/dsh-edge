@@ -113,6 +113,7 @@ export const en = {
   mcpRead: 'read',
   mcpWrite: 'write',
   pluginSettingsTab: 'Settings',
+  viewsMenuEmpty: 'Every view is in the tab row',
   pluginSettingsEmpty: 'No built-in plugin offers settings on this deployment.',
 } as const
 
@@ -234,5 +235,6 @@ export const zh: Record<EdgeSettingsKey, string> = {
   mcpRead: '读取',
   mcpWrite: '写入',
   pluginSettingsTab: '设置',
+  viewsMenuEmpty: '所有视图都已显示在标签栏中',
   pluginSettingsEmpty: '本部署没有可配置的内置插件。',
 }

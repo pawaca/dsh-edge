@@ -6,6 +6,7 @@
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
+  - button "More conversation views"
 - button "one-pixel.png, click to view original":
   - img "one-pixel.png"
 - text: snapshot the browser edge path {{clock}}
