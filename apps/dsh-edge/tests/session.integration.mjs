@@ -2796,10 +2796,46 @@ try {
   const presented = presentEvents.find(event => event.type === 'tool/result' && event.data.message.toolCallId === 'call_present')
   assert.equal(presented?.data.message.isError, false, toolResultText(presented))
   assert.match(toolResultText(presented), /^Presented \/workspace\/report\.md/u)
-  // The Edge has no desktop to open presented files natively; the cards offer the sidebar preview.
+  // Upstream's deliverables host half answers the cards: the Edge has no
+  // desktop, so it refuses a native open before reading the event, and the
+  // cards offer the sidebar preview.
   const presentHost = await jsonRequest('/api/present.host')
-  assert.deepEqual(presentHost.body, { name: 'DSH Edge', available: false, fileManager: null })
-  assert.equal((await request(`/api/present.open?sessionId=${presentSessionId}&seq=1&index=0`, { method: 'POST' })).status, 409)
+  assert.equal(presentHost.body.available, false, JSON.stringify(presentHost.body))
+  const presentedSeq = (await history(presentSessionId)).find(event => event.type === 'deliverables/presented')?.seq
+  assert.equal(typeof presentedSeq, 'number')
+  assert.equal((await request(`/api/present.open?sessionId=${presentSessionId}&seq=${String(presentedSeq)}&index=0`, { method: 'POST' })).status, 409)
+  // Upstream's changed-files card, in its no-git mode: the turn's file-tool
+  // edits with line counts and comparisons; an unchanged rewrite and a
+  // shell-only change are not listed.
+  for (const [path, content] of [['/workspace/changes/kept.txt', 'one\ntwo\nthree\n'], ['/workspace/changes/same.txt', 'same\n']]) {
+    assert.equal((await request(`/api/workspace/file?path=${encodeURIComponent(path)}`, { method: 'PUT', body: content })).status, 200)
+  }
+  const changesSessionId = (await rpc('session.create', {})).body.result.value.sessionId
+  await turn(changesSessionId, 'record workspace changes')
+  const changesEvent = (await history(changesSessionId)).find(event => event.type === 'workspace/changes')
+  assert.ok(changesEvent, 'the turn announced its changes')
+  const changesQuery = `sessionId=${changesSessionId}&seq=${String(changesEvent.seq)}`
+  const summary = await jsonRequest(`/api/changes.summary?${changesQuery}`)
+  assert.deepEqual(summary.body, {
+    turn: changesEvent.data.turn,
+    files: [
+      { path: 'changes/kept.txt', display: 'changes/kept.txt', added: 1, deleted: 1 },
+      { path: 'changes/new.txt', display: 'changes/new.txt', added: 2, deleted: 0 },
+    ],
+    total: 2,
+    added: 3,
+    deleted: 1,
+  })
+  const keptDiff = await jsonRequest(`/api/changes.diff?${changesQuery}&index=0`)
+  assert.deepEqual(keptDiff.body, {
+    kind: 'text', path: 'changes/kept.txt', display: 'changes/kept.txt', before: true, after: true, coarse: false,
+    hunks: [{ oldStart: 1, oldLines: 3, newStart: 1, newLines: 3, lines: [' one', '-two', '+TWO', ' three'] }],
+  })
+  const newDiff = await jsonRequest(`/api/changes.diff?${changesQuery}&index=1`)
+  assert.equal(newDiff.body.before, false)
+  assert.deepEqual(newDiff.body.hunks[0].lines, ['+a', '+b'])
+  assert.equal((await request(`/api/changes.diff?${changesQuery}&index=2`)).status, 404)
+  assert.equal((await request(`/api/changes.summary?sessionId=${changesSessionId}&seq=1`)).status, 404)
   // Upstream's sessionStats projection, which the Web chat view reads.
   const statsSessionId = (await rpc('session.create', {})).body.result.value.sessionId
   for (const message of ['stats fixture one', 'stats fixture two']) await turn(statsSessionId, message)
@@ -3261,6 +3297,10 @@ async function turn(sessionId, message) {
   assert.equal(response.status, 200)
   assert.match(response.headers.get('content-type') ?? '', /^text\/event-stream/)
   return parseEvents(await response.text())
+}
+
+async function history(sessionId) {
+  return parseEvents(await (await request(`/api/sessions/${sessionId}/events`)).text())
 }
 
 async function jsonRequest(path, init) {

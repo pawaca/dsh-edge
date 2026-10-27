@@ -282,9 +282,8 @@
       "reason": "edge-workflow-engine.ts runs each workflow in its own Dynamic Worker (Isolated only)."
     },
     "@deepseek-ai/dsh-workspace-changes": {
-      "status": "gap",
-      "priority": "P2",
-      "reason": "Per-turn changed-file summaries and diffs for the deliverables panel. The client calls changes routes that the deliverables host half registers, which the Edge replaces (instance.ts) and does not serve. Git is not needed: a bounded before/after VFS listing plus whole-file copies on file-tool writes covers it, Container edits included."
+      "status": "substitute",
+      "reason": "EdgeWorkspaceChanges (edge-workspace-changes.ts) serves workspaceChanges in upstream's no-git mode: each top-level turn's write and edit calls are copied whole into the VFS around the edit and compared at turn end; shell and Container edits are not recorded. The deliverables host half registers the changes routes."
     }
   },
   "wikiOmit": {
@@ -309,7 +308,6 @@
     "@deepseek-ai/dsh-client-ui-agent-preset": "The agentPresets Remote is served by EdgeAgentPresets (agent-presets.ts), which declares the standard and ptc presets in code; the composition editor is read-only.",
     "@deepseek-ai/dsh-client-ui-chat": "The ui-chat namespace is Edge-registered (linkOpening defaults to new-tab), and file links download through /api/workspace/file instead of opening natively.",
     "@deepseek-ai/dsh-client-ui-conversation": "Send, queue, cancel, and steer go to the Edge-served session methods (edge-api.ts) with the Edge's run guards; its namespace is Edge-registered.",
-    "@deepseek-ai/dsh-client-ui-deliverables": "The Edge replaces the deliverables host half (instance.ts): present.host answers unavailable, present.open 409, and the changes routes are not served.",
     "@deepseek-ai/dsh-client-ui-model-selection": "session.selectModel is answered by edge-api.ts with model-selection-bridge.ts; the model catalog stays upstream.",
     "@deepseek-ai/dsh-client-ui-open-in-app": "Native opening is turned off by the Edge session-controller subclass, so its controls stay inert.",
     "@deepseek-ai/dsh-client-ui-reference": "@file candidates come from EdgeFileReferenceService (edge-file-reference.ts) over the VFS; @session stays upstream.",
