@@ -92,7 +92,7 @@ export const publicChatJavascript = `'use strict';
     if(c.messages.length===1)c.title=text.slice(0,52);
     $('prompt').value='';save();render();lock(true);
     try{
-      const history=c.messages.slice(-20);
+      const history=c.messages.slice(-19);
       const response=await fetch('/api/public/chat',{method:'POST',
         headers:{'content-type':'application/json'},credentials:'omit',
         body:JSON.stringify({messages:history})});
