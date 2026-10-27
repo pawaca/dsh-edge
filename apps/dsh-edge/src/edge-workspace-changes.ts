@@ -33,6 +33,26 @@ export const CAPTURE_ROOT = '/.dsh/workspace-changes'
 /** Upstream's defaults for the bounds this mode uses. */
 export const WORKSPACE_CHANGES_DEFAULTS = { maxFiles: 500, maxFileBytes: 2 * 1024 * 1024, diffTimeoutMs: 100 } as const
 
+/**
+ * Lines a side may hold to be compared. Upstream bounds only bytes, but a
+ * comparison allocates per line: under the 2 MiB cap, two sides of 20,000
+ * lines peaked at about 22 MiB of heap when the comparison timed out and
+ * degraded to whole-file replacement, 100,000 at 49 MiB, and a million short
+ * lines at 265 MiB, past a Durable Object's 128 MiB. A side over it is listed
+ * as oversized.
+ */
+export const MAX_COMPARE_LINES = 20_000
+
+/** Count lines without splitting, so an oversized side allocates nothing more. */
+function exceedsLines(text: string | null): boolean {
+  if (text === null) return false
+  let lines = 0
+  for (let index = text.indexOf('\n'); index !== -1; index = text.indexOf('\n', index + 1)) {
+    if (++lines > MAX_COMPARE_LINES) return true
+  }
+  return lines + (text === '' || text.endsWith('\n') ? 0 : 1) > MAX_COMPARE_LINES
+}
+
 /** Bytes of a copy probed for a NUL byte, as upstream's `BINARY_PROBE_BYTES`. */
 const BINARY_PROBE_BYTES = 8_000
 const CONTEXT_LINES = 3
@@ -331,6 +351,9 @@ class TurnRecorder {
       return { file: file({ added: 0, deleted: 0, binary: true }), sources: { refusal: 'binary' } }
     }
     const [oldText, newText] = await this.env.withFiles(files => Promise.all([this.readText(files, before), this.readText(files, after)]))
+    if (exceedsLines(oldText) || exceedsLines(newText)) {
+      return { file: file({ added: 0, deleted: 0, oversized: true }), sources: { refusal: 'oversized' } }
+    }
     const { added, deleted } = compareText(oldText, newText, this.env.diffTimeoutMs)
     return { file: file({ added, deleted }), sources: { before, after } }
   }

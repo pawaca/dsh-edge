@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   CAPTURE_ROOT,
   EdgeWorkspaceChanges,
+  MAX_COMPARE_LINES,
   compareText,
   type EdgeChangesFiles,
 } from '../src/edge-workspace-changes.ts'
@@ -139,6 +140,24 @@ describe('EdgeWorkspaceChanges', () => {
     ])
     expect(await service().diff('s2' as never, seq, 0, AbortSignal.timeout(5000))).toEqual({ kind: 'oversized', path: 'big.txt', display: 'big.txt' })
     expect(await service().diff('s2' as never, seq, 1, AbortSignal.timeout(5000))).toEqual({ kind: 'binary', path: 'bin.dat', display: 'bin.dat' })
+  })
+
+  it('compares at most MAX_COMPARE_LINES lines a side and lists a longer file as oversized', async () => {
+    const { memory, runTurn, service } = await setup()
+    const lines = (count: number, prefix: string) => Array.from({ length: count }, (_, i) => `${prefix}${String(i)}\n`).join('')
+    memory.put('/workspace/edge.txt', lines(MAX_COMPARE_LINES, 'a'))
+    memory.put('/workspace/long.txt', 'short\n')
+    const session = fakeSession('lines')
+    await runTurn(session, 1, [
+      ['/workspace/edge.txt', lines(MAX_COMPARE_LINES - 1, 'a') + 'changed\n'],
+      ['/workspace/long.txt', lines(MAX_COMPARE_LINES + 1, 'b')],
+    ])
+    const seq = session.appended[0]!.seq
+    expect(service().summary('lines' as never, seq)?.files).toEqual([
+      { path: 'edge.txt', display: 'edge.txt', added: 1, deleted: 1 },
+      { path: 'long.txt', display: 'long.txt', added: 0, deleted: 0, oversized: true },
+    ])
+    expect(await service().diff('lines' as never, seq, 1, AbortSignal.timeout(5000))).toEqual({ kind: 'oversized', path: 'long.txt', display: 'long.txt' })
   })
 
   it('announces nothing for a turn without changes or for a subagent', async () => {
