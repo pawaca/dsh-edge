@@ -63,7 +63,8 @@
       ],
       "vars": {
         "DSH_EDGE_PUBLIC_CHAT": "enabled",
-        "DSH_EDGE_PUBLIC_MAX_TOKENS": "1024"
+        "DSH_EDGE_PUBLIC_MAX_TOKENS": "1024",
+        "DEEPSEEK_MODEL": "deepseek-flash"
       },
       "ratelimits": [
         {
@@ -74,7 +75,10 @@
             "period": 60
           }
         }
-      ]
+      ],
+      "observability": {
+        "enabled": false
+      }
     },
     "container": {
       "version_metadata": {
@@ -96,7 +100,8 @@
       "vars": {
         "DSH_EDGE_CONTAINER_RUNTIME": "enabled",
         "DSH_EDGE_PUBLIC_CHAT": "enabled",
-        "DSH_EDGE_PUBLIC_MAX_TOKENS": "1024"
+        "DSH_EDGE_PUBLIC_MAX_TOKENS": "1024",
+        "DEEPSEEK_MODEL": "deepseek-flash"
       },
       "containers": [
         {
@@ -119,12 +124,16 @@
             "period": 60
           }
         }
-      ]
+      ],
+      "observability": {
+        "enabled": false
+      }
     }
   },
   "vars": {
     "DSH_EDGE_PUBLIC_CHAT": "enabled",
-    "DSH_EDGE_PUBLIC_MAX_TOKENS": "1024"
+    "DSH_EDGE_PUBLIC_MAX_TOKENS": "1024",
+    "DEEPSEEK_MODEL": "deepseek-flash"
   },
   "ratelimits": [
     {
