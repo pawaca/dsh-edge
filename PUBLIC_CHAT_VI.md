@@ -16,7 +16,7 @@ Nhánh này bổ sung **chế độ Public Chat** độc lập vào `dsh-edge`:
 3. `wrangler.jsonc` đã có `DSH_EDGE_PUBLIC_CHAT=enabled`, `DSH_EDGE_PUBLIC_MAX_TOKENS=1024`, giới hạn 5 lượt / 60 giây và `observability.enabled=false`.
 4. Đặt `DEEPSEEK_MODEL=deepseek-flash` trong Worker vars (hoặc `deepseek-v4-pro` nếu chủ website muốn). Mặc định `deepseek-flash`; website không cho khách đổi model.
 5. Vẫn phải cấu hình secret `DSH_EDGE_ACCESS_KEY` (chuỗi ngẫu nhiên tối thiểu 32 byte) cho quyền quản trị gốc.
-6. Kiểm tra `GET /api/public/config` trả về model và `ready:true`. Mở `/` sẽ vào BilaBot không đăng nhập. `/login` vẫn là cửa quản trị gốc.
+6. Kiểm tra `GET /api/public/config` trả về model và `ready:true`. Mở `/` sẽ vào BilaBot không đăng nhập. `/login` là cửa đăng nhập chủ sở hữu; đăng nhập thành công sẽ chuyển tới `/owner` (Harness nguyên gốc).
 
 ## Biên riêng tư, bảo mật và chi phí
 
