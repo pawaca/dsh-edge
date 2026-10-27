@@ -65,7 +65,8 @@
     "test:integration": "pnpm run bundle:workers && node tests/run-session-integration.mjs",
     "test:container": "pnpm run bundle:isolated && node tests/container.integration.mjs",
     "test:snapshot": "vitest run --root ../.. --config apps/dsh-edge/vitest.snapshot.config.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "deploy:public": "pnpm run bundle:direct && node scripts/deploy-public.mjs"
   },
   "dependencies": {
     "@clack/prompts": "1.7.0",

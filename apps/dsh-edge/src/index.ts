@@ -1,5 +1,6 @@
 // First: platform fetch semantics every upstream provider relies on.
 import './fetch-redirect-error.ts'
+import { handlePublicChatRoute, isPublicChatEnabled } from './public-chat.ts'
 import { getWorkspace } from '@cloudflare/computer'
 import type { EdgeShellResult } from './agent.ts'
 import {
@@ -52,6 +53,9 @@ export default {
 
     try {
       const url = new URL(request.url)
+      if (isPublicChatEnabled(env) && (url.pathname === '/' || url.pathname === '/public' || url.pathname.startsWith('/api/public/') || url.pathname === '/public/app.js')) {
+        return await handlePublicChatRoute(request, env)
+      }
       const auth = resolveOwnerAuthConfig(env.DSH_EDGE_ACCESS_KEY)
       if (request.method === 'GET' && url.pathname === '/api/health') {
         return jsonResponse(resolveEdgeDeploymentHealth(env))
@@ -84,10 +88,18 @@ export default {
       }
 
       const authResponse = await handleOwnerAuthRoute(request, auth)
-      if (authResponse !== undefined) return authResponse
+      if (authResponse !== undefined) {
+        if (isPublicChatEnabled(env) && url.pathname === '/api/auth/login'
+          && authResponse.status === 303 && authResponse.headers.get('location') === '/') {
+          const headers = new Headers(authResponse.headers)
+          headers.set('location', '/owner')
+          return new Response(null, { status: 303, headers })
+        }
+        return authResponse
+      }
 
       const ownerSession = await resolveOwnerSession(request, auth)
-      if (url.pathname === '/') {
+      if (url.pathname === '/' || (isPublicChatEnabled(env) && url.pathname === '/owner')) {
         if (ownerSession === undefined) return loginRedirect()
         return await env.ASSETS.fetch(request)
       }

@@ -238,6 +238,9 @@ export interface EdgeEnv {
   DSH_EDGE_CONTAINER_RUNTIME?: string
   DSH_EDGE_ATTACHMENTS?: R2Bucket
   DSH_EDGE_ACCESS_KEY?: string
+  DSH_EDGE_PUBLIC_CHAT?: string
+  DSH_EDGE_PUBLIC_MAX_TOKENS?: string
+  PUBLIC_CHAT_RATE_LIMITER?: { limit: (input: { key: string }) => Promise<{ success: boolean }> }
   DEEPSEEK_API_KEY?: string
   DEEPSEEK_BASE_URL?: string
   DEEPSEEK_MAX_OUTPUT_TOKENS?: string
