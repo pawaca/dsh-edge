@@ -76,6 +76,7 @@ import { installEdgeMcpServers, type EdgeMcpServerConfig, type McpToolManager } 
 import type { CachedMcpTool } from './edge-mcp-tools.ts'
 import * as FsObservationPolicy from '@deepseek-ai/dsh-fs-observation-policy'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
+import * as Deliverables from '@deepseek-ai/dsh-client-ui-deliverables'
 import * as ToolGoal from '@deepseek-ai/dsh-tool-goal'
 import * as ToolSkill from '@deepseek-ai/dsh-tool-skill'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
@@ -110,6 +111,7 @@ import SessionReferenceResolver from '@deepseek-ai/dsh-session-reference'
 import { EdgeFileSystem } from './edge-filesystem.ts'
 import { EdgeFileReferenceService, type EdgeReferenceFiles } from './edge-file-reference.ts'
 import { EdgeDirectoryPicker, type EdgeDirectoryFiles } from './edge-directory-picker.ts'
+import { EdgeWorkspaceChanges } from './edge-workspace-changes.ts'
 import { EdgeLoader } from './edge-plugin-loader.ts'
 import * as EdgeSkillProvider from './edge-skill-provider.ts'
 import * as EdgeWorkspaceSkills from './edge-workspace-skills.ts'
@@ -791,6 +793,16 @@ export class EdgeSessionStore {
     await this.context.plugin(WorkingDirectory, { defaultDirectory: '/workspace' })
     await this.context.plugin(ToolWorkingDirectory)
     await this.context.plugin(ToolFs)
+    // Upstream's changed-files card: each top-level turn's file-tool edits,
+    // copied whole into the VFS around the edit (no git; edge-workspace-changes.ts).
+    await this.context.plugin(EdgeWorkspaceChanges, {
+      withFiles: run => config.withWorkspaceFiles(run as never) as never,
+    })
+    // The deliverables host half registers the present and changes routes on
+    // the connection seam and the file-reference guidance in the system prompt.
+    // Its sandbox policy is the read-only workspace root the file-read
+    // controller already uses.
+    await workspaceFilesContext.plugin(Deliverables)
     // Upstream's glob and grep, run over the workspace VFS: Workers cannot
     // spawn the ripgrep binary dsh-tool-fs-search needs.
     await this.context.plugin(EdgeFsSearch)

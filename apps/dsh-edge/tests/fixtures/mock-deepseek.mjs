@@ -526,6 +526,15 @@ export async function startMockDeepSeek(port = 0) {
           ['bash', { command: "printf 'changed\\n' >> /workspace/stale.txt", description: 'Change the file behind the read' }],
           ['edit', { file_path: '/workspace/stale.txt', old_string: 'one', new_string: 'two' }],
         ],
+        // Changed-files card: an edit, a new file, an unchanged rewrite, and a shell-only change.
+        'record workspace changes': [
+          ['read', { file_path: '/workspace/changes/kept.txt' }],
+          ['edit', { file_path: '/workspace/changes/kept.txt', old_string: 'two', new_string: 'TWO' }],
+          ['write', { file_path: '/workspace/changes/new.txt', content: 'a\nb\n' }],
+          ['read', { file_path: '/workspace/changes/same.txt' }],
+          ['write', { file_path: '/workspace/changes/same.txt', content: 'same\n' }],
+          ['bash', { command: "printf 'x\\n' > /workspace/changes/shell-only.txt", description: 'Change a file through the shell' }],
+        ],
       }[prompt]
       if (policySteps !== undefined && toolResults.length < policySteps.length) {
         const [name, args] = policySteps[toolResults.length]
