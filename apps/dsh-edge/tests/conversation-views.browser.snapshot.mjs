@@ -61,8 +61,11 @@ it('keeps a folded Conversation View reachable from the More menu', async () => 
     // Only the folded Views: no plugin browsing or Creator draft.
     expect(await menu.getByRole('menuitem').allTextContents()).toEqual(['Trajectory'])
     await menu.getByRole('menuitem', { name: 'Trajectory', exact: true }).click()
-    await expect.poll(async () => (await more.getAttribute('aria-label')) ?? (await more.textContent()) ?? '', { timeout: 10_000 })
-      .toMatch(/Trajectory/u)
+    // Since rc.4 the More button keeps its plain name; the menu marks the selected View instead.
+    await expect.poll(async () => {
+      if (await menu.count() === 0) await more.click()
+      return await menu.getByRole('menuitem', { name: 'Trajectory', exact: true }).getAttribute('aria-current')
+    }, { timeout: 10_000 }).toBe('page')
   } catch (error) {
     await keepFailingBrowserState('conversation-views', browser)
     throw error

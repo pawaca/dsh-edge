@@ -12,7 +12,7 @@ index 63d26e9..60b25d3 100644
  * @module @deepseek-ai/dsh-llm/attribution
  */
 -const { version } = createRequire(import.meta.url)("../package.json");
-+const version = "0.2.1-rc.3";
++const version = "0.2.1-rc.4";
  /**
  * The harness's own identity: the default every adapter sends. Deployments
  * that need a white-label identity pass their own {@link AppIdentity} to
