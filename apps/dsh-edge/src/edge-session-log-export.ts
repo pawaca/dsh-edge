@@ -17,7 +17,7 @@
  * referenced image and `files/<prefix>/<digest>/<name>` for each referenced
  * file. What upstream keeps internal (collecting attachment references and
  * streaming the ZIP with backpressure) is ported from
- * `@deepseek-ai/dsh-session-log-export@0.2.1-rc.3` (unchanged since 0.2.1-rc.2); recheck it on a baseline upgrade.
+ * `@deepseek-ai/dsh-session-log-export@0.2.1-rc.4` (unchanged since 0.2.1-rc.2); recheck it on a baseline upgrade.
  */
 
 import type { FileAttachmentRef, ImageAttachmentRef, ImageMediaType, StoredImageAttachment } from '@deepseek-ai/dsh-attachment'

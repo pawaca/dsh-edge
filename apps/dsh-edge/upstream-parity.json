@@ -36,7 +36,7 @@
     },
     "@deepseek-ai/dsh-authorization": {
       "status": "declined",
-      "reason": "Human-in-the-loop credential flows for subscription providers. The Edge credential service stores no records (readRecord returns nothing, modifyRecord rejects), and in 0.2.1-rc.3 the only Web surface that calls begin() is DeepSeek account sign-in, which the Edge declines. Revisit when upstream ships a sign-in surface for dsh-llm-pi-ai providers; device-code flows need only fetch."
+      "reason": "Human-in-the-loop credential flows for subscription providers. The Edge credential service stores no records (readRecord returns nothing, modifyRecord rejects), and in 0.2.1-rc.4 the only Web surface that calls begin() is DeepSeek account sign-in, which the Edge declines. Revisit when upstream ships a sign-in surface for dsh-llm-pi-ai providers; device-code flows need only fetch."
     },
     "@deepseek-ai/dsh-bash-sandbox": {
       "status": "not-applicable",
