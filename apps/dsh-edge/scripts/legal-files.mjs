@@ -185,6 +185,12 @@ export function collectLicenseDocuments(components) {
       }
       addDocument(text, { file, name: component.name, version: component.version })
     }
+    if (component.name === '@deepseek-ai/dsh-client-ui-theme') {
+      const file = 'lib/styles/Montserrat-OFL.txt'
+      addDocument(normalizeLegalText(readFileSync(join(component.path, file), 'utf8')), {
+        file, name: component.name, version: component.version,
+      })
+    }
   }
 
   for (const component of componentsWithoutFiles) {

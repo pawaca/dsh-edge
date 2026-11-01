@@ -36,15 +36,33 @@ describe('single-owner authentication', () => {
   it('renders a script-free login form with defensive browser headers', async () => {
     const response = await route(new Request('https://edge.example/login'))
     expect(response.status).toBe(200)
-    const body = await response.text()
+    const welcome = await response.text()
+    expect(welcome).toContain('Welcome to')
+    expect(welcome).toContain('/login?step=key')
+    expect(welcome).not.toContain('<input')
+    expect(welcome).not.toContain('<script')
+    const keyPage = await route(new Request('https://edge.example/login?step=key'))
+    const body = await keyPage.text()
     expect(body).toContain('Owner access key')
     // A lost key is recoverable only from the installer, so the page says how.
     // On the deployment's own release channel, so a prerelease gets the installer that has the reset.
     expect(body).toContain(`<code>npx dsh-edge@${edgePackage.version.includes('-') ? 'next' : 'latest'} upgrade</code>`)
     expect(body).toContain('Update and reset the access key')
+    expect(body).not.toContain('<script')
     expect(body).not.toContain('minlength=')
     expect(body).not.toContain('maxlength=')
     expect(response.headers.get('content-security-policy')).toContain("default-src 'none'")
+  })
+
+  it('localizes the owner gate without adding provider-account login or key setup', async () => {
+    const response = await route(new Request('https://edge.example/login?step=key', {
+      headers: { 'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8' },
+    }))
+    const body = await response.text()
+    expect(body).toContain('输入访问密钥')
+    expect(body).toContain('autocomplete="current-password"')
+    expect(body).not.toContain('添加 API Key')
+    expect(body).not.toContain('手机号')
   })
 
   it('rejects invalid keys without setting a cookie', async () => {

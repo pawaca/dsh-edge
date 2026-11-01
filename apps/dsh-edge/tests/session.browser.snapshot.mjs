@@ -83,8 +83,9 @@ describe('dsh-edge assembled browser snapshot', () => {
         body: JSON.stringify({ version: mockChannelVersion }),
       }))
       await page.goto(origin, { waitUntil: 'load' })
+      await page.getByRole('link', { name: 'Sign in', exact: true }).click()
       await page.getByLabel('Owner access key').fill(ACCESS_KEY)
-      await page.getByRole('button', { name: 'Unlock', exact: true }).click()
+      await page.getByRole('button', { name: 'Sign in', exact: true }).click()
       await page.waitForURL(`${origin}/`)
       await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
       const ownerCookie = (await page.context().cookies())
@@ -215,8 +216,9 @@ describe('dsh-edge assembled browser snapshot', () => {
           const remoteOrigin = `https://${lanAddress}:${String(remoteWorker.port)}`
           const remotePage = await remoteBrowser.newPage({ locale: 'en-US', ignoreHTTPSErrors: true })
           await remotePage.goto(remoteOrigin, { waitUntil: 'load' })
+          await remotePage.getByRole('link', { name: 'Sign in', exact: true }).click()
           await remotePage.getByLabel('Owner access key').fill(ACCESS_KEY)
-          await remotePage.getByRole('button', { name: 'Unlock', exact: true }).click()
+          await remotePage.getByRole('button', { name: 'Sign in', exact: true }).click()
           await remotePage.waitForURL(`${remoteOrigin}/`)
           await remotePage.waitForSelector('[class*="frame"]', { timeout: 30_000 })
           // The app shell (not the script-free login page) carries the declaration.
@@ -573,7 +575,7 @@ describe('dsh-edge assembled browser snapshot', () => {
       })
       await page.waitForURL(`${origin}/login`, { timeout: 20_000 })
       await expect.poll(
-        () => page.getByRole('heading', { name: 'Unlock this deployment' }).count(),
+        () => page.getByRole('heading', { name: 'Welcome to DeepSeek Harness' }).count(),
         { timeout: 15_000 },
       ).toBe(1)
       expect(pageErrors).toEqual([])
@@ -626,8 +628,9 @@ describe('dsh-edge assembled browser snapshot', () => {
       })
       const origin = `http://${worker.address}:${String(worker.port)}`
       await page.goto(origin, { waitUntil: 'load' })
+      await page.getByRole('link', { name: 'Sign in', exact: true }).click()
       await page.getByLabel('Owner access key').fill(ACCESS_KEY)
-      await page.getByRole('button', { name: 'Unlock', exact: true }).click()
+      await page.getByRole('button', { name: 'Sign in', exact: true }).click()
       await page.waitForURL(`${origin}/`)
       await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
       const ownerCookie = (await page.context().cookies())

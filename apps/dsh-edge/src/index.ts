@@ -86,6 +86,13 @@ export default {
       const authResponse = await handleOwnerAuthRoute(request, auth)
       if (authResponse !== undefined) return authResponse
 
+      // Only the three public presentation assets needed by the owner gate.
+      if ((request.method === 'GET' || request.method === 'HEAD') && [
+        '/owner-login/welcome-brand.svg',
+        '/owner-login/montserrat-light.woff2',
+        '/owner-login/montserrat-medium.woff2',
+      ].includes(url.pathname)) return await env.ASSETS.fetch(request)
+
       const ownerSession = await resolveOwnerSession(request, auth)
       if (url.pathname === '/') {
         if (ownerSession === undefined) return loginRedirect()

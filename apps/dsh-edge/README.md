@@ -93,7 +93,9 @@ Then start the Worker:
 pnpm --filter dsh-edge dev
 ```
 
-The command builds the pinned published Harness packages into the same prebuilt Web and Worker artifacts shipped by the installer, then starts Wrangler without rebundling them. Open the printed URL, normally `http://localhost:8787`, enter the owner access key, choose **Workspace**, and send a message. The Web UI creates a lazy blank session and streams the turn through authenticated Durable Object WebSockets.
+The command builds the pinned published Harness packages into the same prebuilt Web and Worker artifacts shipped by the installer, then starts Wrangler without rebundling them. Open the printed URL, normally `http://localhost:8787`, choose **Sign in**, enter the owner access key, choose **Workspace**, and send a message. The Web UI creates a lazy blank session and streams the turn through authenticated Durable Object WebSockets.
+
+The owner gate reuses the official desktop Welcome presentation, with light/dark and phone layouts. It only accepts the deployment access key; model credentials stay in Settings. The Web shell includes the pinned [`dsh-webui-mobile`](https://github.com/bbtssama/dsh-webui-mobile) plugin for phone drawers, composer and settings layout. Use `?mobileShell=0` to disable that plugin for a page.
 
 The diagnostic API uses the same owner cookie. Log in once to a temporary cookie jar, then verify the persistent filesystem and shell:
 

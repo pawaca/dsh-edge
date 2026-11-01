@@ -16,6 +16,7 @@ const expectedBootShape = JSON.parse(
 const patchAudit = JSON.parse(await readFile(join(standaloneRoot, 'patches', 'audit.json'), 'utf8'))
 const targetVersion = edgePackage.dshEdge.upstreamVersion
 const requiredClientPackages = [
+  'dsh-webui-mobile',
   'dsh-edge-client-ui',
   '@deepseek-ai/dsh-client-ui-directory-picker-browse',
   // The session header's log download and /export, served by the Edge exporter.

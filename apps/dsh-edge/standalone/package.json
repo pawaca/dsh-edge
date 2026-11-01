@@ -158,6 +158,7 @@
     "acorn": "8.18.0",
     "compare-versions": "6.1.1",
     "diff": "9.0.0",
+    "dsh-webui-mobile": "0.4.4",
     "execa": "10.0.1",
     "fast-png": "8.0.0",
     "fflate": "0.8.3",

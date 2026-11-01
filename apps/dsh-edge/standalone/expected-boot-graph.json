@@ -605,6 +605,13 @@
     ]
   },
   {
+    "id": "dsh-webui-mobile",
+    "inject": [
+      "@deepseek-ai/dsh-client-ui-renderer",
+      "@deepseek-ai/dsh-client-ui-layout"
+    ]
+  },
+  {
     "id": "dsh-edge-client-ui",
     "inject": [
       "@deepseek-ai/dsh-api-workspace-controller",

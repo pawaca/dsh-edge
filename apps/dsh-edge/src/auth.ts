@@ -3,6 +3,7 @@ import {
   readBoundedText,
 } from './http.ts'
 import { DSH_EDGE_UPGRADE_COMMAND } from './release.ts'
+import { ownerPage } from './owner-page.ts'
 
 const LOCAL_COOKIE_NAME = 'dsh_edge_owner'
 const SECURE_COOKIE_NAME = '__Host-dsh_edge_owner'
@@ -53,7 +54,7 @@ export async function handleOwnerAuthRoute(
   const url = new URL(request.url)
 
   if (request.method === 'GET' && url.pathname === '/login') {
-    return loginPageResponse(await isOwnerAuthenticated(request, config))
+    return loginPageResponse(request, await isOwnerAuthenticated(request, config))
   }
 
   if (request.method === 'GET' && url.pathname === '/api/auth/session') {
@@ -73,7 +74,7 @@ export async function handleOwnerAuthRoute(
     )
     const candidate = new URLSearchParams(source).get('accessKey') ?? ''
     if (!await accessKeysMatch(candidate, config.accessKey)) {
-      return loginPageResponse(false, 'The access key is not valid.', 401)
+      return loginPageResponse(request, false, 'The access key is not valid.', 401)
     }
 
     const expiresAt = Math.floor(Date.now() / 1_000) + SESSION_TTL_SECONDS
@@ -265,13 +266,13 @@ function decodeBase64Url(value: string): ArrayBuffer | undefined {
   }
 }
 
-function loginPageResponse(authenticated: boolean, error?: string, status = 200): Response {
-  const body = authenticated ? authenticatedPage() : loginPage(error)
+function loginPageResponse(request: Request, authenticated: boolean, error?: string, status = 200): Response {
+  const body = ownerPage(request, authenticated, DSH_EDGE_UPGRADE_COMMAND, error)
   return new Response(body, {
     status,
     headers: {
       'cache-control': 'no-store',
-      'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+      'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; font-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
       'content-type': 'text/html; charset=utf-8',
       'referrer-policy': 'no-referrer',
       'x-content-type-options': 'nosniff',
@@ -287,71 +288,4 @@ function noStoreJson(value: unknown, status = 200): Response {
       'content-type': 'application/json; charset=utf-8',
     },
   })
-}
-
-function loginPage(error?: string): string {
-  return `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Unlock dsh-edge</title>
-  <style>${pageStyles()}</style>
-</head>
-<body>
-  <main>
-    <p class="eyebrow">dsh-edge</p>
-    <h1>Unlock this deployment</h1>
-    <p>Enter the owner access key configured for this Cloudflare deployment.</p>
-    ${error === undefined ? '' : `<p class="error" role="alert">${error}</p>`}
-    <form method="post" action="/api/auth/login">
-      <label for="access-key">Owner access key</label>
-      <input id="access-key" name="accessKey" type="password" autocomplete="current-password" required autofocus>
-      <button type="submit">Unlock</button>
-    </form>
-    <p class="hint">Lost the key? Run <code>${DSH_EDGE_UPGRADE_COMMAND}</code> and choose <strong>Update and reset the access key</strong>. Conversations and files are kept.</p>
-  </main>
-</body>
-</html>`
-}
-
-function authenticatedPage(): string {
-  return `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>dsh-edge owner session</title>
-  <style>${pageStyles()}</style>
-</head>
-<body>
-  <main>
-    <p class="eyebrow">dsh-edge</p>
-    <h1>This browser is unlocked</h1>
-    <p>The owner session is stored in an HttpOnly cookie on this device.</p>
-    <a class="button" href="/">Continue to DeepSeek Harness</a>
-    <form method="post" action="/api/auth/logout">
-      <button class="secondary" type="submit">Sign out</button>
-    </form>
-  </main>
-</body>
-</html>`
-}
-
-function pageStyles(): string {
-  return `
-    :root { color-scheme: light dark; font-family: ui-sans-serif, system-ui, sans-serif; }
-    body { min-height: 100vh; margin: 0; display: grid; place-items: center; background: #0b1020; color: #edf2ff; }
-    main { box-sizing: border-box; width: min(30rem, calc(100% - 2rem)); padding: 2rem; border: 1px solid #29314b; border-radius: 1rem; background: #141a2d; box-shadow: 0 1.5rem 5rem #0008; }
-    h1 { margin: .35rem 0 .75rem; font-size: 1.75rem; }
-    p { color: #b7c0d9; line-height: 1.55; }
-    .eyebrow { margin: 0; color: #7fa8ff; font-size: .8rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
-    label { display: block; margin: 1.5rem 0 .5rem; font-weight: 650; }
-    input { box-sizing: border-box; width: 100%; padding: .8rem .9rem; border: 1px solid #3a4565; border-radius: .6rem; background: #0c1222; color: inherit; font: inherit; }
-    button, .button { display: inline-block; box-sizing: border-box; margin-top: 1rem; padding: .75rem 1rem; border: 0; border-radius: .6rem; background: #5a87ff; color: #071022; font: inherit; font-weight: 750; text-decoration: none; cursor: pointer; }
-    .secondary { background: #29314b; color: #edf2ff; }
-    .error { padding: .75rem; border-radius: .5rem; background: #461d2b; color: #ffd6df; }
-    .hint { margin: 1.5rem 0 0; font-size: .875rem; }
-    code { padding: .1rem .3rem; border-radius: .3rem; background: #0c1222; color: #edf2ff; }
-  `
 }

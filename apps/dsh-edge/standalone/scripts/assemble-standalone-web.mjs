@@ -39,7 +39,7 @@ const edgeClientPackages = new Map([
 // Upstream composes the browse picking face dynamically: the `-auto` chooser
 // mounts it as a Loader entry at boot. The Edge has no Loader and always serves
 // the browse capability, so it pins the browser half in the reviewed roster.
-const edgeIncludedPackages = ['@deepseek-ai/dsh-client-ui-directory-picker-browse']
+const edgeIncludedPackages = ['@deepseek-ai/dsh-client-ui-directory-picker-browse', 'dsh-webui-mobile']
 const edgeExcludedPackages = new Set([
   '@deepseek-ai/dsh-client-hmr',
   '@deepseek-ai/dsh-cordis-client-runner',
@@ -67,6 +67,9 @@ const shellStaticPackages = new Set(['@deepseek-ai/dsh-client-ui-primitives'])
 // `plugins.item`; on the Edge, dsh-edge-client-ui declares that slot instead.
 const edgeInjectSubstitutes = new Map([
   ['@deepseek-ai/dsh-client-ui-plugin-manager', 'dsh-edge-client-ui'],
+  // dsh-webui-mobile 0.4.4 names the old runtime bundle. Its actual Cordis
+  // injections are `slots` and `layout`; rc.4's renderer owns the former.
+  ['@deepseek-ai/dsh-client-runtime', '@deepseek-ai/dsh-client-ui-renderer'],
 ])
 const assetSecurityHeaders = `/*
   Content-Security-Policy: frame-ancestors 'none'
@@ -182,6 +185,11 @@ async function main() {
 
   await rm(outputRoot, { recursive: true, force: true })
   await cp(shellDist, outputRoot, { recursive: true })
+  await cp(join(appRoot, 'login-assets'), join(outputRoot, 'owner-login'), { recursive: true })
+  const themeRoot = dirname(standaloneRequire.resolve('@deepseek-ai/dsh-client-ui-theme/package.json'))
+  for (const file of ['montserrat-light.woff2', 'montserrat-medium.woff2']) {
+    await cp(join(themeRoot, 'lib/styles', file), join(outputRoot, 'owner-login', file))
+  }
   await removeSourceMaps(outputRoot)
 
   const entries = []

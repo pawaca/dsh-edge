@@ -93,7 +93,9 @@ DSH_EDGE_MAX_COMMAND_TIMEOUT_MS=120000
 pnpm --filter dsh-edge dev
 ```
 
-该命令会把锁定版本的 Harness 发布包构建为与安装器交付内容相同的预构建 Web 与 Worker 产物，然后让 Wrangler 在不重新打包的情况下启动这些产物。打开输出的地址（通常为 `http://localhost:8787`），输入 owner access key，选择 **Workspace** 并发送消息。Web UI 会创建 lazy blank session，并通过已认证的 Durable Object WebSocket 流式接收该轮次。
+该命令会把锁定版本的 Harness 发布包构建为与安装器交付内容相同的预构建 Web 与 Worker 产物，然后让 Wrangler 在不重新打包的情况下启动这些产物。打开输出的地址（通常为 `http://localhost:8787`），选择 **登录**，输入访问密钥，选择 **Workspace** 并发送消息。Web UI 会创建 lazy blank session，并通过已认证的 Durable Object WebSocket 流式接收该轮次。
+
+登录入口复用官方桌面端 Welcome 的视觉样式，支持深浅模式和手机布局，仅验证部署访问密钥；模型凭据仍在设置中配置。Web 界面接入固定版本的 [`dsh-webui-mobile`](https://github.com/bbtssama/dsh-webui-mobile) 插件，复用手机抽屉、输入区和设置页适配。可通过 `?mobileShell=0` 在当前页面关闭该插件。
 
 诊断 API 使用相同的 owner cookie。先登录一次并把 cookie 写入临时 cookie jar，再验证持久文件系统和 shell：
 
