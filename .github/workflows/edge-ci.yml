@@ -32,7 +32,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: pnpm/setup@v2
+      - uses: pnpm/setup@v3
         with:
           install: false
 
@@ -106,7 +106,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: pnpm/setup@v2
+      - uses: pnpm/setup@v3
         with:
           install: false
 
@@ -137,7 +137,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: pnpm/setup@v2
+      - uses: pnpm/setup@v3
         with:
           install: false
 
