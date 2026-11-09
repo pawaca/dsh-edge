@@ -251,7 +251,7 @@ jobs:
         run: pnpm --filter dsh-edge run test:snapshot
       - name: Keep the failing browser state
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-browser-snapshots
           path: ${{ runner.temp }}/browser-artifacts/
