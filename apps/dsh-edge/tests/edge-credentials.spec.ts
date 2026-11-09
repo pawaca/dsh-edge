@@ -19,7 +19,7 @@ describe('dsh-edge credential provider', () => {
     const ctx = new Context()
     let apiKey: string | undefined = 'first-key'
     const storage = createMockStorage()
-    await ctx.plugin(EdgeCredentialProvider, { storage, readDeepSeekApiKey: () => apiKey })
+    await ctx.plugin(EdgeCredentialProvider, { storage, readDeepSeekApiKey: () => apiKey }).await()
     try {
       expect(await ctx.credentials.resolve(EDGE_DEEPSEEK_API_KEY_REF)).toEqual({
         value: 'first-key',
@@ -57,7 +57,7 @@ describe('dsh-edge credential provider', () => {
   it('resolves unknown refs from DO storage only', async () => {
     const ctx = new Context()
     const storage = createMockStorage()
-    await ctx.plugin(EdgeCredentialProvider, { storage, readDeepSeekApiKey: () => 'env-key' })
+    await ctx.plugin(EdgeCredentialProvider, { storage, readDeepSeekApiKey: () => 'env-key' }).await()
     try {
       const otherRef = credentialRef('OTHER_KEY')
       expect(await ctx.credentials.resolve(otherRef)).toBeUndefined()
@@ -75,7 +75,7 @@ describe('dsh-edge credential provider', () => {
   it('prefers DO storage over worker env when both exist', async () => {
     const ctx = new Context()
     const storage = createMockStorage()
-    await ctx.plugin(EdgeCredentialProvider, { storage, readDeepSeekApiKey: () => 'env-key' })
+    await ctx.plugin(EdgeCredentialProvider, { storage, readDeepSeekApiKey: () => 'env-key' }).await()
     try {
       await ctx.credentials.set(EDGE_DEEPSEEK_API_KEY_REF, 'do-key')
       expect(await ctx.credentials.resolve(EDGE_DEEPSEEK_API_KEY_REF)).toEqual({
@@ -95,7 +95,7 @@ describe('dsh-edge credential provider', () => {
   it('falls back to worker env after DO storage value is unset', async () => {
     const ctx = new Context()
     const storage = createMockStorage()
-    await ctx.plugin(EdgeCredentialProvider, { storage, readDeepSeekApiKey: () => 'env-key' })
+    await ctx.plugin(EdgeCredentialProvider, { storage, readDeepSeekApiKey: () => 'env-key' }).await()
     try {
       await ctx.credentials.set(EDGE_DEEPSEEK_API_KEY_REF, 'do-key')
       expect(await ctx.credentials.resolve(EDGE_DEEPSEEK_API_KEY_REF)).toEqual({
@@ -118,7 +118,7 @@ describe('dsh-edge credential provider', () => {
     const storage = createMockStorage()
     const updated: string[] = []
     ctx.on('credentials/reference-updated', ref => { updated.push(ref) })
-    await ctx.plugin(EdgeCredentialProvider, { storage, readDeepSeekApiKey: () => 'env-key' })
+    await ctx.plugin(EdgeCredentialProvider, { storage, readDeepSeekApiKey: () => 'env-key' }).await()
     try {
       await ctx.credentials.set(EDGE_DEEPSEEK_API_KEY_REF, 'do-key')
       await ctx.credentials.unset(EDGE_DEEPSEEK_API_KEY_REF)
@@ -135,7 +135,7 @@ describe('dsh-edge credential provider', () => {
   it('rejects set with empty value', async () => {
     const ctx = new Context()
     const storage = createMockStorage()
-    await ctx.plugin(EdgeCredentialProvider, { storage, readDeepSeekApiKey: () => undefined })
+    await ctx.plugin(EdgeCredentialProvider, { storage, readDeepSeekApiKey: () => undefined }).await()
     try {
       await expect(ctx.credentials.set(EDGE_DEEPSEEK_API_KEY_REF, ''))
         .rejects.toThrow(/empty/u)
@@ -149,7 +149,7 @@ describe('dsh-edge credential provider', () => {
   it('describes unconfigured when neither DO nor env has a value', async () => {
     const ctx = new Context()
     const storage = createMockStorage()
-    await ctx.plugin(EdgeCredentialProvider, { storage, readDeepSeekApiKey: () => undefined })
+    await ctx.plugin(EdgeCredentialProvider, { storage, readDeepSeekApiKey: () => undefined }).await()
     try {
       expect(await ctx.credentials.describe(EDGE_DEEPSEEK_API_KEY_REF)).toEqual({
         configured: false,
@@ -168,7 +168,7 @@ describe('dsh-edge credential provider', () => {
     const ctx = new Context()
     const storage = createMockStorage()
     await storage.put('dsh-edge:credential:DEEPSEEK_API_KEY', '  ')
-    await ctx.plugin(EdgeCredentialProvider, { storage, readDeepSeekApiKey: () => 'env-key' })
+    await ctx.plugin(EdgeCredentialProvider, { storage, readDeepSeekApiKey: () => 'env-key' }).await()
     try {
       expect(await ctx.credentials.resolve(EDGE_DEEPSEEK_API_KEY_REF)).toEqual({
         value: 'env-key',

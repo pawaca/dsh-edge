@@ -43,8 +43,8 @@ describe('EdgeSkillProvider', () => {
   it('registers as a provider and lists empty catalog', async () => {
     const ctx = new Context()
     const storage = createMockStorage()
-    await ctx.plugin(SkillRegistry)
-    await ctx.plugin(EdgeSkillProvider, { storage })
+    await ctx.plugin(SkillRegistry).await()
+    await ctx.plugin(EdgeSkillProvider, { storage }).await()
     const skills = await ctx.skills.list({ cwd: '/workspace' })
     expect(skills).toEqual([])
     await ctx.fiber.dispose()
@@ -53,8 +53,8 @@ describe('EdgeSkillProvider', () => {
   it('lists skills after putSkill writes to storage', async () => {
     const ctx = new Context()
     const storage = createMockStorage()
-    await ctx.plugin(SkillRegistry)
-    await ctx.plugin(EdgeSkillProvider, { storage })
+    await ctx.plugin(SkillRegistry).await()
+    await ctx.plugin(EdgeSkillProvider, { storage }).await()
     await putSkill(storage, {
       name: 'my-skill',
       description: 'A test skill',
@@ -72,8 +72,8 @@ describe('EdgeSkillProvider', () => {
   it('loads full skill definition via get', async () => {
     const ctx = new Context()
     const storage = createMockStorage()
-    await ctx.plugin(SkillRegistry)
-    await ctx.plugin(EdgeSkillProvider, { storage })
+    await ctx.plugin(SkillRegistry).await()
+    await ctx.plugin(EdgeSkillProvider, { storage }).await()
     await putSkill(storage, {
       name: 'deploy',
       description: 'Deploy steps',
@@ -118,8 +118,8 @@ describe('EdgeSkillProvider', () => {
   it('putSkill overwrites an existing skill', async () => {
     const ctx = new Context()
     const storage = createMockStorage()
-    await ctx.plugin(SkillRegistry)
-    await ctx.plugin(EdgeSkillProvider, { storage })
+    await ctx.plugin(SkillRegistry).await()
+    await ctx.plugin(EdgeSkillProvider, { storage }).await()
     await putSkill(storage, { name: 'x', description: 'v1', content: 'old' })
     await putSkill(storage, { name: 'x', description: 'v2', content: 'new' })
     const skills = await ctx.skills.list({ cwd: '/workspace' })
@@ -133,8 +133,8 @@ describe('EdgeSkillProvider', () => {
   it('disposes cleanly via ctx.effect', async () => {
     const ctx = new Context()
     const storage = createMockStorage()
-    await ctx.plugin(SkillRegistry)
-    await ctx.plugin(EdgeSkillProvider, { storage })
+    await ctx.plugin(SkillRegistry).await()
+    await ctx.plugin(EdgeSkillProvider, { storage }).await()
     await putSkill(storage, { name: 'a', description: 'A', content: 'a' })
     expect(await ctx.skills.list({ cwd: '/workspace' })).toHaveLength(1)
     await ctx.fiber.dispose()

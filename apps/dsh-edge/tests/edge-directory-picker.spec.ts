@@ -70,7 +70,7 @@ async function backend(
     ...(options.maxEntries === undefined ? {} : { maxEntries: options.maxEntries }),
     ...(options.root === undefined ? {} : { root: options.root }),
     withFiles: run => run(files),
-  })
+  }).await()
   const capability = ctx.directoryPicker.capability()
   if (capability.kind !== 'browse') throw new Error('expected the browse capability')
   return { ctx, calls, picker: ctx.directoryPicker, capability }
@@ -184,7 +184,7 @@ describe('EdgeDirectoryPicker', () => {
           return Promise.resolve()
         },
       }),
-    })
+    }).await()
     const capability = ctx.directoryPicker.capability()
     if (capability.kind !== 'browse') throw new Error('expected the browse capability')
     await expect(capability.createDirectory('/workspace', 'first')).resolves.toBe('/workspace/first')

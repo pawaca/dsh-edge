@@ -20,7 +20,7 @@ describe('EdgeSettings', () => {
   it('installs as a cordis plugin and reports writable', async () => {
     const ctx = new Context()
     const storage = createMockStorage()
-    await ctx.plugin(EdgeSettings, { storage })
+    await ctx.plugin(EdgeSettings, { storage }).await()
     expect(ctx.settings).toBeDefined()
     expect(edgeSettings(ctx).writable).toBe(true)
     await ctx.fiber.dispose()
@@ -29,7 +29,7 @@ describe('EdgeSettings', () => {
   it('persists a settings document to DO KV on write', async () => {
     const ctx = new Context()
     const storage = createMockStorage()
-    await ctx.plugin(EdgeSettings, { storage })
+    await ctx.plugin(EdgeSettings, { storage }).await()
     expect(storage.store.has(SETTINGS_DOCUMENT_KEY)).toBe(false)
     await ctx.fiber.dispose()
   })
@@ -43,12 +43,12 @@ describe('EdgeSettings', () => {
     storage.store.set(SETTINGS_DOCUMENT_KEY, { search: { endpoint: 'https://old.test/?key=1' }, other: { kept: true } })
 
     const strict = new Context()
-    await strict.plugin(EdgeSettings, { storage })
+    await strict.plugin(EdgeSettings, { storage }).await()
     expect(() => edgeSettings(strict).register('search', schema, { validate })).toThrow(/query/u)
     await strict.fiber.dispose()
 
     const ctx = new Context()
-    await ctx.plugin(EdgeSettings, { storage })
+    await ctx.plugin(EdgeSettings, { storage }).await()
     const scope = edgeSettings(ctx).register('search', schema, { validate, discardInvalidSection: true })
     expect(scope.get()).toEqual({ endpoint: 'https://default.test' })
     await ctx.fiber.dispose()
@@ -64,7 +64,7 @@ describe('EdgeSettings', () => {
     const storage = createMockStorage()
     storage.store.set(SETTINGS_DOCUMENT_KEY, { search: { endpoint: 'https://old.test/?key=1' } })
     const ctx = new Context()
-    await ctx.plugin(EdgeSettings, { storage })
+    await ctx.plugin(EdgeSettings, { storage }).await()
     const unhandled: unknown[] = []
     const onUnhandled = (reason: unknown) => { unhandled.push(reason) }
     process.on('unhandledRejection', onUnhandled)
@@ -85,7 +85,7 @@ describe('EdgeSettings', () => {
   it('loads empty state from fresh storage', async () => {
     const ctx = new Context()
     const storage = createMockStorage()
-    await ctx.plugin(EdgeSettings, { storage })
+    await ctx.plugin(EdgeSettings, { storage }).await()
     const described = edgeSettings(ctx).describe()
     expect(described).toEqual([])
     await ctx.fiber.dispose()
@@ -95,7 +95,7 @@ describe('EdgeSettings', () => {
     const storage = createMockStorage()
     storage.store.set(SETTINGS_DOCUMENT_KEY, 'not-an-object')
     const ctx = new Context()
-    await ctx.plugin(EdgeSettings, { storage })
+    await ctx.plugin(EdgeSettings, { storage }).await()
     const described = edgeSettings(ctx).describe()
     expect(described).toEqual([])
     await ctx.fiber.dispose()
@@ -105,7 +105,7 @@ describe('EdgeSettings', () => {
     const storage = createMockStorage()
     storage.store.set(SETTINGS_DOCUMENT_KEY, null)
     const ctx = new Context()
-    await ctx.plugin(EdgeSettings, { storage })
+    await ctx.plugin(EdgeSettings, { storage }).await()
     const described = edgeSettings(ctx).describe()
     expect(described).toEqual([])
     await ctx.fiber.dispose()
@@ -115,7 +115,7 @@ describe('EdgeSettings', () => {
     const storage = createMockStorage()
     storage.store.set(SETTINGS_DOCUMENT_KEY, [1, 2, 3])
     const ctx = new Context()
-    await ctx.plugin(EdgeSettings, { storage })
+    await ctx.plugin(EdgeSettings, { storage }).await()
     const described = edgeSettings(ctx).describe()
     expect(described).toEqual([])
     await ctx.fiber.dispose()
@@ -129,7 +129,7 @@ describe('EdgeSettings', () => {
       put: async (key: string, value: unknown) => { await new Promise(resolve => setTimeout(resolve, 5)); store.set(key, value) },
     } as unknown as DurableObjectStorage
     const ctx = new Context()
-    await ctx.plugin(EdgeSettings, { storage })
+    await ctx.plugin(EdgeSettings, { storage }).await()
     const settings = edgeSettings(ctx)
     settings.register('first-fixture', z.object({ value: z.string().default('') }), {})
     settings.register('second-fixture', z.object({ value: z.string().default('') }), {})
@@ -145,7 +145,7 @@ describe('EdgeSettings', () => {
     const schema = Object.assign((v: unknown) => v ?? {}, { toJSON: () => ({ type: 'object' }) }) as never
 
     const ctx1 = new Context()
-    await ctx1.plugin(EdgeSettings, { storage })
+    await ctx1.plugin(EdgeSettings, { storage }).await()
     const scope1 = edgeSettings(ctx1).register('test-ns' as never, schema, {})
     await edgeSettings(ctx1).mutate('test-ns' as never, [{ op: 'set', path: ['key'], value: 'hello' }])
     expect(scope1.get()).toEqual({ key: 'hello' })
@@ -153,7 +153,7 @@ describe('EdgeSettings', () => {
     await ctx1.fiber.dispose()
 
     const ctx2 = new Context()
-    await ctx2.plugin(EdgeSettings, { storage })
+    await ctx2.plugin(EdgeSettings, { storage }).await()
     const scope2 = edgeSettings(ctx2).register('test-ns' as never, schema, {})
     expect(scope2.get()).toEqual({ key: 'hello' })
     await ctx2.fiber.dispose()
@@ -162,7 +162,7 @@ describe('EdgeSettings', () => {
   it('serves live (volatile) fields as plain values, as upstream settings forms do', async () => {
     const ctx = new Context()
     const storage = createMockStorage()
-    await ctx.plugin(EdgeSettings, { storage })
+    await ctx.plugin(EdgeSettings, { storage }).await()
     const settings = edgeSettings(ctx)
     const scope = settings.register('live-fixture', z.object({
       enabled: z.boolean().default(false).volatile(),
@@ -179,7 +179,7 @@ describe('EdgeSettings', () => {
   it('reads back the shipped client settings the page writes', async () => {
     const ctx = new Context()
     const storage = createMockStorage()
-    await ctx.plugin(EdgeSettings, { storage })
+    await ctx.plugin(EdgeSettings, { storage }).await()
     const settings = edgeSettings(ctx)
     const scopes = Object.fromEntries(CLIENT_SETTINGS.map(row => [row.namespace, settings.register(row.namespace, row.schema as never, {})]))
     await scopes['ui-settings']!.update({ enabled: true })

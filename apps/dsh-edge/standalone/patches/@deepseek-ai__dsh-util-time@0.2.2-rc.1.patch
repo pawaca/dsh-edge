@@ -1,0 +1,11 @@
+diff --git a/lib/index.js b/lib/index.js
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -1,5 +1,6 @@
+ import { Temporal } from "@js-temporal/polyfill";
+-import rrulePackage from "rrule";
++import * as rruleModule from "rrule";
++const rrulePackage = Reflect.get(rruleModule, "default") ?? rruleModule;
+ //#region lib/types/instant.js
+ /**
+ * Strict instant and local-calendar vocabulary for the boundaries that accept a

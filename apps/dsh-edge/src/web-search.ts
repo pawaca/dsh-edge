@@ -46,8 +46,8 @@ export async function installEdgeWebSearch(ctx: Context, rawBaseURL?: string): P
   }, WEB_PROVIDERS)
   // Max searches, endpoint, and key are editable on the web search settings card.
   await mountDeepSeekWebSearch(ctx, resolveEdgeSearchBaseURL(rawBaseURL), resolveEdgeSearchBaseURL)
-  await ctx.plugin(HttpWebFetch)
+  await ctx.plugin(HttpWebFetch).await()
   await mountDeepSeekWebApi(ctx)
-  await ctx.plugin(TimeoutPolicy)
-  await ctx.plugin(ToolWeb, { search: true, fetch: true })
+  await ctx.plugin(TimeoutPolicy).await()
+  await ctx.plugin(ToolWeb, { search: true, fetch: true }).await()
 }

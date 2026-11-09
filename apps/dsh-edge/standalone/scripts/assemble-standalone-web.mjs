@@ -141,6 +141,11 @@ async function copyBundle(record, pkg, entries) {
   const destination = join(outputRoot, 'plugins', pkg.name, 'client.js')
   await mkdir(dirname(destination), { recursive: true })
   await writeFile(destination, contents)
+  // Published client bundles address their package-owned assets relative to
+  // the document. Preserve filenames; the asset binding decodes URL escapes.
+  if (pkg.exports?.['./assets/*'] === './lib/assets/*') {
+    await cp(resolve(dirname(record.packagePath), 'lib/assets'), join(dirname(destination), 'assets'), { recursive: true })
+  }
 
   entries.push({
     id: pkg.name,

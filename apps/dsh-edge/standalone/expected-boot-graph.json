@@ -28,8 +28,26 @@
       "@deepseek-ai/dsh-client-locale",
       "@deepseek-ai/dsh-client-ui-commands",
       "@deepseek-ai/dsh-client-ui-conversation",
+      "@deepseek-ai/dsh-client-ui-layout",
       "@deepseek-ai/dsh-client-ui-renderer",
       "@deepseek-ai/dsh-client-ui-session"
+    ]
+  },
+  {
+    "id": "@deepseek-ai/dsh-client-ui-file-actions",
+    "inject": [
+      "@deepseek-ai/dsh-client-locale",
+      "@deepseek-ai/dsh-client-ui-context-menu",
+      "@deepseek-ai/dsh-api-workspace-files",
+      "@deepseek-ai/dsh-api-session-controller"
+    ]
+  },
+  {
+    "id": "@deepseek-ai/dsh-client-ui-context-menu",
+    "inject": [
+      "@deepseek-ai/dsh-client-locale",
+      "@deepseek-ai/dsh-client-ui-layout",
+      "@deepseek-ai/dsh-client-shortcuts"
     ]
   },
   {
@@ -44,7 +62,11 @@
       "@deepseek-ai/dsh-client-ui-layout",
       "@deepseek-ai/dsh-client-ui-renderer",
       "@deepseek-ai/dsh-client-ui-session",
-      "@deepseek-ai/dsh-client-ui-sidebar-documentpreview"
+      "@deepseek-ai/dsh-client-ui-sidebar-documentpreview",
+      "@deepseek-ai/dsh-client-ui-context-menu",
+      "@deepseek-ai/dsh-client-ui-sidebar-right",
+      "@deepseek-ai/dsh-api-workspace-files",
+      "@deepseek-ai/dsh-client-ui-workspace"
     ]
   },
   {
@@ -194,7 +216,8 @@
       "@deepseek-ai/dsh-client-ui-conversation",
       "@deepseek-ai/dsh-client-ui-layout",
       "@deepseek-ai/dsh-client-ui-session",
-      "@deepseek-ai/dsh-client-shortcuts"
+      "@deepseek-ai/dsh-client-shortcuts",
+      "@deepseek-ai/dsh-client-ui-context-menu"
     ]
   },
   {
@@ -207,7 +230,9 @@
       "@deepseek-ai/dsh-client-ui-session",
       "@deepseek-ai/dsh-api-remotes",
       "@deepseek-ai/dsh-client-locale",
-      "@deepseek-ai/dsh-client-ui-settings"
+      "@deepseek-ai/dsh-client-ui-settings",
+      "@deepseek-ai/dsh-client-ui-file-drag",
+      "@deepseek-ai/dsh-client-ui-context-menu"
     ]
   },
   {
@@ -225,7 +250,8 @@
       "@deepseek-ai/dsh-client-ui-sidebar-right",
       "@deepseek-ai/dsh-client-ui-session",
       "@deepseek-ai/dsh-api-remotes",
-      "@deepseek-ai/dsh-client-shortcuts"
+      "@deepseek-ai/dsh-client-shortcuts",
+      "@deepseek-ai/dsh-client-ui-context-menu"
     ]
   },
   {
@@ -275,7 +301,8 @@
       "@deepseek-ai/dsh-client-ui-renderer",
       "@deepseek-ai/dsh-client-ui-session",
       "@deepseek-ai/dsh-client-ui-settings",
-      "@deepseek-ai/dsh-client-ui-workspace"
+      "@deepseek-ai/dsh-client-ui-workspace",
+      "@deepseek-ai/dsh-client-ui-context-menu"
     ]
   },
   {
@@ -290,10 +317,21 @@
     ]
   },
   {
+    "id": "@deepseek-ai/dsh-message-quotes",
+    "inject": [
+      "@deepseek-ai/dsh-api-session-controller",
+      "@deepseek-ai/dsh-client-locale",
+      "@deepseek-ai/dsh-client-ui-chat",
+      "@deepseek-ai/dsh-client-ui-conversation",
+      "@deepseek-ai/dsh-client-ui-renderer"
+    ]
+  },
+  {
     "id": "@deepseek-ai/dsh-client-ui-chat",
     "inject": [
       "@deepseek-ai/dsh-api-session-controller",
       "@deepseek-ai/dsh-api-workspace-controller",
+      "@deepseek-ai/dsh-client-connection",
       "@deepseek-ai/dsh-client-locale",
       "@deepseek-ai/dsh-client-ui-conversation",
       "@deepseek-ai/dsh-client-ui-input-trigger",
@@ -302,7 +340,9 @@
       "@deepseek-ai/dsh-client-ui-session",
       "@deepseek-ai/dsh-client-ui-settings",
       "@deepseek-ai/dsh-client-ui-sidebar-right",
-      "@deepseek-ai/dsh-client-ui-workspace"
+      "@deepseek-ai/dsh-client-ui-workspace",
+      "@deepseek-ai/dsh-client-ui-file-drag",
+      "@deepseek-ai/dsh-client-ui-context-menu"
     ]
   },
   {
@@ -320,7 +360,15 @@
       "@deepseek-ai/dsh-client-ui-conversation",
       "@deepseek-ai/dsh-client-ui-renderer",
       "@deepseek-ai/dsh-client-ui-trajectory",
-      "@deepseek-ai/dsh-client-ui-tool"
+      "@deepseek-ai/dsh-client-ui-tool",
+      "@deepseek-ai/dsh-client-ui-file-drag",
+      "@deepseek-ai/dsh-client-ui-context-menu"
+    ]
+  },
+  {
+    "id": "@deepseek-ai/dsh-client-ui-file-drag",
+    "inject": [
+      "@deepseek-ai/dsh-client-ui-layout"
     ]
   },
   {
@@ -329,7 +377,8 @@
       "@deepseek-ai/dsh-api-workspace-controller",
       "@deepseek-ai/dsh-client-connection",
       "@deepseek-ai/dsh-client-locale",
-      "@deepseek-ai/dsh-client-ui-conversation"
+      "@deepseek-ai/dsh-client-ui-conversation",
+      "@deepseek-ai/dsh-api-session-controller"
     ]
   },
   {
@@ -343,7 +392,8 @@
       "@deepseek-ai/dsh-client-ui-renderer",
       "@deepseek-ai/dsh-client-ui-sidebar-right",
       "@deepseek-ai/dsh-client-ui-tool",
-      "@deepseek-ai/dsh-client-ui-settings"
+      "@deepseek-ai/dsh-client-ui-settings",
+      "@deepseek-ai/dsh-client-ui-context-menu"
     ]
   },
   {
@@ -360,7 +410,8 @@
       "@deepseek-ai/dsh-client-ui-layout",
       "@deepseek-ai/dsh-client-ui-renderer",
       "@deepseek-ai/dsh-client-ui-session",
-      "@deepseek-ai/dsh-client-ui-sidebar"
+      "@deepseek-ai/dsh-client-ui-sidebar",
+      "@deepseek-ai/dsh-client-ui-context-menu"
     ]
   },
   {
@@ -430,7 +481,8 @@
       "@deepseek-ai/dsh-client-ui-conversation",
       "@deepseek-ai/dsh-client-ui-renderer",
       "@deepseek-ai/dsh-client-ui-input-trigger",
-      "@deepseek-ai/dsh-client-ui-sidebar-right"
+      "@deepseek-ai/dsh-client-ui-sidebar-right",
+      "@deepseek-ai/dsh-client-ui-context-menu"
     ]
   },
   {
@@ -496,14 +548,6 @@
       "@deepseek-ai/dsh-client-locale",
       "@deepseek-ai/dsh-client-ui-commands",
       "@deepseek-ai/dsh-api-remotes"
-    ]
-  },
-  {
-    "id": "@deepseek-ai/dsh-client-ui-deepseek-model-label-1017",
-    "inject": [
-      "@deepseek-ai/dsh-client-ui-model-selection",
-      "@deepseek-ai/dsh-client-ui-renderer",
-      "@deepseek-ai/dsh-client-locale"
     ]
   },
   {

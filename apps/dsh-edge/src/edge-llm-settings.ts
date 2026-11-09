@@ -89,7 +89,7 @@ export async function mountPiAiProvider(ctx: Context): Promise<Fiber> {
         // The provider's own check, as the Loader runs it: on the running
         // fiber, which its `internal/config` listener compares against.
         const candidate = structuredClone(value)
-        fiber.ctx.waterfall(fiber.ctx.fiber, 'internal/config', candidate, () => candidate)
+        fiber.resolveConfig(candidate)
       }
     },
     discardInvalidSection: true,
@@ -178,9 +178,9 @@ export function requireProviderBaseURL(provider: string, value: string): void {
  * @param fiber - the provider's fiber; its parsed config holds the references the provider reads.
  * @param candidate - the same schema's parse of the new resolved settings.
  */
-export function commitVolatile(fiber: Pick<Fiber, 'config' | 'ctx'>, candidate: unknown): void {
+export function commitVolatile(fiber: Pick<Fiber, 'effectiveConfig' | 'ctx'>, candidate: unknown): void {
   const paths: (string | number)[][] = []
-  for (const { path, ref } of volatileEntries(fiber.config)) {
+  for (const { path, ref } of volatileEntries(fiber.effectiveConfig)) {
     const source = path.reduce<unknown>((value, key) => Reflect.get(value as object, key), candidate)
     if (deepEqual(ref.get(), (source as typeof ref).get(), true)) continue
     updateVolatile(ref, source as typeof ref)

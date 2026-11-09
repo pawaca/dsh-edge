@@ -13,11 +13,11 @@ class Probe extends Service {
 
 async function composedContext(): Promise<Context> {
   const ctx = new Context()
-  await ctx.plugin(Probe)
-  await ctx.plugin({ name: 'edge-named-plugin', apply() {} })
-  await ctx.plugin({ name: 'edge-named-plugin', apply() {} })
+  await ctx.plugin(Probe).await()
+  await ctx.plugin({ name: 'edge-named-plugin', apply() {} }).await()
+  await ctx.plugin({ name: 'edge-named-plugin', apply() {} }).await()
   await ctx.inject([], () => {})
-  await ctx.plugin(EdgeLoader)
+  await ctx.plugin(EdgeLoader).await()
   return ctx
 }
 
@@ -54,8 +54,8 @@ describe('EdgeLoader', () => {
         return []
       }
     }
-    await ctx.plugin(EdgeAgentPresets)
-    await ctx.plugin(PluginInventoryGateway)
+    await ctx.plugin(EdgeAgentPresets).await()
+    await ctx.plugin(PluginInventoryGateway).await()
 
     const gateway = ctx.get('pluginInventory') as { list(): Promise<PluginInventorySnapshot> }
     const snapshot = await gateway.list()

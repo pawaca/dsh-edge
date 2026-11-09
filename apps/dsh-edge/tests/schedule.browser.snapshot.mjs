@@ -49,7 +49,7 @@ it('wakes a cold session for a durable reminder without a browser connection', a
     expect(mock.requests.some(request => chatMessages(request).some(message => message.role === 'tool' && message.content?.includes('scheduledAt')))).toBe(true)
     await page.close()
     // Poll the provider fixture only: no browser/HTTP request may wake the DO.
-    await expect.poll(() => mock.requests.filter(request => chatMessages(request).some(message => message.role === 'user' && typeof message.content === 'string' && message.content.startsWith('[SCHEDULE REMINDER]'))).length, { timeout: (delay + 30) * 1000 }).toBe(1)
+    await expect.poll(() => mock.requests.filter(request => chatMessages(request).some(message => message.role === 'user' && typeof message.content === 'string' && message.content.startsWith('[SCHEDULE REMINDER'))).length, { timeout: (delay + 30) * 1000 }).toBe(1)
     const restored = await context.newPage()
     await restored.goto(origin)
     try {
@@ -58,10 +58,11 @@ it('wakes a cold session for a durable reminder without a browser connection', a
       await restored.getByText('schedule-delivered', { exact: true }).first().waitFor({ timeout: 30_000 })
       // Upstream's task page lists the delivered one-shot as ended and shows the delivery it made.
       await restored.getByText('Automation tasks', { exact: true }).first().click()
+      await restored.getByRole('button', { name: 'Ended', exact: true }).click()
       const task = restored.getByText('Fixture reminder', { exact: true }).first()
       await task.waitFor({ timeout: 30_000 })
-      // The row's status reads "Inactive · Once" across separate text nodes; the filter tab is a button.
-      await restored.getByText('Inactive', { exact: true }).and(restored.locator(':not(button)')).first().waitFor({ timeout: 30_000 })
+      // The new task page defaults to active tasks; select ended tasks after delivery.
+      await restored.getByText('Ended', { exact: true }).and(restored.locator(':not(button)')).first().waitFor({ timeout: 30_000 })
       await task.click()
       await restored.getByRole('tab', { name: 'Records', exact: true }).click()
       // The hidden Rules tab also holds the prompt; the Records tab shows it for the delivery.

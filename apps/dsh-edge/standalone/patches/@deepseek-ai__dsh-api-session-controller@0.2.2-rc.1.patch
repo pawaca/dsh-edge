@@ -1,5 +1,5 @@
 diff --git a/lib/index.js b/lib/index.js
-index 730b8a4..4317086 100644
+index 1ed54d7..2b83c29 100644
 --- a/lib/index.js
 +++ b/lib/index.js
 @@ -8,7 +8,6 @@ import { Remote, RemoteError, TypertRemoteService, principalOf, remoteErrorOf }
@@ -9,8 +9,8 @@ index 730b8a4..4317086 100644
 -import { mkdir } from "node:fs/promises";
  import { installModelSelection } from "@deepseek-ai/dsh-agent";
  import { brandString } from "@deepseek-ai/dsh-brand";
- import { credentialRef } from "@deepseek-ai/dsh-credentials";
-@@ -509,11 +508,6 @@ var ApiSessionAgentController = class {
+ import { SessionQueryError } from "@deepseek-ai/dsh-session-query";
+@@ -422,11 +421,6 @@ var ApiSessionAgentController = class {
  		return this.createAgent(brandString(`session-${randomUUID()}`), cwd, composition);
  	}
  	async createAgent(sessionId, cwd, composition) {
@@ -22,30 +22,46 @@ index 730b8a4..4317086 100644
  		return (await this.ctx.agents.create({
  			sessionId,
  			agentOptions: this.agentOptions(),
-@@ -2965,7 +2959,8 @@ let SessionController = (() => {
- 				await Promise.allSettled([...this.promotions]);
- 			}, "session-controller.promotions");
- 			this.history = new SessionHistoryController(ctx, (observation) => {
+@@ -3782,6 +3776,7 @@ let SessionController = (() => {
+ 		canOpenPath;
+ 		listWorkSliceMs;
+ 		promotions = /* @__PURE__ */ new Set();
++		activateOnFollow;
+ 		/**
+ 		* @param ctx - Host context containing the Session capability assembly.
+ 		* @param config - native-opener and list-scheduling deployment policy.
+@@ -3790,6 +3785,7 @@ let SessionController = (() => {
+ 		constructor(ctx, config, internals = {}) {
+ 			super(ctx, "sessionController", { namespace: "session" });
+ 			this.listWorkSliceMs = SessionController.Config(config).listWorkSliceMs;
++			this.activateOnFollow = internals.activateOnFollow !== false;
+ 			this.fileApplications = internals.fileApplications ?? nativeFileApplications;
+ 			this.openFileApplication = internals.openFileApplication ?? openNativeFileApplication;
+ 			this.openPath = internals.openPath ?? openNativeAssociatedPath;
+@@ -3814,7 +3810,8 @@ let SessionController = (() => {
+ 			this.historyController = new HistoryController(ctx);
+ 			this.stateController = new StateController(ctx, this.historyController);
+ 			this.webController = new WebController(ctx, this.historyController, (observation) => {
 -				this.promote(observation);
-+				if (internals.activateOnFollow === false) observation[Symbol.dispose]();
++				if (!this.activateOnFollow) observation[Symbol.dispose]();
 +				else this.promote(observation);
  			});
- 			this.listState = new ApiSessionList(ctx, resolved.listWorkSliceMs);
- 			this.fileApplications = internals.fileApplications ?? nativeFileApplications;
-@@ -2981,7 +2976,7 @@ let SessionController = (() => {
+ 			this.listState = new ApiSessionList(ctx, this.listWorkSliceMs);
+ 			await this.listState.initialize();
+@@ -3826,7 +3823,7 @@ let SessionController = (() => {
  				ctx.emit("api-session/added", this.listState.summaryFor(session));
  			});
  			ctx.on("session/disposed", (session) => {
 -				ctx.emit("api-session/removed", session.id);
-+				if (internals.activateOnFollow !== false) ctx.emit("api-session/removed", session.id);
++				if (this.activateOnFollow) ctx.emit("api-session/removed", session.id);
  			});
  			const publishAgentAvailability = ({ agent }) => {
  				if (ctx.sessions.get(agent.id) === agent.session) ctx.emit("api-session/added", this.listState.summaryFor(agent.session));
 diff --git a/lib/types/index.d.ts b/lib/types/index.d.ts
-index 08bb851..bc4b50e 100644
+index 1e50016..c1eaa42 100644
 --- a/lib/types/index.d.ts
 +++ b/lib/types/index.d.ts
-@@ -31,6 +31,8 @@ type ResolvedConfig = Config & {
+@@ -29,6 +29,8 @@ type ResolvedConfig = Config & {
  };
  /** Host integrations replaceable by direct unit tests. */
  export interface SessionControllerInternals {

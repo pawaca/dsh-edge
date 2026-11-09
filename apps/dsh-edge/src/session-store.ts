@@ -1,5 +1,8 @@
 /** Canonical DSH sessions backed by the upstream persistence service. */
 
+import { MarkdownCopyBudget } from './edge-markdown-copy.ts'
+import { EdgeToolResults } from './edge-tool-results.ts'
+
 import { EdgeSchedule } from './schedule-store.ts'
 import { Context, Service as CordisService } from '@deepseek-ai/cordis'
 import { installShortToolPool } from './short-tool-pool.ts'
@@ -7,16 +10,16 @@ import Storage from '@deepseek-ai/dsh-storage'
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
 import WorkspaceRegistry from '@deepseek-ai/dsh-workspace'
 import { DurableObjectStorageBackend } from './do-storage-backend.ts'
+import * as ToolExecutorNative from '@deepseek-ai/dsh-tool-executor-native'
+import * as DeliverableFileReferences from '@deepseek-ai/dsh-deliverable-file-references'
 import AgentRegistry, {
   installModelSelection,
   type Agent,
   type AgentHandle,
   type ModelSelection,
-  type ModelSelectionRef,
 } from '@deepseek-ai/dsh-agent'
 import type {
   AttachmentStore,
-  FileAttachmentRef,
   ImageAttachmentLimits,
   ImageAttachmentRef,
 } from '@deepseek-ai/dsh-attachment'
@@ -105,7 +108,7 @@ import * as TimeContext from '@deepseek-ai/dsh-time-context'
 import * as ToolSchedule from '@deepseek-ai/dsh-tool-schedule'
 import type { PeerScope } from '@deepseek-ai/dsh-typert-protocol'
 import { EdgeTypertConnection, type TypertRpcInterceptor } from './edge-typert-connection.ts'
-import type { FileUploadReceiptId, PromptFileBinding } from '@deepseek-ai/dsh-client-file-upload'
+import type { FileUploadReceiptId, PromptFileBinding, StagedAttachment } from '@deepseek-ai/dsh-client-file-upload'
 import { EdgeFileUploads } from './edge-file-uploads.ts'
 import SessionReferenceResolver from '@deepseek-ai/dsh-session-reference'
 import { EdgeFileSystem } from './edge-filesystem.ts'
@@ -350,6 +353,7 @@ export class EdgeSessionCwdConflictError extends Error {
 const GOAL_ROUND_START_WAIT_MS = 30_000
 
 export class EdgeSessionStore {
+  private readonly markdownCopies = new MarkdownCopyBudget()
   private readonly context = new Context()
   private readonly shells = new EdgeShellBindings()
   /**
@@ -404,22 +408,22 @@ export class EdgeSessionStore {
     await this.context.plugin(EdgeCredentialProvider, {
       storage,
       readDeepSeekApiKey: () => config.readDeepSeekApiKey(),
-    })
-    await this.context.plugin(EdgeSettings, { storage })
+    }).await()
+    await this.context.plugin(EdgeSettings, { storage }).await()
     await DurableObjectStorageBackend.migrateWorkspaceKeys(storage)
     await DurableObjectStorageBackend.repairEpoch0Timestamps(storage)
     const storageBackend = new DurableObjectStorageBackend(storage, {
       recordBounds: { [PROJECTION_CACHE_UNIT]: boundProjectionCacheRecord },
     })
-    await this.context.plugin(Storage)
+    await this.context.plugin(Storage).await()
     this.context.effect(() => {
       const dispose = this.context.storage.backend.register('durable-object', storageBackend)
       this.context.provide('storage.backend.durable-object', true)
       return () => { dispose(); this.context.provide('storage.backend.durable-object', undefined as never) }
     }, 'dsh-edge: storage backend')
-    await this.context.plugin(StorageDomain, { backend: 'durable-object' })
+    await this.context.plugin(StorageDomain, { backend: 'durable-object' }).await()
     registerClientSettings(this.context)
-    await this.context.plugin(LlmRuntime)
+    await this.context.plugin(LlmRuntime).await()
     try {
       const doUploadIndex = new DurableObjectUploadIndex(storage)
       ;(this.context as never as Record<string, unknown>)['edgeFileStore'] = new DeepSeekFileStore({ index: doUploadIndex as never })
@@ -433,32 +437,32 @@ export class EdgeSessionStore {
     } catch (error) {
       console.error('dsh-edge: the provider routes on the Models page failed to initialize; DeepSeek remains available.', error)
     }
-    await this.context.plugin(SessionStore)
-    await this.context.plugin(SessionProjectionRegistry)
+    await this.context.plugin(SessionStore).await()
+    await this.context.plugin(SessionProjectionRegistry).await()
     // As upstream: whole-session counts and timings, which the Web chat view
     // reads from the session's projections.
-    await this.context.plugin(SessionStats)
+    await this.context.plugin(SessionStats).await()
     // As upstream: the turnOutline projection the Web chat view's turn list
     // reads. It grows with the session, so the storage backend keeps it out of
     // the persisted projection cache every start loads (edge-projection-cache.ts);
     // a loaded session folds it from its event log.
-    await this.context.plugin(SessionTurnOutline)
+    await this.context.plugin(SessionTurnOutline).await()
     await this.context.plugin(SessionProjectionCache, {
       writeEveryEvents: 64,
       writeIntervalMs: 10_000,
-    })
-    await this.context.plugin(TokenMeter)
-    await this.context.plugin(BasicCompactionEngine)
-    await this.context.plugin(ToolResultPruner)
+    }).await()
+    await this.context.plugin(TokenMeter).await()
+    await this.context.plugin(BasicCompactionEngine).await()
+    await this.context.plugin(ToolResultPruner).await()
     // As upstream: when a request's images exceed the route budget, mark the
     // oldest occurrences offloaded (an image/offload event) and retry, instead
     // of ending the turn with IMAGE_OFFLOAD_REQUIRED.
-    await this.context.plugin(ImageOffload)
+    await this.context.plugin(ImageOffload).await()
     await this.context.plugin(SessionTitleService, {
       fallbackMaxWords: 8,
       fallbackMaxBytes: MAX_TITLE_BYTES,
       maxTitleBytes: MAX_TITLE_BYTES,
-    })
+    }).await()
     await this.context.plugin(FirstPromptTitle, {
       targetWords: 6,
       targetCjkCharacters: 12,
@@ -467,12 +471,12 @@ export class EdgeSessionStore {
       timeoutMs: 10_000,
       provider: EDGE_PROVIDER,
       model: DEFAULT_EDGE_MODEL,
-    })
+    }).await()
     await this.context.plugin(SystemPrompt, {
       includeHarnessIdentity: false,
       personaPrefix: edgeSystemPrompt(config.shell),
       personaSuffix: EDGE_PERSONA_SUFFIX,
-    })
+    }).await()
     this.context.systemPrompt.section({
       name: 'tool:bash',
       order: this.context.systemPrompt.getSectionOrder('TOOL_BASH'),
@@ -485,37 +489,36 @@ export class EdgeSessionStore {
         text: EDGE_CONTAINER_WEB_GUIDANCE,
       })
     }
-    await this.context.plugin(EdgeVfsSpillStore)
-    await this.context.plugin(EdgeFileSystem)
+    await this.context.plugin(EdgeVfsSpillStore).await()
+    await this.context.plugin(EdgeFileSystem).await()
     // As in upstream's base bundle, ahead of the file tools so it decides the
     // fs/* intents first: write may not overwrite a file this session has not
     // read, edit requires a prior read, and a file changed since it was read
     // (by bash or the Linux container, for example) fails as stale.
-    await this.context.plugin(FsObservationPolicy)
+    await this.context.plugin(FsObservationPolicy).await()
     // Tools are presented natively; the PTC mode preset opts one session into
     // `run_code`, whose nested calls stay below the Workers six-connection limit.
-    await this.context.plugin(ToolRuntime, config.workerLoader === undefined
-      ? {}
-      : { maxParallelSubCalls: 4 })
+    await this.context.plugin(ToolRuntime).await()
+    await this.context.plugin(ToolExecutorNative).await()
     // As in upstream's base bundle: remind the model after 3, 5, and 8 identical
     // consecutive tool calls; a new user message resets the count.
-    await this.context.plugin(RepeatToolReminder)
-    await this.context.plugin(SkillRegistry)
-    await this.context.plugin(EdgeSkillProvider, { storage })
+    await this.context.plugin(RepeatToolReminder).await()
+    await this.context.plugin(SkillRegistry).await()
+    await this.context.plugin(EdgeSkillProvider, { storage }).await()
     // As upstream dsh-skill-filesystem: SKILL.md files under the project's
     // .dsh/skills and .agents/skills and the user roots /.dsh/skills and
     // /.agents/skills, read through the Computer workspace.
     await this.context.plugin(EdgeWorkspaceSkills, {
       withFiles: read => config.withWorkspaceFiles(read as never) as never,
       onRefresh: refresh => { this.refreshWorkspaceSkills = refresh },
-    })
-    await this.context.plugin(TypertRegistry)
+    }).await()
+    await this.context.plugin(TypertRegistry).await()
     // The gateway installs its Remote RPC interceptor on ctx.connection; the
     // Edge seam captures it so the Durable Object can serve `$events/result`.
-    await this.context.plugin(EdgeTypertConnection)
+    await this.context.plugin(EdgeTypertConnection).await()
     // The gateway injects `remoteAccess` and does not start without it. The one
     // owner Peer is never checked, so the Edge registers no non-owner policy.
-    await this.context.plugin(RemoteAccess)
+    await this.context.plugin(RemoteAccess).await()
     // The Web shell's access face follows `remoteAccess/follow` after the
     // static baseline; the owner's stream sends one owner snapshot and stays open.
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
@@ -524,22 +527,22 @@ export class EdgeSessionStore {
     )
     this.context.typert.register(REMOTE_ACCESS_TYPERT as never)
     const { TypertGatewayService } = await import('@deepseek-ai/dsh-api-gateway')
-    await this.context.plugin(TypertGatewayService)
-    // AgentRegistry has zero inject deps — register early so SessionController
+    await this.context.plugin(TypertGatewayService).await()
+    // AgentRegistry now uses the initialized projection registry; register before SessionController
     // finds ctx.agents when it activates.
-    await this.context.plugin(AgentRegistry)
+    await this.context.plugin(AgentRegistry).await()
     // As in upstream's base bundle: retry a transient model-request failure
     // (rate limit, server, timeout, transport, empty response) at the failed
     // step, durably logged before each backoff. The DeepSeek provider's
     // default normal-mode policy applies: five retries, 0.5–10 s backoff.
-    await this.context.plugin(LlmRetry)
+    await this.context.plugin(LlmRetry).await()
     // As in upstream's base bundle: store the session log before each model
     // request, each top-level tool call, and each step, so a tool never runs
     // before its call is durable. Turn delivery alone flushes up to 100 ms later.
-    await this.context.plugin(SessionCheckpointPolicy)
+    await this.context.plugin(SessionCheckpointPolicy).await()
     // ctx.userQuestions: the upstream answerer waterfall tools and plan mode
     // ask through. The browser answers it over the forwarded `$events` stream.
-    await this.context.plugin(UserQuestionService)
+    await this.context.plugin(UserQuestionService).await()
     // A timed question's card claims its wait over `userQuestions/attachWait`;
     // once the countdown lets the agent continue, its answer arrives through
     // `userQuestions/answer`, which resumes a cold session like other
@@ -551,12 +554,12 @@ export class EdgeSessionStore {
     this.context.typert.register(USER_QUESTIONS_TYPERT as never)
     // Model-facing ask_user_question over that seam; registered globally in
     // ToolRuntime like the other upstream tools, so every Edge agent mounts it.
-    await this.context.plugin(ToolAskUser)
+    await this.context.plugin(ToolAskUser).await()
     // Upstream plan mode as-is: the logged `plan` projection, the plan:policy
     // prompt section, the exit_plan_mode tool whose review asks ctx.userQuestions,
     // and the /plan command once CommandRuntime composes below.
-    await this.context.plugin(PlanModeController, { section: EDGE_PLAN_MODE_SECTION })
-    await this.context.plugin(CommandRuntime)
+    await this.context.plugin(PlanModeController, { section: EDGE_PLAN_MODE_SECTION }).await()
+    await this.context.plugin(CommandRuntime).await()
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
     const { TYPERT: COMMANDS_TYPERT } = await import(
       '@deepseek-ai/dsh-commands/typert' as string
@@ -566,15 +569,15 @@ export class EdgeSessionStore {
     // which upstream bash passes to every command. Only declared keys are
     // collected, never the Worker's own environment; /.dsh is where the Edge
     // keeps user-global Harness files (/.dsh/AGENTS.md).
-    await this.context.plugin(ShellEnv, { dshHome: EDGE_DSH_HOME })
+    await this.context.plugin(ShellEnv, { dshHome: EDGE_DSH_HOME }).await()
     // Upstream's session log download: the /export command and the
     // /api/session.export route behind the Web session header's download item.
     // The route registers on the Edge connection seam; the Durable Object's
     // request handler dispatches it after the export size guard.
-    await this.context.plugin(SessionLogExport)
+    await this.context.plugin(SessionLogExport).await()
     // Upstream /feedback and the sessionFeedback Remote behind the Web session
     // feedback dialog; both append one log-only feedback/record event.
-    await this.context.plugin(CommandFeedback)
+    await this.context.plugin(CommandFeedback).await()
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
     const { TYPERT: COMMAND_FEEDBACK_TYPERT } = await import(
       '@deepseek-ai/dsh-command-feedback/typert' as string
@@ -585,7 +588,7 @@ export class EdgeSessionStore {
     await this.context.plugin(DurableObjectSessionPersistence, { storage }).await()
     await this.context.plugin(MessageFeedbackService, {
       maxNoteBytes: MAX_MESSAGE_FEEDBACK_NOTE_BYTES,
-    })
+    }).await()
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
     const { TYPERT: MESSAGE_FEEDBACK_TYPERT } = await import(
       '@deepseek-ai/dsh-message-feedback/typert' as string
@@ -595,7 +598,7 @@ export class EdgeSessionStore {
       'dsh-kv:workspace:__global__',
     ))?.initialized === true
     try {
-      await this.context.plugin(WorkspaceRegistry)
+      await this.context.plugin(WorkspaceRegistry).await()
     } catch (error) {
       console.error('dsh-edge: WorkspaceRegistry failed to initialize.', error)
       throw error
@@ -619,7 +622,7 @@ export class EdgeSessionStore {
     this.context.typert.register(WORKSPACE_FILES_TYPERT as never)
     await workspaceFilesContext.plugin(WorkspaceFiles, {
       maxBytes: 1024 * 1024, maxFileBytes: 1024 * 1024, maxLines: 5000, maxEntries: 2000,
-    })
+    }).await()
     // Upstream file uploads as-is: the `fileUploads/upload` Remote, the
     // streaming /api/session/uploadFileBinary route on the connection seam, and
     // the per-session receipts a prompt's file parts resolve. The attachment
@@ -630,7 +633,7 @@ export class EdgeSessionStore {
     )
     this.context.typert.register(FILE_UPLOAD_TYPERT as never)
     // Receipts also persist in one Durable Object row each (edge-file-uploads.ts).
-    await this.context.plugin(EdgeFileUploads, { storage })
+    await this.context.plugin(EdgeFileUploads, { storage }).await()
     // All SessionController inject deps now available: agentDefaultModel,
     // agents, attachments, llm, sessions, sessionProjections, sessionQuery,
     // typert, workspaceRegistry. Controllers activate synchronously.
@@ -642,11 +645,11 @@ export class EdgeSessionStore {
     await this.context.plugin(EdgeAgentDefaultModel, {
       storage,
       selection: persistedSelection ?? defaultSelection,
-    })
-    await this.context.plugin(EdgeSessionQuery)
+    }).await()
+    await this.context.plugin(EdgeSessionQuery).await()
     // Upstream cross-session references consume ctx.sessionQuery as-is; the
     // registered TYPERT lets the gateway route sessionReferenceResolver/candidates.
-    await this.context.plugin(SessionReferenceResolver)
+    await this.context.plugin(SessionReferenceResolver).await()
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
     const { TYPERT: SESSION_REFERENCE_TYPERT } = await import(
       '@deepseek-ai/dsh-session-reference/typert' as string
@@ -656,13 +659,13 @@ export class EdgeSessionStore {
     // the same seam from the Computer VFS so fileReferences/list answers.
     await this.context.plugin(EdgeFileReferenceService, {
       withFiles: read => config.withWorkspaceFiles(read),
-    })
-    await this.context.plugin(EdgeAgentPresets, { codeRuntime: config.workerLoader !== undefined })
+    }).await()
+    await this.context.plugin(EdgeAgentPresets, { codeRuntime: config.workerLoader !== undefined }).await()
     // Upstream plugin inventory injects the cordis Loader. The Edge composes
     // programmatically, so EdgeLoader answers its read-only entries() from the
     // live plugin registry and the reviewed Web boot graph.
-    await this.context.plugin(EdgeLoader)
-    await this.context.plugin(PluginInventoryGateway)
+    await this.context.plugin(EdgeLoader).await()
+    await this.context.plugin(PluginInventoryGateway).await()
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
     const { TYPERT: PLUGIN_INVENTORY_TYPERT } = await import(
       '@deepseek-ai/dsh-host-plugin-inventory/typert' as string
@@ -674,7 +677,7 @@ export class EdgeSessionStore {
     const agentPresetSchema = {
       parse: (value: unknown): string | null => (typeof value === 'string' ? value : null),
     }
-    this.context.sessionProjections.register({
+    await this.context.sessionProjections.register({
       key: 'agentPreset',
       stateSchema: agentPresetSchema,
       init: (header: SessionHeader) => header.agentPreset ?? null,
@@ -723,7 +726,7 @@ export class EdgeSessionStore {
         super(ctx, config, internals as never)
       }
     }
-    await this.context.plugin(EdgeSessionController, { nativeOpen: false })
+    await this.context.plugin(EdgeSessionController, { nativeOpen: false }).await()
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
     const { TYPERT: SETTINGS_CONTROLLER_TYPERT } = await import(
       '@deepseek-ai/dsh-api-settings-controller/typert' as string
@@ -737,7 +740,7 @@ export class EdgeSessionStore {
         return { ...super.describe(), hasDocument: false }
       }
     }
-    await this.context.plugin(EdgeSettingsController)
+    await this.context.plugin(EdgeSettingsController).await()
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
     const { TYPERT: WORKSPACE_CONTROLLER_TYPERT } = await import(
       '@deepseek-ai/dsh-api-workspace-controller/typert' as string
@@ -748,14 +751,14 @@ export class EdgeSessionStore {
     // directoryPicker inject resolves and the Web browse dialog answers.
     await this.context.plugin(EdgeDirectoryPicker, {
       withFiles: run => config.withWorkspaceFiles(run),
-    })
+    }).await()
     const { WorkspaceController } = await import('@deepseek-ai/dsh-api-workspace-controller')
-    await this.context.plugin(WorkspaceController)
+    await this.context.plugin(WorkspaceController).await()
     // Upstream forwarded-event selection: api-session notifications plus the
     // Agent-scoped `user-questions/request` waterfall reach browser `$events`
     // streams through the gateway's own pending-event bookkeeping.
-    await this.context.plugin(ApiRemotes)
-    await this.context.plugin(ApprovalService, { policy: 'ask' })
+    await this.context.plugin(ApiRemotes).await()
+    await this.context.plugin(ApprovalService, { policy: 'ask' }).await()
     // Upstream runtime context becomes a durable user-role snapshot whenever
     // it changes. Next to upstream's approval policy and, in a child's own
     // scope, its fixed delegation statement, Edge adds the current date, which
@@ -769,7 +772,7 @@ export class EdgeSessionStore {
     })
     // Upstream's shared resource tools; the MCP manager registers each server
     // whose probe saw the resources capability, and the tools exist while one is.
-    await this.context.plugin(McpResourceRuntime)
+    await this.context.plugin(McpResourceRuntime).await()
     this.mcpToolManager = installEdgeMcpServers(this.context, storage)
     this.approvalScope = installEdgeApprovalPolicy(this.context, {
       resolveMcpPolicy: name => this.mcpToolManager!.resolveToolPolicy(name),
@@ -790,50 +793,51 @@ export class EdgeSessionStore {
     // event, the current directory in the model's user context, and the
     // directory every file tool resolves against. The fallback is the Edge's
     // workspace root, since a Worker has no process directory.
-    await this.context.plugin(WorkingDirectory, { defaultDirectory: '/workspace' })
-    await this.context.plugin(ToolWorkingDirectory)
-    await this.context.plugin(ToolFs)
+    await this.context.plugin(WorkingDirectory, { defaultDirectory: '/workspace' }).await()
+    await this.context.plugin(ToolWorkingDirectory).await()
+    await this.context.plugin(ToolFs).await()
     // Upstream's changed-files card: each top-level turn's file-tool edits,
     // copied whole into the VFS around the edit (no git; edge-workspace-changes.ts).
     await this.context.plugin(EdgeWorkspaceChanges, {
       withFiles: run => config.withWorkspaceFiles(run as never) as never,
-    })
+    }).await()
     // The deliverables host half registers the present and changes routes on
     // the connection seam and the file-reference guidance in the system prompt.
     // Its sandbox policy is the read-only workspace root the file-read
     // controller already uses.
-    await workspaceFilesContext.plugin(Deliverables)
+    await workspaceFilesContext.plugin(Deliverables).await()
+    await workspaceFilesContext.plugin(DeliverableFileReferences).await()
     // Upstream's glob and grep, run over the workspace VFS: Workers cannot
     // spawn the ripgrep binary dsh-tool-fs-search needs.
-    await this.context.plugin(EdgeFsSearch)
-    await this.context.plugin(ToolSkill)
-    await this.context.plugin(GoalService)
+    await this.context.plugin(EdgeFsSearch).await()
+    await this.context.plugin(ToolSkill).await()
+    await this.context.plugin(GoalService).await()
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
     const { TYPERT: GOAL_TYPERT } = await import('@deepseek-ai/dsh-goal/typert' as string)
     this.context.typert.register(GOAL_TYPERT as never)
-    await this.context.plugin(ToolGoal)
+    await this.context.plugin(ToolGoal).await()
     // As upstream: `todo_write` keeps the session's task list; its `todos`
     // projection drives the Web client's todo dock. Several tasks may be in
     // progress, as in upstream's composition, since subagents, background
     // commands, and workflows run work in parallel.
-    await this.context.plugin(ToolTodo, { allowParallelInProgress: true })
+    await this.context.plugin(ToolTodo, { allowParallelInProgress: true }).await()
     // As upstream: `present` declares workspace files as the turn's deliverables,
     // which the Web client lists in its deliverables panel.
-    await this.context.plugin(ToolPresent)
+    await this.context.plugin(ToolPresent).await()
     // As upstream: load the AGENTS.md / CLAUDE.md chain from the project root
     // to the session cwd through ctx.fs (the workspace VFS), and follow file
     // tool touches into nested directories.
     pinHarnessHomes()
-    await this.context.plugin(AgentInstructions, { maxBytes: 65_536 })
-    await this.context.plugin(GoalRoundDriver)
+    await this.context.plugin(AgentInstructions, { maxBytes: 65_536 }).await()
+    await this.context.plugin(GoalRoundDriver).await()
     if (config.isStopRequested !== undefined) this.disarmGoalsArmedWhileStopping(config.isStopRequested)
     // As upstream: /compact compacts the session's history now; /goal shows,
     // sets, edits, pauses, resumes, or clears the session's goal. A command
     // that arms a goal runs inside a turn, so its rounds do too (instance.ts).
-    await this.context.plugin(CommandCompact)
-    await this.context.plugin(CommandGoal)
+    await this.context.plugin(CommandCompact).await()
+    await this.context.plugin(CommandGoal).await()
     // Upstream estimates 4 bytes per token (50,000 bytes became 12,500 tokens); keep the Edge's 32 KiB budget.
-    await this.context.plugin(SpillPolicy, { maxInlineTokens: 8_192 })
+    await this.context.plugin(SpillPolicy, { maxInlineTokens: 8_192 }).await()
     await installEdgeWebSearch(this.context, config.searchBaseURL)
     // The agent loop's parallel tool-call cap is editable on its settings card.
     await mountAgentLoop(this.context)
@@ -843,7 +847,7 @@ export class EdgeSessionStore {
       const { default: LocalJobRegistry } = await import(
         '@deepseek-ai/dsh-jobs-local' as string
       )
-      await this.context.plugin(LocalJobRegistry, { maxConcurrentJobsPerOwner: 3 })
+      await this.context.plugin(LocalJobRegistry, { maxConcurrentJobsPerOwner: 3 }).await()
       // The Web jobs panel reads background jobs through the `job` Remote namespace.
       // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
       const { TYPERT: JOB_CONTROLLER_TYPERT } = await import(
@@ -851,14 +855,14 @@ export class EdgeSessionStore {
       )
       this.context.typert.register(JOB_CONTROLLER_TYPERT as never)
       const { default: JobController } = await import('@deepseek-ai/dsh-api-job-controller')
-      await this.context.plugin(JobController)
+      await this.context.plugin(JobController).await()
     }
     {
       // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
       const ToolJobs = await import(
         '@deepseek-ai/dsh-tool-jobs' as string
       )
-      await this.context.plugin(ToolJobs)
+      await this.context.plugin(ToolJobs).await()
     }
     {
       // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
@@ -879,12 +883,12 @@ export class EdgeSessionStore {
       const SpawnInProcess = await import(
         '@deepseek-ai/dsh-subagent-spawn-in-process' as string
       )
-      await this.context.plugin(SpawnInProcess, { providerName: 'spawn' })
+      await this.context.plugin(SpawnInProcess, { providerName: 'spawn' }).await()
       // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
       const ForkInProcess = await import(
         '@deepseek-ai/dsh-subagent-fork-in-process' as string
       )
-      await this.context.plugin(ForkInProcess, { providerName: 'fork' })
+      await this.context.plugin(ForkInProcess, { providerName: 'fork' }).await()
     }
     {
       // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
@@ -905,8 +909,9 @@ export class EdgeSessionStore {
       const composition = (this.context.get('agentPresets') as EdgeAgentPresets).compositionContext()
       await composition.plugin(ToolSubagent, {
         provider: 'spawn',
-        modelSelectionSettings: true,
-      })
+        modelSelection: true,
+        modelDiscovery: true,
+      }).await()
       // A second instance over the fork backend: its child starts from the
       // parent's completed turns instead of a standalone prompt, on the
       // parent's model. Each selecting instance registers its own
@@ -914,31 +919,26 @@ export class EdgeSessionStore {
       await composition.plugin(ToolSubagent, {
         provider: 'fork',
         toolName: 'subagent_fork',
-      })
+      }).await()
       // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
       const ToolSubagentControl = await import(
         '@deepseek-ai/dsh-tool-subagent-control' as string
       )
-      await this.context.plugin(ToolSubagentControl)
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-      const ListAgents = await import(
-        '@deepseek-ai/dsh-tool-subagent-control/list-agents' as string
-      )
-      await this.context.plugin(ListAgents)
+      await this.context.plugin(ToolSubagentControl).await()
     }
     if (config.workerLoader !== undefined) {
       // Provider-gated: each run executes in its own Dynamic Worker, so only
       // deployments with the Worker Loader binding offer the workflow tool.
       const { default: EdgeWorkflowEngine, WORKFLOW_MAX_TOTAL_AGENTS } = await import('./edge-workflow-engine.ts')
-      await this.context.plugin(EdgeWorkflowEngine, { loader: config.workerLoader } as never)
+      await this.context.plugin(EdgeWorkflowEngine, { loader: config.workerLoader } as never).await()
       // The executor behind `run_code`; ToolRuntime reads ctx.ptcRuntime lazily.
       const { default: EdgeCodeRuntime } = await import('./edge-code-runtime.ts')
-      await this.context.plugin(EdgeCodeRuntime, { loader: config.workerLoader } as never)
+      await this.context.plugin(EdgeCodeRuntime, { loader: config.workerLoader } as never).await()
       // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
       const ToolWorkflow = await import(
         '@deepseek-ai/dsh-tool-workflow' as string
       )
-      await this.context.plugin(ToolWorkflow)
+      await this.context.plugin(ToolWorkflow).await()
       // Ralph runs its fixed loop on the same engine, one child per round, and
       // passes its round cap as the run's total-agent cap; upstream's default
       // of 256 rounds is above the engine ceiling and would fail every call.
@@ -946,9 +946,9 @@ export class EdgeSessionStore {
       const ToolRalph = await import(
         '@deepseek-ai/dsh-tool-ralph' as string
       )
-      await this.context.plugin(ToolRalph, { maxRounds: WORKFLOW_MAX_TOTAL_AGENTS })
+      await this.context.plugin(ToolRalph, { maxRounds: WORKFLOW_MAX_TOTAL_AGENTS }).await()
     }
-    await this.context.plugin(EdgeSchedule, { storage })
+    await this.context.plugin(EdgeSchedule, { storage }).await()
     // Upstream's `schedule` Remote namespace (catalog, list, update, delete,
     // history) behind the Web task page and session reminder catalog, served by
     // EdgeSchedule under the same service key.
@@ -957,10 +957,14 @@ export class EdgeSessionStore {
       '@deepseek-ai/dsh-schedule/typert' as string
     )
     this.context.typert.register(SCHEDULE_TYPERT as never)
+    await this.context.plugin(EdgeToolResults).await()
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    const { TYPERT: TOOL_RESULTS_TYPERT } = await import('@deepseek-ai/dsh-client-ui-trajectory/typert' as string)
+    this.context.typert.register(TOOL_RESULTS_TYPERT as never)
     // As upstream's standard presets: the reminder tools, and the clock the
     // model reads reminders against. Subagents are refused by the tools.
-    await this.context.plugin(TimeContext)
-    await this.context.plugin(ToolSchedule)
+    await this.context.plugin(TimeContext).await()
+    await this.context.plugin(ToolSchedule).await()
     this.context.on('agent/created', ({ agent }) => {
       if (this.context.agents.roots().includes(agent)) return
       const parentId = agent.session.header.parentSession
@@ -1141,7 +1145,7 @@ export class EdgeSessionStore {
   projectionSnapshot(sessionId: SessionId): { asOfSeq: number; values: Record<string, unknown> } | undefined {
     const agent = this.context.agents.get(sessionId)
     if (agent === undefined) return undefined
-    return this.context.sessionProjections.snapshot(agent.session)
+    return this.context.sessionProjections.snapshot(agent.session, this.context.sessionProjections.summaryKeys())
   }
 
   /** Tell the Web clients that reminders were delivered (the alarm's dispatch writes the task set directly). */
@@ -1199,13 +1203,48 @@ export class EdgeSessionStore {
     }, sessionId, includeDescendants, signal)
   }
 
+  /** Bounded copy: preflight each stored row before decoding, then cap the
+   * decoded snapshot and rendered UTF-8. No history aggregate or Agent activation.
+   * The 4 MiB input + 2,048 events bounds formatter expansion; 4 MiB output.
+   */
+  exportSessionMarkdown(id: SessionId, signal: AbortSignal): Promise<Response> {
+    return this.markdownCopies.run(signal, deadline => this.renderSessionMarkdown(id, deadline))
+  }
+
+  private async renderSessionMarkdown(id: SessionId, signal: AbortSignal): Promise<Response> {
+    const { persistence } = await this.services()
+    if (!(persistence instanceof DurableObjectSessionPersistence)) return new Response('Markdown copy unavailable', { status: 503 })
+    const tooLarge = () => new Response('Session is too large to copy as Markdown (4 MiB / 2048 events). Use Download session logs for the streaming export.', { status: 413 })
+    signal.throwIfAborted()
+    const live = this.context.sessions.get(id)
+    if (live !== undefined) await this.context.sessions.flush(live)
+    signal.throwIfAborted()
+    if (!persistence.hasSession(id)) {
+      if (persistence.readBlankSession(id) === undefined) return new Response('session not found', { status: 404 })
+      return new Response(SessionLogExport.formatSessionMarkdown([]), { headers: { 'content-type': 'text/markdown; charset=utf-8' } })
+    }
+    const page = await persistence.readEventPage(id, 0, 2048, 4 * 1024 * 1024, signal, { preflight: true })
+    if (page.hasMore) return tooLarge()
+    let bytes = 0
+    const encoder = new TextEncoder()
+    for (const event of page.events) {
+      signal.throwIfAborted()
+      bytes += encoder.encode(JSON.stringify(event)).byteLength
+      if (bytes > 4 * 1024 * 1024) return tooLarge()
+    }
+    const text = SessionLogExport.formatSessionMarkdown(page.events)
+    signal.throwIfAborted()
+    if (encoder.encode(text).byteLength > 4 * 1024 * 1024) return tooLarge()
+    return new Response(text, { headers: { 'content-type': 'text/markdown; charset=utf-8' } })
+  }
+
   projectionCachedSnapshot(summary: { id: SessionId; header: SessionHeader }): { asOfSeq: number; values: Record<string, unknown> } | undefined {
     const cache = this.context.get('sessionProjectionCache') as SessionProjectionCache | undefined
     if (cache === undefined) return undefined
     // The cache matches a record to its session by the header's lifecycle
     // identity (format version, creation, cwd, seeding), so it needs the whole
     // stored header; a partial one never matches a cold session.
-    return cache.cachedSnapshot(this.context.sessions.get(summary.id)?.header ?? summary.header)
+    return cache.cachedSnapshot(this.context.sessions.get(summary.id)?.header ?? summary.header, this.context.sessionProjections.summaryKeys())
   }
 
 
@@ -1223,13 +1262,13 @@ export class EdgeSessionStore {
     sessionId: SessionId,
     receiptIds: readonly string[],
     requestId: string,
-  ): { readonly files: readonly FileAttachmentRef[]; readonly binding: PromptFileBinding } | undefined {
+  ): { readonly files: readonly StagedAttachment[]; readonly binding: PromptFileBinding } | undefined {
     const agent = this.liveAgent(sessionId)
     const uploads = this.context.get('fileUploads') as EdgeFileUploads | undefined
     if (uploads === undefined) return undefined
     // A cold session's receipts are read from their Durable Object rows.
     if (agent === undefined) return uploads.bindStoredPrompt(sessionId, receiptIds, requestId)
-    const files: FileAttachmentRef[] = []
+    const files: StagedAttachment[] = []
     for (const receiptId of receiptIds) {
       const file = uploads.resolve(agent, receiptId as FileUploadReceiptId)
       if (file === undefined) return undefined
@@ -1912,7 +1951,7 @@ export class EdgeSessionStore {
         cwd: input.cwd ?? '/workspace',
         agentPreset: (this.context.get('agentPresets') as EdgeAgentPresets).defaultPreset(),
       },
-      agentOptions: { provider: EDGE_PROVIDER, model: DEFAULT_EDGE_MODEL },
+      agentOptions: this.defaultModelSelection(),
       setup: (agentCtx, agent) => this.composeAgent(agentCtx, agent),
     })
     const { agent } = handle
@@ -2247,7 +2286,7 @@ export class EdgeSessionStore {
     header: SessionHeader,
     events: readonly SessionEvent[],
     atSeq: number | undefined,
-    model: string,
+    _model: string,
   ): Promise<EdgeApiSessionSummary> {
     const boundary = forkBoundary(id, events, atSeq)
     const seed = buildForkSeed(events as SessionEvent[], SessionSeq(boundary))
@@ -2259,11 +2298,10 @@ export class EdgeSessionStore {
       inheritedEventCount: SessionLogOffset(boundary + 1),
       meta: {
         ...header.cwd === undefined ? {} : { cwd: header.cwd },
-        parentSession: id,
         isSeeded: true,
         agentPreset: sessionAgentPreset(header),
       },
-      agentOptions: { provider: EDGE_PROVIDER, model },
+      agentOptions: this.defaultModelSelection(),
       setup: (agentCtx, agent) => this.composeAgent(agentCtx, agent),
     })
     try {
@@ -2330,7 +2368,7 @@ export class EdgeSessionStore {
    * first access within this DO activation. The agent stays alive across
    * turns in idle phase; only session deletion or DO shutdown disposes it.
    */
-  async getOrResumeAgent(id: SessionId, model: string): Promise<AgentHandle> {
+  async getOrResumeAgent(id: SessionId, _model: string): Promise<AgentHandle> {
     const cached = this.residentAgents.get(id)
     if (cached !== undefined) {
       await this.loadModelSelection(id)
@@ -2353,7 +2391,7 @@ export class EdgeSessionStore {
     }
     const handle = await agents.resume({
       resumeSessionId: id,
-      agentOptions: { provider: EDGE_PROVIDER, model },
+      agentOptions: this.defaultModelSelection(),
       setup: (agentCtx, agent) => this.composeAgent(agentCtx, agent),
     })
     try {
@@ -2483,25 +2521,12 @@ export class EdgeSessionStore {
 
   /** Mount the upstream per-agent selection seam before the Agent is published. */
   private installAgentModelSelection(agentCtx: Context, agent: Agent): void {
-    let assembled: ModelSelection | undefined
-    const selections = this.modelSelections
-    const defaultSelection = () => this.defaultModelSelection()
-    const selection: ModelSelectionRef = {
-      get current() {
-        return selections.current(agent.id)
-          ?? loggedModelSelection(agent.session.requestHeader()?.config, defaultSelection())
-      },
-      set current(next) {
-        selections.setCurrent(agent.id, next)
-      },
-      get assembled() {
-        return assembled
-      },
-      set assembled(next) {
-        assembled = next
-      },
-    }
-    installModelSelection(agentCtx, selection)
+    installModelSelection(agentCtx)
+    // A pre-upgrade pending choice may exist only in Edge KV. Project it into
+    // the Agent's canonical selection before its first step; retain the KV
+    // until a matching request header is durable.
+    const pending = this.modelSelections.current(agent.id)
+    if (pending !== undefined) agent.model.select(pending)
   }
 
   /** Hydrate the process cache from Durable Object KV after hibernation. */
@@ -2513,24 +2538,7 @@ export class EdgeSessionStore {
   private agentPendingSelection(id: SessionId): ModelSelection | undefined {
     const agent = this.context.agents.get(id)
     if (agent === undefined) return undefined
-    try {
-      const state = this.context.sessionProjections.stateOf(agent.session, 'modelSelection') as {
-        pending?: { provider?: unknown; model?: unknown; reasoningEffort?: unknown } | null
-      } | undefined
-      const pending = state?.pending
-      if (pending == null
-        || typeof pending.provider !== 'string'
-        || typeof pending.model !== 'string') return undefined
-      const selection: ModelSelection = { provider: pending.provider, model: pending.model }
-      return typeof pending.reasoningEffort === 'string'
-        ? {
-          ...selection,
-          reasoningEffort: pending.reasoningEffort as NonNullable<ModelSelection['reasoningEffort']>,
-        }
-        : selection
-    } catch {
-      return undefined
-    }
+    return agent.model.current()
   }
 
   /** Retire the Edge bridge after the matching upstream request header is durable. */

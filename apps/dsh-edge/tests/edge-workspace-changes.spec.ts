@@ -55,7 +55,7 @@ async function setup(options: { maxFileBytes?: number } = {}) {
   root.provide('fs')
   root.set('fs', { processPath: (target: { path: string }) => target.path })
   const memory = memoryFiles()
-  await root.plugin(EdgeWorkspaceChanges, { withFiles: run => run(memory.api), ...options })
+  await root.plugin(EdgeWorkspaceChanges, { withFiles: run => run(memory.api), ...options }).await()
   const exec = (session: FakeSession) => ({ agent: { session } })
   const emit = (name: string, ...args: unknown[]) => { (root.emit as unknown as (...rest: unknown[]) => void).call(root, name, ...args) }
   /** One turn: start, the file-tool writes (each applied after its capture), a tool result, then stop and end. */

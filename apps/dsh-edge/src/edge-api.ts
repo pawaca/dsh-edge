@@ -3,7 +3,7 @@
 import { MainQueueFullError } from './main-session-queue.ts'
 import {
   AttachmentError,
-  admitEncodedImages,
+  type AttachmentAdmissionPart,
   type ImageAttachmentRef,
   type ImageAttachmentLimits,
 } from '@deepseek-ai/dsh-attachment'
@@ -264,7 +264,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
             events: entries,
             hasMore: page.hasMore,
             ...beforeSeq === undefined
-              ? { projections: summaryProjections(page.summary, runtime.imageLimits, projectionSource(runtime, page.summary)) }
+              ? { projections: summaryProjections(page.summary, projectionSource(runtime, page.summary)) }
               : {},
           })
         } catch (error) {
@@ -388,7 +388,6 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
             details: { reason: 'PROMPT_TEXT_TOO_LARGE' },
           })
         }
-        const hasImage = content.some((part: PromptContentPart) => part.type === 'image')
         const admit = async (): Promise<RpcResponse<{ accepted: true }>> => {
           try {
             let contentDigest: string | undefined
@@ -411,13 +410,11 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
             }
             using binding = staged?.binding
             let nextFile = 0
-            const file = () => ({ type: 'file' as const, attachment: staged!.files[nextFile++]! })
+            const admission: AttachmentAdmissionPart[] = content.map((part: PromptContentPart) =>
+              part.type === 'file' ? staged!.files[nextFile++]! : part)
+            const hasImage = admission.some(part => part.type === 'image')
             let durable: ContentBlock[]
-            if (!hasImage) {
-              durable = content.map((part: PromptContentPart) => part.type === 'file'
-                ? file()
-                : { type: 'text' as const, text: (part as { text: string }).text })
-            } else {
+            if (hasImage) {
               const attachments = await runtime.sessions.attachmentStore()
               if (attachments === undefined) {
                 return fail(request, {
@@ -433,19 +430,11 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
                   details: { reason: 'MODEL_DOES_NOT_SUPPORT_IMAGES' },
                 })
               }
-              const refs = await admitEncodedImages(
-                attachments,
-                content.filter(
-                  (part: PromptContentPart): part is Extract<PromptContentPart, { type: 'image' }> =>
-                    part.type === 'image',
-                ),
-              )
-              let nextImage = 0
-              durable = content.map((part: PromptContentPart) => part.type === 'text'
-                ? { type: 'text', text: part.text }
-                : part.type === 'file'
-                  ? file()
-                  : { type: 'image', attachment: refs[nextImage++]! })
+              // The upstream seam counts encoded and pre-uploaded images
+              // together before storage and returns only durable references.
+              durable = await attachments.admitPromptContent(admission)
+            } else {
+              durable = admission as ContentBlock[]
             }
             await runtime.prompt({
               ...contentDigest === undefined ? {} : { contentDigest },
@@ -468,7 +457,7 @@ export function createEdgeApi(runtime: EdgeApiRuntime) {
             return sessionFailure(request, error, sessionId)
           }
         }
-        return hasImage ? serializeImageMutation(sessionId, admit) : admit()
+        return content.some(part => part.type === 'image' || part.type === 'file') ? serializeImageMutation(sessionId, admit) : admit()
       },
 
       async attachment(request: RpcRequest<SessionAttachmentPayload>): Promise<RpcResponse<{
@@ -971,7 +960,7 @@ function sessionSummary(
     ...summary.origin === undefined ? {} : { origin: summary.origin },
     ...summary.cwd === undefined ? {} : { cwd: summary.cwd },
     ...summary.agentPreset === undefined ? {} : { agentPreset: normalizeAgentPreset(summary.agentPreset) },
-    projections: summaryProjections(summary, runtime.imageLimits, source),
+    projections: summaryProjections(summary, source),
   }
 }
 
@@ -994,7 +983,6 @@ function projectionSource(runtime: EdgeApiRuntime, summary: EdgeApiSessionSummar
 
 function summaryProjections(
   summary: EdgeApiSessionSummary,
-  imageLimits: ImageAttachmentLimits | undefined,
   source: ProjectionSource,
 ): SessionProjectionHints {
   const registrySnapshot = source.snapshot?.values
@@ -1008,7 +996,6 @@ function summaryProjections(
         lastPromptAt: summary.lastPromptAt,
       },
       ...summary.title === null ? {} : { title: summary.title },
-      ...imageLimits === undefined ? {} : { imageLimits },
     } as SessionProjectionHints['values'],
   }
 }

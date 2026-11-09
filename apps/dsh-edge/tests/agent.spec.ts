@@ -1,3 +1,4 @@
+import * as NativeExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { Context, Service } from '@deepseek-ai/cordis'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
@@ -84,13 +85,15 @@ async function harness(
   seed: readonly SessionEvent[] = [],
 ) {
   const ctx = new Context()
-  await ctx.plugin(LlmRuntime)
-  await ctx.plugin(SessionStore)
-  await ctx.plugin(SystemPrompt, { personaPrefix: edgeSystemPrompt('just-bash-direct') })
-  await ctx.plugin(ToolRuntime)
-  await ctx.plugin(SessionProjectionRegistry)
-  await ctx.plugin(AgentRegistry)
-  await ctx.plugin(AgentLoop, { agents: [] })
+  await ctx.plugin(LlmRuntime).await()
+  await ctx.plugin(SessionStore).await()
+  await ctx.plugin(SystemPrompt, { personaPrefix: edgeSystemPrompt('just-bash-direct') }).await()
+  await ctx.plugin(ToolRuntime).await()
+  await ctx.plugin(NativeExecutor).await()
+  await ctx.plugin(SessionProjectionRegistry).await()
+
+  await ctx.plugin(AgentRegistry).await()
+  await ctx.plugin(AgentLoop, { agents: [] }).await()
 
   const adapter = new ScriptedAdapter(replies)
   const shells = new EdgeShellBindings()
@@ -532,30 +535,32 @@ class DirectoryOnlyFs extends Service {
 describe('dsh-edge subagent delegation', () => {
   async function subagentHarness(replies: readonly (readonly StreamChunk[])[], shell: EdgeShell) {
     const ctx = new Context()
-    await ctx.plugin(LlmRuntime)
-    await ctx.plugin(SessionStore)
-    await ctx.plugin(SystemPrompt, { personaPrefix: edgeSystemPrompt('just-bash-direct') })
-    await ctx.plugin(ToolRuntime)
-    await ctx.plugin(SessionProjectionRegistry)
-    await ctx.plugin(AgentRegistry)
-    await ctx.plugin(AgentLoop, { agents: [] })
-    await ctx.plugin(EdgeSettings, { storage: memoryStorage() })
-    await ctx.plugin(EdgeAgentPresets, { codeRuntime: false })
+    await ctx.plugin(LlmRuntime).await()
+    await ctx.plugin(SessionStore).await()
+    await ctx.plugin(SystemPrompt, { personaPrefix: edgeSystemPrompt('just-bash-direct') }).await()
+    await ctx.plugin(ToolRuntime).await()
+  await ctx.plugin(NativeExecutor).await()
+    await ctx.plugin(SessionProjectionRegistry).await()
 
-    await ctx.plugin(DirectoryOnlyFs)
-    await ctx.plugin(WorkingDirectory, { defaultDirectory: '/workspace' })
+  await ctx.plugin(AgentRegistry).await()
+    await ctx.plugin(AgentLoop, { agents: [] }).await()
+    await ctx.plugin(EdgeSettings, { storage: memoryStorage() }).await()
+    await ctx.plugin(EdgeAgentPresets, { codeRuntime: false }).await()
+
+    await ctx.plugin(DirectoryOnlyFs).await()
+    await ctx.plugin(WorkingDirectory, { defaultDirectory: '/workspace' }).await()
     // Every subagent is continuable: it needs stored sessions and the query that observes them cold.
     await ctx.plugin(DurableObjectSessionPersistence, { storage: new TestDurableObjectStorage() as never }).await()
-    await ctx.plugin(EdgeSessionQuery)
+    await ctx.plugin(EdgeSessionQuery).await()
     const { default: SubagentRuntime } = await import('@deepseek-ai/dsh-subagent')
-    await ctx.plugin(SubagentRuntime)
+    await ctx.plugin(SubagentRuntime).await()
     const SpawnInProcess = await import('@deepseek-ai/dsh-subagent-spawn-in-process')
-    await ctx.plugin(SpawnInProcess, { providerName: 'spawn' })
+    await ctx.plugin(SpawnInProcess, { providerName: 'spawn' }).await()
     const ToolSubagent = await import('@deepseek-ai/dsh-tool-subagent')
     await ctx.plugin(ToolSubagent, {
       provider: 'spawn',
       maxDepth: 1,
-    })
+    }).await()
 
     const adapter = new ScriptedAdapter(replies)
     const shells = new EdgeShellBindings()
@@ -678,35 +683,37 @@ describe('dsh-edge subagent delegation', () => {
 describe('dsh-edge background job registry', () => {
   async function bgHarness(replies: readonly (readonly StreamChunk[])[], shell: EdgeShell) {
     const ctx = new Context()
-    await ctx.plugin(LlmRuntime)
-    await ctx.plugin(SessionStore)
-    await ctx.plugin(SystemPrompt, { personaPrefix: edgeSystemPrompt('just-bash-direct') })
-    await ctx.plugin(ToolRuntime)
-    await ctx.plugin(SessionProjectionRegistry)
-    await ctx.plugin(AgentRegistry)
-    await ctx.plugin(AgentLoop, { agents: [] })
-    await ctx.plugin(EdgeSettings, { storage: memoryStorage() })
-    await ctx.plugin(EdgeAgentPresets, { codeRuntime: false })
+    await ctx.plugin(LlmRuntime).await()
+    await ctx.plugin(SessionStore).await()
+    await ctx.plugin(SystemPrompt, { personaPrefix: edgeSystemPrompt('just-bash-direct') }).await()
+    await ctx.plugin(ToolRuntime).await()
+  await ctx.plugin(NativeExecutor).await()
+    await ctx.plugin(SessionProjectionRegistry).await()
+
+  await ctx.plugin(AgentRegistry).await()
+    await ctx.plugin(AgentLoop, { agents: [] }).await()
+    await ctx.plugin(EdgeSettings, { storage: memoryStorage() }).await()
+    await ctx.plugin(EdgeAgentPresets, { codeRuntime: false }).await()
 
     const { default: LocalJobRegistry } = await import('@deepseek-ai/dsh-jobs-local')
-    await ctx.plugin(LocalJobRegistry, { maxConcurrentJobsPerOwner: 3 })
+    await ctx.plugin(LocalJobRegistry, { maxConcurrentJobsPerOwner: 3 }).await()
     const ToolJobs = await import('@deepseek-ai/dsh-tool-jobs')
-    await ctx.plugin(ToolJobs)
+    await ctx.plugin(ToolJobs).await()
 
-    await ctx.plugin(DirectoryOnlyFs)
-    await ctx.plugin(WorkingDirectory, { defaultDirectory: '/workspace' })
+    await ctx.plugin(DirectoryOnlyFs).await()
+    await ctx.plugin(WorkingDirectory, { defaultDirectory: '/workspace' }).await()
     // Every subagent is continuable: it needs stored sessions and the query that observes them cold.
     await ctx.plugin(DurableObjectSessionPersistence, { storage: new TestDurableObjectStorage() as never }).await()
-    await ctx.plugin(EdgeSessionQuery)
+    await ctx.plugin(EdgeSessionQuery).await()
     const { default: SubagentRuntime } = await import('@deepseek-ai/dsh-subagent')
-    await ctx.plugin(SubagentRuntime)
+    await ctx.plugin(SubagentRuntime).await()
     const SpawnInProcess = await import('@deepseek-ai/dsh-subagent-spawn-in-process')
-    await ctx.plugin(SpawnInProcess, { providerName: 'spawn' })
+    await ctx.plugin(SpawnInProcess, { providerName: 'spawn' }).await()
     const ToolSubagent = await import('@deepseek-ai/dsh-tool-subagent')
     await ctx.plugin(ToolSubagent, {
       provider: 'spawn',
       maxDepth: 1,
-    })
+    }).await()
 
     const adapter = new ScriptedAdapter(replies)
     const shells = new EdgeShellBindings()

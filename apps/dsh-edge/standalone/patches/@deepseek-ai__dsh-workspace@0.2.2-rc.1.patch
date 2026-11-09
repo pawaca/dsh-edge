@@ -1,5 +1,5 @@
 diff --git a/lib/index.js b/lib/index.js
-index 9e3936a..1a00d0e 100644
+index 323d5ac..3433713 100644
 --- a/lib/index.js
 +++ b/lib/index.js
 @@ -1,5 +1,4 @@
@@ -43,7 +43,7 @@ index 9e3936a..1a00d0e 100644
  		} catch {
  			return "missing-dir";
  		}
-@@ -405,7 +412,6 @@ var WorkspaceRegistry = class extends Service {
+@@ -407,7 +414,6 @@ var WorkspaceRegistry = class extends Service {
  	*/
  	async create(path, title) {
  		const canonical = await realpathNormalize(path);
@@ -51,7 +51,7 @@ index 9e3936a..1a00d0e 100644
  		return await this.enqueueOperation(() => this.createCanonical(canonical, title));
  	}
  	/**
-@@ -429,7 +435,6 @@ var WorkspaceRegistry = class extends Service {
+@@ -431,7 +437,6 @@ var WorkspaceRegistry = class extends Service {
  			if (state.workspaceIds.length > 0 || state.archivedSessionIds.length > 0 || sessions.list().length > 0 || (await this.listStoredHeaders()).length > 0) return void 0;
  			const path = await resolveDirectory();
  			if (!fullyQualifiedWorkspacePath(path)) throw new TypeError(`Workspace path is not fully qualified: '${path}'`);
@@ -59,7 +59,7 @@ index 9e3936a..1a00d0e 100644
  			const canonical = await realpathNormalize(path);
  			if ((await this.listStoredHeaders()).length > 0 || sessions.list().length > 0) return void 0;
  			return this.createCanonical(canonical, defaultWorkspaceTitle(path), true);
-@@ -878,7 +883,7 @@ var WorkspaceRegistry = class extends Service {
+@@ -882,7 +887,7 @@ var WorkspaceRegistry = class extends Service {
  		}
  		try {
  			const path = await realpathNormalize(header.cwd);

@@ -1,3 +1,4 @@
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import { Context } from '@deepseek-ai/cordis'
 import { SESSION_FORMAT_VERSION, SessionId, type SessionHeader } from '@deepseek-ai/dsh-session'
 import { describe, expect, it, vi } from 'vitest'
@@ -31,15 +32,16 @@ function memoryStorage(): DurableObjectStorage {
 
 async function edgePresets(codeRuntime: boolean, storage = memoryStorage()): Promise<EdgeAgentPresets> {
   const root = new Context()
-  await root.plugin(EdgeSettings, { storage })
-  await root.plugin(EdgeAgentPresets, { codeRuntime })
+  await root.plugin(SessionProjectionRegistry).await()
+  await root.plugin(EdgeSettings, { storage }).await()
+  await root.plugin(EdgeAgentPresets, { codeRuntime }).await()
   return root.get('agentPresets') as EdgeAgentPresets
 }
 
 function agentScope() {
   const presentAs = vi.fn(() => () => {})
   const restrict = vi.fn(() => () => {})
-  return { ctx: { tools: { presentAs, restrict } } as unknown as Context, presentAs, restrict }
+  return { ctx: { plugin: presentAs, tools: { restrict } } as unknown as Context, presentAs, restrict }
 }
 
 describe('Edge agent presets', () => {
@@ -68,9 +70,10 @@ describe('Edge agent presets', () => {
 
   it('starts new sessions on the default the Settings page writes, as upstream', async () => {
     const root = new Context()
+  await root.plugin(SessionProjectionRegistry).await()
     const storage = memoryStorage()
-    await root.plugin(EdgeSettings, { storage })
-    await root.plugin(EdgeAgentPresets, { codeRuntime: true })
+    await root.plugin(EdgeSettings, { storage }).await()
+    await root.plugin(EdgeAgentPresets, { codeRuntime: true }).await()
     const presets = root.get('agentPresets') as EdgeAgentPresets
     await root.settings.update(AGENT_PRESET_SETTINGS_NAMESPACE, { selectedDefault: PTC_AGENT_PRESET })
     expect(presets.defaultPreset()).toBe(PTC_AGENT_PRESET)
@@ -104,13 +107,13 @@ describe('Edge agent presets', () => {
     const presets = await edgePresets(true)
     const parent = agentScope()
     presets.join(parent.ctx, PTC_AGENT_PRESET)
-    expect(parent.presentAs).toHaveBeenCalledWith('ptc')
+    expect(parent.presentAs).toHaveBeenCalledWith(expect.objectContaining({ name: 'ptc-tool-executor' }), { maxParallelSubCalls: 4 })
     expect(parent.restrict).toHaveBeenCalledWith({ deny: ['workflow', 'ralph'] })
     expect(presets.composedPreset(parent.ctx)).toBe(PTC_AGENT_PRESET)
 
     const child = agentScope()
     presets.composeFrom(child.ctx, parent.ctx)
-    expect(child.presentAs).toHaveBeenCalledWith('ptc')
+    expect(child.presentAs).toHaveBeenCalledWith(expect.objectContaining({ name: 'ptc-tool-executor' }), { maxParallelSubCalls: 4 })
 
     const native = agentScope()
     presets.join(native.ctx, DEFAULT_AGENT_PRESET)

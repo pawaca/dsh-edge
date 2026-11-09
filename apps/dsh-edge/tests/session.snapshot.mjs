@@ -14,6 +14,16 @@ import { startMockDeepSeek } from './fixtures/mock-deepseek.mjs'
 const ACCESS_KEY = 'snapshot-owner-access-key-32-bytes'
 let ownerCookie
 
+// Keep Vitest's readable object format and the repository's final-newline rule.
+class SnapshotFile {
+  constructor(value) { this.value = value }
+}
+expect.addSnapshotSerializer({
+  test: value => value instanceof SnapshotFile,
+  serialize: (file, config, indentation, depth, refs, printer) =>
+    `${printer(file.value, config, indentation, depth, refs)}\n`,
+})
+
 describe('dsh-edge assembled runtime snapshot', () => {
   it('pins the direct bash turn, model requests, event transcript, and cold replay', async () => {
     const persistedState = mkdtempSync(join(tmpdir(), 'dsh-edge-snapshot-'))
@@ -98,7 +108,7 @@ describe('dsh-edge assembled runtime snapshot', () => {
         liveEvents: normalize(liveEvents),
         replayedEvents: normalize(replayedEvents),
       }
-      await expect(snapshot).toMatchFileSnapshot('./snapshots/edge-turn.expected.txt')
+      await expect(new SnapshotFile(snapshot)).toMatchFileSnapshot('./snapshots/edge-turn.expected.txt')
 
       const searchResponse = await request(worker, `/api/sessions/${sessionId}/turn`, {
         method: 'POST',
@@ -115,7 +125,7 @@ describe('dsh-edge assembled runtime snapshot', () => {
       const searchResult = searchEvents.find(event => event.type === 'tool/result')
       const finalMessage = [...searchEvents].reverse()
         .find(event => event.type === 'assistant/message')
-      await expect(normalize({
+      await expect(new SnapshotFile(normalize({
         toolNames: requestHeader.data.header.tools.map(tool => tool.name),
         searchGuidance: (searchEvents.find(e => e.type === 'system/message')?.data?.message?.content?.[0]?.text ?? '').split('\n\n').at(-1),
         call: searchCall.data,
@@ -126,7 +136,7 @@ describe('dsh-edge assembled runtime snapshot', () => {
         },
         finalMessage: finalMessage.data.message.content,
         recordedSearchRequest: mock.searchRequests[0].body,
-      })).toMatchFileSnapshot('./snapshots/edge-web-search.expected.txt')
+      }))).toMatchFileSnapshot('./snapshots/edge-web-search.expected.txt')
     } finally {
       await worker?.stop()
       await mock.close()

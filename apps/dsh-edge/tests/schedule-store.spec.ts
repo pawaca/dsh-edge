@@ -1,7 +1,8 @@
+import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 /// <reference types="node" />
 import { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { ScheduleId, type ScheduleRecord } from '@deepseek-ai/dsh-schedule'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import * as ToolSchedule from '@deepseek-ai/dsh-tool-schedule'
@@ -53,9 +54,10 @@ async function setup(withTools = false) {
   const queue = new MainSessionQueue(storage as never)
   const ctx = new Context()
   ctx.provide('agents', { roots: () => [] } as never)
-  ctx.provide('systemPrompt', { tools: () => () => {}, section: () => () => {} } as never)
+  await ctx.plugin(SystemPrompt).await()
+  ctx.provide('sessionPersistence', { stat: async () => ({ header: {} }) } as never)
   const tools = withTools ? new ToolRuntime(ctx) : ctx.provide('tools', {} as never)
-  const fiber = await ctx.plugin(EdgeSchedule, { storage: storage as never })
+  const fiber = await ctx.plugin(EdgeSchedule, { storage: storage as never }).await()
   cleanup.push(async () => { await fiber.dispose(); storage.close() })
   const schedule = ctx.get('schedule') as unknown as EdgeSchedule
   return { storage, queue, ctx, schedule, tools: tools as ToolRuntime }
@@ -145,7 +147,7 @@ describe('Edge schedule service', () => {
     const [input] = queue.pending(ALPHA)
     expect(input!.message.source).toEqual({ kind: 'schedule' })
     expect(JSON.stringify(input!.message.content)).toContain('check the build')
-    expect((await schedule.catalog()).map(entry => [entry.id, entry.status])).toEqual(expect.arrayContaining([[one.id, 'inactive'], [every.id, 'active']]))
+    expect((await schedule.catalog()).map(entry => [entry.id, entry.status])).toEqual(expect.arrayContaining([[`edge:alpha:${one.id}`, 'ended'], [`edge:alpha:${every.id}`, 'active']]))
     expect(await schedule.update({ sessionId: ALPHA, id: one.id, expected: one, title: 'x' })).toMatchObject({ code: 'schedule_ended' })
 
     expect(dispatchDueSchedules(storage as never, ALPHA, now)).toBe(true)
@@ -206,21 +208,21 @@ describe('Edge schedule service', () => {
   it('serves the upstream tools as exclusive calls bound to the agent session', async () => {
     const { ctx, tools } = await setup(true)
     const agent = { ctx, options: {}, session: { id: ALPHA, header: {} } } as unknown as Agent
-    await ctx.plugin(ToolSchedule)
+    await ctx.plugin(ToolSchedule).await()
     const signal = new AbortController().signal
     const create = tools.get('schedule_create', agent)!
-    expect(tools.executionMode({ name: 'schedule_create', callId: ToolCallId('c'), arguments: {}, signal, agent })).toEqual({ kind: 'exclusive' })
-    const created = await create.execute({ prompt: 'ping', title: 'Ping', after_seconds: 60 } as never, { agent, signal } as never)
+    expect(create.isConcurrencySafe?.({})).not.toBe(true)
+    const created = await create.execute({ prompt: 'ping', title: 'Ping', rrule: 'DTSTART:20990101T000000Z\nRRULE:FREQ=DAILY', target: 'this_session' } as never, { agent, signal } as never)
     expect(created).toMatchObject({ title: 'Ping' })
-    expect(await tools.get('schedule_list', agent)!.execute({} as never, { agent, signal } as never)).toHaveLength(1)
+    expect(await tools.get('schedule_list', agent)!.execute({} as never, { agent, signal } as never)).toMatchObject({ shown: 1 })
   })
 
   it('refuses a delegated subagent, which the Edge used to exclude by mounting for root agents only', async () => {
     const { ctx, tools, schedule } = await setup(true)
-    await ctx.plugin(ToolSchedule)
+    await ctx.plugin(ToolSchedule).await()
     const child = { ctx, options: {}, session: { id: SessionId('child'), header: { delegationDepth: 1 } } } as unknown as Agent
     const signal = new AbortController().signal
-    const refused = await tools.get('schedule_create', child)!.execute({ prompt: 'ping', title: 'Ping', after_seconds: 60 } as never, { agent: child, signal } as never)
+    const refused = await tools.get('schedule_create', child)!.execute({ prompt: 'ping', title: 'Ping', rrule: 'DTSTART:20990101T000000Z\nRRULE:FREQ=DAILY', target: 'this_session' } as never, { agent: child, signal } as never)
     expect(refused).toMatchObject({ code: 'subagent_session' })
     expect(await schedule.list({ sessionId: SessionId('child') })).toEqual([])
   })
@@ -250,7 +252,7 @@ describe('delivery history and the schedule Remote', () => {
     const oneHistory = await schedule.history({ sessionId: ALPHA, id: one.id, limit: 20 })
     expect(oneHistory).toEqual({
       id: one.id,
-      records: [{ scheduledAt: one.scheduledAt, deliveredAt, messageId: oneShotInput!.message.id, prompt: 'check the build' }],
+      records: [{ targetSessionId: ALPHA, scheduledAt: one.scheduledAt, deliveredAt, messageId: oneShotInput!.message.id, prompt: 'check the build' }],
       earlierRecordsUnavailable: false,
       earlierRecordsPruned: false,
       retention: { days: 30, records: 200 },
@@ -261,7 +263,7 @@ describe('delivery history and the schedule Remote', () => {
     const catalog = await schedule.catalog()
     for (const [task, history] of [[one, oneHistory], [every, everyHistory]] as const) {
       const { prompt: _prompt, ...receipt } = ('records' in history ? history.records[0] : undefined)!
-      expect(catalog.find(entry => entry.id === task.id)?.lastDelivery).toEqual(receipt)
+      expect(catalog.find(entry => entry.id === `edge:alpha:${task.id}`)?.lastDelivery).toEqual(receipt)
     }
   })
 
@@ -338,7 +340,7 @@ describe('delivery history and the schedule Remote', () => {
       ended.push(record)
       deliverAt(storage, Date.parse(record.scheduledAt) + 1)
     }
-    const kept = new Set((await schedule.catalog()).map(entry => entry.id))
+    const kept = new Set((await schedule.catalog()).map(entry => decodeURIComponent(entry.id.split(':')[2]!)))
     expect(kept.size).toBe(128)
     expect(new Set(deliveries(storage).map(row => row.task_id))).toEqual(kept)
   })
@@ -389,7 +391,8 @@ describe('legacy reminder import', () => {
     const ctx = new Context()
     ctx.provide('agents', { roots: () => [] } as never)
     ctx.provide('tools', {} as never)
-    const fiber = await ctx.plugin(EdgeSchedule, { storage: storage as never })
+    ctx.provide('sessionPersistence', { stat: async () => ({ header: {} }) } as never)
+    const fiber = await ctx.plugin(EdgeSchedule, { storage: storage as never }).await()
     cleanup.push(async () => { await fiber.dispose(); storage.close() })
     const schedule = ctx.get('schedule') as unknown as EdgeSchedule
     expect(await schedule.list({ sessionId: ALPHA })).toEqual([{ ...legacy, title: 'Review the deploy' }])
@@ -401,6 +404,62 @@ describe('legacy reminder import', () => {
     expect(await schedule.list({ sessionId: ALPHA })).toEqual([])
     expect(await schedule.list({ sessionId: SessionId('beta') })).toEqual([imported])
     expect(await schedule.delete({ sessionId: SessionId('beta'), id: imported!.id })).toEqual({ id: 'schedule-1', deleted: true })
-    expect((await schedule.catalog()).map(entry => [entry.sessionId, entry.id, entry.status])).toEqual([['alpha', 'schedule-1', 'inactive']])
+    expect((await schedule.catalog()).map(entry => [entry.target.kind === 'session' ? entry.target.sessionId : undefined, entry.id, entry.status])).toEqual([['alpha', 'edge:alpha:schedule-1', 'ended']])
+  })
+})
+
+describe('0.2.2 Host schedule API', () => {
+  const request = () => ({ title: 'Host task', prompt: 'check progress', target: { kind: 'session' as const, sessionId: ALPHA }, timing: { kind: 'rrule' as const, rrule: 'DTSTART:20990101T000000Z\nRRULE:FREQ=DAILY;COUNT=3' } })
+
+  it('creates and pages without activating agents; pauses, resumes, and detects stale edits', async () => {
+    const { schedule } = await setup()
+    const task = await schedule.create(request(), ALPHA)
+    expect(task).toMatchObject({ kind: 'rrule', status: 'active', target: { sessionId: ALPHA }, involvedSessionIds: [ALPHA] })
+    expect(await schedule.remoteList({ active: true, limit: 1 })).toMatchObject({ shown: 1, total: 1, items: [{ id: task.id }] })
+    const paused = await schedule.edit({ id: task.id, action: 'update', expectedUpdatedAt: task.updatedAt!, patch: { active: false } })
+    expect(paused).toMatchObject({ status: 'paused' })
+    // Editing a paused rule must not silently resume delivery.
+    expect(await schedule.edit({ id: task.id, action: 'update', patch: { timing: { kind: 'every', every_seconds: 3600 } } })).toMatchObject({ status: 'paused', kind: 'every' })
+    expect(await schedule.deleteInactive()).toEqual({ deleted: 0 })
+    expect(await schedule.edit({ id: task.id, action: 'delete', expectedUpdatedAt: task.updatedAt! })).toMatchObject({ code: 'schedule_conflict' })
+    expect(await schedule.edit({ id: task.id, action: 'update', patch: { active: true } })).toMatchObject({ status: 'active' })
+    expect(await schedule.edit({ id: task.id, action: 'delete' })).toEqual({ id: task.id, deleted: true })
+    expect(await schedule.view({ id: task.id })).toMatchObject({ code: 'schedule_not_found' })
+  })
+
+  it('bounds execution lookups to the page and batches a full catalog without scanning retained inputs', async () => {
+    const { schedule, storage } = await setup()
+    const tasks = []
+    for (let i=0;i<128;i++) tasks.push(await schedule.create({ ...request(), title: `Task ${i}` }))
+    for (const task of tasks) await schedule.run({ id: task.id })
+    const mark = storage.queries.length
+    const page = await schedule.list({ limit: 1, offset: 5 })
+    expect(page).toMatchObject({ total: 128, shown: 1, items: [{ executionActive: true }] })
+    expect(storage.queries.slice(mark)).toHaveLength(2)
+    const fullMark = storage.queries.length
+    const catalog = await schedule.catalog()
+    expect(catalog).toHaveLength(128)
+    expect(catalog.every(task => task.executionActive)).toBe(true)
+    expect(storage.queries.slice(fullMark)).toHaveLength(4)
+  })
+
+  it('runs manually once while pending, without consuming the scheduled occurrence', async () => {
+    const { schedule, queue } = await setup()
+    const task = await schedule.create(request())
+    expect(await schedule.run({ id: task.id })).toMatchObject({ scheduledAt: task.scheduledAt, status: 'active', executionActive: true })
+    expect(await schedule.run({ id: task.id })).toEqual({ id: task.id, code: 'schedule_execution_pending' })
+    expect(queue.pending(ALPHA)).toHaveLength(1)
+    expect(await schedule.remoteHistory({ id: task.id, limit: 10 })).toMatchObject({ records: [{ targetSessionId: ALPHA, prompt: 'check progress' }] })
+  })
+
+  it('rejects unsupported targets and bad pages through typed Remote errors, without writing', async () => {
+    const { schedule, ctx } = await setup()
+    for (const target of [undefined, { kind: 'new' }, { kind: 'new_once' }] as const) {
+      await expect(schedule.remoteCreate({ ...request(), target } as never)).rejects.toMatchObject({ code: 'schedule/input-invalid' })
+    }
+    await expect(schedule.remoteList({ limit: 501 })).rejects.toMatchObject({ code: 'schedule/input-invalid' })
+    ctx.provide('workspaceRegistry', { archivedSessionIds: [ALPHA] } as never)
+    await expect(schedule.remoteCreate(request())).rejects.toMatchObject({ code: 'schedule/target-archived' })
+    expect(await schedule.catalog()).toEqual([])
   })
 })

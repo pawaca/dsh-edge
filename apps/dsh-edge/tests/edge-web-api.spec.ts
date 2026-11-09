@@ -58,9 +58,9 @@ async function apiServer(respond: (seen: Seen) => { status: number, body: string
 /** The web seam as the Edge mounts it, with fetch on the Worker (`http`) until a setting moves it to the API. */
 async function mounted(storage = memoryStorage()) {
   const ctx = new Context()
-  await ctx.plugin(EdgeSettings, { storage })
+  await ctx.plugin(EdgeSettings, { storage }).await()
   await mountWebSelection(ctx, { searchProvider: PROVIDERS.search[0], fetchProvider: PROVIDERS.fetch[0] }, PROVIDERS)
-  await ctx.plugin(HttpWebFetch)
+  await ctx.plugin(HttpWebFetch).await()
   await mountDeepSeekWebApi(ctx)
   return ctx
 }
@@ -141,7 +141,7 @@ describe('the Search and Fetch APIs', () => {
     }))
     try {
       const ctx = new Context()
-      await ctx.plugin(EdgeSettings, { storage: memoryStorage() })
+      await ctx.plugin(EdgeSettings, { storage: memoryStorage() }).await()
       await mountWebSelection(ctx, { searchProvider: PROVIDERS.search[1], fetchProvider: PROVIDERS.fetch[1] }, PROVIDERS)
       await mountDeepSeekWebApi(ctx)
       await edgeSettings(ctx).update(WEB_API_SETTINGS_NAMESPACE, { baseURL: api.base, count: 3 })
@@ -156,7 +156,7 @@ describe('the Search and Fetch APIs', () => {
     const api = await apiServer(() => ({ status: 302, body: '', headers: { location: 'http://169.254.169.254/latest' } }))
     try {
       const ctx = new Context()
-      await ctx.plugin(EdgeSettings, { storage: memoryStorage() })
+      await ctx.plugin(EdgeSettings, { storage: memoryStorage() }).await()
       await mountWebSelection(ctx, { searchProvider: PROVIDERS.search[1], fetchProvider: PROVIDERS.fetch[1] }, PROVIDERS)
       await mountDeepSeekWebApi(ctx)
       await edgeSettings(ctx).update(WEB_API_SETTINGS_NAMESPACE, { baseURL: api.base })

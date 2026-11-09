@@ -58,10 +58,10 @@ it('masks a pasted credential in the Web display only, and labels the Flash mode
     const shown = await page.locator('body').innerText()
     expect(shown).not.toContain(FAKE_KEY)
     expect(shown).toMatch(/sk-abcde\*+/u)
-    // The model label carries the temporary badge beside the official Flash name.
+    // The refreshed upstream catalog uses the official Flash name without the old temporary badge.
     const label = page.getByRole('button', { name: /^Select model, current DeepSeek-V4\.1-Flash/u })
     await label.waitFor()
-    expect(await label.innerText()).toContain('1017')
+    expect(await label.innerText()).toContain('DeepSeek-V4.1-Flash')
 
     // The stored event and the provider request keep what the user sent.
     const sessions = await (await context.request.get(`${origin}/api/sessions`)).json()

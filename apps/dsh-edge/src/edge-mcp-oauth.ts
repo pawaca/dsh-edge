@@ -1,6 +1,7 @@
 /** MCP OAuth 2.1 primitives: discovery, DCR, PKCE, code exchange, token refresh.
  *  All functions are pure (storage-free) — the caller manages persistence. */
 
+import { requestDeadline } from './edge-deadline.ts'
 import { assertSafeUrl, noRedirectFetch } from './edge-mcp-client.ts'
 
 const DISCOVERY_TIMEOUT_MS = 10_000
@@ -51,7 +52,8 @@ async function sha256Base64Url(input: string): Promise<string> {
 export async function discoverEndpoints(
   serverUrl: string,
 ): Promise<OAuthEndpoints> {
-  const signal = AbortSignal.timeout(DISCOVERY_TIMEOUT_MS)
+  using timeout = requestDeadline(DISCOVERY_TIMEOUT_MS)
+  const signal = timeout.signal
   const url = new URL(serverUrl)
 
   // RFC 9728: Protected Resource Metadata — path-aware discovery
@@ -93,7 +95,8 @@ export async function registerClient(
   redirectUri: string,
   clientName: string,
 ): Promise<OAuthClient> {
-  const signal = AbortSignal.timeout(DISCOVERY_TIMEOUT_MS)
+  using timeout = requestDeadline(DISCOVERY_TIMEOUT_MS)
+  const signal = timeout.signal
   assertSafeUrl(registrationEndpoint)
   const res = await noRedirectFetch(registrationEndpoint, {
     method: 'POST',
@@ -162,7 +165,8 @@ export async function exchangeCode(
   redirectUri: string,
   resource?: string,
 ): Promise<OAuthTokens> {
-  const signal = AbortSignal.timeout(DISCOVERY_TIMEOUT_MS)
+  using timeout = requestDeadline(DISCOVERY_TIMEOUT_MS)
+  const signal = timeout.signal
   const body = new URLSearchParams({
     grant_type: 'authorization_code',
     code,
@@ -192,7 +196,8 @@ export async function refreshToken(
   currentRefreshToken: string,
   resource?: string,
 ): Promise<OAuthTokens> {
-  const signal = AbortSignal.timeout(DISCOVERY_TIMEOUT_MS)
+  using timeout = requestDeadline(DISCOVERY_TIMEOUT_MS)
+  const signal = timeout.signal
   const body = new URLSearchParams({
     grant_type: 'refresh_token',
     refresh_token: currentRefreshToken,

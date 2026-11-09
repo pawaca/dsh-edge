@@ -1,0 +1,23 @@
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -2627,17 +2627,10 @@
+ 			this.dependencies.warn(`model listing change notification failed (${String(error)}); reload the model catalog`);
+ 		}
+ 	}
+-	schedule(settings) {
++	schedule(_settings) {
++		// Edge: preserve view()'s TTL, stale-while-refresh and single-flight behavior,
++		// but never keep an idle Durable Object alive with a background timer.
+ 		clearTimeout(this.timer);
+-		if (this.closed || settings.maxAgeMs === 0) return;
+-		const age = this.settledAt === void 0 ? 0 : this.dependencies.now() - this.settledAt;
+-		this.timer = setTimeout(() => {
+-			const operation = this.refresh(settings).finally(() => {
+-				this.pending.delete(operation);
+-			});
+-			this.pending.add(operation);
+-		}, Math.min(MAX_TIMER_DELAY_MS, Math.max(1, settings.maxAgeMs - age)));
+-		this.timer.unref();
+ 	}
+ 	async refresh(previous) {
+ 		let settings = previous;

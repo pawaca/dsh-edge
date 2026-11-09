@@ -226,6 +226,24 @@ class DurableObjectKvUnit implements KvUnit {
     await this.storage.delete([active, recordVersionKey(this.descriptor.name, table, key)])
   }
 
+  async deleteRecords(table: string, keys: readonly string[]): Promise<void> {
+    this.assertOpen()
+    this.assertTable(table)
+    if (this.perRecord) for (const key of keys) assertSafeKey(this.descriptor.name, key)
+    if (keys.length === 0) return
+    // One transaction preserves batch atomicity across the 128-key API limit.
+    // A per-record value has a sidecar stamp: at most 64 records per call.
+    await this.storage.transaction(async transaction => {
+      let batch: string[] = []
+      for (const key of keys) {
+        batch.push(recordKey(this.descriptor.name, table, key))
+        if (this.perRecord) batch.push(recordVersionKey(this.descriptor.name, table, key))
+        if (batch.length === 128) { await transaction.delete(batch); batch = [] }
+      }
+      if (batch.length > 0) await transaction.delete(batch)
+    })
+  }
+
   async setGlobal(value: unknown): Promise<void> {
     this.assertOpen()
     const gk = globalKey(this.descriptor.name)

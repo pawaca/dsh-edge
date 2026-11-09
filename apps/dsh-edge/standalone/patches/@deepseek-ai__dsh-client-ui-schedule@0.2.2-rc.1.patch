@@ -1,0 +1,34 @@
+diff --git a/lib/client.js b/lib/client.js
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -15354,7 +15354,7 @@
+ 							items: [...currentSessionId === "" ? [] : [{
+ 								id: "session",
+ 								label: targetLabel("session")
+-							}], ...["new_once", "new"].map((value) => ({
++							}], ...[].map((value) => ({
+ 								id: value,
+ 								label: (0, react_jsx_runtime.jsxs)("span", {
+ 									className: TaskManagerPage_module_css_default.targetMenuItem,
+@@ -15893,7 +15893,9 @@
+ 						className: TaskManagerPage_module_css_default.detailTabsBar,
+ 						children: [task === void 0 ? (0, react_jsx_runtime.jsx)("h2", {
+ 							className: TaskManagerPage_module_css_default.createTitle,
+-							children: t("host.manualCreate")
++							disabled: true,
++															title: "请在会话中让助手创建日程 / Ask the assistant in a conversation to create a task.",
++															children: t("host.manualCreate")
+ 						}) : (0, react_jsx_runtime.jsx)("div", {
+ 							className: TaskManagerPage_module_css_default.detailTabs,
+ 							role: "tablist",
+@@ -16961,7 +16963,9 @@
+ 															setCreateMenuOpen(false);
+ 															createManually(createTriggerRef.current);
+ 														},
+-														children: t("host.manualCreate")
++														disabled: true,
++															title: "请在会话中让助手创建日程 / Ask the assistant in a conversation to create a task.",
++															children: t("host.manualCreate")
+ 													})]
+ 												})]
+ 											})

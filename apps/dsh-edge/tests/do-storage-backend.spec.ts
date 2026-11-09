@@ -302,13 +302,13 @@ describe('session_projcache over the Durable Object backend', () => {
     const ctx = new Context()
     const errors: string[] = []
     ctx.logger.error = (message: unknown) => { errors.push(String(message)) }
-    await ctx.plugin(Storage)
+    await ctx.plugin(Storage).await()
     ctx.effect(() => {
       const dispose = ctx.storage.backend.register('durable-object', new DurableObjectStorageBackend(storage, options))
       ctx.provide('storage.backend.durable-object', true)
       return () => { dispose() }
     }, 'test: storage backend')
-    await ctx.plugin(StorageDomain, { backend: 'durable-object' })
+    await ctx.plugin(StorageDomain, { backend: 'durable-object' }).await()
     const domain = await ctx.storageDomain.open(projectionCacheDomainSpec)
     return { domain, errors, spec: projectionCacheDomainSpec }
   }
@@ -387,5 +387,39 @@ describe('session_projcache over the Durable Object backend', () => {
     // Reading writes nothing: the stored record is replaced by the session's next cache write.
     expect(Object.keys((storage.store.get('dsh-kv:session_projcache:sessions:session-old') as typeof stored).rows)).toHaveLength(3)
     await domain.close()
+  })
+})
+
+describe('atomic bounded deleteRecords', () => {
+  it('counts value and version keys in each batch and rolls back a later failure', async () => {
+    const storage = createMockStorage()
+    const backend = new DurableObjectStorageBackend(storage)
+    const unit = await backend.kv.open(PER_RECORD_V5)
+    const keys = Array.from({ length: 130 }, (_, index) => `s-${index}`)
+    for (const key of keys) await unit.putRecord('sessions', key, { value: key })
+    const before = new Map(storage.store)
+    const batches: number[] = []
+    let fail = true
+    Object.assign(storage, { transaction: async (callback: (tx: object) => Promise<void>) => {
+      const snapshot = new Map(storage.store)
+      try {
+        await callback({ delete: async (batch: string[]) => {
+          batches.push(batch.length)
+          if (fail && batches.length === 2) throw new Error('injected second batch failure')
+          return storage.delete(batch)
+        } })
+      } catch (error) { storage.store.clear(); for (const [key, value] of snapshot) storage.store.set(key, value); throw error }
+    } })
+    await expect(unit.deleteRecords('sessions', keys)).rejects.toThrow('second batch')
+    expect(storage.store).toEqual(before)
+    fail = false
+    batches.length = 0
+    await unit.deleteRecords('sessions', keys)
+    expect(batches).toEqual([128, 128, 4])
+    for (const key of keys) { expect(storage.store.has(REC(key))).toBe(false); expect(storage.store.has(VER(key))).toBe(false) }
+    expect(storage.store.get(STAMP)).toBeDefined()
+    const count = batches.length
+    await unit.deleteRecords('sessions', [])
+    expect(batches).toHaveLength(count)
   })
 })

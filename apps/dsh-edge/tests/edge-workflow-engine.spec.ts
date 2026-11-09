@@ -189,8 +189,8 @@ class FakeLoader {
 async function setup(config: Record<string, unknown> = {}) {
   const ctx = new Context()
   const loader = new FakeLoader()
-  await ctx.plugin(FakeSubagents)
-  await ctx.plugin(EdgeWorkflowEngine, { loader, ...config } as never)
+  await ctx.plugin(FakeSubagents).await()
+  await ctx.plugin(EdgeWorkflowEngine, { loader, ...config } as never).await()
   const engine = ctx.get('workflowEngine') as WorkflowEngine
   const subagents = ctx.get('subagents') as unknown as FakeSubagents
   const events: unknown[][] = []

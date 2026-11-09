@@ -21,7 +21,7 @@ function agentAt(cwd: string | undefined, id = 'session-a'): Agent {
 
 async function provider(tree: Record<string, EdgeReferenceEntry[]>, config: { maxResults?: number, maxEntries?: number, maxIndexes?: number, maxIndexCharacters?: number } = {}) {
   const ctx = new Context()
-  await ctx.plugin(SystemPrompt, { personaPrefix: 'test persona' })
+  await ctx.plugin(SystemPrompt, { personaPrefix: 'test persona' }).await()
   const reads: { path: string, limit?: number }[] = []
   await ctx.plugin(EdgeFileReferenceService, {
     ...config,
@@ -34,7 +34,7 @@ async function provider(tree: Record<string, EdgeReferenceEntry[]>, config: { ma
           : Promise.resolve(entries.slice(0, options?.limit))
       },
     }),
-  })
+  }).await()
   const paths = () => reads.map(read => read.path)
   return { ctx, reads, paths, service: ctx.fileReferences }
 }
@@ -72,7 +72,7 @@ describe('EdgeFileReferenceService', () => {
       constructor(c: Context) { super(c, 'workingDirectory') }
       get() { return '/workspace/proj' }
     }
-    await ctx.plugin(Current)
+    await ctx.plugin(Current).await()
     expect(await service.list(agentAt('/workspace'), 'i', signal())).toEqual([{ path: 'inner.txt', kind: 'file' }])
     expect(paths()).toEqual(['/workspace/proj'])
   })
@@ -150,7 +150,7 @@ describe('EdgeFileReferenceService', () => {
     let release!: () => void
     const gate = new Promise<void>(resolve => { release = resolve })
     const ctx = new Context()
-    await ctx.plugin(SystemPrompt, { personaPrefix: 'test persona' })
+    await ctx.plugin(SystemPrompt, { personaPrefix: 'test persona' }).await()
     await ctx.plugin(EdgeFileReferenceService, {
       maxIndexes: 1,
       withFiles: read => read({
@@ -162,7 +162,7 @@ describe('EdgeFileReferenceService', () => {
           return [entry(`${path.slice(path.lastIndexOf('/') + 1)}.txt`)]
         },
       }),
-    })
+    }).await()
     const first = ctx.fileReferences.list(agentAt('/workspace/one'), 'txt', signal())
     // The second directory drops the first's index while its read is open.
     const second = ctx.fileReferences.list(agentAt('/workspace/two'), 'txt', signal())
@@ -176,7 +176,7 @@ describe('EdgeFileReferenceService', () => {
     let active = 0
     let peak = 0
     const ctx = new Context()
-    await ctx.plugin(SystemPrompt, { personaPrefix: 'test persona' })
+    await ctx.plugin(SystemPrompt, { personaPrefix: 'test persona' }).await()
     await ctx.plugin(EdgeFileReferenceService, {
       maxIndexes: 1,
       withFiles: async read => {
@@ -193,7 +193,7 @@ describe('EdgeFileReferenceService', () => {
           active -= 1
         }
       },
-    })
+    }).await()
     const names = ['one', 'two', 'three', 'four']
     const results = await Promise.all(names.map(name => ctx.fileReferences.list(agentAt(`/workspace/${name}`), 'txt', signal())))
     expect(results).toEqual(names.map(name => [{ path: `${name}.txt`, kind: 'file' }]))
@@ -205,7 +205,7 @@ describe('EdgeFileReferenceService', () => {
     const gate = new Promise<void>(resolve => { release = resolve })
     const reads: string[] = []
     const ctx = new Context()
-    await ctx.plugin(SystemPrompt, { personaPrefix: 'test persona' })
+    await ctx.plugin(SystemPrompt, { personaPrefix: 'test persona' }).await()
     await ctx.plugin(EdgeFileReferenceService, {
       maxIndexes: 1,
       withFiles: read => read({
@@ -215,7 +215,7 @@ describe('EdgeFileReferenceService', () => {
           return [entry(`${path.slice(path.lastIndexOf('/') + 1)}.txt`)]
         },
       }),
-    })
+    }).await()
     const first = ctx.fileReferences.list(agentAt('/workspace/one'), 'txt', signal())
     // Queued behind the first read, then cancelled and dropped before its turn.
     const cancel = new AbortController()

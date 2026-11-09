@@ -95,7 +95,7 @@ class FakeLoader {
 async function setup(config: Record<string, unknown> = {}) {
   const ctx = new Context()
   const loader = new FakeLoader()
-  await ctx.plugin(EdgeCodeRuntime, { loader, ...config } as never)
+  await ctx.plugin(EdgeCodeRuntime, { loader, ...config } as never).await()
   const runtime = ctx.get('ptcRuntime') as InstanceType<typeof EdgeCodeRuntime>
   return { ctx, runtime, loader }
 }

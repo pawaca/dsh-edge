@@ -9,9 +9,9 @@ import { workerArtifactPath, writePrebuiltModeWranglerConfig } from '../scripts/
 import { keepFailingBrowserState } from './fixtures/browser-failure.mjs'
 import { chatMessages, startMockDeepSeek } from './fixtures/mock-deepseek.mjs'
 
-// Skip: SDK @1.30 bundle increases DO cold-start time past the 150s idle
-// eviction + wake cycle on slow CI runners. Works locally. See #189.
-it.skip('restores live browser subscriptions after an idle DO wakes for a prompt', async () => {
+// The completed commands/list RPC must release its ten-minute deadline.
+// Keep a real idle window and require carrier replacement plus a delivered reply.
+it('restores live browser subscriptions after an idle DO wakes for a prompt', async () => {
   const state = mkdtempSync(join(tmpdir(), 'dsh-remote-idle-'))
   const config = join(state, 'wrangler.json')
   const mode = process.env.DSH_EDGE_TEST_RUNTIME_MODE ?? 'direct'
@@ -33,17 +33,22 @@ it.skip('restores live browser subscriptions after an idle DO wakes for a prompt
     const page = await context.newPage()
     let carrierCloses = 0
     page.on('websocket', socket => {
-      if (socket.url().endsWith('/api/remote.mux')) socket.on('close', () => { carrierCloses++ })
+      if (new URL(socket.url()).pathname === '/api/remote.mux') socket.on('close', () => { carrierCloses++ })
     })
     await page.goto(origin)
     const onboarding = page.getByRole('button', { name: 'Continue', exact: true })
     if (await onboarding.waitFor({ timeout: 5000 }).then(() => true, () => false)) await onboarding.click()
     const input = page.getByRole('textbox').last()
     await input.waitFor()
+    await page.waitForLoadState('networkidle')
     // Local workerd needs a genuinely idle period to evict the JS owner while
     // preserving its accepted WebSockets. Do not poll the DO during this wait.
+    const idleRequests = []
+    page.on('request', request => idleRequests.push(new URL(request.url()).pathname))
     const beforeIdle = carrierCloses
-    await page.waitForTimeout(150_000)
+    await page.waitForTimeout(30_000)
+    console.log('idle HTTP requests', idleRequests.length)
+    expect(idleRequests.length).toBeLessThanOrEqual(16) // allow bounded reconnect traffic; reject a request storm
     await input.fill('hello after idle')
     await page.getByRole('button', { name: 'Send message', exact: true }).click()
     await page.getByRole('paragraph').filter({ hasText: 'remembered-alpha' }).waitFor({ timeout: 60_000 })
@@ -59,4 +64,4 @@ it.skip('restores live browser subscriptions after an idle DO wakes for a prompt
     await mock.close()
     rmSync(state, { recursive: true, force: true })
   }
-}, 240_000)
+}, 120_000)

@@ -1,0 +1,42 @@
+diff --git a/lib/index.js b/lib/index.js
+index 0fe7793..9821baf 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -1,6 +1,23 @@
+ import z from "@deepseek-ai/schemastery";
+ import { WebError } from "@deepseek-ai/dsh-web";
+ import { deadline, timeoutOf } from "@deepseek-ai/dsh-timeout";
++const LOCAL_SUFFIXES = ['.localhost', '.local', '.localdomain', '.internal', '.home.arpa'];
++function isIpLiteral(hostname) {
++	if (/^\d{1,3}(\.\d{1,3}){3}$/.test(hostname)) return true;
++	if (hostname.startsWith('[') && hostname.endsWith(']')) return true;
++	return false;
++}
++function isLocalHostname(hostname) {
++	const lower = hostname.toLowerCase();
++	if (lower === 'localhost') return true;
++	if (LOCAL_SUFFIXES.some(suffix => lower.endsWith(suffix))) return true;
++	return false;
++}
++function assertPublicFetchTarget(url) {
++	const hostname = typeof url === 'string' ? new URL(url).hostname : url.hostname;
++	if (isIpLiteral(hostname)) throw new WebError(`fetch blocked: IP literal "${hostname}" is not allowed`, "WEB_BLOCKED_URL");
++	if (isLocalHostname(hostname)) throw new WebError(`fetch blocked: local hostname "${hostname}" is not allowed`, "WEB_BLOCKED_URL");
++}
+ //#region lib/types/policy.js
+ /**
+ * URL validation, content-type classification, and charset resolution for the
+@@ -238,12 +255,12 @@ var HttpFetchProvider = class {
+ 	}
+ 	/** Send one GET through the process-wide dispatcher, which applies the installed proxy policy. */
+ 	async requestOnce(url, signal) {
++		assertPublicFetchTarget(url);
+ 		const headers = {
+ 			"user-agent": this.limits.userAgent,
+ 			"accept": "text/html,application/xhtml+xml,text/*;q=0.9,application/json;q=0.8"
+ 		};
+ 		try {
+-			const { fetch } = await import("undici");
+ 			return await fetch(url, {
+ 				method: "GET",
+ 				redirect: "manual",

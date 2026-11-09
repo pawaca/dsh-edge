@@ -8,36 +8,67 @@
   {
     "package": "@deepseek-ai/dsh-api-session-controller",
     "rationale": "Remove node:fs/promises mkdir calls that are incompatible with Cloudflare Workers. The Edge Computer workspace guarantees /workspace exists. Disable implicit cold-history Agent activation through an optional deployment seam so the Edge single main slot owns activation. The runtime-queues.probe.mjs cold Remote follow plus A-to-B rotation is the failing-without-patch check.",
-    "removeWhen": "The published session controller routes directory creation through the ctx.fs seam (or gates it behind a platform check). Upstream offers a public way to follow cold history without promoting a resident Agent."
+    "removeWhen": "The published session controller routes directory creation through the ctx.fs seam (or gates it behind a platform check). Upstream offers a public way to follow cold history without promoting a resident Agent.",
+    "version": "0.2.2-rc.1"
   },
   {
     "package": "@deepseek-ai/dsh-llm",
     "rationale": "Resolve the Harness attribution version without runtime node:module path discovery, which is unavailable in the Worker bundle.",
-    "removeWhen": "The published LLM package exposes its version through a Worker-bundle-safe import or injected build constant and bundles without node:module."
+    "removeWhen": "The published LLM package exposes its version through a Worker-bundle-safe import or injected build constant and bundles without node:module.",
+    "version": "0.2.2-rc.1"
   },
   {
     "package": "@deepseek-ai/dsh-tool-web",
     "rationale": "Parse fetched HTML with the package's Domino dependency before passing a DOM node to Turndown. Wrangler selects Turndown's browser export, whose string parser requires a global document that Cloudflare Workers do not provide, so the unpatched package silently returns raw HTML.",
-    "removeWhen": "The published tool-web package converts HTML in a Cloudflare Worker without a global document and the Edge web_fetch integration assertions pass without this patch."
+    "removeWhen": "The published tool-web package converts HTML in a Cloudflare Worker without a global document and the Edge web_fetch integration assertions pass without this patch.",
+    "version": "0.2.2-rc.1"
   },
   {
     "package": "@deepseek-ai/dsh-web-fetch-http",
-    "rationale": "Reject IP literals and local naming scopes before every HTTP request, including redirected requests, and route requests through the Workers global fetch instead of the upstream DNS-pinned undici transport. Native proxy route selection is removed together with its import; standalone transport regression tests exercise public success and redirects without mocking the provider. Cloudflare Workers cannot run undici Agent or node:dns lookups; the platform's global_fetch_strictly_public setting blocks private destinations after DNS resolution, which covers the rebinding attack the pinned transport defends against, and dropping undici removes about 175 KiB of gzip weight.",
-    "removeWhen": "The published HTTP fetch provider exposes a platform-fetch transport (or injectable transport seam) with an equivalent per-hop public-target policy, and the Edge private-target assertions pass without this patch."
+    "rationale": "Use the Workers global fetch instead of the Node-only undici import. Reject IP literals and local naming scopes before every request, including each redirect hop. URL checks do not resolve or pin DNS; preserve global_fetch_strictly_public in the Worker configuration for the platform network boundary. Standalone transport tests cover success and redirect rejection; runtime probes cover the deployed transport policy.",
+    "removeWhen": "The provider exposes a platform-fetch seam without undici, and Edge retains per-hop URL policy and verified platform private-destination restrictions without this patch.",
+    "version": "0.2.2-rc.1"
   },
   {
     "package": "@deepseek-ai/dsh-api-gateway",
     "rationale": "Defer module-level AbortController construction to first use (`neverAbortedSignal()`); the signal has three use sites since 0.2.1, one of them on the non-owner resource path. Cloudflare Workers disallows new AbortController() in global scope.",
-    "removeWhen": "The published api-gateway package initializes NEVER_ABORTED_SIGNAL lazily or moves it inside the method that uses it."
+    "removeWhen": "The published api-gateway package initializes NEVER_ABORTED_SIGNAL lazily or moves it inside the method that uses it.",
+    "version": "0.2.2-rc.1"
   },
   {
     "package": "@deepseek-ai/dsh-workspace",
     "rationale": "Replace node:fs/promises realpath with lexical path normalization and remove stat calls, both incompatible with Cloudflare Workers. Edge VFS has no symlinks, so lexical resolution of '.', '..', and duplicate separators is exactly realpath's canonical result and keeps caller-supplied traversal paths from persisting alias workspaces.",
-    "removeWhen": "The published workspace registry accepts an injectable path normalizer or the realpath/stat calls are gated behind a platform check."
+    "removeWhen": "The published workspace registry accepts an injectable path normalizer or the realpath/stat calls are gated behind a platform check.",
+    "version": "0.2.2-rc.1"
   },
   {
     "package": "@deepseek-ai/dsh-repeat-tool-reminder",
     "rationale": "The published bundle inlines dsh-llm's attribution module, which resolves the Harness version with createRequire(import.meta.url)(\"../package.json\") at module load; import.meta.url is undefined in the Worker bundle, so without this patch the Worker fails to start (TypeError from node:module createRequire, reproduced by run-session-integration.mjs). Use the pinned version string, as the dsh-llm patch does.",
-    "removeWhen": "The published repeat-tool-reminder package imports createUserMessage from @deepseek-ai/dsh-llm instead of inlining it, or the inlined attribution module bundles without node:module."
+    "removeWhen": "The published repeat-tool-reminder package imports createUserMessage from @deepseek-ai/dsh-llm instead of inlining it, or the inlined attribution module bundles without node:module.",
+    "version": "0.2.2-rc.1"
+  },
+  {
+    "package": "@deepseek-ai/dsh-tool-schedule",
+    "version": "0.2.2-rc.1",
+    "rationale": "The published tools have no target-capability configuration. Restrict model schemas and help to this_session; EdgeSchedule independently rejects automatic Session targets. standalone/tests/schedule-capabilities.test.mjs checks the actual patched bundle and fails without this patch.",
+    "removeWhen": "Upstream exposes target capabilities through plugin configuration so composition can restrict both validation and help."
+  },
+  {
+    "package": "@deepseek-ai/dsh-client-ui-schedule",
+    "version": "0.2.2-rc.1",
+    "rationale": "The task editor has no capability seam and manual creation only offers automatic new Session targets. Hide unsupported edit targets and disable that manual entry with guidance to create from a conversation; keep the task list, existing task editor, and chat creation. standalone/tests/schedule-capabilities.test.mjs fails without this patch.",
+    "removeWhen": "The UI reads supported target capabilities and offers an existing Session picker for manual creation."
+  },
+  {
+    "package": "@deepseek-ai/dsh-util-time",
+    "version": "0.2.2-rc.1",
+    "rationale": "The package default-imports rrule, but the ESM entry selected by Wrangler exports only named values; both Worker builds fail before this patch. Use a namespace import with a CJS default fallback, supporting both the Worker ESM entry and Node-based assembly tests. The build and standalone schedule-capabilities test fail without it.",
+    "removeWhen": "Upstream util-time uses an import compatible with the published rrule ESM export shape."
+  },
+  {
+    "package": "@deepseek-ai/dsh-llm-deepseek",
+    "version": "0.2.2-rc.1",
+    "rationale": "The published model-listing cache schedules background refresh timers when discovery is enabled; these timers prevent a Durable Object from becoming idle even after unref. Remove automatic scheduling while retaining request-driven TTL, stale-while-refresh, credential scoping and single-flight. No public provider option exposes this refresh policy; maxAgeMs=0 also removes caching and can cause request bursts. standalone/tests/model-listing.test.mjs fails without the patch (an idle clock advance performs a second load). This patch alone is not evidence that the complete browser session hibernates.",
+    "removeWhen": "The published provider exposes a request-driven TTL cache policy that does not schedule background timers, and the Edge idle/reconnect and listing single-flight tests pass without the patch."
   }
 ]
