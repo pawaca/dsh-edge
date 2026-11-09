@@ -4,6 +4,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { type ToolExecution } from '@deepseek-ai/dsh-tools'
 import * as NativeExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { HttpFetchProvider } from '@deepseek-ai/dsh-web-fetch-http'
+import { WebError } from '@deepseek-ai/dsh-web'
 import { describe, expect, it, vi } from 'vitest'
 import EdgeCredentialProvider from '../src/edge-credentials.ts'
 import { EdgeSettings, edgeSettings } from '../src/edge-settings.ts'
@@ -128,9 +129,12 @@ describe('dsh-edge Web Search composition', () => {
     'http://[::1]/private',
     'http://metadata.internal/private',
     'http://service.localhost/private',
-  ])('blocks private target %s before network access', async (url) => {
-    const fetch = vi.fn()
-    vi.stubGlobal('fetch', fetch)
+  ])('preserves the provider URL-policy rejection for %s', async (url) => {
+    // Root dependencies deliberately omit the platform transport patch. Assert
+    // policy enforcement against the actual patched closure in web-fetch.test.mjs;
+    // here verify that tool composition preserves the provider's rejection.
+    const provider = vi.spyOn(HttpFetchProvider.prototype, 'fetch')
+      .mockRejectedValue(new WebError('fetch blocked by URL policy', 'WEB_BLOCKED_URL'))
 
     const ctx = new Context()
     try {
@@ -149,11 +153,12 @@ describe('dsh-edge Web Search composition', () => {
         arguments: { url },
       })
       expect(result.isError).toBe(true)
-      expect(result.error?.info?.code ?? result.error?.message).toMatch(/WEB_BLOCKED_URL|WEB_PROVIDER_ERROR|fetch blocked/)
-      expect(fetch).not.toHaveBeenCalled()
+      expect(result.error?.info?.code).toBe('WEB_BLOCKED_URL')
+      expect(provider).toHaveBeenCalledOnce()
+      expect(provider).toHaveBeenCalledWith(expect.objectContaining({ url }), expect.anything())
     } finally {
       await ctx.fiber.dispose()
-      vi.unstubAllGlobals()
+      vi.restoreAllMocks()
     }
   })
 
