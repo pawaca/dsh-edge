@@ -2,7 +2,9 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "dsh-edge",
   "main": "src/index.ts",
-  "version_metadata": { "binding": "CF_VERSION_METADATA" },
+  "version_metadata": {
+    "binding": "CF_VERSION_METADATA"
+  },
   "compatibility_date": "2026-08-14",
   "compatibility_flags": [
     "nodejs_compat",
@@ -16,7 +18,10 @@
     "run_worker_first": [
       "/api/*",
       "/",
-      "/login"
+      "/login",
+      "/public",
+      "/public/app.js",
+      "/owner"
     ]
   },
   "durable_objects": {
@@ -36,27 +41,13 @@
     }
   ],
   "observability": {
-    "enabled": true
+    "enabled": false
   },
   "env": {
     "isolated": {
-      "version_metadata": { "binding": "CF_VERSION_METADATA" },
-      "durable_objects": {
-        "bindings": [
-          {
-            "name": "DSH_EDGE_INSTANCE",
-            "class_name": "DshEdgeInstance"
-          }
-        ]
+      "version_metadata": {
+        "binding": "CF_VERSION_METADATA"
       },
-      "worker_loaders": [
-        {
-          "binding": "LOADER"
-        }
-      ]
-    },
-    "container": {
-      "version_metadata": { "binding": "CF_VERSION_METADATA" },
       "durable_objects": {
         "bindings": [
           {
@@ -71,7 +62,46 @@
         }
       ],
       "vars": {
-        "DSH_EDGE_CONTAINER_RUNTIME": "enabled"
+        "DSH_EDGE_PUBLIC_CHAT": "enabled",
+        "DSH_EDGE_PUBLIC_MAX_TOKENS": "1024",
+        "DEEPSEEK_MODEL": "deepseek-flash"
+      },
+      "ratelimits": [
+        {
+          "name": "PUBLIC_CHAT_RATE_LIMITER",
+          "namespace_id": "1001",
+          "simple": {
+            "limit": 5,
+            "period": 60
+          }
+        }
+      ],
+      "observability": {
+        "enabled": false
+      }
+    },
+    "container": {
+      "version_metadata": {
+        "binding": "CF_VERSION_METADATA"
+      },
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "DSH_EDGE_INSTANCE",
+            "class_name": "DshEdgeInstance"
+          }
+        ]
+      },
+      "worker_loaders": [
+        {
+          "binding": "LOADER"
+        }
+      ],
+      "vars": {
+        "DSH_EDGE_CONTAINER_RUNTIME": "enabled",
+        "DSH_EDGE_PUBLIC_CHAT": "enabled",
+        "DSH_EDGE_PUBLIC_MAX_TOKENS": "1024",
+        "DEEPSEEK_MODEL": "deepseek-flash"
       },
       "containers": [
         {
@@ -80,9 +110,39 @@
           "instance_type": "basic",
           "max_instances": 1,
           "rollout_active_grace_period": 0,
-          "rollout_step_percentage": [100]
+          "rollout_step_percentage": [
+            100
+          ]
         }
-      ]
+      ],
+      "ratelimits": [
+        {
+          "name": "PUBLIC_CHAT_RATE_LIMITER",
+          "namespace_id": "1001",
+          "simple": {
+            "limit": 5,
+            "period": 60
+          }
+        }
+      ],
+      "observability": {
+        "enabled": false
+      }
     }
-  }
+  },
+  "vars": {
+    "DSH_EDGE_PUBLIC_CHAT": "enabled",
+    "DSH_EDGE_PUBLIC_MAX_TOKENS": "1024",
+    "DEEPSEEK_MODEL": "deepseek-flash"
+  },
+  "ratelimits": [
+    {
+      "name": "PUBLIC_CHAT_RATE_LIMITER",
+      "namespace_id": "1001",
+      "simple": {
+        "limit": 5,
+        "period": 60
+      }
+    }
+  ]
 }
