@@ -1,3 +1,4 @@
+import AgentRegistry from '@deepseek-ai/dsh-agent'
 import { Context } from '@deepseek-ai/cordis'
 import LlmRuntime from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
@@ -26,14 +27,15 @@ describe('optional tool settings', () => {
   async function harness(settingsStorage = memoryStorage()) {
     const storage = new TestDurableObjectStorage()
     const ctx = new Context()
-    await ctx.plugin(LlmRuntime)
-    await ctx.plugin(SystemPrompt, { personaPrefix: '' })
-    await ctx.plugin(ToolRuntime)
-    await ctx.plugin(SessionStore)
-    await ctx.plugin(SessionProjectionRegistry)
+    await ctx.plugin(LlmRuntime).await()
+    await ctx.plugin(SystemPrompt, { personaPrefix: '' }).await()
+    await ctx.plugin(ToolRuntime).await()
+    await ctx.plugin(SessionStore).await()
+    await ctx.plugin(SessionProjectionRegistry).await()
+    await ctx.plugin(AgentRegistry).await()
     await ctx.plugin(DurableObjectSessionPersistence, { storage: storage as never }).await()
-    await ctx.plugin(EdgeSessionQuery)
-    await ctx.plugin(EdgeSettings, { storage: settingsStorage })
+    await ctx.plugin(EdgeSessionQuery).await()
+    await ctx.plugin(EdgeSettings, { storage: settingsStorage }).await()
     const tools = await installEdgeToolSettings(ctx)
     const offered = () => SESSION_TOOLS.filter(name => ctx.tools.get(name) !== undefined)
     return { ctx, storage, settingsStorage, tools, offered }
@@ -62,7 +64,7 @@ describe('optional tool settings', () => {
 
   it('reports a failed mount from sync and retries it on the next application', async () => {
     const ctx = new Context()
-    await ctx.plugin(EdgeSettings, { storage: memoryStorage() })
+    await ctx.plugin(EdgeSettings, { storage: memoryStorage() }).await()
     let attempts = 0
     const plugin = {
       name: 'flaky-tools',
@@ -79,7 +81,7 @@ describe('optional tool settings', () => {
       expect(attempts).toBe(2)
     } finally { await ctx.fiber.dispose() }
     const failing = new Context()
-    await failing.plugin(EdgeSettings, { storage: memoryStorage() })
+    await failing.plugin(EdgeSettings, { storage: memoryStorage() }).await()
     const broken = await installEdgeToolSettings(failing, () => Promise.resolve({ name: 'broken', apply() { throw new Error('mount failed') } } as never))
     try {
       await broken.scope.update({ sessionQuery: true })
@@ -90,12 +92,12 @@ describe('optional tool settings', () => {
   it('retries a mount that failed at start before the next turn', async () => {
     const storage = memoryStorage()
     const first = new Context()
-    await first.plugin(EdgeSettings, { storage })
+    await first.plugin(EdgeSettings, { storage }).await()
     await (await installEdgeToolSettings(first, () => Promise.resolve({ name: 'ok', apply() {} } as never))).scope.update({ sessionQuery: true })
     await first.fiber.dispose()
     // A restart whose start-up mount fails keeps the saved "on" and recovers on ensure().
     const ctx = new Context()
-    await ctx.plugin(EdgeSettings, { storage })
+    await ctx.plugin(EdgeSettings, { storage }).await()
     let attempts = 0
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})
     const tools = await installEdgeToolSettings(ctx, () => Promise.resolve({

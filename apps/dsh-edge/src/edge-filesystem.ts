@@ -1,5 +1,6 @@
 /** Computer VFS implementation of the upstream FileSystem service (`ctx.fs`). */
 
+import { applyHunks, type PatchHunk } from '@deepseek-ai/dsh-fs-patch'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import type { Context } from '@deepseek-ai/cordis'
 import {
@@ -11,6 +12,8 @@ import {
 import { EDGE_FILE_ATTACHMENT_ROOT, isStoredFilePath } from './edge-file-attachments.ts'
 import type {
   FsDirEntry,
+  FsDeleteOutcome,
+  FsMoveOutcome,
   FsEditOutcome,
   FsEditRequest,
   FsInfo,
@@ -27,6 +30,7 @@ export interface EdgeVfs {
   stat(path: string): Promise<{
     size: number
     mtime: number
+    mode: number
     isFile: boolean
     isDirectory: boolean
     isSymbolicLink: boolean
@@ -46,6 +50,8 @@ export interface EdgeVfs {
     isDirectory: boolean
   }>>
   mkdir(path: string, options?: { recursive?: boolean }): Promise<void>
+  chmod(path: string, mode: number): Promise<void>
+  rm(path: string, options?: { recursive?: boolean; force?: boolean }): Promise<void>
 }
 
 function resolvePath(cwd: string, path: string): string {
@@ -380,7 +386,9 @@ export class EdgeFileSystem extends FileSystem {
       const reader = stream.getReader()
       const chunks: Uint8Array[] = []
       let total = 0
+      try {
       while (true) {
+        signal?.throwIfAborted()
         const { done, value } = await reader.read()
         if (done) break
         total += value.byteLength
@@ -389,6 +397,10 @@ export class EdgeFileSystem extends FileSystem {
           throw new FsError(`"${target.displayPath}" exceeds the ${String(maxBytes)}-byte read limit`, 'FS_TOO_LARGE')
         }
         chunks.push(value)
+      }
+      } finally {
+        await reader.cancel().catch(() => {})
+        reader.releaseLock()
       }
       const result = new Uint8Array(total)
       let offset = 0
@@ -453,7 +465,7 @@ export class EdgeFileSystem extends FileSystem {
     }
     let before: string | null = null
     if (existing !== undefined) {
-      try { before = normalizeLineEndings(await vfs.readFile(path, 'utf8')) } catch { /* binary or unreadable */ }
+      before = await this.readBasis(target, signal)
     }
     const parentDir = path.substring(0, path.lastIndexOf('/')) || '/'
     try { await vfs.mkdir(parentDir, { recursive: true }) } catch { /* already exists */ }
@@ -511,6 +523,122 @@ export class EdgeFileSystem extends FileSystem {
     const version = afterInfo?.version ?? versionOf(Date.now(), edited.length)
     this.ctx.emit('fs/observed', target, { kind: 'present', version }, undefined)
     return { version, before: original, after: edited }
+  }
+
+  /** New patch/move paths retain at most 2 MiB of source text. */
+  private async readMutationText(target: FsTarget, signal?: AbortSignal): Promise<string> {
+    const bytes = await this.readBytes(target, signal, 2 * 1024 * 1024)
+    try {
+      const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+      if (text.includes('\0')) throw new Error('binary content')
+      return text
+    } catch (cause) {
+      throw new FsError('File is not UTF-8 text.', 'FS_NOT_TEXT', { cause })
+    }
+  }
+
+  private async readBasis(target: FsTarget, signal?: AbortSignal): Promise<string | null> {
+    try { return normalizeLineEndings(await this.readMutationText(target, signal)) }
+    catch (error) {
+      if (signal?.aborted) throw error
+      if (error instanceof FsError && (error.code === 'FS_TOO_LARGE' || error.code === 'FS_NOT_TEXT')) return null
+      throw error
+    }
+  }
+
+  private async requireMutationTarget(target: FsTarget, expected?: { version: FsVersion }, signal?: AbortSignal): Promise<void> {
+    refuseAttachmentWrite(this.processPath(target), target)
+    const info = await this.stat(target, signal)
+    if (info === undefined || (expected !== undefined && expected.version !== info.version)) {
+      throw new FsError(`File changed or disappeared: ${target.displayPath}`, 'FS_STALE_VERSION')
+    }
+    if (info.type !== 'file') throw new FsError('Not a regular file.', 'FS_NOT_REGULAR_FILE')
+  }
+
+  private patchedText(original: string, hunks: readonly PatchHunk[]): { before: string; after: string; stored: string } {
+    // Bound both matcher work and possible output before applyHunks allocates.
+    let added = 0
+    let lines = 0
+    if (hunks.length > 4096) throw new FsError('Patch exceeds the hunk limit.', 'FS_TOO_LARGE')
+    for (const hunk of hunks) {
+      added += (hunk.context?.length ?? 0)
+      for (const group of [hunk.oldLines, hunk.newLines]) for (const line of group) {
+        added += line.length + 1
+        if (++lines > 65536 || added > 2 * 1024 * 1024) throw new FsError('Patch exceeds the 2 MiB mutation limit.', 'FS_TOO_LARGE')
+      }
+    }
+    const before = normalizeLineEndings(original)
+    const result = applyHunks(before, hunks)
+    if (!result.ok) throw new FsError(`Patch did not match at line ${String(result.failure.hunkLineNumber)}.`, 'FS_PATCH_MISMATCH')
+    // Preserve the source's stored newline convention, as the provider seam requires.
+    const newline = original.includes('\r\n') ? '\r\n' : original.includes('\r') ? '\r' : '\n'
+    const stored = result.after.replace(/\n/g, newline)
+    if (new TextEncoder().encode(stored).byteLength > 2 * 1024 * 1024) {
+      throw new FsError('Patched text exceeds the 2 MiB mutation limit.', 'FS_TOO_LARGE')
+    }
+    return { before, after: result.after, stored }
+  }
+
+  patchText(target: FsTarget, hunks: readonly PatchHunk[], expected?: { version: FsVersion }, signal?: AbortSignal): Promise<FsEditOutcome> {
+    return this.withLock(target.targetKey, async () => {
+      await this.requireMutationTarget(target, expected, signal)
+      const text = this.patchedText(await this.readMutationText(target, signal), hunks)
+      const vfs = this.requireBinding().vfs
+      const path = this.processPath(target)
+      await waitPastModification(vfs, path)
+      signal?.throwIfAborted()
+      await vfs.writeFile(path, text.stored)
+      const info = await this.stat(target)
+      if (info === undefined) throw new FsError('Patched file disappeared.', 'FS_IO_ERROR')
+      this.ctx.emit('fs/observed', target, { kind: 'present', version: info.version }, undefined)
+      return { version: info.version, before: text.before, after: text.after }
+    })
+  }
+
+  deleteFile(target: FsTarget, expected?: { version: FsVersion }, signal?: AbortSignal): Promise<FsDeleteOutcome> {
+    return this.withLock(target.targetKey, async () => {
+      await this.requireMutationTarget(target, expected, signal)
+      const before = await this.readBasis(target, signal)
+      signal?.throwIfAborted()
+      await this.requireBinding().vfs.rm(this.processPath(target))
+      this.ctx.emit('fs/observed', target, { kind: 'absent' }, undefined)
+      return { before }
+    })
+  }
+
+  moveFile(source: FsTarget, destination: FsTarget, options: {
+    hunks?: readonly PatchHunk[]
+    expectedSource?: { version: FsVersion }
+    expectedDestination?: FsWriteIntent
+  }, signal?: AbortSignal): Promise<FsMoveOutcome> {
+    if (source.targetKey === destination.targetKey) return Promise.reject(new FsError('Source and destination are identical.', 'FS_SAME_TARGET'))
+    const keys = [String(source.targetKey), String(destination.targetKey)].sort()
+    return this.withLock(keys[0]!, () => this.withLock(keys[1]!, async () => {
+      await this.requireMutationTarget(source, options.expectedSource, signal)
+      refuseAttachmentWrite(this.processPath(destination), destination)
+      const mode = (await this.requireBinding().vfs.stat(this.processPath(source))).mode
+      const original = await this.readMutationText(source, signal)
+      const text = options.hunks === undefined
+        ? { before: normalizeLineEndings(original), stored: original }
+        : this.patchedText(original, options.hunks)
+      signal?.throwIfAborted()
+      // Cancellation stops before publication. Once published, finish source
+      // removal or return its explicit partial-success outcome.
+      let outcome = await this.writeTextLocked(destination, text.stored, options.expectedDestination)
+      try {
+        await this.requireBinding().vfs.chmod(this.processPath(destination), mode)
+        const final = await this.stat(destination)
+        if (final === undefined) throw new FsError('Destination disappeared after publication.', 'FS_IO_ERROR')
+        outcome = { ...outcome, version: final.version }
+        this.ctx.emit('fs/observed', destination, { kind: 'present', version: final.version }, undefined)
+        await this.requireBinding().vfs.rm(this.processPath(source))
+        this.ctx.emit('fs/observed', source, { kind: 'absent' }, undefined)
+        return { sourceBefore: text.before, destination: outcome, sourceDeleted: true }
+      } catch (cause) {
+        return { sourceBefore: text.before, destination: outcome, sourceDeleted: false,
+          sourceFailure: { code: 'FS_IO_ERROR', message: `Move could not finish: ${cause instanceof Error ? cause.message : String(cause)}` } }
+      }
+    }))
   }
 
   private async withLock<T>(key: string, op: () => Promise<T>): Promise<T> {

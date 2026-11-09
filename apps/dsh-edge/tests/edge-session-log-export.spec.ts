@@ -50,8 +50,8 @@ function header(id: SessionId, parent?: SessionId): SessionHeader {
 async function fixture() {
   const storage = new TestDurableObjectStorage()
   const ctx = new Context()
-  await ctx.plugin(SessionStore)
-  const fiber = await ctx.plugin(DurableObjectSessionPersistence, { storage: storage as never })
+  await ctx.plugin(SessionStore).await()
+  const fiber = await ctx.plugin(DurableObjectSessionPersistence, { storage: storage as never }).await()
   const persistence = ctx.sessionPersistence as DurableObjectSessionPersistence
   const write = (meta: SessionHeader, events: SessionEvent[]) => persistence.appendBatch({ meta, inheritedEventCount: SessionLogOffset(0) }, events, false)
   // Chinese text, an image shown twice (one archive entry), and a file whose name needs sanitizing.

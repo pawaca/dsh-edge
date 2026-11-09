@@ -24,9 +24,10 @@
 
 import { Service as CordisService, type Context } from '@deepseek-ai/cordis'
 import { bindScopeParent, createScope, scopeOf, scopeParentOf } from '@deepseek-ai/dsh-scope'
+import * as PtcToolExecutor from '@deepseek-ai/dsh-tool-executor-ptc'
 import Schema from '@deepseek-ai/schemastery'
 import { edgeSettings, type EdgeSettingsScope } from './edge-settings.ts'
-import type { SessionHeader } from '@deepseek-ai/dsh-session'
+import type { Session, SessionHeader } from '@deepseek-ai/dsh-session'
 
 // The upstream event the preset host records; declared here because the Edge
 // serves agentPresets itself instead of loading the upstream host package.
@@ -89,8 +90,9 @@ export function sessionAgentPreset(header: SessionHeader): string {
  * through `composeFrom`, so children run their parent's preset.
  */
 export class EdgeAgentPresets extends CordisService {
-  static inject = ['settings']
+  static inject = ['settings', 'sessionProjections']
 
+  private readonly executorScopes = new WeakSet<Context>()
   private readonly composed = new WeakMap<Context, string>()
   private readonly settings: EdgeSettingsScope<AgentPresetSettings>
   private readonly compositionKey = {}
@@ -130,6 +132,12 @@ export class EdgeAgentPresets extends CordisService {
       .map(id => ({ id, trust: 'system' as const, isDefault: id === defaultId }))
   }
 
+  presetForSession(session: Session): string | null {
+    const snapshot = this.ctx.sessionProjections.snapshot(session, ['agentPreset'])
+    const preset = snapshot.values.agentPreset
+    return typeof preset === 'string' ? normalizeAgentPreset(preset) : sessionAgentPreset(session.header)
+  }
+
   offers(presetId: string): boolean {
     return edgeAgentPresetIds(this.config.codeRuntime).includes(normalizeAgentPreset(presetId))
   }
@@ -154,7 +162,10 @@ export class EdgeAgentPresets extends CordisService {
     const scope = scopeOf(agentCtx)
     if (scope !== undefined && scopeParentOf(scope) === undefined) bindScopeParent(scope, this.compositionKey)
     if (id === PTC_AGENT_PRESET) {
-      agentCtx.tools.presentAs('ptc')
+      if (!this.executorScopes.has(agentCtx)) {
+        agentCtx.plugin(PtcToolExecutor, { maxParallelSubCalls: 4 })
+        this.executorScopes.add(agentCtx)
+      }
       // A ralph call from run_code would inherit the program's short-tool
       // deadline and die mid-loop, so it leaves with workflow.
       agentCtx.tools.restrict({ deny: ['workflow', 'ralph'] })
@@ -188,4 +199,8 @@ export class EdgeAgentPresets extends CordisService {
   serviceFor(_agent: { ctx: Context }, _name: string): undefined {
     return undefined
   }
+}
+
+declare module '@deepseek-ai/dsh-session-projection/types' {
+  interface SessionProjectionMap { agentPreset: string | null }
 }

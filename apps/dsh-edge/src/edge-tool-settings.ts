@@ -48,7 +48,6 @@ export interface EdgeToolSettingsHandle {
 export async function installEdgeToolSettings(
   ctx: Context,
   /** Load the plugin to mount; tests substitute one. */
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-return
   load: () => Promise<Parameters<Context['plugin']>[0]> = () => import('@deepseek-ai/dsh-tool-session-query' as string),
 ): Promise<EdgeToolSettingsHandle> {
   const scope = edgeSettings(ctx).register(TOOL_SETTINGS_NAMESPACE, EdgeToolSettingsSchema)

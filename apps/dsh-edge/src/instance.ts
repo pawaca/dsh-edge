@@ -1,5 +1,6 @@
 /** Workspace Durable Object with persistent sessions and streamed agent turns. */
 
+import { requestDeadline } from './edge-deadline.ts'
 import { initializeSchedules, nextSchedule, scheduleWakeTime, setScheduleRetry, dispatchDueSchedules } from './schedule-store.ts'
 import { nextSpillSweep } from './edge-spill-store.ts'
 import { reclaimUnreferencedBlobs } from './edge-vfs-reclaim.ts'
@@ -502,9 +503,14 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       // run before Typert RPC parsing, which would otherwise claim a two-segment path. The
       // session log download keeps its Edge exporter below.
       if (url.pathname !== SESSION_LOG_EXPORT_PATH) {
+        if (url.pathname === '/api/session.markdown' && request.method === 'GET') {
+          const id = url.searchParams.get('sessionId')
+          if (!id) return new Response('missing or invalid sessionId query parameter', { status: 400 })
+          return await this.sessions.exportSessionMarkdown(SessionId(id), request.signal)
+        }
         const route = this.sessions.connectionRoute(url.pathname, request.method)
         if (route !== undefined) {
-          if (url.pathname === WORKSPACE_FILE_ROUTE && request.method === 'GET') {
+          if (url.pathname === WORKSPACE_FILE_ROUTE && (request.method === 'GET' || request.method === 'HEAD')) {
             return await this.streamWorkspaceFile(url, request, route)
           }
           if (url.pathname === FILE_UPLOAD_PATH) return await this.uploadFile(url, request, route)
@@ -780,6 +786,11 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     // The container deadline reads the saved sleep window; wakes that bypass
     // fetch() (alarms, hibernated sockets, RPCs) must not see defaults.
     await this.sessions.waitForInitialization()
+    // Read first, then recompute durable work without yielding, so an await
+    // cannot leave us applying a stale empty-queue decision. Keep an already
+    // earlier wake: moving its recovery deadline forward on every turn adds
+    // writes and can indefinitely postpone recovery under a request burst.
+    const scheduled = await this.ctx.storage.getAlarm()
     const expiry = this.closeExpiredDownlinks()
     const work = this.mainQueue.hasWork()
       ? Date.now() + (this.mainDriving || this.mainQueue.current() !== undefined ? MAIN_WAKE_MS : 1)
@@ -789,8 +800,9 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     const container = this.ctx.container?.running === true ? this.containerActivity.deadline() : undefined
     const times = [expiry, work, due, container].filter((time): time is number => time !== undefined)
     const next = times.length === 0 ? undefined : Math.min(...times)
-    if (next === undefined) await this.ctx.storage.deleteAlarm()
-    else await this.ctx.storage.setAlarm(next)
+    if (next === undefined) {
+      if (scheduled !== null) await this.ctx.storage.deleteAlarm()
+    } else if (scheduled === null || next < scheduled || (work === undefined && next !== scheduled)) await this.ctx.storage.setAlarm(next)
   }
 
   private kickMain(): void {
@@ -802,7 +814,8 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
   private async driveMain(fromAlarm: boolean): Promise<void> {
     if (this.mainDriving || this.activeTurns.size > 0) return
     this.mainDriving = true
-    const stopAt = Date.now() + MAIN_RUN_TIMEOUT_MS
+    const stopAt = Date.now() + (fromAlarm ? 5_000 : MAIN_RUN_TIMEOUT_MS)
+    let completed = 0
     try {
       const stale = this.mainQueue.current()
       if (stale !== undefined) {
@@ -877,7 +890,10 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
           }
         }
         if (this.activeTurns.has(sessionId)) throw failure ?? new Error('Main session cleanup did not finish.')
-      } while (!fromAlarm && Date.now() < stopAt)
+        completed++
+        // Drain a bounded batch per alarm instead of one alarm per input. Each
+        // turn retains its own deadline; the slice stops admitting more turns.
+      } while (Date.now() < stopAt && (!fromAlarm || completed < 32))
     } finally {
       this.mainDriving = false
       await this.scheduleMainWake()
@@ -1199,7 +1215,8 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       // belong to this command; waiting spends its timeout.
       const budgetMs = resolveCommandTimeoutMs(timeoutPolicy, options.timeoutMs)
       const started = Date.now()
-      const expiry = AbortSignal.timeout(budgetMs)
+      using timeout = requestDeadline(budgetMs)
+      const expiry = timeout.signal
       let release: () => void
       try {
         release = await this.lightTurns.acquire(
@@ -1282,7 +1299,8 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     // Waiting for a slot spends the command's timeout; the command then gets
     // only what remains, and a wait that uses it all ends as a timeout.
     const budgetMs = resolveCommandTimeoutMs(timeoutPolicy, options.timeoutMs)
-    const expiry = AbortSignal.timeout(budgetMs)
+    using timeout = requestDeadline(budgetMs)
+    const expiry = timeout.signal
     let admission: Awaited<ReturnType<ContainerActivity['admit']>>
     try {
       admission = await this.containerActivity.admit(
@@ -1363,8 +1381,19 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
     const scoped = <T>(run: () => Promise<T>) => fs.runInScope(workspace.fs as never, '/workspace', run)
     let handedOff = false
     try {
-      const head = await scoped(() => route(new Request(request, { method: 'HEAD' })))
-      if (!head.ok) return await scoped(() => route(request))
+      let head = await scoped(() => route(new Request(request, { method: 'HEAD' })))
+      // rc.1 canonicalizes a file URL to ?path=…&v=… before serving it.
+      // Edge keeps its established streaming/no-store HTTP contract: a mutable
+      // VFS stream cannot promise the immutable byte snapshot that cache needs.
+      if (head.status === 302 && head.headers.has('location')) {
+        const versioned = new URL(head.headers.get('location')!, request.url)
+        head = await scoped(() => route(new Request(versioned, { method: 'HEAD', headers: request.headers, signal: request.signal })))
+        if (head.status === 302) return new Response('File changed while preparing the read; retry.', { status: 409, headers: { 'cache-control': 'private, no-store' } })
+      }
+      if (!head.ok) return head
+      const headHeaders = new Headers(head.headers)
+      headHeaders.set('cache-control', 'private, no-store')
+      if (request.method === 'HEAD') return new Response(null, { status: head.status, headers: headHeaders })
       const size = Number(head.headers.get('content-length'))
       const maxBytes = Number.isSafeInteger(size) ? size : (await this.sessions.imageLimits())?.maxImageBytes ?? 0
       const body = await scoped(async () => fs.readStream(
@@ -1373,7 +1402,7 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
         maxBytes,
       ))
       // The file may change between HEAD and the read, so the length is not promised.
-      const headers = new Headers(head.headers)
+      const headers = headHeaders
       headers.delete('content-length')
       handedOff = true
       return new Response(releasingWhenDone(body, () => workspace[Symbol.dispose]()), { headers })
@@ -1609,9 +1638,11 @@ export class DshEdgeInstance extends DshEdgeWorkspace {
       // The gateway's own RPC path encodes results (byte values included) for the Connection wire.
       // A command may run model work (/compact summarizes the history), so it
       // gets a turn's deadline and ends early only if the caller disconnects.
-      const deadline = ns === 'commands'
-        ? AbortSignal.any([request.signal, AbortSignal.timeout(MAIN_RUN_TIMEOUT_MS)])
-        : AbortSignal.timeout(30_000)
+      using timeout = requestDeadline(
+        ns === 'commands' ? MAIN_RUN_TIMEOUT_MS : 30_000,
+        ns === 'commands' ? request.signal : undefined,
+      )
+      const deadline = timeout.signal
       const invoke = () => interceptor.dispatch(`${ns}/${method}`, payload ?? { args }, deadline)
       if (ns === 'skills' && method === 'list') await this.refreshSessionSkills(args)
       // Agent-scoped commands (including /plan) use the same residency budget.

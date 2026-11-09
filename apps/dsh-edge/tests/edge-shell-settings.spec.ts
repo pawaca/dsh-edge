@@ -17,7 +17,7 @@ describe('Shell card settings', () => {
 
   async function scope(storage = memoryStorage()) {
     const ctx = new Context()
-    await ctx.plugin(EdgeSettings, { storage })
+    await ctx.plugin(EdgeSettings, { storage }).await()
     return { ctx, storage, shell: installEdgeShellSettings(ctx, policy) }
   }
 
@@ -43,7 +43,7 @@ describe('Shell card settings', () => {
       await ctx.fiber.dispose()
       // A deployment that lowered its ceiling below a saved timeout falls back to the defaults.
       const lowered = new Context()
-      await lowered.plugin(EdgeSettings, { storage })
+      await lowered.plugin(EdgeSettings, { storage }).await()
       const reread = installEdgeShellSettings(lowered, { defaultTimeoutMs: 60_000, maxTimeoutMs: 90_000 })
       expect(reread.get()).toEqual({ timeoutMs: 60_000, maxOutputBytes: 64_000 })
       await lowered.fiber.dispose()

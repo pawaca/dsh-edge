@@ -47,9 +47,9 @@ function makeTool(name: string, serverName: string): CachedMcpTool {
 
 async function createCtx(): Promise<Context> {
   const ctx = new Context()
-  await ctx.plugin(LlmRuntime)
-  await ctx.plugin(SystemPrompt, { personaPrefix: '' })
-  await ctx.plugin(ToolRuntime)
+  await ctx.plugin(LlmRuntime).await()
+  await ctx.plugin(SystemPrompt, { personaPrefix: '' }).await()
+  await ctx.plugin(ToolRuntime).await()
   return ctx
 }
 

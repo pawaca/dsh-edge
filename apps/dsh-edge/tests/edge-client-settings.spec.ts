@@ -45,7 +45,7 @@ describe('shipped client settings namespaces', () => {
       put: (key: string, value: unknown) => { store.set(key, value); return Promise.resolve() },
     } as unknown as DurableObjectStorage
     const ctx = new Context()
-    await ctx.plugin(EdgeSettings, { storage })
+    await ctx.plugin(EdgeSettings, { storage }).await()
     registerClientSettings(ctx)
     const chat = () => edgeSettings(ctx).describe().find(entry => entry.ns === 'ui-chat')?.value
     expect(chat()).toMatchObject({ linkOpening: 'new-tab' })

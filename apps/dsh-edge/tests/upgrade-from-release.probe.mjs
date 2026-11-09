@@ -286,7 +286,7 @@ try {
   const listedReminders = await turn(reminders, 'list reminders')
   const listedViews = JSON.parse(textOf(listedReminders.find(event => event.type === 'tool/result').data.message.content))
   // A 0.18 reminder has no title and imports with one from its prompt; a titled (0.19+) reminder keeps its own.
-  assert.deepEqual(listedViews.map(view => view.title).sort(), previousReminderTitles
+  assert.deepEqual((Array.isArray(listedViews) ? listedViews : listedViews.items.filter(view => view.target.kind === 'session' && view.target.sessionId === reminders)).map(view => view.title).sort(), previousReminderTitles
     ? ['Fixture periodic', 'Fixture reminder']
     : ['schedule-fixture-periodic', 'schedule-fixture-reminder'], JSON.stringify(listedViews))
   pass(previousReminderTitles

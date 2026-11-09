@@ -442,6 +442,11 @@ export function EdgeWorkspaceChanges(ctx: Context, config: EdgeWorkspaceChangesC
     await capture(target, actor)
     return intent
   }, { prepend: true })
+  ctx.on('fs/delete-intent', async (target, actor, next) => {
+    const intent = await next()
+    await capture(target, actor)
+    return intent
+  }, { prepend: true })
   ctx.on('tools/pre-execute', async (exec, next) => {
     const session = exec.agent?.session
     const recorder = session === undefined ? undefined : recorders.get(session)

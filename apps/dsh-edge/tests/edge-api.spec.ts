@@ -5,7 +5,7 @@ import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import type { RpcRequest } from '../src/edge-rpc-types.ts'
 import {
   AttachmentId,
-  type AttachmentStore,
+  AttachmentStore,
   type ImageAttachmentLimits,
   type ImageAttachmentRef,
 } from '@deepseek-ai/dsh-attachment'
@@ -687,7 +687,7 @@ describe('Edge upstream API invariants', () => {
 
   it('uses upstream image admission and durable refs without changing the prompt wire', async () => {
     const saveImages = vi.fn(async () => [imageRef])
-    const attachmentStore = vi.fn(async () => ({ saveImages } as unknown as AttachmentStore))
+    const attachmentStore = vi.fn(async () => ({ saveImages, imageLimits, admitPromptContent(content: Parameters<AttachmentStore['admitPromptContent']>[0]) { return AttachmentStore.prototype.admitPromptContent.call(this as unknown as AttachmentStore, content) } } as unknown as AttachmentStore))
     const modelSupportsImages = vi.fn(async () => true)
     const prompt = vi.fn(async () => {})
     const edge = runtime({ attachmentStore, modelSupportsImages }, {
@@ -723,7 +723,7 @@ describe('Edge upstream API invariants', () => {
     const saveImages = vi.fn(async () => [imageRef])
     const prompt = vi.fn(async () => {})
     const edge = runtime({
-      attachmentStore: vi.fn(async () => ({ saveImages } as unknown as AttachmentStore)),
+      attachmentStore: vi.fn(async () => ({ saveImages, imageLimits, admitPromptContent(content: Parameters<AttachmentStore['admitPromptContent']>[0]) { return AttachmentStore.prototype.admitPromptContent.call(this as unknown as AttachmentStore, content) } } as unknown as AttachmentStore)),
       modelSupportsImages: vi.fn(async () => false),
     }, { imageLimits, prompt })
 
@@ -754,7 +754,7 @@ describe('Edge upstream API invariants', () => {
       model: 'deepseek-v4-flash',
     }))
     const api = createEdgeApi(runtime({
-      attachmentStore: vi.fn(async () => ({ saveImages } as unknown as AttachmentStore)),
+      attachmentStore: vi.fn(async () => ({ saveImages, imageLimits, admitPromptContent(content: Parameters<AttachmentStore['admitPromptContent']>[0]) { return AttachmentStore.prototype.admitPromptContent.call(this as unknown as AttachmentStore, content) } } as unknown as AttachmentStore)),
       modelSupportsImages: vi.fn(async () => true),
       selectModel,
     }, { imageLimits, prompt }))
@@ -790,7 +790,7 @@ describe('Edge upstream API invariants', () => {
     const modelSupportsImages = vi.fn(async () => false)
     const saveImages = vi.fn(async () => [imageRef])
     const api = createEdgeApi(runtime({
-      attachmentStore: vi.fn(async () => ({ saveImages } as unknown as AttachmentStore)),
+      attachmentStore: vi.fn(async () => ({ saveImages, imageLimits, admitPromptContent(content: Parameters<AttachmentStore['admitPromptContent']>[0]) { return AttachmentStore.prototype.admitPromptContent.call(this as unknown as AttachmentStore, content) } } as unknown as AttachmentStore)),
       modelSupportsImages,
       selectModel,
     }, { imageLimits }))
@@ -906,15 +906,16 @@ describe('Edge upstream API invariants', () => {
     expect(readPage).toHaveBeenCalledOnce()
   })
 
-  it('projects image limits only when an attachment backend is composed', async () => {
+  it('omits host-wide image limits from both session summaries', async () => {
     const sessions = { listApiSessions: vi.fn(async () => [summary(parentId)]) }
     const enabled = await createEdgeApi(runtime(sessions, { imageLimits })).sessions.list(request({}))
     const disabled = await createEdgeApi(runtime(sessions)).sessions.list(request({}))
 
     expect(enabled.result).toMatchObject({
       ok: true,
-      value: { items: [{ projections: { values: { imageLimits } } }] },
+      value: { items: [{ projections: { values: { sessionListMetadata: { blank: true } } } }] },
     })
+    if (enabled.result.ok) expect(enabled.result.value.items[0]?.projections?.values).not.toHaveProperty('imageLimits')
     expect(disabled.result).toMatchObject({ ok: true })
     if (disabled.result.ok) {
       const values = disabled.result.value.items[0]?.projections?.values

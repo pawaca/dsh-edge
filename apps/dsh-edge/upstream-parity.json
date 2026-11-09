@@ -17,10 +17,6 @@
       "status": "substitute",
       "reason": "EdgeAgentPresets in agent-presets.ts serves preset listing, selection, and composition."
     },
-    "@deepseek-ai/dsh-agent-tool-presentation": {
-      "status": "substitute",
-      "reason": "EdgeAgentPresets.join calls tools.presentAs(\"ptc\") directly."
-    },
     "@deepseek-ai/dsh-api-account-controller": {
       "status": "declined",
       "reason": "DeepSeek account sign-in. The Edge authenticates with the deployment API key, and the sign-in callback accepts only localhost."
@@ -288,6 +284,14 @@
     "@deepseek-ai/dsh-workspace-changes": {
       "status": "substitute",
       "reason": "EdgeWorkspaceChanges (edge-workspace-changes.ts) serves workspaceChanges in upstream's no-git mode: each top-level turn's write and edit calls are copied whole into the VFS around the edit and compared at turn end; shell and Container edits are not recorded. The deliverables host half registers the changes routes."
+    },
+    "@deepseek-ai/dsh-action-cards": {
+      "status": "declined",
+      "reason": "Optional action-card tool catalog entry; Edge retains its existing user-question and approval surfaces in this baseline upgrade."
+    },
+    "@deepseek-ai/dsh-experimental-tool-subagent-oar": {
+      "status": "declined",
+      "reason": "Experimental alternative subagent orchestration; Edge retains the standard and fork providers and their admission/queue contracts."
     }
   },
   "wikiOmit": {
@@ -302,7 +306,9 @@
     "translation": "Experimental text translation through anonymous browser endpoints or paid Flash routes; the Edge mounts no translator.",
     "voice-input": "Experimental speech-to-text with local SenseVoice inference on the host.",
     "webhook": "External deliveries that create root Sessions are not offered; GitHub webhook review sessions are tracked in #180.",
-    "worktrees": "Experimental git worktree service and create_worktree tool. It needs ctx.subprocess and ctx.sandbox, which the Edge does not serve; a Container-only adapter is a P3 gap (dsh-experimental-tool-worktree), and the model can already run git worktree in bash."
+    "worktrees": "Experimental git worktree service and create_worktree tool. It needs ctx.subprocess and ctx.sandbox, which the Edge does not serve; a Container-only adapter is a P3 gap (dsh-experimental-tool-worktree), and the model can already run git worktree in bash.",
+    "forge": "External Git/forge integration is outside this baseline compatibility upgrade.",
+    "liveshare": "Viewer identity and share hosting require a separate product design; not enabled by the reference Web composition."
   },
   "edgeOwned": {
     "@deepseek-ai/dsh-api-gateway": "Patched; the Edge serves /api/remote.mux and the /api/events.* channels itself (instance.ts), with Durable Object hibernation-safe WebSockets, and uses the gateway only for /api RPC and stream dispatch.",
@@ -331,9 +337,11 @@
     "@deepseek-ai/dsh-client-ui-workflow-run": "Its nodes come from the Edge workflow engine (edge-workflow-engine.ts), Isolated deployments only.",
     "@deepseek-ai/dsh-client-ui-workspace": "The directory picker is EdgeDirectoryPicker (edge-directory-picker.ts) over the single /workspace.",
     "@deepseek-ai/dsh-schedule": "The upstream ScheduleService is not mounted; EdgeSchedule (schedule-store.ts) serves ctx.schedule over Durable Object SQLite and alarms, reusing upstream's rule functions.",
-    "@deepseek-ai/dsh-session-log-export": "The plugin keeps the /export command and route; the download itself is the Edge's paged exporter (edge-session-log-export.ts).",
+    "@deepseek-ai/dsh-session-log-export": "The plugin keeps /export; Edge serves paged ZIP download (edge-session-log-export.ts) and a byte/event-bounded Markdown copy with one response admitted per DO (session-store.ts, edge-markdown-copy.ts).",
     "@deepseek-ai/dsh-session-projection-cache": "The Edge storage backend drops the rows that grow with a conversation (edge-projection-cache.ts) before storing a record.",
     "@deepseek-ai/dsh-settings": "Upstream's SettingsForms is not mounted; EdgeSettings (edge-settings.ts) serves ctx.settings from one Durable Object KV document, reusing its errors and redaction.",
-    "@deepseek-ai/dsh-tool-fs-search": "The plugin is not mounted; edge-fs-search.ts registers glob and grep over the VFS, reusing its argument parsing and formatting."
+    "@deepseek-ai/dsh-tool-fs-search": "The plugin is not mounted; edge-fs-search.ts registers glob and grep over the VFS, reusing its argument parsing and formatting.",
+    "@deepseek-ai/dsh-client-ui-trajectory": "EdgeToolResults keeps only live raw results, bounded per result, per Session, globally, and by follower count; missing or evicted results are unavailable.",
+    "@deepseek-ai/dsh-fs-observation-policy": "Edge deliberately keeps this policy enabled although upstream defaults changed; the new delete-intent is captured too."
   }
 }

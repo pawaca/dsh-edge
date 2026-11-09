@@ -40,10 +40,10 @@ describe('Edge session query reads of cold sessions', () => {
   async function harness() {
     const storage = new TestDurableObjectStorage()
     const ctx = new Context()
-    await ctx.plugin(SessionStore)
-    await ctx.plugin(SessionProjectionRegistry)
+    await ctx.plugin(SessionStore).await()
+    await ctx.plugin(SessionProjectionRegistry).await()
     await ctx.plugin(DurableObjectSessionPersistence, { storage: storage as never }).await()
-    await ctx.plugin(EdgeSessionQuery)
+    await ctx.plugin(EdgeSessionQuery).await()
     const persistence = ctx.sessionPersistence as DurableObjectSessionPersistence
     const engine = ctx.sessionQuery as EdgeSessionQuery
     const id = SessionId('cold')

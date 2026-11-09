@@ -76,7 +76,7 @@ describe('EdgeAgentDefaultModel', () => {
 
   async function defaultModel(storage: TestStorage): Promise<EdgeAgentDefaultModel> {
     const ctx = new Context()
-    await ctx.plugin(EdgeAgentDefaultModel, { storage: storage as never, selection: flash })
+    await ctx.plugin(EdgeAgentDefaultModel, { storage: storage as never, selection: flash }).await()
     return ctx.get('agentDefaultModel') as EdgeAgentDefaultModel
   }
 

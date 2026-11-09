@@ -1,8 +1,10 @@
 import { Context } from '@deepseek-ai/cordis'
 import { ToolCallId as CallId } from '@deepseek-ai/dsh-llm/brand'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRuntime from '@deepseek-ai/dsh-tools'
+import ToolRuntime, { type ToolExecution } from '@deepseek-ai/dsh-tools'
+import * as NativeExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { HttpFetchProvider } from '@deepseek-ai/dsh-web-fetch-http'
+import { WebError } from '@deepseek-ai/dsh-web'
 import { describe, expect, it, vi } from 'vitest'
 import EdgeCredentialProvider from '../src/edge-credentials.ts'
 import { EdgeSettings, edgeSettings } from '../src/edge-settings.ts'
@@ -29,13 +31,14 @@ describe('dsh-edge Web Search composition', () => {
     const ctx = new Context()
     try {
       const storage = { get: () => Promise.resolve(undefined), put: () => Promise.resolve(), delete: () => Promise.resolve(true) } as unknown as DurableObjectStorage
-      await ctx.plugin(EdgeCredentialProvider, { storage, readDeepSeekApiKey: () => 'search-key' })
-      await ctx.plugin(EdgeSettings, { storage })
-      await ctx.plugin(SystemPrompt)
-      await ctx.plugin(ToolRuntime)
+      await ctx.plugin(EdgeCredentialProvider, { storage, readDeepSeekApiKey: () => 'search-key' }).await()
+      await ctx.plugin(EdgeSettings, { storage }).await()
+      await ctx.plugin(SystemPrompt).await()
+      await ctx.plugin(ToolRuntime).await()
+      await ctx.plugin(NativeExecutor).await()
       await installEdgeWebSearch(ctx, 'https://search.test/anthropic/v1')
 
-      const result = await ctx.tools.execute({
+      const result = await executeOne(ctx, {
         signal: new AbortController().signal,
         callId: CallId('public-html'),
         name: 'web_fetch',
@@ -64,12 +67,13 @@ describe('dsh-edge Web Search composition', () => {
     const ctx = new Context()
     try {
       const storage = { get: () => Promise.resolve(undefined), put: () => Promise.resolve(), delete: () => Promise.resolve(true) } as unknown as DurableObjectStorage
-      await ctx.plugin(EdgeCredentialProvider, { storage, readDeepSeekApiKey: () => 'search-key' })
-      await ctx.plugin(EdgeSettings, { storage })
-      await ctx.plugin(SystemPrompt)
-      await ctx.plugin(ToolRuntime)
+      await ctx.plugin(EdgeCredentialProvider, { storage, readDeepSeekApiKey: () => 'search-key' }).await()
+      await ctx.plugin(EdgeSettings, { storage }).await()
+      await ctx.plugin(SystemPrompt).await()
+      await ctx.plugin(ToolRuntime).await()
+      await ctx.plugin(NativeExecutor).await()
       await installEdgeWebSearch(ctx, 'https://search.test/anthropic/v1')
-      const search = () => ctx.tools.execute({
+      const search = () => executeOne(ctx, {
         signal: new AbortController().signal,
         callId: CallId(`search-${String(urls.length)}`),
         name: 'web_search',
@@ -104,12 +108,13 @@ describe('dsh-edge Web Search composition', () => {
     } as unknown as DurableObjectStorage
     const ctx = new Context()
     try {
-      await ctx.plugin(EdgeCredentialProvider, { storage, readDeepSeekApiKey: () => 'search-key' })
-      await ctx.plugin(EdgeSettings, { storage })
-      await ctx.plugin(SystemPrompt)
-      await ctx.plugin(ToolRuntime)
+      await ctx.plugin(EdgeCredentialProvider, { storage, readDeepSeekApiKey: () => 'search-key' }).await()
+      await ctx.plugin(EdgeSettings, { storage }).await()
+      await ctx.plugin(SystemPrompt).await()
+      await ctx.plugin(ToolRuntime).await()
+      await ctx.plugin(NativeExecutor).await()
       await installEdgeWebSearch(ctx, 'https://search.test/anthropic/v1')
-      await ctx.tools.execute({ signal: new AbortController().signal, callId: CallId('legacy'), name: 'web_search', arguments: { queries: ['edge'] } })
+      await executeOne(ctx, { signal: new AbortController().signal, callId: CallId('legacy'), name: 'web_search', arguments: { queries: ['edge'] } })
       expect(urls[0]).toMatch(/^https:\/\/search\.test\/anthropic\/v1\//u)
       expect(edgeSettings(ctx).describe().find(entry => entry.ns === WEB_SEARCH_SETTINGS_NAMESPACE)?.user).toBeUndefined()
     } finally {
@@ -124,31 +129,36 @@ describe('dsh-edge Web Search composition', () => {
     'http://[::1]/private',
     'http://metadata.internal/private',
     'http://service.localhost/private',
-  ])('blocks private target %s before network access', async (url) => {
-    const fetch = vi.fn()
-    vi.stubGlobal('fetch', fetch)
+  ])('preserves the provider URL-policy rejection for %s', async (url) => {
+    // Root dependencies deliberately omit the platform transport patch. Assert
+    // policy enforcement against the actual patched closure in web-fetch.test.mjs;
+    // here verify that tool composition preserves the provider's rejection.
+    const provider = vi.spyOn(HttpFetchProvider.prototype, 'fetch')
+      .mockRejectedValue(new WebError('fetch blocked by URL policy', 'WEB_BLOCKED_URL'))
 
     const ctx = new Context()
     try {
       const storage = { get: () => Promise.resolve(undefined), put: () => Promise.resolve(), delete: () => Promise.resolve(true) } as unknown as DurableObjectStorage
-      await ctx.plugin(EdgeCredentialProvider, { storage, readDeepSeekApiKey: () => 'search-key' })
-      await ctx.plugin(EdgeSettings, { storage })
-      await ctx.plugin(SystemPrompt)
-      await ctx.plugin(ToolRuntime)
+      await ctx.plugin(EdgeCredentialProvider, { storage, readDeepSeekApiKey: () => 'search-key' }).await()
+      await ctx.plugin(EdgeSettings, { storage }).await()
+      await ctx.plugin(SystemPrompt).await()
+      await ctx.plugin(ToolRuntime).await()
+      await ctx.plugin(NativeExecutor).await()
       await installEdgeWebSearch(ctx, 'https://search.test/anthropic/v1')
 
-      const result = await ctx.tools.execute({
+      const result = await executeOne(ctx, {
         signal: new AbortController().signal,
         callId: CallId(`blocked-${url}`),
         name: 'web_fetch',
         arguments: { url },
       })
       expect(result.isError).toBe(true)
-      expect(result.error?.info?.code ?? result.error?.message).toMatch(/WEB_BLOCKED_URL|WEB_PROVIDER_ERROR|fetch blocked/)
-      expect(fetch).not.toHaveBeenCalled()
+      expect(result.error?.info?.code).toBe('WEB_BLOCKED_URL')
+      expect(provider).toHaveBeenCalledOnce()
+      expect(provider).toHaveBeenCalledWith(expect.objectContaining({ url }), expect.anything())
     } finally {
       await ctx.fiber.dispose()
-      vi.unstubAllGlobals()
+      vi.restoreAllMocks()
     }
   })
 
@@ -170,13 +180,14 @@ describe('dsh-edge Web Search composition', () => {
     const ctx = new Context()
     try {
       const storage = { get: () => Promise.resolve(undefined), put: () => Promise.resolve(), delete: () => Promise.resolve(true) } as unknown as DurableObjectStorage
-      await ctx.plugin(EdgeCredentialProvider, { storage, readDeepSeekApiKey: () => 'search-key' })
-      await ctx.plugin(EdgeSettings, { storage })
-      await ctx.plugin(SystemPrompt)
-      await ctx.plugin(ToolRuntime)
+      await ctx.plugin(EdgeCredentialProvider, { storage, readDeepSeekApiKey: () => 'search-key' }).await()
+      await ctx.plugin(EdgeSettings, { storage }).await()
+      await ctx.plugin(SystemPrompt).await()
+      await ctx.plugin(ToolRuntime).await()
+      await ctx.plugin(NativeExecutor).await()
       await installEdgeWebSearch(ctx, 'https://search.test/anthropic/v1')
 
-      const result = ctx.tools.execute({
+      const result = executeOne(ctx, {
         signal: new AbortController().signal,
         callId: CallId('stalled-search'),
         name: 'web_search',
@@ -195,3 +206,12 @@ describe('dsh-edge Web Search composition', () => {
     }
   })
 })
+
+async function executeOne(ctx: Context, input: Pick<ToolExecution, 'callId' | 'name' | 'arguments' | 'signal'>) {
+  const agent = { ctx } as ToolExecution['agent'] & object
+  const toolSet = await ctx.tools.resolve({ agent, modelSelection: { provider: 'deepseek-official', model: 'deepseek-v4-flash' }, signal: input.signal })
+  try {
+    const batch = await ctx.tools.execute({ signal: input.signal, agent, toolSet, calls: [{ type: 'tool-call', id: input.callId, name: input.name, arguments: JSON.stringify(input.arguments) }] })
+    return batch.results[0]!.result
+  } finally { toolSet.dispose() }
+}

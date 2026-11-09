@@ -1,0 +1,34 @@
+diff --git a/lib/index.js b/lib/index.js
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -381,9 +381,7 @@
+ const TITLE_HELP = `Task name of at most ${MAX_TITLE_LENGTH} characters in the user's language: action plus object. Omit timing, status, ids, and bracketed suffixes.`;
+ const RRULE_HELP = "Supported RFC 5545 subset: one DTSTART line, a newline, and one RRULE line. DTSTART ends in Z for UTC or carries TZID with an IANA time zone; a fixed offset such as UTC+5 is Etc/GMT-5, with the sign reversed. DTSTART must name an existing local time. A TZID rule keeps local clock time across daylight-saving changes; generated nonexistent local times are skipped, and repeated ones occur once, at the earlier instant. DTSTART may be in the past; delivery starts with the first occurrence after creation. A one-time delivery is RRULE:FREQ=DAILY;COUNT=1. No SECONDLY; BYSECOND takes one value. COUNT is at most 1000; use UNTIL for longer rules. MINUTELY and HOURLY accept no BY parts, so select clock times with DAILY or WEEKLY plus BYHOUR and BYMINUTE. BYMONTHDAY and ordinal BYDAY require MONTHLY or YEARLY; BYYEARDAY and BYWEEKNO require YEARLY. Ordinal BYDAY cannot combine with BYWEEKNO. Each FREQ period allows at most 10080 candidates before BYSETPOS, which accepts at most 31 values. UNTIL is a UTC instant ending in Z. Example: \"DTSTART;TZID=Asia/Singapore:20260901T080000\\nRRULE:FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=-1\"";
+ const TARGET_CHOICES = [
+-	"this_session",
+-	"new_once",
+-	"new"
++	"this_session"
+ ];
+ /**
+ * Describe the target choices, naming the configured spacing of `new` deliveries when it exceeds the one-minute
+@@ -391,8 +389,8 @@
+ * @param newSessionIntervalSeconds - Effective `newSessionIntervalSeconds` of the Host Schedule service.
+ * @returns The `target` parameter description.
+ */
+-function targetHelp(newSessionIntervalSeconds) {
+-	return `this_session delivers to this session; new_once delivers to the same new session every time, opened at the first delivery; new opens a different new session for every delivery${newSessionIntervalSeconds <= MIN_EVERY_INTERVAL_SECONDS ? "" : newSessionIntervalSeconds % 60 === 0 ? `, at most once every ${newSessionIntervalSeconds / 60} minutes` : `, at most once every ${newSessionIntervalSeconds} seconds`}. New sessions use this session's working directory and preset. With this_session or new_once, a delivery waits until the previous one finishes, and only the latest occurrence that passed meanwhile is delivered. Use this_session for reminders and for follow-ups to this conversation; use new_once or new for independent work, such as a recurring report, and whenever the user asks for a new conversation.`;
++function targetHelp() {
++	return "this_session delivers to this conversation. A delivery waits until the previous one finishes; only the latest missed occurrence is delivered. Edge does not create Sessions automatically.";
+ }
+ /** Edit parameters that only an update accepts. */
+ const PATCH_FIELDS = [
+@@ -637,7 +635,7 @@
+ 			target: {
+ 				type: "string",
+ 				enum: TARGET_CHOICES,
+-				description: "Omit to retain the destination and its creation settings. Providing target replaces them; new_once reserves a different Session. New targets capture this Session's working directory and preset. Choices are the same as schedule_create."
++				description: "Omit to retain this task in its original Session. Only this_session is supported; create a new task to choose a different Session."
+ 			},
+ 			active: {
+ 				type: "boolean",

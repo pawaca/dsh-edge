@@ -55,7 +55,7 @@ try {
   })
   assert.equal(lockedShell.status, 302)
   assert.equal(lockedShell.headers.get('location'), '/login')
-  assert.equal((await worker.fetch('http://dsh-edge.test/api/ready')).status, 401)
+  assert.equal((await worker.fetch('http://dsh-edge.test/api/ready', { redirect: 'manual' })).status, 401)
   const lockedApi = await worker.fetch('http://dsh-edge.test/api/sessions')
   assert.equal(lockedApi.status, 401)
   assert.equal(lockedApi.headers.get('www-authenticate'), 'DshEdgeOwner')
@@ -74,6 +74,12 @@ try {
   const publicIdentity = await jsonRequest('/api/health')
   assert.equal(typeof publicIdentity.body.workerVersionId, 'string')
   assert.equal(runtimeReady.body.workerVersionId, publicIdentity.body.workerVersionId)
+  const chatAssets = readdirSync(new URL('../dist/plugins/@deepseek-ai/dsh-client-ui-chat/assets/', import.meta.url))
+  for (const asset of chatAssets.filter(name => name.includes('@'))) {
+    const response = await assetRequest(`/plugins/@deepseek-ai/dsh-client-ui-chat/assets/${encodeURIComponent(asset)}`)
+    assert.equal(response.status, 200)
+    assert.match(response.headers.get('content-type') ?? '', /^image\//u)
+  }
   assert.equal(await rejectedDownlinkStatus('/api/events.mux', {
     cookie: ownerCookie,
     origin: 'http://untrusted.dsh-edge.test',
@@ -1265,10 +1271,7 @@ try {
   assert.equal(protocolSummary.blank, true)
   assert.equal(protocolSummary.cwd, '/workspace')
   assert.equal(protocolSummary.projections.asOfSeq, (await rpc('session.history', { sessionId: protocolSessionId })).body.result.value.events.at(-1)?.event.seq ?? -1)
-  assert.deepEqual(protocolSummary.projections.values.imageLimits.mediaTypes, [
-    'image/png',
-    'image/jpeg',
-  ])
+  assert.equal(Object.hasOwn(protocolSummary.projections.values, 'imageLimits'), false)
 
   mux.close()
   host.close()
@@ -1442,7 +1445,7 @@ try {
   const forkedSessionId = forked.body.result.value.sessionId
   const forkAdded = await host.next(message => message.payload.type === 'host/session-added'
     && message.payload.sessionId === forkedSessionId)
-  assert.equal(forkAdded.payload.parentSessionId, protocolSessionId)
+  assert.equal(forkAdded.payload.parentSessionId, undefined)
   const renamedFork = await rpc('session.rename', {
     sessionId: forkedSessionId,
     title: 'Protocol path (2)',
@@ -1499,7 +1502,7 @@ try {
   const listWithFork = await rpc('session.list', {})
   const forkSummary = listWithFork.body.result.value.items
     .find(item => item.sessionId === forkedSessionId)
-  assert.equal(forkSummary.parentSessionId, protocolSessionId)
+  assert.equal(forkSummary.parentSessionId, undefined)
   assert.equal(forkSummary.projections.values.title, 'Protocol path (2)')
   // A fork is a root conversation of its own: its next turn keeps the date
   // context it inherited (same day, same owner zone) instead of clearing it
@@ -1999,6 +2002,7 @@ try {
   const largeLogSession = (await rpc('session.create', {})).body.result.value.sessionId
   const largePrompt = 'large log fixture '.repeat(2_400)
   for (let index = 0; index < LARGE_LOG_TURNS; index++) await turn(largeLogSession, `${String(index)} ${largePrompt}`)
+  assert.equal((await request(`/api/session.markdown?sessionId=${largeLogSession}`)).status, 413)
   const largePreflight = await request(`/api/session.export?sessionId=${largeLogSession}&includeDescendants=true`, { method: 'HEAD' })
   assert.equal(largePreflight.status, 200)
   const largeGet = await request(`/api/session.export?sessionId=${largeLogSession}&includeDescendants=false`)
@@ -2177,27 +2181,31 @@ try {
   })
   assert.equal(staging.body.stdout.trim(), '0', JSON.stringify(staging.body))
   // Upstream's `schedule` Remote namespace behind the Web task page, on a reminder the model created.
+  const markdown = await request(`/api/session.markdown?sessionId=${sessionId}`)
+  assert.equal(markdown.status, 200)
+  assert.match(markdown.headers.get('content-type'), /text\/markdown/u)
+  assert.ok((await markdown.text()).length > 0)
   const reminderSession = (await rpc('session.create', {})).body.result.value.sessionId
-  await turn(reminderSession, 'schedule once 3600')
+  const reminderTurn = await turn(reminderSession, 'schedule once 3600')
+  assert.ok(reminderTurn.some(event => event.type === 'tool/result' && !event.data.message.isError), JSON.stringify(reminderTurn.filter(event => event.type === 'tool/result')))
   const reminderCatalog = await typertRpc('schedule', 'catalog', {})
   assert.equal(reminderCatalog.body.result.ok, true, JSON.stringify(reminderCatalog.body))
-  const reminder = reminderCatalog.body.result.value.find(entry => entry.sessionId === reminderSession)
+  const reminder = reminderCatalog.body.result.value.find(entry => entry.target.kind === 'session' && entry.target.sessionId === reminderSession)
   assert.equal(reminder?.status, 'active', JSON.stringify(reminderCatalog.body.result.value))
   assert.equal(reminder.title, 'Fixture reminder')
   assert.equal(reminder.lastDelivery, undefined)
-  const { sessionId: _boundSession, status: _status, ...reminderRecord } = reminder
-  const reminderList = await typertRpc('schedule', 'list', { request: { sessionId: reminderSession } })
-  assert.deepEqual(reminderList.body.result.value, [reminderRecord])
-  const reminderHistory = await typertRpc('schedule', 'history', { request: { sessionId: reminderSession, id: reminder.id, limit: 20 } })
+  const reminderList = await typertRpc('schedule', 'list', { request: { active: true, limit: 500 } })
+  assert.ok(reminderList.body.result.value.items.some(entry => entry.id === reminder.id))
+  const reminderHistory = await typertRpc('schedule', 'history', { request: { id: reminder.id, limit: 20 } })
   assert.deepEqual(reminderHistory.body.result.value, {
     id: reminder.id, records: [], earlierRecordsUnavailable: false, earlierRecordsPruned: false, retention: { days: 30, records: 200 },
   })
-  const renamed = await typertRpc('schedule', 'update', { request: { sessionId: reminderSession, id: reminder.id, expected: reminderRecord, title: 'Renamed reminder' } })
-  assert.equal(renamed.body.result.value.updated, true, JSON.stringify(renamed.body))
-  assert.equal(renamed.body.result.value.record.title, 'Renamed reminder')
-  const staleRename = await typertRpc('schedule', 'update', { request: { sessionId: reminderSession, id: reminder.id, expected: reminderRecord, title: 'Stale' } })
+  const renamed = await typertRpc('schedule', 'edit', { request: { id: reminder.id, action: 'update', expectedUpdatedAt: reminder.updatedAt, patch: { title: 'Renamed reminder' } } })
+  assert.equal(renamed.body.result.ok, true, JSON.stringify(renamed.body))
+  assert.equal(renamed.body.result.value.title, 'Renamed reminder')
+  const staleRename = await typertRpc('schedule', 'edit', { request: { id: reminder.id, action: 'update', expectedUpdatedAt: reminder.updatedAt, patch: { title: 'Stale' } } })
   assert.equal(staleRename.body.result.value.code, 'schedule_conflict')
-  const removed = await typertRpc('schedule', 'delete', { request: { sessionId: reminderSession, id: reminder.id } })
+  const removed = await typertRpc('schedule', 'edit', { request: { id: reminder.id, action: 'delete' } })
   assert.deepEqual(removed.body.result.value, { id: reminder.id, deleted: true })
   assert.equal((await typertRpc('schedule', 'catalog', {})).body.result.value.some(entry => entry.id === reminder.id), false)
   const incompatibleModel = await rpc('session.selectModel', {
@@ -2527,7 +2535,18 @@ try {
   assert.deepEqual(todoEvents.find(event => event.type === 'todo/write')?.data, { todos: expectedTodos })
   const todoSummary = (await rpc('session.list', {})).body.result.value.items
     .find(item => item.sessionId === todoSessionId)
-  assert.deepEqual(todoSummary.projections.values.todos, expectedTodos)
+  assert.equal(todoSummary.projections.values.todos, undefined)
+  const todoProjection = await typertRpc('session', 'projections', { request: { sessionId: todoSessionId } })
+  assert.deepEqual(todoProjection.body.result.value.values.todos, expectedTodos)
+  // The Trajectory service exposes bounded raw values through the public stream.
+  const rawResults = await openDownlink('/api/remote.mux')
+  const todoResult = todoEvents.find(event => event.type === 'tool/result')
+  rawResults.send({ type: 'open', streamId: 'raw-result', endpoint: 'toolResults/watch', payload: { args: { request: { sessionId: todoSessionId, seq: todoResult.seq } } } })
+  const rawTodo = await rawResults.next(frame => frame.streamId === 'raw-result')
+  assert.equal(rawTodo.type, 'item', JSON.stringify(rawTodo))
+  assert.equal(rawTodo.value.available, true, JSON.stringify(rawTodo))
+  rawResults.send({ type: 'cancel', streamId: 'raw-result' })
+  rawResults.close()
   // Upstream's agent-instructions loader reads AGENTS.md through ctx.fs, the workspace VFS: the
   // root file joins the first request, and a nested one joins after a read reaches its directory.
   for (const [path, body] of [
@@ -2840,12 +2859,15 @@ try {
   const statsSessionId = (await rpc('session.create', {})).body.result.value.sessionId
   for (const message of ['stats fixture one', 'stats fixture two']) await turn(statsSessionId, message)
   const statsSummary = (await rpc('session.list', {})).body.result.value.items.find(item => item.sessionId === statsSessionId)
-  const { sessionStats } = statsSummary.projections.values
+  assert.equal(statsSummary.projections.values.sessionStats, undefined)
+  const statsProjection = await typertRpc('session', 'projections', { request: { sessionId: statsSessionId } })
+  const { sessionStats } = statsProjection.body.result.value.values
   assert.equal(sessionStats.turns, 2, JSON.stringify(sessionStats))
   assert.ok(sessionStats.steps >= 2 && sessionStats.llmMs > 0, JSON.stringify(sessionStats))
   // Upstream's turnOutline projection, which the chat view's turn list reads:
   // one entry per turn with its turn/start seq and bounded previews.
-  const { turnOutline } = statsSummary.projections.values
+  assert.equal(statsSummary.projections.values.turnOutline, undefined)
+  const { turnOutline } = statsProjection.body.result.value.values
   assert.deepEqual(turnOutline.map(entry => [entry.turn, entry.prompt]), [[1, 'stats fixture one'], [2, 'stats fixture two']], JSON.stringify(turnOutline))
   assert.ok(turnOutline.every(entry => Number.isInteger(entry.seq) && entry.response.length > 0 && entry.response.length <= 120), JSON.stringify(turnOutline))
   const statsStarts = parseEvents(await (await request(`/api/sessions/${statsSessionId}/events?limit=256`)).text()).filter(event => event.type === 'turn/start').map(event => event.seq)
@@ -3000,7 +3022,7 @@ try {
   // A session no agent has loaded yet lists its cached projections (#313).
   const coldParent = (await rpc('session.list', {})).body.result.value.items.find(item => item.sessionId === bgParent)
   assert.equal(coldParent.projections.kind, 'cached', JSON.stringify(coldParent.projections))
-  assert.ok(coldParent.projections.values.sessionStats?.turns >= 2, JSON.stringify(coldParent.projections.values.sessionStats))
+  assert.equal(coldParent.projections.values.sessionStats, undefined)
   // Rows that grow with the session are not persisted, so a cold list omits them.
   assert.equal(coldParent.projections.values.contextBreakdown, undefined)
   assert.equal(coldParent.projections.values.turnOutline, undefined)
@@ -3014,8 +3036,11 @@ try {
   // Once the session is loaded it folds those rows from its log.
   const loadedParent = (await rpc('session.list', {})).body.result.value.items.find(item => item.sessionId === bgParent)
   assert.equal(loadedParent.projections.kind, 'sequenced', JSON.stringify(loadedParent.projections))
-  assert.ok(loadedParent.projections.values.contextBreakdown?.messageTokens > 0, JSON.stringify(loadedParent.projections.values.contextBreakdown))
-  assert.ok(loadedParent.projections.values.turnOutline?.length >= 2, JSON.stringify(loadedParent.projections.values.turnOutline))
+  assert.equal(loadedParent.projections.values.contextBreakdown, undefined)
+  assert.equal(loadedParent.projections.values.turnOutline, undefined)
+  const loadedProjection = (await typertRpc('session', 'projections', { request: { sessionId: bgParent } })).body.result.value.values
+  assert.ok(loadedProjection.contextBreakdown?.messageTokens > 0, JSON.stringify(loadedProjection.contextBreakdown))
+  assert.ok(loadedProjection.turnOutline?.length >= 2, JSON.stringify(loadedProjection.turnOutline))
   assert.equal(await workspaceFile('/workspace/bg-child-three.txt'), 'three')
   const forkChild = (await rpc('session.list', {})).body.result.value.items
     .find(item => item.sessionId !== childId && item.parentSessionId === bgParent)
@@ -3069,7 +3094,7 @@ try {
   assert.deepEqual(selectionDescribed?.value, { enabled: false, allowedModels: [] })
   const policyEvents = async id => (await sessionEvents(id)).filter(event => event.type === 'subagent/model-selection-policy')
   const earlySession = (await rpc('session.create', {})).body.result.value.sessionId
-  assert.equal(resultOf(await turn(earlySession, 'list subagent models'), 'call_model_list')?.data.message.isError, true)
+  assert.equal(resultOf(await turn(earlySession, 'list subagent models'), 'call_model_list')?.data.message.isError, false)
   const refusedSelection = await rpc('settings.update', { ns: selectionNs, patch: { enabled: true, allowedModels: [] } })
   assert.equal(refusedSelection.body.result.ok, false, JSON.stringify(refusedSelection.body.result))
   const savedSelection = await rpc('settings.update', { ns: selectionNs, patch: { enabled: true, allowedModels: [{ provider: 'deepseek-official', model: 'deepseek-flash' }] } })
@@ -3090,7 +3115,7 @@ try {
   // A session that ran a turn before selection was on keeps its composition,
   // as upstream applies the setting only to new sessions; a session that has
   // the policy keeps it after a restart.
-  assert.equal(resultOf(await turn(earlySession, 'list subagent models'), 'call_model_list')?.data.message.isError, true)
+  assert.equal(resultOf(await turn(earlySession, 'list subagent models'), 'call_model_list')?.data.message.isError, false)
   assert.deepEqual(await policyEvents(earlySession), [])
   await worker.stop()
   worker = await startWorker()
@@ -3315,11 +3340,10 @@ async function jsonRequest(path, init) {
 }
 
 function request(path, init) {
-  if (process.env.DSH_EDGE_TEST_TRACE) console.log(init?.method ?? 'GET', path)
   if (worker === undefined) throw new Error('Worker is not running.')
   const headers = new Headers(init?.headers)
   if (ownerCookie !== undefined) headers.set('cookie', ownerCookie)
-  return worker.fetch(`http://dsh-edge.test${path}`, { ...init, headers })
+  return worker.fetch(`http://dsh-edge.test${path}`, { redirect: 'manual', ...init, headers })
 }
 
 function assetRequest(path) {

@@ -1,8 +1,8 @@
 diff --git a/lib/index.js b/lib/index.js
-index f0e7770..5f67f24 100644
+index 37a1a88..18fbfff 100644
 --- a/lib/index.js
 +++ b/lib/index.js
-@@ -697,7 +697,8 @@ function rejectRemoteStreamUpgrade(socket, status) {
+@@ -713,7 +713,8 @@ function rejectRemoteStreamUpgrade(socket, status) {
  * streams use the Gateway-owned WebSocket mux.
  * @module @deepseek-ai/dsh-api-gateway
  */
@@ -12,7 +12,7 @@ index f0e7770..5f67f24 100644
  const DEFAULT_WEBSOCKET_HEARTBEAT_INTERVAL_MS = 2e3;
  const DEFAULT_STREAM_INBOX_BYTES = 262144;
  const EMPTY_ASYNC_ITERABLE = { [Symbol.asyncIterator]: () => ({ next: () => Promise.resolve({
-@@ -1173,7 +1174,7 @@ var TypertGatewayService = class extends Service {
+@@ -1204,7 +1205,7 @@ var TypertGatewayService = class extends Service {
  		assertExactArguments(request.args, descriptor, endpoint);
  		const validated = validateArguments(descriptor, request.args, endpoint);
  		if (request.peer.principal.kind !== "owner") {
@@ -21,7 +21,7 @@ index f0e7770..5f67f24 100644
  			const decision = resources === void 0 ? {
  				kind: "deny",
  				reason: "resource-invalid"
-@@ -1479,7 +1480,7 @@ function remoteRequest(endpoint, payload, signal, peer) {
+@@ -1510,7 +1511,7 @@ function remoteRequest(endpoint, payload, signal, peer) {
  */
  function methodSignal(request, control, stream) {
  	const carrier = request.signal;
@@ -31,7 +31,7 @@ index f0e7770..5f67f24 100644
  	return AbortSignal.any(stream ? [...joined, request.peer.signal] : joined);
  }
 diff --git a/lib/types/index.js b/lib/types/index.js
-index 4b0e2c5..e78d96f 100644
+index f95f23c..4a2da2e 100644
 --- a/lib/types/index.js
 +++ b/lib/types/index.js
 @@ -13,7 +13,8 @@ import z from '@deepseek-ai/schemastery';
@@ -44,7 +44,7 @@ index 4b0e2c5..e78d96f 100644
  const DEFAULT_WEBSOCKET_HEARTBEAT_INTERVAL_MS = 2_000;
  const DEFAULT_STREAM_INBOX_BYTES = 262_144;
  const EMPTY_ASYNC_ITERABLE = {
-@@ -560,7 +561,7 @@ export class TypertGatewayService extends Service {
+@@ -572,7 +573,7 @@ export class TypertGatewayService extends Service {
          // Access precedes lookup resolution, so a refused call activates nothing.
          // oxlint-disable-next-line typescript/no-unnecessary-condition -- other packages merge non-owner kinds into PrincipalMap.
          if (request.peer.principal.kind !== 'owner') {
@@ -53,7 +53,7 @@ index 4b0e2c5..e78d96f 100644
              const decision = resources === undefined
                  ? { kind: 'deny', reason: 'resource-invalid' }
                  : this.ctx.remoteAccess.decide({
-@@ -934,7 +935,7 @@ function remoteRequest(endpoint, payload, signal, peer) {
+@@ -946,7 +947,7 @@ function remoteRequest(endpoint, payload, signal, peer) {
  function methodSignal(request, control, stream) {
      const carrier = request.signal;
      if (request.uplink === undefined && !stream)

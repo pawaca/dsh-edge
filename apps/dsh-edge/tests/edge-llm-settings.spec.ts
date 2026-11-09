@@ -15,8 +15,8 @@ function memoryStorage(): DurableObjectStorage {
 
 async function mounted(storage = memoryStorage()) {
   const ctx = new Context()
-  await ctx.plugin(LlmRuntime)
-  await ctx.plugin(EdgeSettings, { storage })
+  await ctx.plugin(LlmRuntime).await()
+  await ctx.plugin(EdgeSettings, { storage }).await()
   await mountDeepSeekProvider(ctx, { baseURL: 'https://api.deepseek.com/anthropic', maxTokens: 4096 })
   return ctx
 }
@@ -128,8 +128,8 @@ describe('DeepSeek provider settings', () => {
 
 async function mountedWithRoutes(storage = memoryStorage()) {
   const ctx = new Context()
-  await ctx.plugin(LlmRuntime)
-  await ctx.plugin(EdgeSettings, { storage })
+  await ctx.plugin(LlmRuntime).await()
+  await ctx.plugin(EdgeSettings, { storage }).await()
   await mountPiAiProvider(ctx)
   return ctx
 }
@@ -206,8 +206,8 @@ describe('third-party provider routes', () => {
 
   it('refuses a route id another provider already serves', async () => {
     const ctx = new Context()
-    await ctx.plugin(LlmRuntime)
-    await ctx.plugin(EdgeSettings, { storage: memoryStorage() })
+    await ctx.plugin(LlmRuntime).await()
+    await ctx.plugin(EdgeSettings, { storage: memoryStorage() }).await()
     await mountDeepSeekProvider(ctx, { baseURL: 'https://api.deepseek.com/anthropic', maxTokens: 4096 })
     await mountPiAiProvider(ctx)
     const settings = edgeSettings(ctx)

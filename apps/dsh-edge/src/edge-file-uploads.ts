@@ -19,6 +19,8 @@ import {
   FileUploads,
   type FileUploadReceiptId,
   type FileUploadValue,
+  type ImageUploadValue,
+  type StagedAttachment,
   type PromptFileBinding,
 } from '@deepseek-ai/dsh-client-file-upload'
 import type { SessionId } from '@deepseek-ai/dsh-session'
@@ -32,10 +34,11 @@ interface ReceiptRow extends Record<string, SqlStorageValue> {
   name: string
   bytes: number
   request_id: string | null
+  attachment: string | null
 }
 
 /** Upstream's in-memory registry, which restored receipts rejoin. */
-type StagedFiles = WeakMap<object, Map<string, { file: FileAttachmentRef; requestId?: string }>>
+type StagedFiles = WeakMap<object, Map<string, { attachment: StagedAttachment; requestId?: string }>>
 
 export interface EdgeFileUploadsConfig {
   storage: DurableObjectStorage
@@ -59,6 +62,11 @@ export class EdgeFileUploads extends FileUploads {
       request_id TEXT,
       created_at INTEGER NOT NULL
     ) STRICT`)
+    // Additive only: old file rows decode through their original columns.
+    const columns = this.storage.sql.exec<{ name: string }>("SELECT name FROM pragma_table_info('dsh_edge_upload_receipts')").toArray()
+    if (!columns.some(column => column.name === 'attachment')) {
+      this.storage.sql.exec('ALTER TABLE dsh_edge_upload_receipts ADD COLUMN attachment TEXT')
+    }
     // Retiring a recorded message and expiring old receipts each look rows up
     // by these columns, so neither scans the receipts other uploads retain.
     this.storage.sql.exec('CREATE INDEX IF NOT EXISTS dsh_edge_upload_receipts_request ON dsh_edge_upload_receipts (session_id, request_id)')
@@ -79,7 +87,16 @@ export class EdgeFileUploads extends FileUploads {
     return this.record(request.sessionId, await super.uploadStream(request))
   }
 
-  override resolve(agent: Agent, receiptId: FileUploadReceiptId): FileAttachmentRef | undefined {
+  override async uploadImageStream(request: Parameters<FileUploads['uploadImageStream']>[0]): Promise<ImageUploadValue> {
+    let encodedBytes = 0
+    const data = (async function* () {
+      for await (const chunk of request.data) { encodedBytes += chunk.byteLength; yield chunk }
+    })()
+    const value = await super.uploadImageStream({ ...request, data })
+    return this.record(request.sessionId, value, { type: 'image', attachment: value.image, encodedBytes })
+  }
+
+  override resolve(agent: Agent, receiptId: FileUploadReceiptId): StagedAttachment | undefined {
     const live = super.resolve(agent, receiptId)
     if (live !== undefined) return live
     const stored = this.stored(String(agent.id), String(receiptId))
@@ -92,8 +109,8 @@ export class EdgeFileUploads extends FileUploads {
     }
     // A receipt already bound to a queued prompt keeps that binding, so the
     // prompt's recorded message retires it as upstream's would.
-    session.set(String(receiptId), stored.requestId === undefined ? { file: stored.file } : { file: stored.file, requestId: stored.requestId })
-    return stored.file
+    session.set(String(receiptId), stored.requestId === undefined ? { attachment: stored.attachment } : { attachment: stored.attachment, requestId: stored.requestId })
+    return stored.attachment
   }
 
   /**
@@ -106,14 +123,14 @@ export class EdgeFileUploads extends FileUploads {
     sessionId: SessionId,
     receiptIds: readonly string[],
     requestId: string,
-  ): { readonly files: readonly FileAttachmentRef[]; readonly binding: PromptFileBinding } | undefined {
+  ): { readonly files: readonly StagedAttachment[]; readonly binding: PromptFileBinding } | undefined {
     // Each distinct receipt is read once, however often the prompt repeats it.
     const unique = [...new Set(receiptIds)]
-    const found = new Map<string, FileAttachmentRef>()
+    const found = new Map<string, StagedAttachment>()
     for (const receiptId of unique) {
       const stored = this.stored(String(sessionId), receiptId)
       if (stored === undefined) return undefined
-      found.set(receiptId, stored.file)
+      found.set(receiptId, stored.attachment)
     }
     const files = receiptIds.map(receiptId => found.get(receiptId)!)
     return { files, binding: this.bindRows(unique, requestId, { commit() {}, [Symbol.dispose]() {} }) }
@@ -128,15 +145,18 @@ export class EdgeFileUploads extends FileUploads {
     this.forget(String(agent.id), requestId)
   }
 
-  private stored(sessionId: string, receiptId: string): { file: FileAttachmentRef; requestId?: string } | undefined {
+  private stored(sessionId: string, receiptId: string): { attachment: StagedAttachment; requestId?: string } | undefined {
     const row = this.storage.sql.exec<ReceiptRow>(
-      `SELECT attachment_id, name, bytes, request_id FROM dsh_edge_upload_receipts
+      `SELECT attachment_id, name, bytes, request_id, attachment FROM dsh_edge_upload_receipts
        WHERE receipt_id = ? AND session_id = ? AND created_at >= ?`,
       receiptId, sessionId, this.now() - UPLOAD_RECEIPT_RETENTION_MS,
     ).toArray()[0]
     if (row === undefined) return undefined
     const file: FileAttachmentRef = { attachmentId: AttachmentId(row.attachment_id), name: row.name, bytes: row.bytes }
-    return row.request_id === null ? { file } : { file, requestId: row.request_id }
+    const attachment: StagedAttachment = row.attachment === null
+      ? { type: 'file', attachment: file }
+      : JSON.parse(row.attachment) as StagedAttachment
+    return row.request_id === null ? { attachment } : { attachment, requestId: row.request_id }
   }
 
   /** Record the binding on the receipts' rows too, restoring them if it rolls back. */
@@ -182,17 +202,20 @@ export class EdgeFileUploads extends FileUploads {
     }
   }
 
-  private record(sessionId: SessionId, value: FileUploadValue): FileUploadValue {
+  private record<T extends FileUploadValue | ImageUploadValue>(sessionId: SessionId, value: T, image?: StagedAttachment): T {
     const now = this.now()
     this.storage.sql.exec(
       `DELETE FROM dsh_edge_upload_receipts WHERE receipt_id IN (
          SELECT receipt_id FROM dsh_edge_upload_receipts WHERE created_at < ? LIMIT ?)`,
       now - UPLOAD_RECEIPT_RETENTION_MS, EXPIRED_RECEIPTS_PER_UPLOAD,
     )
+    const attachment = 'file' in value ? value.file : value.image
     this.storage.sql.exec(
-      `INSERT INTO dsh_edge_upload_receipts (receipt_id, session_id, attachment_id, name, bytes, created_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      String(value.receiptId), String(sessionId), String(value.file.attachmentId), value.file.name, value.file.bytes, now,
+      `INSERT INTO dsh_edge_upload_receipts (receipt_id, session_id, attachment_id, name, bytes, created_at, attachment)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      String(value.receiptId), String(sessionId), String(attachment.attachmentId),
+      'name' in attachment ? attachment.name : 'image', attachment.bytes, now,
+      image === undefined ? null : JSON.stringify(image),
     )
     return value
   }

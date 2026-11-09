@@ -1,5 +1,6 @@
 /** Edge MCP client: config-time probe and per-call tool execution via SDK @1.30. */
 
+import { requestDeadline } from './edge-deadline.ts'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/cfworker'
@@ -169,7 +170,8 @@ export async function probe(
   url: string,
   auth?: McpAuth,
 ): Promise<ProbeResult> {
-  const signal = AbortSignal.timeout(MCP_LIMITS.probeTimeoutMs)
+  using timeout = requestDeadline(MCP_LIMITS.probeTimeoutMs)
+  const signal = timeout.signal
   let conn: Awaited<ReturnType<typeof connectClient>>
   try {
     conn = await connectClient(url, auth, signal)
@@ -245,9 +247,8 @@ export async function callTool(
   timeoutMs?: number,
 ): Promise<McpCallResult> {
   const effectiveTimeout = timeoutMs ?? MCP_LIMITS.callTimeoutMs
-  const deadline = signal
-    ? AbortSignal.any([signal, AbortSignal.timeout(effectiveTimeout)])
-    : AbortSignal.timeout(effectiveTimeout)
+  using timeout = requestDeadline(effectiveTimeout, signal)
+  const deadline = timeout.signal
   let client: Awaited<ReturnType<typeof connectClient>>
   try {
     client = await connectClient(url, auth, deadline)
@@ -288,9 +289,8 @@ export async function requestResources(
   timeoutMs?: number,
 ): Promise<Record<string, unknown>> {
   const effectiveTimeout = timeoutMs ?? MCP_LIMITS.callTimeoutMs
-  const deadline = signal
-    ? AbortSignal.any([signal, AbortSignal.timeout(effectiveTimeout)])
-    : AbortSignal.timeout(effectiveTimeout)
+  using timeout = requestDeadline(effectiveTimeout, signal)
+  const deadline = timeout.signal
   let conn: Awaited<ReturnType<typeof connectClient>>
   try {
     conn = await connectClient(url, auth, deadline, MCP_LIMITS.maxResourceResponseBytes)

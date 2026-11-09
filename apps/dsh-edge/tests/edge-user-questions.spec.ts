@@ -1,3 +1,4 @@
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import { TypertGatewayService } from '@deepseek-ai/dsh-api-gateway'
@@ -36,13 +37,14 @@ const QUESTION = {
  */
 async function harness() {
   const ctx = new Context()
-  await ctx.plugin(TypertRegistry)
-  await ctx.plugin(EdgeTypertConnection)
-  await ctx.plugin(RemoteAccess)
-  await ctx.plugin(TypertGatewayService)
-  await ctx.plugin(AgentRegistry)
-  await ctx.plugin(UserQuestionService)
-  await ctx.plugin(ApiRemotes)
+  await ctx.plugin(TypertRegistry).await()
+  await ctx.plugin(EdgeTypertConnection).await()
+  await ctx.plugin(RemoteAccess).await()
+  await ctx.plugin(TypertGatewayService).await()
+  await ctx.plugin(SessionProjectionRegistry).await()
+  await ctx.plugin(AgentRegistry).await()
+  await ctx.plugin(UserQuestionService).await()
+  await ctx.plugin(ApiRemotes).await()
   const session = { id: 'session-1' }
   const agent = { id: 'session-1', session } as { id: string; session: { id: string }; ctx: Context }
   agent.ctx = ctx.extend({ agent })
@@ -90,7 +92,7 @@ async function harness() {
 describe('EdgeTypertConnection', () => {
   it('captures the gateway interceptor for the /api path only', async () => {
     const ctx = new Context()
-    await ctx.plugin(EdgeTypertConnection)
+    await ctx.plugin(EdgeTypertConnection).await()
     const seam = ctx.get('connection') as unknown as EdgeTypertConnection
     expect(seam.current()).toBeUndefined()
     const claims: GatewayRpcInterceptor['claims'] = endpoint => endpoint === 'a/b'
@@ -106,7 +108,7 @@ describe('EdgeTypertConnection', () => {
 
   it('dispatches every call on behalf of the one owner Peer', async () => {
     const ctx = new Context()
-    await ctx.plugin(EdgeTypertConnection)
+    await ctx.plugin(EdgeTypertConnection).await()
     const seam = ctx.get('connection') as unknown as EdgeTypertConnection
     expect(seam.peer.principal).toEqual({ kind: 'owner' })
     const seen: PeerScope[] = []

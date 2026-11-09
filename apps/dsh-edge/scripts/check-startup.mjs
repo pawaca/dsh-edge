@@ -38,11 +38,19 @@ async function checkStartup(mode) {
     const config = join(directory, 'wrangler.json')
     const profile = join(directory, 'startup.cpuprofile')
     await writePrebuiltModeWranglerConfig(mode, config, { r2BucketName: 'dsh-edge-startup-check' })
-    const result = await execa(process.execPath, [
-      wranglerCli, 'check', 'startup',
-      '--config', config,
+    // check startup's internal deploy does not inherit --config/--env. Build the
+    // upload envelope explicitly so profiling cannot fall back to source main.
+    const bundle = join(directory, 'worker.bundle')
+    const packaged = await execa(process.execPath, [
+      wranglerCli, 'deploy', '--dry-run', '--config', config,
       ...mode === 'isolated' ? ['--env', 'isolated'] : [],
-      '--outfile', profile,
+      '--outfile', bundle,
+    ], { cwd: appDirectory, reject: false, all: true })
+    if (packaged.exitCode !== 0) {
+      throw new Error(`Could not package the ${mode} Worker for startup profiling:\n${packaged.all ?? ''}`)
+    }
+    const result = await execa(process.execPath, [
+      wranglerCli, 'check', 'startup', '--worker', bundle, '--outfile', profile,
     ], { cwd: appDirectory, reject: false, all: true })
     if (result.exitCode !== 0) {
       throw new Error(`wrangler check startup failed for the ${mode} Worker:\n${result.all ?? ''}`)

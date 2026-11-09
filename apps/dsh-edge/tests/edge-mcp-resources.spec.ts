@@ -107,10 +107,10 @@ describe('MCP resource requests', () => {
 describe('MCP resource provider registration', () => {
   async function createCtx(): Promise<Context> {
     const ctx = new Context()
-    await ctx.plugin(LlmRuntime)
-    await ctx.plugin(SystemPrompt, { personaPrefix: '' })
-    await ctx.plugin(ToolRuntime)
-    await ctx.plugin(McpResourceRuntime)
+    await ctx.plugin(LlmRuntime).await()
+    await ctx.plugin(SystemPrompt, { personaPrefix: '' }).await()
+    await ctx.plugin(ToolRuntime).await()
+    await ctx.plugin(McpResourceRuntime).await()
     return ctx
   }
 
@@ -204,10 +204,10 @@ describe('MCP resource approvals', () => {
       { serverName: 'guarded', url: withResources.url, resources: true, toolPolicy: { mode: 'approve_all' } },
     ] satisfies EdgeMcpServerConfig[])
     const ctx = new Context()
-    await ctx.plugin(LlmRuntime)
-    await ctx.plugin(SystemPrompt, { personaPrefix: '' })
-    await ctx.plugin(ToolRuntime)
-    await ctx.plugin(EdgeSettings, { storage: memoryStorage() })
+    await ctx.plugin(LlmRuntime).await()
+    await ctx.plugin(SystemPrompt, { personaPrefix: '' }).await()
+    await ctx.plugin(ToolRuntime).await()
+    await ctx.plugin(EdgeSettings, { storage: memoryStorage() }).await()
     const manager = installEdgeMcpServers(ctx, storage)
     installEdgeApprovalPolicy(ctx, {
       resolveMcpPolicy: name => manager.resolveToolPolicy(name),

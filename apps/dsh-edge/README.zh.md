@@ -48,11 +48,11 @@ owner Durable Object 同一时间只准入一个活跃主会话。普通输入�
 
 ## 定时提醒
 
-可以要求 Agent “十分钟后提醒我检查 PR”。直接复用已发布上游的 `schedule_create`、`schedule_list`、`schedule_update` 和 `schedule_delete` 工具（`dsh-tool-schedule`），管理属于当前会话的提醒；被委派的 subagent 不能使用它们。与上游标准预设一样，每个模型步骤还会收到一条 `dsh-time-context` 读数：当前时间、浏览器时区，以及距上一条消息的时长，最多每十分钟一次。不带浏览器时区的请求（例如送达的提醒）会告诉模型时区不可用。支持的规则与上游一致：延迟 `after_seconds`、带明确偏移或时区的绝对时间 `at`、固定间隔 `every_seconds`（最短 60 秒），以及在明确 IANA 时区下的每日、每周和五字段 cron 规则。上游的任务页面（`dsh-client-ui-schedule`）列出所有提醒及其所属会话和状态，可以修改名称、指令和时间、删除提醒，并查看它已经送达的记录。页面通过上游的 `schedule` Remote 命名空间工作，Edge 用 Durable Object 存储提供它；提醒被创建、修改、删除或送达时页面会刷新。
+可以要求 Agent “十分钟后提醒我检查 PR”。上游 `schedule_create`、`schedule_list`、`schedule_view`、`schedule_edit` 工具管理 Host 日程；创建只支持 `this_session`，被委派的子代理不能管理日程。模型通过带 DTSTART 的 RRULE 指定时间；Host API 仍接受延迟、绝对时间、固定间隔、每日、每周和 cron 规则。任务页支持查看、编辑、暂停/恢复、手动运行及送达历史；只向原会话投递，不自动建会话。手动创建入口暂不可用，请在会话中要求助手创建。任务和送达历史由 Edge SQL 与 DO alarm 提供。
 
 Edge 用 Durable Object alarm 替代上游仅在活跃 Agent 中存在的 timer。到期后会自动恢复冷会话，即使所有浏览器 tab 都已关闭。提醒进入现有持久输入队列，共享唯一主会话槽和并发为 2 的短工具池。不取消或 steer 正在执行的任务，已排队消息保持原有顺序。提醒留在原会话中，要求模型呈现提醒内容，而不是把它当作新的用户执行指令；不发送邮件、推送或外部通知，也不创建新 session。
 
-提醒以任务形式保存在 Durable Object SQLite 中，并带有到期时间索引。送达一条提醒时，入队、推进或结束任务、保存送达记录在同一个 SQLite 事务中完成，alarm 也在该事务中设置。每次送达记录发生时间、送达时间、消息和 prompt；与上游一样，每个任务保留距最近一次送达 30 天内最新的 200 条，删除任务时一并删除。到期的一次性提醒优先于周期提醒批次；错过多个周期时，每条周期提醒只呈现最新一次，并直接推进至未来的下一次时间。每个 owner 最多保留 128 条活跃提醒和最新的 128 条已结束提醒，每条 prompt 的 JSON 编码预算为 4 KiB。提醒入队前先预留队列容量；容量不足时，先让用户任务排空。提醒准入失败后按会话退避 30 秒，重试时间跨重启持久保存。失败会话不会阻塞健康会话的到期提醒或排队输入；即使容量仅被暂停输入占用，也不会高频唤醒。崩溃后有待处理输入且已暂停的会话，仍需用户发送新消息恢复；提醒不会覆盖该暂停状态，也不会重放中断的外部副作用。送达记录只确认已入队，不表示模型执行成功或用户已读。
+提醒以任务形式保存在 Durable Object SQLite 中，并带有到期时间索引。送达一条提醒时，入队、推进或结束任务、保存送达记录在同一个 SQLite 事务中完成，alarm 也在该事务中设置。每次送达记录发生时间、送达时间、消息和 prompt；与上游一样，每个任务保留距最近一次送达 30 天内最新的 200 条，删除任务时一并删除。到期的一次性提醒优先于周期提醒批次；错过多个周期时，每条周期提醒只呈现最新一次，并直接推进至未来的下一次时间。每个 owner 最多保留 128 条活跃或暂停提醒和最新的 128 条已结束提醒，每条 prompt 的 JSON 编码预算为 4 KiB。提醒入队前先预留队列容量；容量不足时，先让用户任务排空。提醒准入失败后按会话退避 30 秒，重试时间跨重启持久保存。失败会话不会阻塞健康会话的到期提醒或排队输入；即使容量仅被暂停输入占用，也不会高频唤醒。崩溃后有待处理输入且已暂停的会话，仍需用户发送新消息恢复；提醒不会覆盖该暂停状态，也不会重放中断的外部副作用。送达记录只确认已入队，不表示模型执行成功或用户已读。
 
 构建后，在此包目录运行 `DSH_EDGE_PLAYWRIGHT_CHANNEL=chrome node tests/schedule.probe.mjs`，验证忙时顺序、删除提醒及 Worker 重启后的 alarm 恢复；设置 `DSH_EDGE_TEST_RUNTIME_MODE=isolated` 验证 Dynamic Worker 模式。浏览器快照测试还会通过原生输入框创建提醒、关闭页面、仅观察模型服务而不请求 DO，再打开会话确认投递结果。
 
@@ -227,7 +227,7 @@ Cloudflare static assets -> upstream Web shell + client plugin graph
 | `DSH_EDGE_DEFAULT_COMMAND_TIMEOUT_MS` | Computer 命令默认 timeout；默认 120,000 ms。 |
 | `DSH_EDGE_MAX_COMMAND_TIMEOUT_MS` | 调用方可选 timeout 上限；默认 120,000 ms，且不能低于默认 timeout。 |
 
-部署配置无效时，会在查询 session 或创建 SSE response 前失败。Edge 挂载上游 `web_search` 与 `web_fetch`，使用 30 秒 tool-call timeout 和结构化 result。`web_fetch` 使用上游匿名 HTTP(S) provider，并在 Worker 内把 HTML 转成 Markdown。它只接受不含嵌入凭据的 HTTP(S) URL，在每次请求和每个同源 redirect hop 前拒绝 IP literal 与本地命名范围，并限制 URL 长度、response 字节数、解码字符数、redirect 次数与耗时。Worker 启用 Cloudflare 的 strictly-public global fetch 路径，DNS 变化无法把模型选择的 URL 路由到同区 origin 或私网 binding；需要 JavaScript 渲染的页面不属于这条基础 HTTP fetch 路径。
+部署配置无效时，会在查询 session 或创建 SSE response 前失败。Edge 挂载上游 `web_search` 与 `web_fetch`，使用 30 秒 tool-call timeout 和结构化 result。`web_fetch` 使用上游匿名 HTTP(S) provider，并在 Worker 内把 HTML 转成 Markdown。它只接受不含嵌入凭据的 HTTP(S) URL，在每次请求和每个同源 redirect hop 前拒绝 IP literal 与本地命名范围，并限制 URL 长度、response 字节数、解码字符数、redirect 次数与耗时。Worker 启用 Cloudflare 的 strictly-public global fetch 路径，作为平台网络边界；URL 检查本身不解析或固定 DNS；需要 JavaScript 渲染的页面不属于这条基础 HTTP fetch 路径。
 
 ### Owner 认证
 
@@ -406,3 +406,7 @@ SQLite 的 `DELETE` 操作也会消耗每日行写入额度。迁移格式时，
 - Session listing 查询一个有界 canonical header/title summary page。Detail 读取 canonical point summary 或 retained blank header；turn existence check 使用 point query，不投影完整 log。
 - 实际 model、system prompt、adapter defaults 和 tools 仍使用标准 `request/header` 事件。Request-scoped adapter 应用已校验的部署级 reasoning 与输出策略。
 - Workspace 路径必须位于 `/workspace/` 下。
+
+### 0.2.2 基线边界
+
+Markdown 复制最多 2,048 个事件、4 MiB 输入和输出，超限返回 413；大型会话请使用流式日志下载。同一 Durable Object 同时只允许一个复制，直到响应结束才释放名额；重叠请求返回带 Retry-After 的 429，停滞复制在 30 秒后超时。Trajectory 原始结果有单结果/会话/全局字节限额，仅当前生命周期可用。先读后写策略继续启用；`apply_patch` 暂不启用。自定义模型若未声明容量，上游默认 1M 上下文和 128K 输出；较小端点请显式配置。升级及回滚注意事项见[基线适配记录](../../docs/upgrades/0.2.2-rc.1.zh.md)。

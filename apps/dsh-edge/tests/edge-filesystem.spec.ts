@@ -5,7 +5,7 @@ import { EdgeFileSystem } from '../src/edge-filesystem.ts'
 
 async function withFile(chunks: Uint8Array[], run: (fs: EdgeFileSystem, reads: () => number, cancelled: ReturnType<typeof vi.fn>) => Promise<void>) {
   const ctx = new Context()
-  await ctx.plugin(EdgeFileSystem)
+  await ctx.plugin(EdgeFileSystem).await()
   let reads = 0
   const cancelled = vi.fn()
   const vfs = {
@@ -29,7 +29,7 @@ const encode = (text: string) => new TextEncoder().encode(text)
 describe('bounded VFS preview reads', () => {
   it.each(['text', 'bytes'] as const)('preserves typed open failures for %s previews', async kind => {
     const ctx = new Context()
-    await ctx.plugin(EdgeFileSystem)
+    await ctx.plugin(EdgeFileSystem).await()
     const fs = ctx.fs as EdgeFileSystem
     // As upstream dsh-fs-local reads: a missing file is FS_NOT_FOUND, other faults FS_IO_ERROR.
     const missing = Object.assign(new Error('file deleted before open'), { code: 'ENOENT' })
@@ -51,7 +51,7 @@ describe('bounded VFS preview reads', () => {
 
   it.each(['text', 'bytes'] as const)('classifies consumption failures and preserves cancellation for %s', async kind => {
     const ctx = new Context()
-    await ctx.plugin(EdgeFileSystem)
+    await ctx.plugin(EdgeFileSystem).await()
     const fs = ctx.fs as EdgeFileSystem
     try {
       for (const failure of [new Error('read failed'), new TypeError('VFS transport failed'), new FsError('typed', 'FS_NOT_FOUND'), new DOMException('cancelled', 'AbortError')]) {
@@ -84,7 +84,7 @@ describe('bounded VFS preview reads', () => {
 
   it('does not mask invalid UTF-8 with a cleanup failure', async () => {
     const ctx = new Context()
-    await ctx.plugin(EdgeFileSystem)
+    await ctx.plugin(EdgeFileSystem).await()
     const fs = ctx.fs as EdgeFileSystem
     const stream = new ReadableStream<Uint8Array>({
       pull(controller) { controller.enqueue(new Uint8Array([0xff])) },
@@ -153,7 +153,7 @@ describe("the session's starting directory", () => {
     'is a directory before anything has created it (%s), and nothing else is',
     async start => {
       const ctx = new Context()
-      await ctx.plugin(EdgeFileSystem)
+      await ctx.plugin(EdgeFileSystem).await()
       const fs = ctx.fs as EdgeFileSystem
       const vfs = { stat: vi.fn(() => Promise.reject(missing())) }
       try {
@@ -170,7 +170,7 @@ describe("the session's starting directory", () => {
 
   it('does not make the parent of a nested start exist', async () => {
     const ctx = new Context()
-    await ctx.plugin(EdgeFileSystem)
+    await ctx.plugin(EdgeFileSystem).await()
     const fs = ctx.fs as EdgeFileSystem
     const vfs = { stat: vi.fn(() => Promise.reject(missing())) }
     try {
@@ -182,7 +182,7 @@ describe("the session's starting directory", () => {
 
   it('reports the stored directory once it exists', async () => {
     const ctx = new Context()
-    await ctx.plugin(EdgeFileSystem)
+    await ctx.plugin(EdgeFileSystem).await()
     const fs = ctx.fs as EdgeFileSystem
     const vfs = { stat: vi.fn(() => Promise.resolve({ size: 4096, mtime: 7, isFile: false, isDirectory: true, isSymbolicLink: false })) }
     try {
@@ -196,7 +196,7 @@ describe("the session's starting directory", () => {
 describe('provider watching', () => {
   it('invalidates a file or a directory from observed writes until closed', async () => {
     const ctx = new Context()
-    await ctx.plugin(EdgeFileSystem)
+    await ctx.plugin(EdgeFileSystem).await()
     const fs = ctx.fs as EdgeFileSystem
     try {
       await fs.runInScope({} as never, '/workspace', async () => {
@@ -227,7 +227,7 @@ describe('provider watching', () => {
 describe('guarded writes', () => {
   it('keeps uploaded files read-only for the file tools and names their saved path as process-visible', async () => {
     const ctx = new Context()
-    await ctx.plugin(EdgeFileSystem)
+    await ctx.plugin(EdgeFileSystem).await()
     const fs = ctx.fs as EdgeFileSystem
     const saved = '/.dsh/attachments/v1/files/ab/abcd/notes.txt'
     const files = new Map([[saved, 'uploaded\n']])
@@ -263,7 +263,7 @@ describe('guarded writes', () => {
 
   it('lets one of two concurrent writes from the same version win and fails the other as stale', async () => {
     const ctx = new Context()
-    await ctx.plugin(EdgeFileSystem)
+    await ctx.plugin(EdgeFileSystem).await()
     const fs = ctx.fs as EdgeFileSystem
     const files = new Map([['/workspace/shared.txt', { content: 'base\n', mtime: 1 }]])
     let clock = 1
@@ -276,7 +276,7 @@ describe('guarded writes', () => {
         if (file === undefined) throw Object.assign(new Error('missing'), { code: 'ENOENT' })
         return { size: file.content.length, mtime: file.mtime, isFile: true, isDirectory: false, isSymbolicLink: false }
       },
-      readFile: async (path: string) => { await tick(); return files.get(path)?.content ?? '' },
+      readFile: async (path: string, encoding?: string) => { await tick(); const text = files.get(path)?.content ?? ''; return encoding ? text : new Response(text).body! },
       writeFile: async (path: string, content: string) => { await tick(); files.set(path, { content, mtime: ++clock }) },
       mkdir: async () => { await tick() },
     }
@@ -298,7 +298,7 @@ describe('guarded writes', () => {
 
   it('changes the version of a same-size rewrite in the same millisecond', async () => {
     const ctx = new Context()
-    await ctx.plugin(EdgeFileSystem)
+    await ctx.plugin(EdgeFileSystem).await()
     const fs = ctx.fs as EdgeFileSystem
     // Stamped like the Cloudflare VFS: wall-clock milliseconds; calls settle without a timer.
     const files = new Map([['/workspace/same.txt', { content: 'aaaa', mtime: Date.now() }]])
@@ -308,7 +308,7 @@ describe('guarded writes', () => {
         if (file === undefined) throw Object.assign(new Error('missing'), { code: 'ENOENT' })
         return { size: file.content.length, mtime: file.mtime, isFile: true, isDirectory: false, isSymbolicLink: false }
       },
-      readFile: async (path: string) => files.get(path)?.content ?? '',
+      readFile: async (path: string, encoding?: string) => { const text = files.get(path)?.content ?? ''; return encoding ? text : new Response(text).body! },
       writeFile: async (path: string, content: string) => { files.set(path, { content, mtime: Date.now() }) },
       mkdir: async () => {},
     }
@@ -349,5 +349,52 @@ describe('streamed file bodies', () => {
       await expect(new Response(body).text()).rejects.toMatchObject({ code: 'FS_TOO_LARGE' })
       expect(cancelled).toHaveBeenCalled()
     })
+  })
+})
+
+describe('0.2.2 filesystem mutations', () => {
+  it('guards patches, preserves CRLF/mode on moves, and reports a published destination when removal fails', async () => {
+    const files = new Map([['/workspace/source.txt', { text: 'one\r\ntwo\r\n', mode: 0o755, mtime: 1 }]])
+    let clock = 1
+    let refuseRemoval = false
+    const vfs = {
+      stat: async (path: string) => {
+        const file = files.get(path)
+        if (!file) throw Object.assign(new Error('missing'), { code: 'ENOENT' })
+        return { ...file, size: file.text.length, isFile: true, isDirectory: false, isSymbolicLink: false }
+      },
+      readFile: async (path: string, encoding?: string) => encoding ? files.get(path)!.text : new Response(files.get(path)!.text).body!,
+      writeFile: async (path: string, text: string) => { files.set(path, { text, mode: 0o644, mtime: ++clock }) },
+      mkdir: async () => {},
+      chmod: async (path: string, mode: number) => { files.get(path)!.mode = mode; files.get(path)!.mtime = ++clock },
+      rm: async (path: string) => { if (refuseRemoval) throw new Error('removal failed'); files.delete(path) },
+    }
+    const ctx = new Context()
+    const fs = new EdgeFileSystem(ctx)
+    try {
+      await fs.runInScope(vfs as never, '/workspace', async () => {
+        const source = await fs.resolve('source.txt')
+        const destination = await fs.resolve('destination.txt')
+        const version = (await fs.stat(source))!.version
+        const hunks = [{ lineNumber: 1, oldLines: ['two'], newLines: ['three'], isEndOfFile: false }]
+        await fs.patchText(source, hunks, { version })
+        expect(files.get('/workspace/source.txt')!.text).toBe('one\r\nthree\r\n')
+        await expect(fs.patchText(source, hunks, { version })).rejects.toMatchObject({ code: 'FS_STALE_VERSION' })
+        files.get('/workspace/source.txt')!.mode = 0o755
+        refuseRemoval = true
+        const moved = await fs.moveFile(source, destination, {})
+        expect(moved).toMatchObject({ sourceDeleted: false, sourceFailure: { code: 'FS_IO_ERROR' } })
+        expect(moved.destination.version).toBe((await fs.stat(destination))!.version)
+        expect(files.get('/workspace/destination.txt')).toMatchObject({ text: 'one\r\nthree\r\n', mode: 0o755 })
+        expect(files.has('/workspace/source.txt')).toBe(true)
+        refuseRemoval = false
+        expect(await fs.deleteFile(source)).toEqual({ before: 'one\nthree\n' })
+        expect(files.has('/workspace/source.txt')).toBe(false)
+        await expect(fs.moveFile(destination, destination, {})).rejects.toMatchObject({ code: 'FS_SAME_TARGET' })
+        const cancelled = AbortSignal.abort()
+        await expect(fs.deleteFile(destination, undefined, cancelled)).rejects.toBeDefined()
+        expect(files.has('/workspace/destination.txt')).toBe(true)
+      })
+    } finally { await ctx.fiber.dispose() }
   })
 })

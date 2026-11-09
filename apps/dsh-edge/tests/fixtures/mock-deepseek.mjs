@@ -34,7 +34,7 @@ export function latestUserPromptIndex(messages) {
   return messages.findLastIndex(message => message.role === 'user' && !isLoopNote(message))
 }
 
-export async function startMockDeepSeek(port = 0) {
+export async function startMockDeepSeek(port = 0, { estimateUsage = false } = {}) {
   const requests = []
   const searchRequests = []
   const slowResponseReleases = []
@@ -142,6 +142,7 @@ export async function startMockDeepSeek(port = 0) {
       requests.push(body)
       const messages = legacyWire ? body.messages : chatMessages(body)
       response.legacyWire = legacyWire
+      if (estimateUsage) response.fixtureInputTokens = Math.ceil(Buffer.byteLength(JSON.stringify({ system: body.system, messages: body.messages, tools: body.tools })) / 4)
       const acceptsTitle = (body.tools ?? []).some(tool => (tool.function?.name ?? tool.name) === 'schedule_create'
         && Object.hasOwn((tool.function?.parameters ?? tool.input_schema)?.properties ?? {}, 'title'))
       const latestUserIndex = latestUserPromptIndex(messages)
@@ -413,13 +414,18 @@ export async function startMockDeepSeek(port = 0) {
         return
       }
 
+      const hostSchedule = (body.tools ?? []).some(tool => (tool.function?.name ?? tool.name) === 'schedule_edit')
+      const scheduleTiming = (seconds, recurring) => hostSchedule ? {
+        target: 'this_session',
+        rrule: `DTSTART:${new Date(Math.ceil((Date.now() + seconds * 1000) / 1000) * 1000).toISOString().replace(/[-:]/gu, '').replace('.000', '')}\nRRULE:FREQ=${recurring ? `MINUTELY;INTERVAL=${seconds / 60}` : 'DAILY;COUNT=1'}`,
+      } : recurring ? { every_seconds: seconds } : { after_seconds: seconds }
       if (prompt.startsWith('schedule delete ') && !hasToolResult) {
         sendEvents(response, [
           { choices: [{ delta: { role: 'assistant', content: null, reasoning_content: '' } }] },
           { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_delete_schedule', type: 'function', function: {
             // `latest` names the most recent reminder id a tool result returned in this conversation.
-            name: 'schedule_delete', arguments: JSON.stringify({ id: prompt === 'schedule delete latest'
-              ? [...JSON.stringify(messages).matchAll(/schedule-[0-9a-f-]{36}/gu)].at(-1)?.[0]
+            name: hostSchedule ? 'schedule_edit' : 'schedule_delete', arguments: JSON.stringify({ ...hostSchedule ? { action: 'delete' } : {}, id: prompt === 'schedule delete latest'
+              ? [...JSON.stringify(messages).matchAll(hostSchedule ? /edge:[A-Za-z0-9%._-]+:schedule-[0-9a-f-]{36}/gu : /schedule-[0-9a-f-]{36}/gu)].at(-1)?.[0]
               : prompt.slice('schedule delete '.length) }),
           } }] } }] },
           { choices: [{ delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 8, completion_tokens: 3 } },
@@ -431,7 +437,7 @@ export async function startMockDeepSeek(port = 0) {
         sendEvents(response, [
           { choices: [{ delta: { role: 'assistant', content: null, reasoning_content: '' } }] },
           { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_schedule', type: 'function', function: {
-            name: 'schedule_create', arguments: JSON.stringify({ prompt: 'schedule-fixture-reminder', ...acceptsTitle ? { title: 'Fixture reminder' } : {}, after_seconds: Number(prompt.slice('schedule once '.length)) }),
+            name: 'schedule_create', arguments: JSON.stringify({ prompt: 'schedule-fixture-reminder', ...acceptsTitle ? { title: 'Fixture reminder' } : {}, ...scheduleTiming(Number(prompt.slice('schedule once '.length)), false) }),
           } }] } }] },
           { choices: [{ delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 8, completion_tokens: 3 } },
         ])
@@ -442,7 +448,7 @@ export async function startMockDeepSeek(port = 0) {
         sendEvents(response, [
           { choices: [{ delta: { role: 'assistant', content: null, reasoning_content: '' } }] },
           { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_schedule_every', type: 'function', function: {
-            name: 'schedule_create', arguments: JSON.stringify({ prompt: 'schedule-fixture-periodic', ...acceptsTitle ? { title: 'Fixture periodic' } : {}, every_seconds: Number(prompt.slice('schedule every '.length)) }),
+            name: 'schedule_create', arguments: JSON.stringify({ prompt: 'schedule-fixture-periodic', ...acceptsTitle ? { title: 'Fixture periodic' } : {}, ...scheduleTiming(Number(prompt.slice('schedule every '.length)), true) }),
           } }] } }] },
           { choices: [{ delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 8, completion_tokens: 3 } },
         ])
@@ -1066,6 +1072,7 @@ export function messagesEvents(chunks) {
 }
 
 function sendEvents(response, chunks, delayMs = 0, continueAfterFirstEvent) {
+  if (response.fixtureInputTokens !== undefined) chunks = chunks.map(chunk => chunk.usage === undefined ? chunk : { ...chunk, usage: { ...chunk.usage, prompt_tokens: response.fixtureInputTokens } })
   const groups = response.legacyWire
     ? chunks.map(chunk => [chunk]).concat([['[DONE]']])
     : messagesEvents(chunks)

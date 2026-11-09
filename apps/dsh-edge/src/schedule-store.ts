@@ -16,15 +16,25 @@ import {
   isRecurringScheduleRecord, renderReminderFraming, renderRecurringReminderBatchFraming, resolveRecurringOccurrence,
   scheduleTitle, ScheduleId, ScheduleInputError, ScheduleLogError, MAX_TITLE_LENGTH,
   type ScheduleRecord, type ScheduleCreateRequest, type ScheduleListRequest, type ScheduleCatalogEntry,
-  type ScheduleDeleteRequest, type ScheduleDeleteResult, type ScheduleUpdateRequest, type ScheduleUpdateResult,
-  type ScheduleTimingChange, type ScheduleDeliveryHistoryRequest, type ScheduleDeliveryHistoryResult,
+  type ScheduleTiming, type ScheduleListResult, type ScheduleEditRequest, type ScheduleEditResult, type ScheduleRunResult,
+  type ScheduleDeleteResult, type AtInput, type DailyInput, type WeeklyInput, type CronInput,
+  type ScheduleDeliveryHistoryRequest, type ScheduleDeliveryHistoryResult,
   type ScheduleDeliveryReceipt, type ScheduleDeliveryRecord, type DeliveryRetentionBounds,
 } from '@deepseek-ai/dsh-schedule'
 import type { SessionId } from '@deepseek-ai/dsh-session'
-import { TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
+import { RRule } from '@deepseek-ai/dsh-util-time'
+import { RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import { deepEqualJson } from '@deepseek-ai/dsh-util-values'
 import { insertMainInput, MainQueueFullError, MAIN_WAKE_MS } from './main-session-queue.ts'
 import type {} from './upstream-message-sources.ts'
+
+// Retain the Edge's pre-upgrade in-process calls while the Remote surface uses
+// the new Host API. Stored task identities remain unchanged.
+interface LegacyCreate { title: string; prompt: string; after_seconds?: number; at?: AtInput; every_seconds?: number; daily?: DailyInput; weekly?: WeeklyInput; cron?: CronInput }
+type ScheduleTimingChange = Exclude<ScheduleTiming, { kind: 'after' | 'rrule' }>
+interface ScheduleDeleteRequest { sessionId: SessionId; id: ReturnType<typeof ScheduleId> }
+interface ScheduleUpdateRequest extends ScheduleDeleteRequest { expected: ScheduleRecord; title?: string; prompt?: string; change?: ScheduleTimingChange }
+type ScheduleUpdateResult = { id: ReturnType<typeof ScheduleId>; updated: boolean; record?: ScheduleRecord; code?: string } | { code: string; message: string }
 
 const MAX_ACTIVE_SCHEDULES = 128
 const MAX_ENDED_SCHEDULES = 128
@@ -43,7 +53,11 @@ interface TaskRow extends Record<string, SqlStorageValue> {
   session_id: string
   record: string
   active: number
+  due: number
   delivery: string | null
+  created: number
+  updated_at: string | null
+  involved: string | null
 }
 
 /**
@@ -66,7 +80,7 @@ const NEW_TASK_DELIVERY = JSON.stringify({ earlierUnavailable: false, earlierPru
  * descriptors the gateway calls on this service by its `typertRemote` binding.
  */
 export class EdgeSchedule extends TypertRemoteService {
-  static inject = ['agents', 'tools']
+  static inject = ['agents', 'tools', 'sessionPersistence']
   private readonly storage: DurableObjectStorage
 
   constructor(ctx: Context, config: { storage: DurableObjectStorage }) {
@@ -105,7 +119,12 @@ export class EdgeSchedule extends TypertRemoteService {
     }
   }
 
-  async create(sessionId: SessionId, request: ScheduleCreateRequest, signal?: AbortSignal): Promise<ScheduleRecord> {
+  async create(request: ScheduleCreateRequest, actorSessionId?: SessionId, signal?: AbortSignal): Promise<ScheduleCatalogEntry>
+  async create(sessionId: SessionId, request: LegacyCreate, signal?: AbortSignal): Promise<ScheduleRecord>
+  async create(first: SessionId | ScheduleCreateRequest, second?: SessionId | LegacyCreate, signal?: AbortSignal): Promise<ScheduleRecord | ScheduleCatalogEntry> {
+    if (typeof first !== 'string') return this.createHost(first, second as SessionId | undefined, signal)
+    const sessionId = first
+    const request = second as LegacyCreate
     const selectors = [request.at, request.after_seconds, request.every_seconds, request.daily, request.weekly, request.cron]
     if (selectors.filter(value => value !== undefined).length !== 1) {
       throw new ScheduleInputError('invalid_selector', 'Exactly one reminder selector is required.')
@@ -123,7 +142,7 @@ export class EdgeSchedule extends TypertRemoteService {
     signal?.throwIfAborted()
     // The task and its wake commit together: a failed arm leaves no reminder behind.
     await this.storage.transaction(async () => {
-      const active = this.storage.sql.exec<{ count: number }>('SELECT count(*) AS count FROM dsh_schedule_tasks WHERE active = 1').toArray()[0]!.count
+      const active = this.storage.sql.exec<{ count: number }>('SELECT count(*) AS count FROM dsh_schedule_tasks WHERE active != 0').toArray()[0]!.count
       if (active >= MAX_ACTIVE_SCHEDULES) {
         throw new ScheduleInputError('invalid_rule', `This owner already has ${MAX_ACTIVE_SCHEDULES} active reminders; delete one before creating another.`)
       }
@@ -135,18 +154,199 @@ export class EdgeSchedule extends TypertRemoteService {
     return record
   }
 
-  async list(request: ScheduleListRequest): Promise<ScheduleRecord[]> {
-    return this.rows('WHERE session_id = ? AND active = 1 ORDER BY created, id', request.sessionId).map(recordOf)
+  async list(request: { sessionId: SessionId }): Promise<ScheduleRecord[]>
+  async list(request?: ScheduleListRequest): Promise<ScheduleListResult>
+  async list(request: ScheduleListRequest | { sessionId: SessionId } = {}): Promise<ScheduleListResult | ScheduleRecord[]> {
+    if ('sessionId' in request) return this.rows('WHERE session_id = ? AND active = 1 ORDER BY created, id', request.sessionId).map(recordOf)
+    const limit = request.limit ?? 100
+    const offset = request.offset ?? 0
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 500 || !Number.isSafeInteger(offset) || offset < 0 || (request.active !== undefined && typeof request.active !== 'boolean')) {
+      throw new ScheduleInputError('invalid_rule', 'Invalid task page: limit is 1–500 and offset is a non-negative safe integer.')
+    }
+    // At most 128 active/paused + 128 ended tasks, never a history-table scan.
+    const all = this.sortedRows().filter(row => request.active === undefined || (row.active === 1) === request.active)
+    // Only the requested page decodes records and resolves execution state.
+    const items = this.entries(all.slice(offset, offset + limit))
+    return { items, shown: items.length, total: all.length, limit, offset }
   }
 
   async catalog(): Promise<ScheduleCatalogEntry[]> {
-    return this.rows('ORDER BY created, id').map((row) => {
+    return this.entries(this.sortedRows())
+  }
+
+  private sortedRows(): TaskRow[] {
+    return this.rows('').sort((a, b) =>
+      Number(b.active === 1) - Number(a.active === 1) || a.due - b.due || taskId(a.session_id, a.id).localeCompare(taskId(b.session_id, b.id)))
+  }
+
+  /** At most 256 retained tasks. Resolve only this page's receipt identities by
+   * the queue's UNIQUE(session_id,input_id) index, at most 100 bindings/query.
+   * No event/history scan and no per-task SQL round trip for full catalogs.
+   */
+  private entries(rows: TaskRow[]): ScheduleCatalogEntry[] {
+    const refs = rows.flatMap(row => {
       const last = summaryOf(row).last
-      return {
-        ...recordOf(row), sessionId: row.session_id as SessionId, status: row.active === 1 ? 'active' as const : 'inactive' as const,
-        ...last === undefined ? {} : { lastDelivery: last },
+      return last === undefined ? [] : [[row.session_id, last.messageId] as const]
+    })
+    const active = new Set<string>()
+    for (let start = 0; start < refs.length; start += 50) {
+      const batch = refs.slice(start, start + 50)
+      const states = this.storage.sql.exec<{ session_id: string; input_id: string; state: string }>(
+        `SELECT session_id,input_id,state FROM dsh_runtime_inputs WHERE (session_id,input_id) IN (${batch.map(() => '(?,?)').join(',')})`,
+        ...batch.flat()).toArray()
+      for (const row of states) if (executionPending(row.state)) active.add(JSON.stringify([row.session_id, row.input_id]))
+    }
+    return rows.map(row => this.entry(row, active.has(JSON.stringify([row.session_id, summaryOf(row).last?.messageId]))))
+  }
+
+  deliveryLimits() { return { newSessionIntervalSeconds: 60 } }
+  remoteCreate(request: ScheduleCreateRequest, signal?: AbortSignal) { return this.remote(() => this.create(request, undefined, signal)) }
+  remoteList(request: ScheduleListRequest) { return this.remote(() => this.list(request)) }
+  remoteEdit(request: ScheduleEditRequest, signal?: AbortSignal) { return this.remote(() => this.edit(request, undefined, signal)) }
+  remoteHistory(request: ScheduleDeliveryHistoryRequest) { return this.remote(() => this.history(request)) }
+
+  private async remote<T>(action: () => Promise<T>): Promise<T> {
+    try { return await action() } catch (error) {
+      if (error instanceof ScheduleInputError) throw new RemoteError('schedule/input-invalid', error.message, { code: error.code })
+      throw error
+    }
+  }
+
+  private find(id: string): TaskRow | undefined {
+    const key = parseTaskId(id)
+    return key === undefined ? undefined : this.rows('WHERE session_id = ? AND id = ?', ...key)[0]
+  }
+
+  private entry(row: TaskRow, running = executionActive(this.storage, row)): ScheduleCatalogEntry {
+    const last = summaryOf(row).last
+    return {
+      ...recordOf(row), id: taskId(row.session_id, row.id),
+      target: { kind: 'session', sessionId: row.session_id as SessionId },
+      involvedSessionIds: row.involved === null ? [row.session_id as SessionId] : JSON.parse(row.involved) as SessionId[],
+      status: row.active === 1 ? 'active' : row.active === 2 ? 'paused' : 'ended',
+      ...(row.created > 1_000_000_000_000 ? { createdAt: new Date(row.created).toISOString() } : {}),
+      ...(row.updated_at === null ? {} : { updatedAt: row.updated_at }),
+      ...(last === undefined ? {} : { lastDelivery: { ...last, targetSessionId: row.session_id as SessionId } }),
+      ...(running ? { executionActive: true as const } : {}),
+    }
+  }
+
+  async view(request: { id: ReturnType<typeof ScheduleId> }) {
+    const row = this.find(request.id)
+    return row === undefined ? { id: request.id, code: 'schedule_not_found' as const } : this.entry(row)
+  }
+
+  private async validateTarget(target: ScheduleCreateRequest['target'], signal?: AbortSignal): Promise<SessionId> {
+    if (target?.kind !== 'session' || typeof target.sessionId !== 'string' || target.sessionId.length === 0) {
+      throw new ScheduleInputError('invalid_rule', 'Edge supports existing-session targets only; choose this_session or an existing Session.')
+    }
+    if (this.ctx.get('workspaceRegistry')?.archivedSessionIds.includes(target.sessionId)) {
+      throw new RemoteError('schedule/target-archived', 'The target Session is archived.', { sessionId: target.sessionId })
+    }
+    const stored = await this.ctx.sessionPersistence.stat(target.sessionId, signal === undefined ? undefined : { signal })
+    if (stored === undefined) throw new ScheduleInputError('invalid_rule', 'The target Session does not exist.')
+    if ((stored.header.delegationDepth ?? 0) > 0) throw new ScheduleInputError('subagent_session', 'A delegated Session cannot receive reminders.')
+    return target.sessionId
+  }
+
+  private async createHost(request: ScheduleCreateRequest, actor?: SessionId, signal?: AbortSignal): Promise<ScheduleCatalogEntry> {
+    const sessionId = await this.validateTarget(request.target, signal)
+    const now = Date.now()
+    const record = timingRecord(ScheduleId(`schedule-${crypto.randomUUID()}`), request.title, request.prompt, request.timing, now)
+    await this.storage.transaction(async () => {
+      await this.validateTarget(request.target, signal)
+      signal?.throwIfAborted()
+      const count = this.storage.sql.exec<{ count: number }>('SELECT count(*) AS count FROM dsh_schedule_tasks WHERE active != 0').toArray()[0]!.count
+      if (count >= MAX_ACTIVE_SCHEDULES) throw new ScheduleInputError('invalid_rule', 'The owner has 128 active or paused tasks; delete one first.')
+      this.storage.sql.exec('INSERT INTO dsh_schedule_tasks (id,session_id,record,active,due,created,delivery,updated_at,involved) VALUES (?,?,?,1,?,?,?,?,?)',
+        record.id, sessionId, JSON.stringify(record), Date.parse(record.scheduledAt), now, NEW_TASK_DELIVERY, new Date(now).toISOString(), JSON.stringify(involvedSessions(undefined, sessionId, actor)))
+      await armScheduleWake(this.storage)
+    })
+    this.changed()
+    return this.entry(this.find(taskId(sessionId, record.id))!)
+  }
+
+  async edit(request: ScheduleEditRequest, actor?: SessionId, signal?: AbortSignal): Promise<ScheduleEditResult> {
+    const result = await this.storage.transaction(async (): Promise<ScheduleEditResult> => {
+      signal?.throwIfAborted()
+      const row = this.find(request.id)
+      if (row === undefined) return { id: request.id, code: 'schedule_not_found' }
+      if (request.expectedUpdatedAt !== undefined && request.expectedUpdatedAt !== row.updated_at) return { id: request.id, code: 'schedule_conflict' }
+      if (request.action === 'delete') {
+        deleteTask(this.storage, row.session_id, row.id)
+        pruneScheduleRetry(this.storage, row.session_id)
+        return { id: request.id, deleted: true }
       }
-    }).sort((a, b) => a.scheduledAt.localeCompare(b.scheduledAt) || a.id.localeCompare(b.id))
+      const patch = request.patch
+      if (request.action !== 'update' || patch === undefined || Object.keys(patch).length === 0 || Object.keys(patch).some(key => !['title','prompt','timing','target','active'].includes(key)) || (patch.active !== undefined && typeof patch.active !== 'boolean')) {
+        throw new ScheduleInputError('invalid_rule', 'An update requires a non-empty supported patch.')
+      }
+      const current = recordOf(row)
+      const target = patch.target ?? { kind: 'session' as const, sessionId: row.session_id as SessionId }
+      const sessionId = await this.validateTarget(target, signal)
+      // Changing the target would change the legacy composite identity and history key.
+      if (sessionId !== row.session_id) throw new ScheduleInputError('invalid_rule', 'Edge keeps each task in its original Session; create a new task to change its target.')
+      const now = Date.now()
+      const title = scheduleTitle(patch.title ?? current.title)
+      const prompt = validatedPrompt(patch.prompt ?? current.prompt)
+      let next: ScheduleRecord = { ...current, title, prompt }
+      let changedRule = false
+      if (patch.timing !== undefined) {
+        const candidate = timingRecord(current.id, title, prompt, patch.timing, now)
+        if (!sameRule(current, candidate)) { next = candidate; changedRule = true }
+      }
+      const active = patch.active === false ? 2 : patch.active === true || (changedRule && row.active === 0) ? 1 : row.active
+      if (active === 1 && Date.parse(next.scheduledAt) <= now) {
+        if (!isRecurringScheduleRecord(next)) throw new ScheduleInputError('not_future', 'A one-shot task needs a future timing before it can resume.')
+        const future = resolveRecurringOccurrence(next, now).nextScheduledAt
+        if (future === undefined) throw new ScheduleInputError('not_future', 'The recurrence has no future occurrence.')
+        next = { ...next, scheduledAt: future }
+      }
+      if (row.active === 0 && active !== 0) {
+        const count = this.storage.sql.exec<{ count: number }>('SELECT count(*) AS count FROM dsh_schedule_tasks WHERE active != 0').toArray()[0]!.count
+        if (count >= MAX_ACTIVE_SCHEDULES) throw new ScheduleInputError('invalid_rule', 'The owner has 128 active or paused tasks.')
+      }
+      const involved = involvedSessions(row.involved, sessionId, actor)
+      signal?.throwIfAborted()
+      this.storage.sql.exec('UPDATE dsh_schedule_tasks SET record = ?, active = ?, due = ?, updated_at = ?, involved = ? WHERE session_id = ? AND id = ?',
+        JSON.stringify(next), active, Date.parse(next.scheduledAt), revision(row, now), JSON.stringify(involved), row.session_id, row.id)
+      pruneScheduleRetry(this.storage, row.session_id)
+      await armScheduleWake(this.storage)
+      return this.entry(this.find(request.id)!)
+    })
+    if (!('code' in result)) this.changed()
+    return result
+  }
+
+  async run(request: { id: ReturnType<typeof ScheduleId> }, signal?: AbortSignal): Promise<ScheduleRunResult> {
+    const result = await this.storage.transaction(async (): Promise<ScheduleRunResult> => {
+      const row = this.find(request.id)
+      if (row === undefined) return { id: request.id, code: 'schedule_not_found' }
+      await this.validateTarget({ kind: 'session', sessionId: row.session_id as SessionId }, signal)
+      signal?.throwIfAborted()
+      if (executionActive(this.storage, row)) return { id: request.id, code: 'schedule_execution_pending' }
+      const now = new Date().toISOString()
+      const record = recordOf(row)
+      const id = MessageId(`schedule:manual:${crypto.randomUUID()}`)
+      const message = freezeMessage({ ...createUserMessage({ content: [{ type: 'text', text: renderReminderFraming({ ...record, id: request.id, scheduledAt: now }) }], source: { kind: 'schedule' } }), id })
+      insertMainInput(this.storage, row.session_id, id, id, message)
+      const delivery = recordDelivery(this.storage, row.session_id, row, { scheduledAt: now, deliveredAt: now, messageId: id, targetSessionId: row.session_id as SessionId }, record.prompt)
+      this.storage.sql.exec('UPDATE dsh_schedule_tasks SET delivery = ?, updated_at = ? WHERE session_id = ? AND id = ?', delivery, revision(row, Date.parse(now)), row.session_id, row.id)
+      await armScheduleWake(this.storage)
+      return this.entry(this.find(request.id)!)
+    })
+    if (!('code' in result)) this.changed()
+    return result
+  }
+
+  async deleteInactive(): Promise<{ deleted: number }> {
+    const deleted = this.storage.transactionSync(() => {
+      const ended = this.rows('WHERE active = 0')
+      for (const row of ended) deleteTask(this.storage, row.session_id, row.id)
+      return ended.length
+    })
+    if (deleted > 0) this.changed()
+    return { deleted }
   }
 
   /**
@@ -154,25 +354,25 @@ export class EdgeSchedule extends TypertRemoteService {
    * pages them: `before` is the message id of the oldest record of the previous
    * page, and `nextBefore` is present only while older records remain.
    */
-  async history(request: ScheduleDeliveryHistoryRequest): Promise<ScheduleDeliveryHistoryResult> {
+  async history(request: ScheduleDeliveryHistoryRequest & { sessionId?: SessionId }): Promise<ScheduleDeliveryHistoryResult> {
     if (!Number.isSafeInteger(request.limit) || request.limit < 1 || request.limit > MAX_HISTORY_PAGE) {
       throw new ScheduleInputError('invalid_rule', `limit must be a safe integer from 1 through ${String(MAX_HISTORY_PAGE)}.`)
     }
-    const row = this.rows('WHERE id = ? AND session_id = ?', request.id, request.sessionId)[0]
+    const row = request.sessionId === undefined ? this.find(request.id) : this.rows('WHERE id = ? AND session_id = ?', request.id, request.sessionId)[0]
     if (row === undefined) return { id: request.id, code: 'schedule_not_found' }
     let before = Number.MAX_SAFE_INTEGER
     if (request.before !== undefined) {
       const cursor = this.storage.sql.exec<{ seq: number }>(
         'SELECT seq FROM dsh_schedule_deliveries WHERE session_id = ? AND task_id = ? AND message_id = ?',
-        request.sessionId, request.id, request.before).toArray()[0]
+        row.session_id, row.id, request.before).toArray()[0]
       if (cursor === undefined) return { id: request.id, code: 'delivery_cursor_not_found' }
       before = cursor.seq
     }
     const rows = this.storage.sql.exec<DeliveryRow>(
       `SELECT message_id, scheduled_at, delivered_at, prompt FROM dsh_schedule_deliveries
        WHERE session_id = ? AND task_id = ? AND seq < ? ORDER BY seq DESC LIMIT ?`,
-      request.sessionId, request.id, before, request.limit + 1).toArray()
-    const records = rows.slice(0, request.limit).map(deliveryRecordOf)
+      row.session_id, row.id, before, request.limit + 1).toArray()
+    const records = rows.slice(0, request.limit).map(delivery => deliveryRecordOf(delivery, row.session_id))
     const summary = summaryOf(row)
     return {
       id: request.id,
@@ -216,7 +416,7 @@ export class EdgeSchedule extends TypertRemoteService {
   }
 
   private rows(clause: string, ...bindings: SqlStorageValue[]): TaskRow[] {
-    return this.storage.sql.exec<TaskRow>(`SELECT id, session_id, record, active, delivery FROM dsh_schedule_tasks ${clause}`, ...bindings).toArray()
+    return this.storage.sql.exec<TaskRow>(`SELECT id, session_id, record, active, due, delivery, created, updated_at, involved FROM dsh_schedule_tasks ${clause}`, ...bindings).toArray()
   }
 }
 
@@ -227,9 +427,9 @@ interface DeliveryRow extends Record<string, SqlStorageValue> {
   prompt: string
 }
 
-function deliveryRecordOf(row: DeliveryRow): ScheduleDeliveryRecord {
+function deliveryRecordOf(row: DeliveryRow, sessionId: string): ScheduleDeliveryRecord {
   return {
-    scheduledAt: row.scheduled_at, deliveredAt: row.delivered_at, messageId: row.message_id as ScheduleDeliveryRecord['messageId'], prompt: row.prompt,
+    scheduledAt: row.scheduled_at, deliveredAt: row.delivered_at, messageId: row.message_id as ScheduleDeliveryRecord['messageId'], prompt: row.prompt, targetSessionId: sessionId as SessionId,
   }
 }
 
@@ -343,6 +543,9 @@ export function initializeSchedules(storage: DurableObjectStorage): void {
   const hasDelivery = storage.sql.exec<{ count: number }>(
     "SELECT count(*) AS count FROM pragma_table_info('dsh_schedule_tasks') WHERE name = 'delivery'").toArray()[0]!.count
   if (hasDelivery === 0) storage.sql.exec('ALTER TABLE dsh_schedule_tasks ADD COLUMN delivery TEXT')
+  const columns = new Set(storage.sql.exec<{ name: string }>("SELECT name FROM pragma_table_info('dsh_schedule_tasks')").toArray().map(row => row.name))
+  if (!columns.has('updated_at')) storage.sql.exec('ALTER TABLE dsh_schedule_tasks ADD COLUMN updated_at TEXT')
+  if (!columns.has('involved')) storage.sql.exec('ALTER TABLE dsh_schedule_tasks ADD COLUMN involved TEXT')
   // Saved deliveries in append order per task; the key is the table, so a delivery writes one row.
   storage.sql.exec(`CREATE TABLE IF NOT EXISTS dsh_schedule_deliveries (
     session_id TEXT NOT NULL, task_id TEXT NOT NULL, seq INTEGER NOT NULL,
@@ -381,6 +584,15 @@ function importSessionSchedules(storage: DurableObjectStorage): void {
 
 /** No history replay on wake or request paths. Paused sessions require explicit user recovery. */
 export function nextSchedule(storage: DurableObjectStorage): { sessionId: string; due: number } | undefined {
+  // Common path: one due-index entry and at most two keyed joins, irrespective
+  // of retained task/history volume. A paused/retrying head needs the bounded
+  // fallback below to find another Session; no maintenance writes on reads.
+  const head = storage.sql.exec<{ session_id: string; due: number; paused: number | null; retry_at: number | null }>(`SELECT s.session_id,s.due,r.paused,b.retry_at
+    FROM dsh_schedule_tasks s LEFT JOIN dsh_runtime_ready r ON r.session_id = s.session_id
+    LEFT JOIN dsh_schedule_retry b ON b.session_id = s.session_id
+    WHERE s.active = 1 ORDER BY s.due,s.session_id,s.created LIMIT 1`).toArray()[0]
+  if (head === undefined) return undefined
+  if (head.paused !== 1 && (head.retry_at ?? 0) <= head.due) return { sessionId: head.session_id, due: head.due }
   const row = storage.sql.exec<{ session_id: string; due: number }>(`SELECT s.session_id, max(s.due,coalesce(b.retry_at,0)) AS due
     FROM dsh_schedule_tasks s LEFT JOIN dsh_runtime_ready r ON r.session_id = s.session_id
     LEFT JOIN dsh_schedule_retry b ON b.session_id = s.session_id
@@ -416,14 +628,14 @@ function pruneScheduleRetry(storage: DurableObjectStorage, sessionId: string): v
  */
 export function dispatchDueSchedules(storage: DurableObjectStorage, sessionId: string, now: number): boolean {
   return storage.transactionSync(() => {
-    const dueRows = storage.sql.exec<TaskRow>(`SELECT id, session_id, record, active, delivery FROM dsh_schedule_tasks
+    const dueRows = storage.sql.exec<TaskRow>(`SELECT id, session_id, record, active, delivery, created, updated_at, involved FROM dsh_schedule_tasks
       WHERE session_id = ? AND active = 1 AND due <= ? ORDER BY due, created`, sessionId, now).toArray()
-    const due = dueRows.map(recordOf)
+    const due = dueRows.filter(row => !executionActive(storage, row)).map(recordOf)
     if (due.length === 0) return false
     const oneShot = due.find(record => !isRecurringScheduleRecord(record))
     const group = oneShot === undefined ? due : [oneShot]
     const occurrences = group.filter(isRecurringScheduleRecord).map(record => ({ record, ...resolveRecurringOccurrence(record, now) }))
-    const text = oneShot !== undefined ? renderReminderFraming(oneShot) : renderRecurringReminderBatchFraming(occurrences)
+    const text = oneShot !== undefined ? renderReminderFraming({ ...oneShot, id: taskId(sessionId, oneShot.id) }) : renderRecurringReminderBatchFraming(occurrences.map(item => ({ ...item, record: { ...item.record, id: taskId(sessionId, item.record.id) } })))
     const id = `schedule:${group[0]!.id}:${Date.parse(group[0]!.scheduledAt)}`
     const message = freezeMessage({ ...createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'schedule' } }), id: MessageId(id) })
     try {
@@ -438,15 +650,15 @@ export function dispatchDueSchedules(storage: DurableObjectStorage, sessionId: s
     const rowOf = (id: string) => dueRows.find(row => row.id === id)!
     if (oneShot !== undefined) {
       const delivery = recordDelivery(storage, sessionId, rowOf(oneShot.id),
-        { scheduledAt: oneShot.scheduledAt, deliveredAt, messageId: message.id }, oneShot.prompt)
-      storage.sql.exec('UPDATE dsh_schedule_tasks SET active = 0, delivery = ? WHERE session_id = ? AND id = ?', delivery, sessionId, oneShot.id)
+        { scheduledAt: oneShot.scheduledAt, deliveredAt, messageId: message.id, targetSessionId: sessionId as SessionId }, oneShot.prompt)
+      storage.sql.exec('UPDATE dsh_schedule_tasks SET active = 0, delivery = ?, updated_at = ? WHERE session_id = ? AND id = ?', delivery, revision(rowOf(oneShot.id), now), sessionId, oneShot.id)
     }
     for (const { record, occurrenceAt, nextScheduledAt } of occurrences) {
       const delivery = recordDelivery(storage, sessionId, rowOf(record.id),
-        { scheduledAt: occurrenceAt, deliveredAt, messageId: message.id }, record.prompt)
-      if (nextScheduledAt === undefined) storage.sql.exec('UPDATE dsh_schedule_tasks SET active = 0, delivery = ? WHERE session_id = ? AND id = ?', delivery, sessionId, record.id)
-      else storage.sql.exec('UPDATE dsh_schedule_tasks SET record = ?, due = ?, delivery = ? WHERE session_id = ? AND id = ?',
-        JSON.stringify({ ...record, scheduledAt: nextScheduledAt }), Date.parse(nextScheduledAt), delivery, sessionId, record.id)
+        { scheduledAt: occurrenceAt, deliveredAt, messageId: message.id, targetSessionId: sessionId as SessionId }, record.prompt)
+      if (nextScheduledAt === undefined) storage.sql.exec('UPDATE dsh_schedule_tasks SET active = 0, delivery = ?, updated_at = ? WHERE session_id = ? AND id = ?', delivery, revision(rowOf(record.id), now), sessionId, record.id)
+      else storage.sql.exec('UPDATE dsh_schedule_tasks SET record = ?, due = ?, delivery = ?, updated_at = ? WHERE session_id = ? AND id = ?',
+        JSON.stringify({ ...record, scheduledAt: nextScheduledAt }), Date.parse(nextScheduledAt), delivery, revision(rowOf(record.id), now), sessionId, record.id)
     }
     // Ended tasks answer `schedule_ended` to updates; only the newest few are kept, with their history.
     const expired = storage.sql.exec<{ session_id: string; id: string }>(
@@ -465,4 +677,63 @@ export async function armScheduleWake(storage: DurableObjectStorage): Promise<vo
   if (!Number.isFinite(target)) return
   const alarm = await storage.getAlarm()
   if (alarm === null || target < alarm) await storage.setAlarm(Math.max(Date.now() + 1, target))
+}
+
+/** Encode the legacy composite key without rewriting existing task or history rows. */
+function taskId(session: string, id: string): ReturnType<typeof ScheduleId> {
+  return ScheduleId(`edge:${encodeURIComponent(session)}:${encodeURIComponent(id)}`)
+}
+function parseTaskId(id: string): [string, string] | undefined {
+  const parts = id.split(':')
+  if (parts.length !== 3 || parts[0] !== 'edge') return undefined
+  try { return [decodeURIComponent(parts[1]!), decodeURIComponent(parts[2]!)] } catch { return undefined }
+}
+function revision(row: TaskRow, now: number): string {
+  return new Date(Math.max(now, row.updated_at === null ? 0 : Date.parse(row.updated_at) + 1)).toISOString()
+}
+function involvedSessions(previous: string | null | undefined, target: SessionId, actor?: SessionId): SessionId[] {
+  const ids = new Set<SessionId>(previous == null ? [] : JSON.parse(previous) as SessionId[])
+  ids.add(target)
+  if (actor !== undefined) ids.add(actor)
+  if (ids.size > 128) throw new ScheduleInputError('invalid_rule', 'A task can involve at most 128 Sessions.')
+  return [...ids]
+}
+function executionActive(storage: DurableObjectStorage, row: TaskRow): boolean {
+  const last = summaryOf(row).last
+  if (last === undefined) return false
+  // One seek in UNIQUE(session_id,input_id); no scan of message or event history.
+  const state = storage.sql.exec<{ state: string }>('SELECT state FROM dsh_runtime_inputs WHERE session_id = ? AND input_id = ?', row.session_id, last.messageId).toArray()[0]?.state
+  return executionPending(state)
+}
+function executionPending(state: string | undefined): boolean {
+  return state !== undefined && ['queued', 'steering', 'promoting', 'claimed', 'admitted'].includes(state)
+}
+function validatedPrompt(prompt: string): string {
+  if (typeof prompt !== 'string' || prompt.trim().length === 0) throw new ScheduleInputError('invalid_prompt', 'prompt must be non-empty.')
+  assertPromptBudget(prompt)
+  return prompt.trim()
+}
+function timingRecord(id: ReturnType<typeof ScheduleId>, title: string, rawPrompt: string, timing: ScheduleTiming, now: number): ScheduleRecord {
+  title = scheduleTitle(title)
+  const prompt = validatedPrompt(rawPrompt)
+  const selectors: Record<string, string> = { after: 'after_seconds', at: 'at', every: 'every_seconds', daily: 'daily', weekly: 'weekly', cron: 'cron', rrule: 'rrule' }
+  if (timing === null || typeof timing !== 'object' || Object.keys(timing).length !== 2 || !((selectors[timing.kind] ?? '') in timing)) {
+    throw new ScheduleInputError('invalid_selector', 'timing must contain kind and its matching selector only.')
+  }
+  switch (timing.kind) {
+    case 'after': return createAfterScheduleRecord(id, prompt, timing.after_seconds, now, title)
+    case 'at': return createAtScheduleRecord(id, prompt, timing.at, now, title)
+    case 'every': return createEveryScheduleRecord(id, prompt, timing.every_seconds, now, title)
+    case 'daily': return createDailyScheduleRecord(id, prompt, timing.daily, now, title)
+    case 'weekly': return createWeeklyScheduleRecord(id, prompt, timing.weekly, now, title)
+    case 'cron': return createCronScheduleRecord(id, prompt, timing.cron, now, title)
+    case 'rrule': {
+      if (typeof timing.rrule !== 'string' || timing.rrule.length > 4096) throw new ScheduleInputError('invalid_rule', 'RRULE must be at most 4096 characters.')
+      const parsed = RRule.parse(timing.rrule, { rejectIneffectiveSetPositions: true })
+      if (parsed.kind === 'rejected') throw new ScheduleInputError(parsed.reason === 'density' ? 'frequency_too_high' : parsed.reason === 'time_zone' ? 'invalid_time_zone' : 'invalid_rule', parsed.detail)
+      const scheduledAt = parsed.rule.next(now)
+      if (scheduledAt === undefined) throw new ScheduleInputError('not_future', 'RRULE has no future occurrence.')
+      return decodeScheduleRecord({ id, title, prompt, kind: 'rrule', rrule: parsed.rule.expression, scheduledAt })
+    }
+  }
 }

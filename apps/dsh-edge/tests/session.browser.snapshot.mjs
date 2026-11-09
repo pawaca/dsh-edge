@@ -643,10 +643,7 @@ describe('dsh-edge assembled browser snapshot', () => {
       const sessions = await edgeRpc(worker, ownerCookieHeader, 'session.list', {})
       expect(sessions.result.ok).toBe(true)
       expect(sessions.result.value.items.length).toBeGreaterThan(0)
-      expect(sessions.result.value.items[0].projections.values.imageLimits).toMatchObject({
-        maxImagesPerMessage: 4,
-        mediaTypes: ['image/png', 'image/jpeg'],
-      })
+      expect(sessions.result.value.items[0].projections.values).not.toHaveProperty('imageLimits')
 
       const composer = page.getByRole('textbox').last()
       await composer.waitFor({ timeout: 15_000 })

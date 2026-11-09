@@ -173,7 +173,7 @@ describe('legacy Edge cancellation migration', () => {
     'migrates and reopens a V0 turn cancelled with %s', async message => {
       const storage = cancelledStorage(message)
       const ctx = new Context()
-      await ctx.plugin(SessionStore)
+      await ctx.plugin(SessionStore).await()
       try {
         const persistence = new DurableObjectSessionPersistence(ctx, { storage: storage as never })
         const id = SessionId('session-v0-1-3')
@@ -212,7 +212,7 @@ describe('legacy Edge cancellation migration', () => {
     storage.writtenRows = 0
     storage.queries.length = 0
     const ctx = new Context()
-    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionStore).await()
     try {
       const persistence = new DurableObjectSessionPersistence(ctx, { storage: storage as never })
       expect(storage.writtenRows).toBeLessThan(100)
@@ -227,7 +227,7 @@ describe('legacy Edge cancellation migration', () => {
         await readAll(persistence, SessionId('session-v0-1-3'))
       }
       const restarted = new Context()
-      await restarted.plugin(SessionStore)
+      await restarted.plugin(SessionStore).await()
       try {
         new DurableObjectSessionPersistence(restarted, { storage: storage as never })
         expect(storage.writtenRows).toBe(0)
@@ -257,7 +257,7 @@ describe('legacy Edge cancellation migration', () => {
     const before = storage.sql.exec("SELECT * FROM dsh_session_events WHERE session_id = 'current' ORDER BY seq").toArray()
     storage.queries.length = 0
     const ctx = new Context()
-    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionStore).await()
     try {
       const persistence = new DurableObjectSessionPersistence(ctx, { storage: storage as never })
       expect(storage.queries.includes('DROP TABLE dsh_session_events')).toBe(count <= 100)
@@ -280,7 +280,7 @@ describe('legacy Edge cancellation migration', () => {
       return exec(query, ...bindings)
     }
     const ctx = new Context()
-    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionStore).await()
     try {
       expect(() => new DurableObjectSessionPersistence(ctx, { storage: storage as never })).toThrow('injected swap failure')
       expect(storage.queries).toContain('DROP TABLE dsh_session_events')
@@ -289,7 +289,7 @@ describe('legacy Edge cancellation migration', () => {
       expect(storage.sql.exec("SELECT count(*) AS n FROM sqlite_master WHERE name = 'dsh_session_events_migrating'").toArray()).toEqual([{ n: 0 }])
       storage.sql.exec = exec
       const restarted = new Context()
-      await restarted.plugin(SessionStore)
+      await restarted.plugin(SessionStore).await()
       try {
         const persistence = new DurableObjectSessionPersistence(restarted, { storage: storage as never })
         expect((await readAll(persistence, SessionId('session-v0-1-3'))).meta.version).toBe(SESSION_FORMAT_VERSION)
@@ -312,7 +312,7 @@ describe('legacy Edge cancellation migration', () => {
     storage.writtenRows = 0
     storage.queries.length = 0
     const ctx = new Context()
-    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionStore).await()
     try {
       const persistence = new DurableObjectSessionPersistence(ctx, { storage: storage as never })
       // Identical rows stay in place: no whole-log delete, no rebuild, a handful of writes.
@@ -340,7 +340,7 @@ describe('legacy Edge cancellation migration', () => {
     clone('outdated-child', 'session-v0-1-3')
     storage.queries.length = 0
     const ctx = new Context()
-    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionStore).await()
     try {
       const persistence = new DurableObjectSessionPersistence(ctx, { storage: storage as never })
       // No per-parent lookup: parent_session has no index, so each would scan the table.
@@ -363,7 +363,7 @@ describe('legacy Edge cancellation migration', () => {
     const tables = ['dsh_sessions', 'dsh_session_events', 'dsh_session_summaries', 'dsh_edge_blank_sessions']
     const before = tables.map(table => storage.sql.exec(`SELECT * FROM ${table}`).toArray())
     const ctx = new Context()
-    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionStore).await()
     try {
       storage.writtenRows = 0
       for (let attempt = 0; attempt < 3; attempt++) {
@@ -389,7 +389,7 @@ describe('legacy Edge cancellation migration', () => {
     )
     const largeBefore = storage.sql.exec("SELECT * FROM dsh_session_events WHERE session_id = 'legacy-large' ORDER BY seq").toArray()
     const ctx = new Context()
-    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionStore).await()
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     try {
       const persistence = new DurableObjectSessionPersistence(ctx, { storage: storage as never })
@@ -425,7 +425,7 @@ describe('legacy Edge cancellation migration', () => {
     const largeBefore = storage.sql.exec("SELECT * FROM dsh_session_events WHERE session_id = 'legacy-large' ORDER BY seq").toArray()
     storage.queries.length = 0
     const ctx = new Context()
-    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionStore).await()
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     try {
       const persistence = new DurableObjectSessionPersistence(ctx, { storage: storage as never })
@@ -441,14 +441,14 @@ describe('legacy Edge cancellation migration', () => {
     const storage = cancelledStorage('cancelled by the user')
     const before = storage.sql.exec('SELECT * FROM dsh_session_events ORDER BY seq').toArray()
     const ctx = new Context()
-    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionStore).await()
     try {
       storage.failNextEventInsert()
       expect(() => new DurableObjectSessionPersistence(ctx, { storage: storage as never })).toThrow('injected event insert failure')
       expect(storage.sql.exec('SELECT * FROM dsh_session_events ORDER BY seq').toArray()).toEqual(before)
       expect(storage.sql.exec('SELECT version FROM dsh_sessions').toArray()).toEqual([{ version: 0 }])
       const restarted = new Context()
-      await restarted.plugin(SessionStore)
+      await restarted.plugin(SessionStore).await()
       try {
         const persistence = new DurableObjectSessionPersistence(restarted, { storage: storage as never })
         expect((await readAll(persistence, SessionId('session-v0-1-3'))).meta.version).toBe(SESSION_FORMAT_VERSION)
@@ -461,7 +461,7 @@ describe('legacy Edge cancellation migration', () => {
       const storage = cancelledStorage(message, extra as Record<string, unknown>)
       const before = storage.sql.exec('SELECT * FROM dsh_session_events ORDER BY seq').toArray()
       const ctx = new Context()
-      await ctx.plugin(SessionStore)
+      await ctx.plugin(SessionStore).await()
       try {
         expect(() => new DurableObjectSessionPersistence(ctx, { storage: storage as never })).toThrow()
         expect(storage.sql.exec('SELECT * FROM dsh_session_events ORDER BY seq').toArray()).toEqual(before)
@@ -475,8 +475,8 @@ describe('durable-object bounded event pages', () => {
   it('round-trips a compact V3 assistant stream in one physical event row', async () => {
     const storage = new TestDurableObjectStorage()
     const ctx = new Context()
-    await ctx.plugin(SessionStore)
-    const fiber = await ctx.plugin(DurableObjectSessionPersistence, { storage: storage as never })
+    await ctx.plugin(SessionStore).await()
+    const fiber = await ctx.plugin(DurableObjectSessionPersistence, { storage: storage as never }).await()
     const persistence = ctx.sessionPersistence as DurableObjectSessionPersistence
     const id = SessionId('packed-assistant-deltas')
     const chunks = Array.from({ length: 100 }, (_, index) => ({
@@ -514,8 +514,8 @@ describe('durable-object bounded event pages', () => {
   it('rewrites the durable header with a blank-session preset selection', async () => {
     const storage = new TestDurableObjectStorage()
     const ctx = new Context()
-    await ctx.plugin(SessionStore)
-    const fiber = await ctx.plugin(DurableObjectSessionPersistence, { storage: storage as never })
+    await ctx.plugin(SessionStore).await()
+    const fiber = await ctx.plugin(DurableObjectSessionPersistence, { storage: storage as never }).await()
     const persistence = ctx.sessionPersistence as DurableObjectSessionPersistence
     const id = SessionId('preset-selected')
     const meta: SessionHeader = { id, version: SESSION_FORMAT_VERSION, createdAt: 1, isSeeded: false, agentPreset: 'dsh-edge' }
@@ -529,8 +529,8 @@ describe('durable-object bounded event pages', () => {
 
     // A restarted Durable Object reads the selected preset from the header row.
     const restarted = new Context()
-    await restarted.plugin(SessionStore)
-    const coldFiber = await restarted.plugin(DurableObjectSessionPersistence, { storage: storage as never })
+    await restarted.plugin(SessionStore).await()
+    const coldFiber = await restarted.plugin(DurableObjectSessionPersistence, { storage: storage as never }).await()
     try {
       const cold = restarted.sessionPersistence as DurableObjectSessionPersistence
       expect(cold.readSessionSummary(id)?.meta.agentPreset).toBe('ptc')
@@ -542,8 +542,8 @@ describe('durable-object bounded event pages', () => {
   it('leaves torn rows untouched for readers and repairs them before resume appends', async () => {
     const storage = new TestDurableObjectStorage()
     const ctx = new Context()
-    await ctx.plugin(SessionStore)
-    const fiber = await ctx.plugin(DurableObjectSessionPersistence, { storage: storage as never })
+    await ctx.plugin(SessionStore).await()
+    const fiber = await ctx.plugin(DurableObjectSessionPersistence, { storage: storage as never }).await()
     const persistence = ctx.sessionPersistence as DurableObjectSessionPersistence
     const id = SessionId('torn-resume')
     try {
@@ -577,8 +577,8 @@ describe('durable-object bounded event pages', () => {
   it('refuses to truncate corruption inside a completed turn', async () => {
     const storage = new TestDurableObjectStorage()
     const ctx = new Context()
-    await ctx.plugin(SessionStore)
-    const fiber = await ctx.plugin(DurableObjectSessionPersistence, { storage: storage as never })
+    await ctx.plugin(SessionStore).await()
+    const fiber = await ctx.plugin(DurableObjectSessionPersistence, { storage: storage as never }).await()
     const persistence = ctx.sessionPersistence as DurableObjectSessionPersistence
     const id = SessionId('corrupt-committed-turn')
     try {
@@ -602,8 +602,8 @@ describe('durable-object bounded event pages', () => {
   it('commits the admission receipt atomically with the canonical inbox append', async () => {
     const storage = new TestDurableObjectStorage()
     const ctx = new Context()
-    await ctx.plugin(SessionStore)
-    const fiber = await ctx.plugin(DurableObjectSessionPersistence, { storage: storage as never })
+    await ctx.plugin(SessionStore).await()
+    const fiber = await ctx.plugin(DurableObjectSessionPersistence, { storage: storage as never }).await()
     const persistence = ctx.sessionPersistence as DurableObjectSessionPersistence
     const queue = new MainSessionQueue(storage as never)
     const id = SessionId('atomic-main-admission')
@@ -628,8 +628,8 @@ describe('durable-object bounded event pages', () => {
   it.each([false, true])('preserves inbox receipts when refusing torn-tail repair (claimed=%s)', async claimed => {
     const storage = new TestDurableObjectStorage()
     const ctx = new Context()
-    await ctx.plugin(SessionStore)
-    const fiber = await ctx.plugin(DurableObjectSessionPersistence, { storage: storage as never })
+    await ctx.plugin(SessionStore).await()
+    const fiber = await ctx.plugin(DurableObjectSessionPersistence, { storage: storage as never }).await()
     const persistence = ctx.sessionPersistence as DurableObjectSessionPersistence
     const queue = new MainSessionQueue(storage as never)
     const id = SessionId('torn-inbox-receipt')
@@ -666,10 +666,10 @@ describe('durable-object bounded event pages', () => {
   it('projects the latest upstream request/header model selection with a point read', async () => {
     const storage = new TestDurableObjectStorage()
     const ctx = new Context()
-    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionStore).await()
     const fiber = await ctx.plugin(DurableObjectSessionPersistence, {
       storage: storage as never,
-    })
+    }).await()
     const persistence = ctx.sessionPersistence as unknown as DurableObjectSessionPersistence
     const id = SessionId('model-selection-projection')
     try {
@@ -708,10 +708,10 @@ describe('durable-object bounded event pages', () => {
   it('persists and restores the fork-inherited event count across cold loads', async () => {
     const storage = new TestDurableObjectStorage()
     const ctx = new Context()
-    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionStore).await()
     const fiber = await ctx.plugin(DurableObjectSessionPersistence, {
       storage: storage as never,
-    })
+    }).await()
     const persistence = ctx.sessionPersistence as unknown as DurableObjectSessionPersistence
     const id = SessionId('forked-inherited-count')
     try {
@@ -757,10 +757,10 @@ describe('durable-object bounded event pages', () => {
     const blankId = SessionId('session-v0-1-3-blank')
     try {
       const ctx = new Context()
-      await ctx.plugin(SessionStore)
+      await ctx.plugin(SessionStore).await()
       const fiber = await ctx.plugin(DurableObjectSessionPersistence, {
         storage: storage as never,
-      })
+      }).await()
       const persistence = ctx.sessionPersistence as unknown as DurableObjectSessionPersistence
       try {
         expect(persistence.readSessionSummary(id)).toMatchObject({
@@ -795,7 +795,7 @@ describe('durable-object bounded event pages', () => {
         let resumed!: Session
         const resumedFiber = await ctx.plugin(Object.assign((inner: Context) => {
           resumed = inner.sessions.create(id, { seed: loaded.events, meta: loaded.meta })
-        }, { inject: ['sessions'] }))
+        }, { inject: ['sessions'] })).await()
         try {
           resumed.append('turn/start', { turn: 2 })
           resumed.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
@@ -811,7 +811,7 @@ describe('durable-object bounded event pages', () => {
           promoted = inner.sessions.create(blankId, {
             meta: loadedBlank.meta,
           })
-        }, { inject: ['sessions'] }))
+        }, { inject: ['sessions'] })).await()
         try {
           promoted.append('session/title', {
             title: 'Promoted 0.1.3 blank session',
@@ -828,10 +828,10 @@ describe('durable-object bounded event pages', () => {
       }
 
       const reloadedCtx = new Context()
-      await reloadedCtx.plugin(SessionStore)
+      await reloadedCtx.plugin(SessionStore).await()
       const reloadedFiber = await reloadedCtx.plugin(DurableObjectSessionPersistence, {
         storage: storage as never,
-      })
+      }).await()
       try {
         {
           const handle = await reloadedCtx.sessionPersistence.open(id, 'read')
@@ -881,10 +881,10 @@ describe('durable-object bounded event pages', () => {
       source: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
     })
     const ctx = new Context()
-    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionStore).await()
     const fiber = await ctx.plugin(DurableObjectSessionPersistence, {
       storage: storage as never,
-    })
+    }).await()
     try {
       {
         const handle = await ctx.sessionPersistence.create({
@@ -919,10 +919,10 @@ describe('durable-object bounded event pages', () => {
     }
 
     const coldCtx = new Context()
-    await coldCtx.plugin(SessionStore)
+    await coldCtx.plugin(SessionStore).await()
     const coldFiber = await coldCtx.plugin(DurableObjectSessionPersistence, {
       storage: storage as never,
-    })
+    }).await()
     const persistence = coldCtx.sessionPersistence as unknown as DurableObjectSessionPersistence
     try {
       await expect(readAll(persistence, id)).resolves.toMatchObject({
@@ -953,10 +953,10 @@ describe('durable-object bounded event pages', () => {
   it('selects a cold history tail before loading event payloads', async () => {
     const storage = new TestDurableObjectStorage()
     const ctx = new Context()
-    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionStore).await()
     const persistenceFiber = await ctx.plugin(DurableObjectSessionPersistence, {
       storage: storage as never,
-    })
+    }).await()
     const persistence = ctx.sessionPersistence as unknown as DurableObjectSessionPersistence
     const id = SessionId('bounded-cold-history')
     const writeHandle = await persistence.create(
@@ -965,7 +965,7 @@ describe('durable-object bounded event pages', () => {
     let session!: Session
     const ownerFiber = await ctx.plugin(Object.assign((inner: Context) => {
       session = inner.sessions.create(id)
-    }, { inject: ['sessions'] }))
+    }, { inject: ['sessions'] })).await()
     try {
       for (let index = 0; index < 60; index++) {
         session.append('user/message', createUserMessage({
@@ -998,10 +998,10 @@ describe('durable-object bounded event pages', () => {
   it('caps an oversized cold history request before materializing boundary rows', async () => {
     const storage = new TestDurableObjectStorage()
     const ctx = new Context()
-    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionStore).await()
     const persistenceFiber = await ctx.plugin(DurableObjectSessionPersistence, {
       storage: storage as never,
-    })
+    }).await()
     const persistence = ctx.sessionPersistence as unknown as DurableObjectSessionPersistence
     const id = SessionId('bounded-cold-history-limit')
     const writeHandle = await persistence.create(
@@ -1010,7 +1010,7 @@ describe('durable-object bounded event pages', () => {
     let session!: Session
     const ownerFiber = await ctx.plugin(Object.assign((inner: Context) => {
       session = inner.sessions.create(id)
-    }, { inject: ['sessions'] }))
+    }, { inject: ['sessions'] })).await()
     try {
       for (let index = 0; index < 60; index++) {
         session.append('user/message', createUserMessage({
@@ -1044,10 +1044,10 @@ describe('durable-object bounded event pages', () => {
   it('retains blank identities and promotes them into canonical empty logs', async () => {
     const storage = new TestDurableObjectStorage()
     const ctx = new Context()
-    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionStore).await()
     const fiber = await ctx.plugin(DurableObjectSessionPersistence, {
       storage: storage as never,
-    })
+    }).await()
     const persistence = ctx.sessionPersistence as unknown as DurableObjectSessionPersistence
     const id = SessionId('retained-blank')
     const header: SessionHeader = {
@@ -1092,10 +1092,10 @@ describe('durable-object bounded event pages', () => {
   it('abandons a failed first materialization before disposal can retry it', async () => {
     const storage = new TestDurableObjectStorage()
     const ctx = new Context()
-    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionStore).await()
     const persistenceFiber = await ctx.plugin(DurableObjectSessionPersistence, {
       storage: storage as never,
-    })
+    }).await()
     const persistence = ctx.sessionPersistence as unknown as DurableObjectSessionPersistence
     const id = SessionId('abandoned-creation')
     const writeHandle = await persistence.create(
@@ -1104,7 +1104,7 @@ describe('durable-object bounded event pages', () => {
     let session!: Session
     const ownerFiber = await ctx.plugin(Object.assign((inner: Context) => {
       session = inner.sessions.create(id)
-    }, { inject: ['sessions'] }))
+    }, { inject: ['sessions'] })).await()
     try {
       session.append('session/title', {
         title: 'Never materialized',
@@ -1133,10 +1133,10 @@ describe('durable-object bounded event pages', () => {
   it('uses point queries for session existence and detail summaries', async () => {
     const storage = new TestDurableObjectStorage()
     const ctx = new Context()
-    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionStore).await()
     const fiber = await ctx.plugin(DurableObjectSessionPersistence, {
       storage: storage as never,
-    })
+    }).await()
     const persistence = ctx.sessionPersistence as unknown as DurableObjectSessionPersistence
     const id = SessionId('point-summary')
     try {
@@ -1177,10 +1177,10 @@ describe('durable-object bounded event pages', () => {
   it('refuses unsupported formats in point and list summaries before decoding titles', async () => {
     const storage = new TestDurableObjectStorage()
     const ctx = new Context()
-    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionStore).await()
     const fiber = await ctx.plugin(DurableObjectSessionPersistence, {
       storage: storage as never,
-    })
+    }).await()
     const persistence = ctx.sessionPersistence as unknown as DurableObjectSessionPersistence
     const id = SessionId('future-summary')
     try {
@@ -1219,10 +1219,10 @@ describe('durable-object bounded event pages', () => {
   it('rejects malformed current-format title payloads in point and list summaries', async () => {
     const storage = new TestDurableObjectStorage()
     const ctx = new Context()
-    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionStore).await()
     const fiber = await ctx.plugin(DurableObjectSessionPersistence, {
       storage: storage as never,
-    })
+    }).await()
     const persistence = ctx.sessionPersistence as unknown as DurableObjectSessionPersistence
     const id = SessionId('malformed-title-summary')
     try {
@@ -1271,10 +1271,10 @@ describe('durable-object bounded event pages', () => {
   it('applies canonical format and event-vocabulary validation', async () => {
     const storage = new TestDurableObjectStorage()
     const ctx = new Context()
-    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionStore).await()
     const fiber = await ctx.plugin(DurableObjectSessionPersistence, {
       storage: storage as never,
-    })
+    }).await()
     const persistence = ctx.sessionPersistence as unknown as DurableObjectSessionPersistence
     const id = SessionId('bounded-validation')
     const header: SessionHeader = {
@@ -1310,10 +1310,10 @@ describe('durable-object bounded event pages', () => {
   it.skip('keeps legacy prefix migration inside the bounded loader budget', async () => {
     const storage = new TestDurableObjectStorage()
     const ctx = new Context()
-    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionStore).await()
     const fiber = await ctx.plugin(DurableObjectSessionPersistence, {
       storage: storage as never,
-    })
+    }).await()
     const persistence = ctx.sessionPersistence as unknown as DurableObjectSessionPersistence
     const id = SessionId('bounded-legacy-prefix')
     try {
@@ -1363,10 +1363,10 @@ describe('durable-object bounded event pages', () => {
   it('stops before loading an event whose stored payload exceeds the byte budget', async () => {
     const storage = new TestDurableObjectStorage()
     const ctx = new Context()
-    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionStore).await()
     const fiber = await ctx.plugin(DurableObjectSessionPersistence, {
       storage: storage as never,
-    })
+    }).await()
     const persistence = ctx.sessionPersistence as unknown as DurableObjectSessionPersistence
     const id = SessionId('bounded-payload')
     const header: SessionHeader = {
@@ -1410,8 +1410,8 @@ describe('session log export pages', () => {
   async function openStore() {
     const storage = new TestDurableObjectStorage()
     const ctx = new Context()
-    await ctx.plugin(SessionStore)
-    const fiber = await ctx.plugin(DurableObjectSessionPersistence, { storage: storage as never })
+    await ctx.plugin(SessionStore).await()
+    const fiber = await ctx.plugin(DurableObjectSessionPersistence, { storage: storage as never }).await()
     return { storage, persistence: ctx.sessionPersistence as DurableObjectSessionPersistence, dispose: async () => { await fiber.dispose(); storage.close() } }
   }
   const titleEvent = (seq: number, title: string): SessionEvent => ({
@@ -1531,8 +1531,8 @@ describe('session log export pages', () => {
     const storage = new TestDurableObjectStorage()
     storage.sql.exec('CREATE TABLE dsh_session_event_bytes (session_id TEXT PRIMARY KEY, through_seq INTEGER NOT NULL, bytes INTEGER NOT NULL) STRICT')
     const ctx = new Context()
-    await ctx.plugin(SessionStore)
-    const fiber = await ctx.plugin(DurableObjectSessionPersistence, { storage: storage as never })
+    await ctx.plugin(SessionStore).await()
+    const fiber = await ctx.plugin(DurableObjectSessionPersistence, { storage: storage as never }).await()
     try {
       expect(storage.sql.exec<{ n: number }>("SELECT COUNT(*) AS n FROM sqlite_master WHERE name = 'dsh_session_event_bytes'").toArray()[0]?.n).toBe(0)
     } finally { await fiber.dispose(); storage.close() }
@@ -1547,8 +1547,8 @@ describe('storage-contract checks over Durable Object rows', () => {
   async function openStore() {
     const storage = new TestDurableObjectStorage()
     const ctx = new Context()
-    await ctx.plugin(SessionStore)
-    const fiber = await ctx.plugin(DurableObjectSessionPersistence, { storage: storage as never })
+    await ctx.plugin(SessionStore).await()
+    const fiber = await ctx.plugin(DurableObjectSessionPersistence, { storage: storage as never }).await()
     return { storage, persistence: ctx.sessionPersistence as DurableObjectSessionPersistence, dispose: async () => { await fiber.dispose(); storage.close() } }
   }
   const header = (id: string): SessionHeader => ({ id: SessionId(id), version: SESSION_FORMAT_VERSION, createdAt: 1, isSeeded: false })
