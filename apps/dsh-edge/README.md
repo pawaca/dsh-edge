@@ -206,7 +206,7 @@ The local integration suite uses an SSE stand-in with real Wrangler, Durable Obj
 - Workspace create/list/rename/delete/reorder/archive, live/reconnect baselines, and Host frames;
 - real browser boot, UI-issued Workspace rename, image turn, content search, branch, archive, and expired-session login recovery;
 - conversation continuity, event replay, two-step bash and Web Search tool exchanges, and Wrangler-restart restoration;
-- Typert URL routing validation and snapshot-level tool definition verification; goal and file tool end-to-end integration tests are not yet implemented.
+- Typert URL routing validation and snapshot-level tool definitions, plus goal lifecycle/round execution and file-tool reads/writes through real tool dispatch with a fixture model provider.
 
 A focused failure test proves that post-enqueue durability failure blocks model use without reporting the already-woken prompt as rejected. Committed model-visible and ARIA goldens pin tool transcripts and the assembled upstream Web client. A live DeepSeek call requires the developer's key and is intentionally outside the repository test suite.
 

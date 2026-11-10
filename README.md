@@ -59,7 +59,7 @@ The installer finds your Worker and upgrades it in place, keeping its capabiliti
 
 - dsh-edge is designed for one owner; it does not provide registration, multiple users, roles, or tenant routing.
 - Your DeepSeek key is stored as a Worker secret when set at deployment, or in Durable Object storage when configured through the runtime Settings UI. The deployment's durable data stays in your Cloudflare account.
-- Some upstream capabilities (subprocess, PTY) require Cloudflare Containers and are not yet adapted. MCP over Streamable HTTP is feasible on the free plan but not yet installed. See the [compatibility matrix](apps/dsh-edge/README.md#cloudflare-compatibility-matrix) and the [wiki](https://github.com/pawaca/dsh-edge/wiki) for the full status.
+- MCP over Streamable HTTP is available on all deployment tiers; stdio MCP is not supported. Container deployments can run native Linux programs through bash, but the upstream subprocess service and persistent interactive PTY sessions are not provided. See the [compatibility matrix](apps/dsh-edge/README.md#cloudflare-compatibility-matrix) and the [wiki](https://github.com/pawaca/dsh-edge/wiki) for the full status.
 
 ## Built on DeepSeek Harness
 
