@@ -206,7 +206,7 @@ Cloudflare static assets -> upstream Web shell + client plugin graph
 - Workspace create/list/rename/delete/reorder/archive、实时/重连 baseline 和 Host frame；
 - 真实浏览器启动、UI 发起的 Workspace rename、图片 turn、内容搜索、branch、archive 和 session 过期后的登录恢复；
 - 对话连续性、event 重放、两步 bash 与 Web Search tool 交互，以及 Wrangler 重启后恢复；
-- Typert URL 路由验证和 snapshot 级别工具定义验证；goal 和文件工具的端到端集成测试尚未实现。
+- Typert URL 路由和 snapshot 级别工具定义验证，以及通过真实工具派发、使用模型服务替身的 goal 生命周期/轮次执行和文件工具读写。
 
 一项聚焦故障测试证明，入队后的持久化失败会阻止模型调用，不会把已唤醒 Agent 的 prompt 报告为拒绝。仓库中的 model-visible 与 ARIA golden 会固定 tool transcript 和组装后的上游 Web client。真实 DeepSeek 调用需要开发者的 key，故不纳入仓库测试套件。
 
